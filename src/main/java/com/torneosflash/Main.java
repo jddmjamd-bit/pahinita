@@ -77,6 +77,9 @@ public class Main {
             javalinConfig.jsonMapper(new JsonMapper() {
                 @Override
                 public String toJsonString(Object obj, Type type) {
+                    if (obj instanceof com.google.gson.JsonElement) {
+                        return obj.toString();
+                    }
                     return gson.toJson(obj, type);
                 }
 
