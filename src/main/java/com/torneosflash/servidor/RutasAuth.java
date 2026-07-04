@@ -130,7 +130,9 @@ public class RutasAuth {
             String username = ctx.pathParam("username");
             JsonObject existing = usuarioDAO.buscarPorUsername(username);
             JsonObject res = new JsonObject();
-            res.addProperty("exists", existing != null);
+            boolean available = (existing == null);
+            res.addProperty("available", available);
+            res.addProperty("message", available ? "✅ Usuario disponible" : "❌ El usuario ya está en uso");
             ctx.json(res);
         });
 
@@ -139,7 +141,9 @@ public class RutasAuth {
             String email = ctx.pathParam("email");
             JsonObject existing = usuarioDAO.buscarPorEmailLower(email);
             JsonObject res = new JsonObject();
-            res.addProperty("exists", existing != null);
+            boolean available = (existing == null);
+            res.addProperty("available", available);
+            res.addProperty("message", available ? "✅ Correo disponible" : "❌ El correo ya está registrado");
             ctx.json(res);
         });
 
