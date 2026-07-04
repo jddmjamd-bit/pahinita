@@ -62,7 +62,7 @@ public class RutasAuth {
 
             // Setear cookie de sesión
             ctx.cookie("userId", String.valueOf(newId), 365 * 24 * 3600);
-            ctx.json(successJson("Registrado exitosamente", newId));
+            ctx.result(successJson("Registrado exitosamente", newId).toString()).contentType("application/json");
         });
 
         // POST /api/login
@@ -91,7 +91,7 @@ public class RutasAuth {
             JsonObject response = new JsonObject();
             response.addProperty("success", true);
             response.add("user", user);
-            ctx.json(response);
+            ctx.result(response.toString()).contentType("application/json");
         });
 
         // GET /api/session
@@ -109,14 +109,14 @@ public class RutasAuth {
 
             JsonObject user = usuarioDAO.buscarPorId(userId);
             if (user == null) {
-                ctx.status(400).json(errorJson("Usuario no encontrado"));
+                ctx.status(400).result(errorJson("Usuario no encontrado").toString()).contentType("application/json");
                 return;
             }
             user.remove("password");
             JsonObject response = new JsonObject();
             response.addProperty("success", true);
             response.add("user", user);
-            ctx.json(response);
+            ctx.result(response.toString()).contentType("application/json");
         });
 
         // POST /api/logout
