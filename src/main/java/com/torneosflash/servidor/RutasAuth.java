@@ -151,8 +151,8 @@ public class RutasAuth {
             JsonObject existing = usuarioDAO.buscarPorPlayerTag(tag);
             if (existing != null) {
                 JsonObject res = new JsonObject();
-                res.addProperty("valid", false);
-                res.addProperty("error", "Este Player Tag ya está registrado");
+                res.addProperty("found", false);
+                res.addProperty("message", "Este Player Tag ya está registrado");
                 ctx.json(res);
                 return;
             }
@@ -162,16 +162,18 @@ public class RutasAuth {
             try {
                 JsonObject apiResult = clashApi.verificarTag(tag);
                 JsonObject res = new JsonObject();
-                res.addProperty("valid", true);
+                res.addProperty("found", true);
                 String name = apiResult.has("name") ? apiResult.get("name").getAsString() : "";
+                int trophies = apiResult.has("trophies") ? apiResult.get("trophies").getAsInt() : 0;
                 res.addProperty("name", name);
-                System.out.println("✅ Player Tag encontrado. Usuario: " + name);
+                res.addProperty("trophies", trophies);
+                System.out.println("✅ Player Tag encontrado. Usuario: " + name + " (Trophies: " + trophies + ")");
                 ctx.json(res);
             } catch (Exception e) {
                 System.out.println("❌ Fallo al buscar Player Tag: " + e.getMessage());
                 JsonObject res = new JsonObject();
-                res.addProperty("valid", false);
-                res.addProperty("error", e.getMessage());
+                res.addProperty("found", false);
+                res.addProperty("message", e.getMessage());
                 ctx.json(res);
             }
         });
