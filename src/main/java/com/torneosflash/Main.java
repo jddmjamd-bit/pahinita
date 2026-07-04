@@ -10,8 +10,11 @@ import com.torneosflash.servidor.*;
 import com.torneosflash.socketio.SocketIOServer;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
-
 import java.io.File;
+import io.javalin.json.JsonMapper;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import java.lang.reflect.Type;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -63,6 +66,20 @@ public class Main {
         // 5. SERVIDOR HTTP (Javalin)
         // ============================================
         Javalin app = Javalin.create(javalinConfig -> {
+            // Configurar Gson como el Object Mapper oficial
+            Gson gson = new GsonBuilder().create();
+            javalinConfig.jsonMapper(new JsonMapper() {
+                @Override
+                public String toJsonString(Object obj, Type type) {
+                    return gson.toJson(obj, type);
+                }
+
+                @Override
+                public <T> T fromJsonString(String json, Type targetType) {
+                    return gson.fromJson(json, targetType);
+                }
+            });
+
             // CORS
             javalinConfig.bundledPlugins.enableCors(cors -> {
                 cors.addRule(rule -> {
