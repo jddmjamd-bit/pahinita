@@ -28,25 +28,25 @@ public class RutasAuth {
 
             // Validaciones
             if (username.isEmpty() || email.isEmpty() || password.isEmpty()) {
-                ctx.json(errorJson("Campos obligatorios vacíos"));
+                ctx.status(400).json(errorJson("Campos obligatorios vacíos"));
                 return;
             }
             if (password.length() < 6) {
-                ctx.json(errorJson("La contraseña debe tener al menos 6 caracteres"));
+                ctx.status(400).json(errorJson("La contraseña debe tener al menos 6 caracteres"));
                 return;
             }
 
             // Verificar duplicados
             if (usuarioDAO.buscarPorUsername(username) != null) {
-                ctx.json(errorJson("Este nombre de usuario ya está registrado"));
+                ctx.status(400).json(errorJson("Este nombre de usuario ya está registrado"));
                 return;
             }
             if (usuarioDAO.buscarPorEmailLower(email) != null) {
-                ctx.json(errorJson("Este correo ya está registrado"));
+                ctx.status(400).json(errorJson("Este correo ya está registrado"));
                 return;
             }
             if (!playerTag.isEmpty() && usuarioDAO.buscarPorPlayerTag(playerTag) != null) {
-                ctx.json(errorJson("Este Player Tag ya está registrado"));
+                ctx.status(400).json(errorJson("Este Player Tag ya está registrado"));
                 return;
             }
 
@@ -56,7 +56,7 @@ public class RutasAuth {
             // Insertar
             int newId = usuarioDAO.registrar(username, email, hash, playerTag, telefono);
             if (newId < 0) {
-                ctx.json(errorJson("Error al registrar"));
+                ctx.status(400).json(errorJson("Error al registrar"));
                 return;
             }
 
@@ -73,13 +73,13 @@ public class RutasAuth {
 
             JsonObject user = usuarioDAO.buscarPorEmail(email);
             if (user == null) {
-                ctx.json(errorJson("Usuario no encontrado"));
+                ctx.status(400).json(errorJson("Usuario no encontrado"));
                 return;
             }
 
             String storedHash = user.get("password").getAsString();
             if (!BCrypt.checkpw(password, storedHash)) {
-                ctx.json(errorJson("Contraseña incorrecta"));
+                ctx.status(400).json(errorJson("Contraseña incorrecta"));
                 return;
             }
 
@@ -98,18 +98,18 @@ public class RutasAuth {
         app.get("/api/session", ctx -> {
             String cookieVal = ctx.cookie("userId");
             if (cookieVal == null || cookieVal.isEmpty()) {
-                ctx.json(errorJson("No hay sesión"));
+                ctx.status(400).json(errorJson("No hay sesión"));
                 return;
             }
             int userId;
             try { userId = Integer.parseInt(cookieVal); } catch (Exception e) {
-                ctx.json(errorJson("Sesión inválida"));
+                ctx.status(400).json(errorJson("Sesión inválida"));
                 return;
             }
 
             JsonObject user = usuarioDAO.buscarPorId(userId);
             if (user == null) {
-                ctx.json(errorJson("Usuario no encontrado"));
+                ctx.status(400).json(errorJson("Usuario no encontrado"));
                 return;
             }
             user.remove("password");
@@ -186,7 +186,7 @@ public class RutasAuth {
         app.post("/api/register-token", ctx -> {
             JsonObject body = parseBody(ctx);
             if (!body.has("userId") || !body.has("token")) {
-                ctx.json(errorJson("Faltan datos"));
+                ctx.status(400).json(errorJson("Faltan datos"));
                 return;
             }
             int userId = body.get("userId").getAsInt();
