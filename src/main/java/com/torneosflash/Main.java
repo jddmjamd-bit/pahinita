@@ -78,9 +78,9 @@ public class Main {
                 @Override
                 public String toJsonString(Object obj, Type type) {
                     if (obj instanceof com.google.gson.JsonElement) {
-                        return obj.toString();
+                        return gson.toJson((com.google.gson.JsonElement) obj);
                     }
-                    return gson.toJson(obj, type);
+                    return gson.toJson(obj);
                 }
 
                 @Override
