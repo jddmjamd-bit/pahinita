@@ -161,4 +161,46 @@ public class ClashApiServicio {
 
         return JsonParser.parseString(sb.toString()).getAsJsonObject();
     }
+
+    /**
+     * Verifica la conexión general con la API de Clash Royale usando un endpoint estático (locations)
+     * para asegurar que el token es válido y la API es accesible.
+     */
+    public boolean verificarConexionGlobal() {
+        if (apiToken == null || apiToken.isEmpty()) {
+            System.err.println("❌ ERROR: CLASH_ROYALE_API_TOKEN no está configurado.");
+            return false;
+        }
+
+        try {
+            // El endpoint /v1/locations no requiere parámetros y devuelve 200 OK si el auth funciona
+            String urlStr = "https://api.clashroyale.com/v1/locations";
+            HttpURLConnection conn = (HttpURLConnection) new URI(urlStr).toURL().openConnection();
+            conn.setRequestProperty("Authorization", "Bearer " + apiToken.trim());
+            conn.setRequestProperty("Accept", "application/json");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+
+            int code = conn.getResponseCode();
+            if (code == 200) {
+                return true;
+            } else {
+                InputStream errorStream = conn.getErrorStream();
+                if (errorStream != null) {
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(errorStream, StandardCharsets.UTF_8));
+                    StringBuilder sb = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) sb.append(line);
+                    reader.close();
+                    System.err.println("❌ ERROR de Clash API (Código " + code + "): " + sb.toString());
+                } else {
+                    System.err.println("❌ ERROR HTTP de Clash API (Código " + code + ")");
+                }
+                return false;
+            }
+        } catch (Exception e) {
+            System.err.println("❌ ERROR al conectar con la API de Clash Royale: " + e.getMessage());
+            return false;
+        }
+    }
 }

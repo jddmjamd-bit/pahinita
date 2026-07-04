@@ -55,6 +55,12 @@ public class Main {
         // 3. SERVICIOS
         // ============================================
         ClashApiServicio clashApi = new ClashApiServicio(config.getClashApiToken());
+        if (clashApi.verificarConexionGlobal()) {
+            System.out.println("✅ Conectado a la API de Clash Royale.");
+        } else {
+            System.out.println("❌ Fallo al conectar a la API de Clash Royale. Revisa el log de errores.");
+        }
+
         CorreoServicio correo = new CorreoServicio(config.getGmailUser(), config.getGmailPass());
 
         // ============================================

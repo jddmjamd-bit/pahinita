@@ -158,13 +158,17 @@ public class RutasAuth {
             }
 
             // Verificar en API de Clash
+            System.out.println("🔍 Buscando Player Tag en la API: " + tag);
             try {
                 JsonObject apiResult = clashApi.verificarTag(tag);
                 JsonObject res = new JsonObject();
                 res.addProperty("valid", true);
-                res.addProperty("name", apiResult.has("name") ? apiResult.get("name").getAsString() : "");
+                String name = apiResult.has("name") ? apiResult.get("name").getAsString() : "";
+                res.addProperty("name", name);
+                System.out.println("✅ Player Tag encontrado. Usuario: " + name);
                 ctx.json(res);
             } catch (Exception e) {
+                System.out.println("❌ Fallo al buscar Player Tag: " + e.getMessage());
                 JsonObject res = new JsonObject();
                 res.addProperty("valid", false);
                 res.addProperty("error", e.getMessage());
