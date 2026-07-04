@@ -165,7 +165,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
         socket = isNativeApp
             ? io(API_BASE_URL, { transports: ['websocket', 'polling'], withCredentials: true })
-            : io({ transports: ['websocket', 'polling'], withCredentials: true });
+            : io();
 
         // --- TOAST NOTIFICATION IN-APP ---
         function mostrarToast(mensaje, duracion = 600000) {
@@ -639,7 +639,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    if (loginForm) loginForm.addEventListener('submit', async (e) => { e.preventDefault(); try { const res = await fetch(API_BASE_URL + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(loginForm))) }); const r = await res.json(); if (res.ok) { if (!r.user.tipo_suscripcion) r.user.tipo_suscripcion = 'free'; enterLobby(r.user); } else alert(r.error); } catch (e) { } });
+    if (loginForm) loginForm.addEventListener('submit', async (e) => { e.preventDefault(); try { const res = await fetch(API_BASE_URL + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(loginForm))) }); const r = await res.json(); if (res.ok) { if (!r.user.tipo_suscripcion) r.user.tipo_suscripcion = 'free'; enterLobby(r.user); } else alert(r.error); } catch (e) { alert('Error interno en login: ' + e.message); console.error(e); } });
 
     if (registroForm) registroForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -676,7 +676,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert('Error: ' + (data.error || 'Revisa los datos'));
             }
         } catch (e) {
-            alert('Error de conexión');
+            alert('Error de conexión o interno en registro: ' + e.message);
+            console.error(e);
         }
     });
 
