@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Torneos Flash</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- LIBRERÍA OFICIAL DE WOMPI -->
+    <script type="text/javascript" src="https://checkout.wompi.co/widget.js"></script>
+    <!-- CAPACITOR para App Móvil -->
+    <script src="capacitor.js"></script>
+</head>
+
+<body>
+    <!-- LOGIN -->
+    <div id="auth-flow" class="center-screen">
+        <div class="form-wrapper" id="registro-container">
+            <h2>Crear Cuenta</h2>
+            <form id="registro-form">
+                <input type="text" name="username" id="username-input" placeholder="Usuario" required minlength="3">
+                <div id="username-status" class="tag-status"></div>
+                <input type="email" name="email" id="email-input" placeholder="Email" required>
+                <div id="email-status" class="tag-status"></div>
+                <input type="password" name="password" placeholder="Contraseña" required>
+                <input type="text" name="playerTag" id="playerTag-input"
+                    placeholder="Player Tag Clash Royale (#XXXXXXX)" required pattern="#[0289PYLQGRJCUV]{3,}"
+                    title="Debe empezar con # seguido de 3+ caracteres válidos">
+                <div id="playerTag-status" class="tag-status"></div>
+                <input type="tel" name="telefono" placeholder="Teléfono (WhatsApp)" required minlength="7"
+                    title="Ingresa tu número para contactarte si ganas un sorteo">
+                <button type="submit">Registrarse</button>
+            </form>
+            <p class="switch-text">¿Ya tienes cuenta? <a href="#" id="ir-a-login">Entrar</a></p>
+        </div>
+        <div class="form-wrapper hidden" id="login-container">
+            <h2>Entrar</h2>
+            <form id="login-form">
+                <input type="email" name="email" placeholder="Email" required>
+                <input type="password" name="password" placeholder="Contraseña" required>
+                <button type="submit">Entrar</button>
+            </form>
+            <p class="switch-text">¿Nuevo? <a href="#" id="ir-a-registro">Crear cuenta</a></p>
+        </div>
+    </div>
+
+    <!-- MODALES -->
+    <div id="deposit-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <header class="modal-header">
+                <h3>💰 Recargar</h3><button id="close-deposit-modal" class="close-btn">&times;</button>
+            </header>
+            <div class="deposit-tabs">
+                <button class="tab-btn active" onclick="switchDepositTab('manual')">📱 Nequi</button>
+                <button class="tab-btn" onclick="switchDepositTab('auto')">💳 Débito/Crédito</button>
+            </div>
+            <div id="tab-manual" class="deposit-section">
+                <p class="info-text">Envía a Nequi 3126655995.<br>Espera aprobación.</p>
+                <input type="number" id="manual-amount" placeholder="Monto" min="1000">
+                <input type="text" id="manual-ref" placeholder="Referencia">
+                <button id="btn-manual-deposit" class="deposit-action-btn">Enviar</button>
+            </div>
+            <div id="tab-auto" class="deposit-section hidden">
+                <p class="info-text">Recarga inmediata.</p>
+                <div class="calc-box">
+                    <label>Recibir:</label><input type="number" id="auto-amount-input" placeholder="10000" min="1000">
+                    <div class="cost-breakdown hidden" id="cost-breakdown">
+                        <div class="cost-row"><span>Comisión:</span><span id="fee-display"
+                                style="color:#ed4245;">+0</span></div>
+                        <div class="cost-row total"><span>PAGAR:</span><span id="total-pay-display"
+                                style="color:#4ecca3;">$0</span></div>
+                    </div>
+                </div>
+                <button id="btn-auto-deposit" class="deposit-action-btn" disabled>Pagar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL RETIRO -->
+    <div id="withdraw-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <header class="modal-header">
+                <h3>💸 Retirar Ganancias</h3>
+                <button id="close-withdraw-modal" class="close-btn">&times;</button>
+            </header>
+
+            <div class="deposit-section">
+                <p class="info-text">Ingresa tus datos para transferirte.<br>El proceso puede tardar hasta 24h.</p>
+
+                <input type="number" id="withdraw-amount" placeholder="Monto a retirar" min="10000">
+                <input type="text" id="withdraw-account" placeholder="Nequi / Daviplata + Número">
+                <input type="text" id="withdraw-name" placeholder="Nombre del Titular">
+
+                <button id="btn-submit-withdraw" class="deposit-action-btn" style="background:#ed4245;">Solicitar
+                    Retiro</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="admin-panel-overlay" class="modal-overlay hidden">
+        <div class="modal-content large">
+            <header class="modal-header">
+                <h3>👑 Pagos</h3><button
+                    onclick="document.getElementById('admin-panel-overlay').classList.add('hidden')"
+                    class="close-btn">&times;</button>
+                <button id="btn-admin-stats" class="mini-btn admin-btn hidden" style="background:#5865f2;">📊
+                    Finanzas</button>
+            </header>
+            <div class="admin-transactions-list" id="admin-transactions-list">
+                <p>Cargando...</p>
+            </div>
+            <button onclick="cargarTransaccionesAdmin()" class="refresh-btn">🔄 Actualizar</button>
+        </div>
+        <!-- SECCIÓN DE DISPUTAS -->
+        <hr style="border-color: #40444b; margin: 20px 0;">
+        <header class="modal-header">
+            <h3>🚨 Disputas Activas</h3>
+        </header>
+        <div class="admin-transactions-list" id="admin-disputes-list">
+            <p>Cargando disputas...</p>
+        </div>
+        <header class="modal-header">
+            <h3>📊 Contabilidad del Dueño</h3>
+            <button onclick="document.getElementById('admin-stats-overlay').classList.add('hidden')"
+                class="close-btn">&times;</button>
+        </header>
+
+        <div class="stats-summary" style="display:flex; gap:10px; margin-bottom:20px;">
+            <div style="flex:1; background:#202225; padding:10px; border-radius:5px; text-align:center;">
+                <small>Dinero en Circulación (Usuarios)</small>
+                <h2 id="stat-users-money" style="color:#faa61a;">$0</h2>
+            </div>
+            <div
+                style="flex:1; background:#202225; padding:10px; border-radius:5px; text-align:center; border: 1px solid #43b581;">
+                <small>MI DINERO (Ganancias)</small>
+                <h2 id="stat-admin-money" style="color:#43b581;">$0</h2>
+            </div>
+        </div>
+
+        <h4>Usuarios Registrados</h4>
+        <div class="admin-transactions-list" id="admin-users-list" style="max-height: 200px;">
+            <p>Cargando...</p>
+        </div>
+
+        <button onclick="cargarEstadisticasAdmin()" class="refresh-btn">🔄 Actualizar Datos</button>
+    </div>
+    </div>
+    </div>
+
+    <!-- LOBBY -->
+    <div id="discord-lobby" class="discord-layout hidden">
+        <button id="mobile-menu-btn" class="mobile-menu-btn"><i class="fas fa-bars"></i></button>
+        <div id="mobile-overlay" class="mobile-overlay hidden"></div>
+
+        <aside class="sidebar" id="sidebar">
+            <div class="profile-box">
+                <h3 id="user-name-display">...</h3>
+                <div id="user-status-badge" class="status-indicator"><span class="status-dot"></span><span
+                        id="status-text">...</span></div>
+                <p id="user-balance" class="money">$0</p>
+                <button id="btn-open-deposit" class="mini-btn">+ Recargar</button>
+                <button id="btn-open-withdraw" class="mini-btn" style="background:#ed4245; margin-top:5px;">-
+                    Retirar</button>
+                <button id="btn-admin-panel" class="mini-btn admin-btn hidden">👑 Admin</button>
+            </div>
+            <div class="channels-list">
+                <div class="channel" onclick="cambiarCanal('anuncios', this)"># 📢 Anuncios</div>
+                <div class="channel active" onclick="cambiarCanal('general', this)"># 💬 Chat General</div>
+                <div class="category">JUEGOS</div>
+                <div class="dropdown-group">
+                    <div class="channel category-title" onclick="toggleDropdown('clash-menu')"><span>⚔️ CLASH
+                            ROYALE</span><i class="fas fa-chevron-down"></i></div>
+                    <div id="clash-menu" class="submenu hidden">
+                        <!-- IDs sincronizados: clash_chat, clash_logs, sorteos -->
+                        <div class="channel sub-channel" onclick="cambiarCanal('clash_chat', this)">💬 General Clash
+                        </div>
+                        <div class="channel sub-channel" onclick="cambiarCanal('clash_logs', this)">📜 Registro</div>
+                        <div class="channel sub-channel" onclick="cambiarCanal('sorteos', this)">🎁 Sorteos</div>
+                    </div>
+                </div>
+                <div class="channel" onclick="cambiarCanal('leaderboard', this)">🏆 Rankings</div>
+            </div>
+            <button id="btn-logout" class="logout-btn">Salir</button>
+        </aside>
+
+        <main class="chat-area">
+            <!-- VISTAS -->
+            <div id="view-anuncios" class="view-section hidden">
+                <header class="chat-header">
+                    <h3>📢 Anuncios</h3>
+                </header>
+                <div id="anuncios-messages-list" class="messages-container" style="background:#2f3136;">
+                    <div class="msg system">--- Noticias ---</div>
+                </div>
+                <form id="anuncios-chat-form" class="chat-input-area hidden">
+                    <input type="text" id="anuncios-msg-input" placeholder="Anuncio...">
+                    <input type="file" id="anuncios-file-input" style="display:none;">
+                    <label for="anuncios-file-input" class="icon-btn"><i class="fas fa-paperclip"></i></label>
+                    <button type="submit">Publicar</button>
+                </form>
+                <div id="anuncios-file-name" class="file-preview hidden"></div>
+            </div>
+
+            <div id="view-general" class="view-section">
+                <header class="chat-header">
+                    <h3>💬 General</h3>
+                </header>
+                <div id="general-messages-list" class="messages-container">
+                    <div class="msg system">Bienvenido.</div>
+                </div>
+                <form id="general-chat-form" class="chat-input-area"><input type="text" id="general-msg-input"
+                        placeholder="Escribe..."><button type="submit">Enviar</button></form>
+            </div>
+
+            <!-- CLASH CHAT -->
+            <div id="view-clash-chat" class="view-section hidden">
+                <header class="chat-header flex-header">
+                    <h3>⚔️ Clash Royale</h3><button id="btn-buscar-partida" class="flash-btn-small">⚔️ JUGAR</button>
+                </header>
+                <div id="clash-messages-list" class="messages-container">
+                    <div class="msg system">Chat Clash.</div>
+                </div>
+                <form id="clash-chat-form" class="chat-input-area"><input type="text" id="clash-msg-input"
+                        placeholder="Habla aquí..."><button type="submit">Enviar</button></form>
+            </div>
+
+            <!-- CLASH LOGS -->
+            <div id="view-clash-logs" class="view-section hidden">
+                <header class="chat-header">
+                    <h3>📜 Registro</h3>
+                </header>
+                <div id="logs-messages-list" class="messages-container" style="background:#2f3136;"></div>
+            </div>
+
+            <!-- SORTEOS -->
+            <div id="view-sorteos" class="view-section hidden">
+                <header class="chat-header flex-header">
+                    <h3>🎁 Sorteos</h3>
+                    <div class="tickets-display">
+                        <span>🎟️ Mis Tickets: <strong id="user-tickets-count">0</strong></span>
+                    </div>
+                </header>
+
+                <!-- Admin: Botón crear sorteo -->
+                <div id="sorteos-admin-controls" class="sorteos-admin-controls hidden">
+                    <button onclick="abrirModalCrearSorteo()" class="btn-crear-sorteo">➕ Crear Sorteo</button>
+                </div>
+
+                <!-- Lista de sorteos activos -->
+                <div id="sorteos-list" class="sorteos-container">
+                    <p style="text-align:center; color:#bbb; padding:40px;">Cargando sorteos...</p>
+                </div>
+            </div>
+
+            <!-- MODAL CREAR SORTEO (ADMIN) -->
+            <div id="create-raffle-modal" class="modal-overlay hidden">
+                <div class="modal-content">
+                    <header class="modal-header">
+                        <h3>➕ Crear Sorteo</h3>
+                        <button onclick="document.getElementById('create-raffle-modal').classList.add('hidden')"
+                            class="close-btn">&times;</button>
+                    </header>
+                    <form id="create-raffle-form" class="deposit-section">
+                        <input type="text" id="raffle-nombre" placeholder="Nombre (ej: Pass Royale, 2500 Gemas)"
+                            required>
+                        <select id="raffle-categoria">
+                            <option value="gemas">💎 Gemas</option>
+                            <option value="pass">👑 Pass Royale</option>
+                            <option value="evoluciones">✨ Evoluciones</option>
+                            <option value="emotes">😄 Emotes</option>
+                            <option value="cartas">🃏 Cartas (Legendarias/Campeones)</option>
+                            <option value="comodines">🎴 Comodines</option>
+                            <option value="especial">🎁 Oferta Especial</option>
+                        </select>
+                        <input type="number" id="raffle-precio" placeholder="Precio en COP (ej: 15000)" required
+                            min="1000">
+                        <input type="number" id="raffle-duracion" placeholder="Duración en minutos (ej: 60)" required
+                            min="1">
+                        <p id="raffle-tickets-preview" style="color:#faa61a; font-size:0.9rem;">Tickets necesarios: 0
+                        </p>
+                        <button type="submit" class="deposit-action-btn">Crear Sorteo</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- LEADERBOARD -->
+            <div id="view-leaderboard" class="view-section hidden">
+                <header class="chat-header">
+                    <h3>🏆 Rankings</h3>
+                </header>
+                <div class="leaderboard-container">
+                    <div class="leaderboard-tabs">
+                        <button class="lb-tab active" onclick="cargarLeaderboard('dia')">📅 Día</button>
+                        <button class="lb-tab" onclick="cargarLeaderboard('semana')">📆 Semana</button>
+                        <button class="lb-tab" onclick="cargarLeaderboard('mes')">🗓️ Mes</button>
+                        <button class="lb-tab" onclick="cargarLeaderboard('ano')">📊 Año</button>
+                        <button class="lb-tab" onclick="cargarLeaderboard('global')">🌍 Global</button>
+                        <button class="lb-tab" onclick="cargarLeaderboard('apostado')">💰 Apostado</button>
+                        <button class="lb-tab" onclick="cargarLeaderboard('ganado')">💵 Ganado</button>
+                    </div>
+                    <div class="leaderboard-prizes" id="leaderboard-prizes"></div>
+                    <div class="leaderboard-table" id="leaderboard-table">
+                        <p style="text-align:center; color:#bbb; padding:40px;">Selecciona un periodo para ver el
+                            ranking</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISTA PRIVADA -->
+            <div id="view-private" class="view-section hidden">
+                <header class="chat-header flex-header">
+                    <h3>🔒 Sala Privada</h3>
+                    <button id="btn-cancel-match" class="icon-btn-danger"><i class="fas fa-times"></i></button>
+                </header>
+
+                <div class="private-room-content">
+                    <div class="match-info">
+                        <h2 id="rival-name" style="margin:0;">VS Rival</h2>
+
+                        <!-- NUEVO: ESTADÍSTICAS DEL RIVAL -->
+                        <div id="rival-stats" class="rival-stats-box">
+                            <span title="Porcentaje de Victorias">🏆 ...%</span>
+                            <span title="Disputas perdidas (Culpable)">💀 ...</span>
+                            <span title="Huidas totales">🏃 ...</span>
+                        </div>
+
+                        <span id="max-bet-info"
+                            style="font-size:0.8rem; color:#faa61a; display:block; margin-top:5px;">Tope: ...</span>
+                    </div>
+
+                    <div id="private-messages" class="mini-chat"></div>
+
+                    <!-- ESTE ES EL FORMULARIO QUE DEBE TENER LOS IDs CORRECTOS -->
+                    <form id="private-chat-form" class="chat-input-area" style="margin-bottom:15px;">
+                        <input type="text" id="private-input" placeholder="Chatea..." autocomplete="off"
+                            style="margin:0;">
+                        <button type="submit">Enviar</button>
+                    </form>
+
+                    <div class="negotiation-box">
+                        <h4>📝 Configuración</h4>
+                        <div class="inputs-row">
+                            <div class="input-group"><label>Modo:</label><input type="text" id="input-game-mode"
+                                    placeholder="Ej: Elección"></div>
+                            <div class="input-group"><label>Apuesta:</label><input type="number" id="input-bet-amount"
+                                    placeholder="Mín: 1000"></div>
+                        </div>
+                        <!-- Texto Ganancia -->
+                        <p id="win-text" style="font-size: 0.9rem; font-weight: bold; margin-top: 5px; color: #bbb;">
+                            Ganancia: $0</p>
+                        <p id="validation-msg" class="validation-error"></p>
+                        <button id="btn-start-game" class="start-game-btn" disabled>🎮 COMENZAR</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-game-result" class="view-section hidden">
+                <header class="chat-header">
+                    <h3>🎮 Partida en Curso</h3>
+                </header>
+                <div class="game-lobby-content" style="text-align:center; padding: 40px;">
+                    <div class="spinner-container" style="margin-bottom: 20px;">
+                        <div style="font-size: 60px; animation: pulse 1.5s infinite;">🔍</div>
+                    </div>
+                    <h2 id="api-status-text">Buscando resultado en Clash Royale...</h2>
+                    <p style="color: #bbb; margin-top: 10px;">La API detectará automáticamente quién ganó.</p>
+                    <p style="color: #faa61a; font-size: 0.9rem;">⏱️ Tiempo límite: 10 minutos</p>
+                    <div id="api-result-display"
+                        style="display: none; margin-top: 30px; padding: 20px; background: #202225; border-radius: 10px;">
+                        <h1 id="result-winner" style="color: #43b581;"></h1>
+                        <p id="result-crowns" style="color: #bbb;"></p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="app.js"></script>
+</body>
+
+</html>

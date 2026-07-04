@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🗄️ DB Admin - Torneos Flash</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; }
+        
+        .top-bar {
+            background: #16213e; padding: 12px 20px; display: flex; align-items: center;
+            justify-content: space-between; border-bottom: 2px solid #0f3460;
+            position: sticky; top: 0; z-index: 100;
+        }
+        .top-bar h1 { font-size: 1.2rem; color: #e94560; }
+        .top-bar .actions { display: flex; gap: 8px; }
+        .btn {
+            padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer;
+            font-size: 0.85rem; font-weight: 600; transition: 0.2s;
+        }
+        .btn:hover { transform: scale(1.03); }
+        .btn-export { background: #43b581; color: #fff; }
+        .btn-import { background: #faa61a; color: #000; }
+        .btn-danger { background: #ed4245; color: #fff; }
+        .btn-primary { background: #5865f2; color: #fff; }
+        .btn-sm { padding: 4px 10px; font-size: 0.75rem; }
+
+        .layout { display: flex; height: calc(100vh - 52px); }
+
+        /* Sidebar */
+        .sidebar {
+            width: 220px; background: #16213e; padding: 10px; overflow-y: auto;
+            border-right: 1px solid #0f3460; flex-shrink: 0;
+        }
+        .sidebar h3 { font-size: 0.8rem; color: #888; margin: 10px 0 5px; text-transform: uppercase; }
+        .table-btn {
+            display: block; width: 100%; text-align: left; padding: 8px 12px;
+            background: transparent; color: #bbb; border: none; cursor: pointer;
+            border-radius: 5px; font-size: 0.9rem; margin-bottom: 2px;
+        }
+        .table-btn:hover { background: #0f3460; color: #fff; }
+        .table-btn.active { background: #e94560; color: #fff; }
+        .table-btn .count { float: right; font-size: 0.75rem; opacity: 0.6; }
+
+        /* Main */
+        .main { flex: 1; padding: 20px; overflow: auto; }
+        .table-title { margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
+        .table-title h2 { color: #e94560; }
+        .table-title span { color: #888; font-size: 0.85rem; }
+
+        /* Data Table */
+        .data-table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th {
+            background: #0f3460; color: #e94560; text-align: left; padding: 10px 8px;
+            position: sticky; top: 0; font-size: 0.75rem; text-transform: uppercase;
+        }
+        td {
+            padding: 8px; border-bottom: 1px solid #1a1a2e; background: #16213e;
+            max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        tr:hover td { background: #1e2a4a; }
+        td.editable { cursor: text; }
+        td.editable:hover { outline: 1px dashed #5865f2; }
+        td.editing {
+            outline: 2px solid #5865f2; background: #202540;
+            white-space: normal; word-break: break-all;
+        }
+        td.editing input {
+            width: 100%; background: transparent; border: none; color: #fff;
+            font-size: 0.85rem; outline: none;
+        }
+        .row-actions { display: flex; gap: 4px; }
+
+        /* Welcome */
+        .welcome {
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; height: 100%; color: #555;
+        }
+        .welcome h2 { font-size: 2rem; margin-bottom: 10px; }
+
+        /* Import Modal */
+        .modal-bg {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); z-index: 500; align-items: center; justify-content: center;
+        }
+        .modal-bg.open { display: flex; }
+        .modal {
+            background: #16213e; padding: 25px; border-radius: 10px; width: 90%;
+            max-width: 500px; border: 1px solid #0f3460;
+        }
+        .modal h3 { color: #faa61a; margin-bottom: 15px; }
+        .modal p { color: #aaa; font-size: 0.85rem; margin-bottom: 15px; }
+        .file-drop {
+            border: 2px dashed #0f3460; border-radius: 8px; padding: 30px;
+            text-align: center; cursor: pointer; color: #888; transition: 0.2s;
+        }
+        .file-drop:hover { border-color: #faa61a; color: #faa61a; }
+        .modal-actions { display: flex; gap: 10px; margin-top: 15px; justify-content: flex-end; }
+
+        /* Toast */
+        .toast {
+            position: fixed; bottom: 20px; right: 20px; background: #43b581;
+            color: #fff; padding: 12px 20px; border-radius: 8px; font-weight: 600;
+            z-index: 999; animation: fadeIn 0.3s;
+        }
+        .toast.error { background: #ed4245; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Insert Row */
+        .insert-row td { background: #1a2236; }
+        .insert-row input {
+            width: 100%; background: #202540; border: 1px solid #0f3460; color: #fff;
+            padding: 4px 6px; border-radius: 3px; font-size: 0.8rem;
+        }
+
+        /* Status bar */
+        .status-bar {
+            background: #0f3460; padding: 6px 15px; font-size: 0.75rem; color: #888;
+            display: flex; justify-content: space-between;
+        }
+
+        @media (max-width: 768px) {
+            .sidebar { width: 100%; height: auto; max-height: 150px; }
+            .layout { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+    <div class="top-bar">
+        <h1>🗄️ Panel DB</h1>
+        <div class="actions">
+            <button class="btn btn-export" onclick="exportarDB()">📥 Exportar JSON</button>
+            <button class="btn btn-import" onclick="abrirImport()">📤 Importar JSON</button>
+        </div>
+    </div>
+
+    <div class="layout">
+        <div class="sidebar" id="sidebar">
+            <h3>Tablas</h3>
+            <div id="tables-list"><p style="color:#555; font-size:0.8rem;">Cargando...</p></div>
+        </div>
+        <div class="main" id="main-content">
+            <div class="welcome">
+                <h2>🗄️</h2>
+                <p>Selecciona una tabla para ver sus datos</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Import -->
+    <div class="modal-bg" id="import-modal">
+        <div class="modal">
+            <h3>📤 Importar Base de Datos</h3>
+            <p>⚠️ <strong>ESTO REEMPLAZARÁ TODOS LOS DATOS</strong> con el archivo que subas. Exporta primero si quieres un backup.</p>
+            <div class="file-drop" id="file-drop" onclick="document.getElementById('file-input').click()">
+                📁 Haz clic para seleccionar archivo JSON<br>
+                <span style="font-size:0.75rem;">o arrastra y suelta aquí</span>
+            </div>
+            <input type="file" id="file-input" accept=".json" style="display:none">
+            <div id="import-preview" style="display:none; margin-top:10px;">
+                <p style="color:#43b581;" id="import-info"></p>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-danger btn-sm" onclick="cerrarImport()">Cancelar</button>
+                <button class="btn btn-primary btn-sm" id="btn-confirmar-import" onclick="importarDB()" disabled>Importar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Extraer secret de la URL actual
+        const pathParts = window.location.pathname.split('/');
+        const SECRET = pathParts[pathParts.length - 1] || pathParts[pathParts.length - 2];
+        const API = `/api/db-admin/${SECRET}`;
+
+        let tablaActual = null;
+        let datosImport = null;
+
+        // --- CARGAR TABLAS ---
+        async function cargarTablas() {
+            try {
+                const res = await fetch(`${API}/tables`);
+                const data = await res.json();
+                const container = document.getElementById('tables-list');
+                container.innerHTML = '';
+                for (const t of data) {
+                    const btn = document.createElement('button');
+                    btn.className = 'table-btn';
+                    btn.innerHTML = `📋 ${t.name} <span class="count">${t.count}</span>`;
+                    btn.onclick = () => cargarTabla(t.name, btn);
+                    container.appendChild(btn);
+                }
+            } catch (e) {
+                document.getElementById('tables-list').innerHTML = '<p style="color:#ed4245;">Error cargando tablas</p>';
+            }
+        }
+
+        // --- CARGAR DATOS DE UNA TABLA ---
+        async function cargarTabla(nombre, btn) {
+            tablaActual = nombre;
+            document.querySelectorAll('.table-btn').forEach(b => b.classList.remove('active'));
+            if (btn) btn.classList.add('active');
+
+            const main = document.getElementById('main-content');
+            main.innerHTML = '<p style="color:#888;">Cargando...</p>';
+
+            try {
+                const res = await fetch(`${API}/table/${nombre}`);
+                const data = await res.json();
+                renderTabla(nombre, data.columns, data.rows);
+            } catch (e) {
+                main.innerHTML = `<p style="color:#ed4245;">Error: ${e.message}</p>`;
+            }
+        }
+
+        // --- RENDERIZAR TABLA ---
+        function renderTabla(nombre, columns, rows) {
+            const main = document.getElementById('main-content');
+            const colNames = columns.map(c => c.column_name);
+
+            let html = `
+                <div class="table-title">
+                    <h2>${nombre}</h2>
+                    <span>${rows.length} filas · ${colNames.length} columnas</span>
+                    <button class="btn btn-primary btn-sm" onclick="cargarTabla('${nombre}')">🔄</button>
+                </div>
+                <div class="data-table-wrap">
+                <table>
+                    <thead><tr>
+                        <th>Acciones</th>
+                        ${colNames.map(c => `<th>${c}</th>`).join('')}
+                    </tr></thead>
+                    <tbody>
+                    <!-- Fila de inserción -->
+                    <tr class="insert-row">
+                        <td><button class="btn btn-primary btn-sm" onclick="insertarFila('${nombre}')">➕</button></td>
+                        ${colNames.map(c => {
+                            if (c === 'id') return '<td><input disabled placeholder="auto" style="opacity:0.4"></td>';
+                            return `<td><input id="new-${c}" placeholder="${c}"></td>`;
+                        }).join('')}
+                    </tr>
+            `;
+
+            for (const row of rows) {
+                html += `<tr data-id="${row.id}">`;
+                html += `<td class="row-actions">
+                    <button class="btn btn-danger btn-sm" onclick="eliminarFila('${nombre}', ${row.id})">🗑️</button>
+                </td>`;
+                for (const col of colNames) {
+                    const val = row[col] === null ? '' : row[col];
+                    const display = String(val).length > 60 ? String(val).substring(0, 60) + '...' : val;
+                    const isId = col === 'id';
+                    html += `<td class="${isId ? '' : 'editable'}" 
+                                 title="${String(val).replace(/"/g, '&quot;')}"
+                                 ${isId ? '' : `onclick="editarCelda(this, '${nombre}', ${row.id}, '${col}')"`}
+                             >${display}</td>`;
+                }
+                html += '</tr>';
+            }
+
+            html += '</tbody></table></div>';
+            main.innerHTML = html;
+        }
+
+        // --- EDITAR CELDA ---
+        function editarCelda(td, tabla, rowId, columna) {
+            if (td.classList.contains('editing')) return;
+            const valorOriginal = td.getAttribute('title') || td.textContent;
+            td.classList.add('editing');
+            td.innerHTML = `<input value="${valorOriginal.replace(/"/g, '&quot;')}" 
+                onblur="guardarCelda(this, '${tabla}', ${rowId}, '${columna}')"
+                onkeydown="if(event.key==='Enter')this.blur(); if(event.key==='Escape'){this.parentElement.classList.remove('editing');this.parentElement.textContent='${valorOriginal.replace(/'/g, "\\'")}';}">`;
+            td.querySelector('input').focus();
+            td.querySelector('input').select();
+        }
+
+        async function guardarCelda(input, tabla, rowId, columna) {
+            const nuevoValor = input.value;
+            const td = input.parentElement;
+            td.classList.remove('editing');
+            td.textContent = nuevoValor.length > 60 ? nuevoValor.substring(0, 60) + '...' : nuevoValor;
+            td.setAttribute('title', nuevoValor);
+
+            try {
+                const res = await fetch(`${API}/table/${tabla}/update`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: rowId, column: columna, value: nuevoValor })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    toast('✅ Guardado');
+                } else {
+                    toast('❌ Error: ' + data.error, true);
+                }
+            } catch (e) {
+                toast('❌ Error de conexión', true);
+            }
+        }
+
+        // --- ELIMINAR FILA ---
+        async function eliminarFila(tabla, rowId) {
+            if (!confirm(`¿Eliminar fila #${rowId} de ${tabla}?`)) return;
+            try {
+                const res = await fetch(`${API}/table/${tabla}/delete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: rowId })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    toast('🗑️ Eliminado');
+                    cargarTabla(tabla);
+                    cargarTablas(); // Actualizar conteos
+                } else {
+                    toast('❌ Error: ' + data.error, true);
+                }
+            } catch (e) {
+                toast('❌ Error', true);
+            }
+        }
+
+        // --- INSERTAR FILA ---
+        async function insertarFila(tabla) {
+            const inputs = document.querySelectorAll('.insert-row input:not([disabled])');
+            const data = {};
+            let hasData = false;
+            inputs.forEach(inp => {
+                if (inp.value.trim()) {
+                    data[inp.id.replace('new-', '')] = inp.value.trim();
+                    hasData = true;
+                }
+            });
+            if (!hasData) return toast('Escribe al menos un valor', true);
+
+            try {
+                const res = await fetch(`${API}/table/${tabla}/insert`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await res.json();
+                if (result.success) {
+                    toast('➕ Fila añadida');
+                    inputs.forEach(i => i.value = '');
+                    cargarTabla(tabla);
+                    cargarTablas();
+                } else {
+                    toast('❌ ' + result.error, true);
+                }
+            } catch (e) {
+                toast('❌ Error', true);
+            }
+        }
+
+        // --- EXPORTAR ---
+        async function exportarDB() {
+            toast('📥 Exportando...');
+            try {
+                const res = await fetch(`${API}/export`);
+                const data = await res.json();
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `torneos_backup_${new Date().toISOString().slice(0,10)}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                toast('✅ Exportación completada');
+            } catch (e) {
+                toast('❌ Error exportando', true);
+            }
+        }
+
+        // --- IMPORTAR ---
+        function abrirImport() { 
+            document.getElementById('import-modal').classList.add('open'); 
+            datosImport = null;
+            document.getElementById('import-preview').style.display = 'none';
+            document.getElementById('btn-confirmar-import').disabled = true;
+        }
+        function cerrarImport() { document.getElementById('import-modal').classList.remove('open'); }
+
+        document.getElementById('file-input').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                try {
+                    datosImport = JSON.parse(ev.target.result);
+                    const tablas = Object.keys(datosImport);
+                    const totalRows = tablas.reduce((acc, t) => acc + (datosImport[t]?.length || 0), 0);
+                    document.getElementById('import-info').textContent = 
+                        `📋 ${tablas.length} tablas, ${totalRows} filas totales: ${tablas.join(', ')}`;
+                    document.getElementById('import-preview').style.display = 'block';
+                    document.getElementById('btn-confirmar-import').disabled = false;
+                    document.getElementById('file-drop').innerHTML = `✅ ${file.name}`;
+                } catch (err) {
+                    toast('❌ Archivo JSON inválido', true);
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        // Drag & drop
+        const drop = document.getElementById('file-drop');
+        drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.style.borderColor = '#faa61a'; });
+        drop.addEventListener('dragleave', () => { drop.style.borderColor = '#0f3460'; });
+        drop.addEventListener('drop', (e) => {
+            e.preventDefault();
+            drop.style.borderColor = '#0f3460';
+            const file = e.dataTransfer.files[0];
+            if (file) {
+                const input = document.getElementById('file-input');
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                input.files = dt.files;
+                input.dispatchEvent(new Event('change'));
+            }
+        });
+
+        async function importarDB() {
+            if (!datosImport) return;
+            if (!confirm('⚠️ ESTO BORRARÁ TODOS LOS DATOS ACTUALES y los reemplazará con el archivo. ¿Continuar?')) return;
+
+            document.getElementById('btn-confirmar-import').disabled = true;
+            document.getElementById('btn-confirmar-import').textContent = 'Importando...';
+
+            try {
+                const res = await fetch(`${API}/import`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(datosImport)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    toast('✅ Importación completada');
+                    cerrarImport();
+                    cargarTablas();
+                    document.getElementById('main-content').innerHTML = '<div class="welcome"><h2>✅</h2><p>Datos importados correctamente</p></div>';
+                } else {
+                    toast('❌ ' + data.error, true);
+                }
+            } catch (e) {
+                toast('❌ Error importando', true);
+            }
+            document.getElementById('btn-confirmar-import').disabled = false;
+            document.getElementById('btn-confirmar-import').textContent = 'Importar';
+        }
+
+        // --- TOAST ---
+        function toast(msg, isError = false) {
+            const t = document.createElement('div');
+            t.className = `toast ${isError ? 'error' : ''}`;
+            t.textContent = msg;
+            document.body.appendChild(t);
+            setTimeout(() => t.remove(), 3000);
+        }
+
+        // Init
+        cargarTablas();
+    </script>
+</body>
+</html>
