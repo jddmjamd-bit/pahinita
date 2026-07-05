@@ -161,43 +161,43 @@ document.addEventListener('DOMContentLoaded', () => {
         if (user) enterLobby(user);
     });
 
+    // --- TOAST NOTIFICATION IN-APP ---
+    window.mostrarToast = function(mensaje, duracion = 6000) {
+        // Crear o reusar contenedor de toasts
+        let container = document.getElementById('toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'toast-container';
+            container.style.cssText = 'position:fixed;top:70px;right:10px;z-index:9999;display:flex;flex-direction:column;gap:8px;';
+            document.body.appendChild(container);
+        }
+
+        const toast = document.createElement('div');
+        toast.style.cssText = 'background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;padding:12px 20px;border-radius:10px;box-shadow:0 4px 15px rgba(0,0,0,0.3);font-size:14px;animation:slideIn 0.3s ease;max-width:280px;';
+        toast.innerHTML = mensaje;
+        container.appendChild(toast);
+
+        // Agregar animación si no existe
+        if (!document.getElementById('toast-styles')) {
+            const style = document.createElement('style');
+            style.id = 'toast-styles';
+            style.textContent = '@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes slideOut{from{transform:translateX(0);opacity:1}to{transform:translateX(100%);opacity:0}}';
+            document.head.appendChild(style);
+        }
+
+        setTimeout(() => {
+            toast.style.animation = 'slideOut 0.3s ease';
+            setTimeout(() => toast.remove(), 300);
+        }, duracion);
+
+        return toast; // Retornar referencia al toast
+    };
+
     // Socket.IO - Conexión remota para app móvil, local para web
     try {
         socket = isNativeApp
             ? io(API_BASE_URL, { transports: ['websocket', 'polling'], withCredentials: true })
             : io({ transports: ['websocket', 'polling'], withCredentials: true });
-
-        // --- TOAST NOTIFICATION IN-APP ---
-        function mostrarToast(mensaje, duracion = 600000) {
-            // Crear o reusar contenedor de toasts
-            let container = document.getElementById('toast-container');
-            if (!container) {
-                container = document.createElement('div');
-                container.id = 'toast-container';
-                container.style.cssText = 'position:fixed;top:70px;right:10px;z-index:9999;display:flex;flex-direction:column;gap:8px;';
-                document.body.appendChild(container);
-            }
-
-            const toast = document.createElement('div');
-            toast.style.cssText = 'background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;padding:12px 20px;border-radius:10px;box-shadow:0 4px 15px rgba(0,0,0,0.3);font-size:14px;animation:slideIn 0.3s ease;max-width:280px;';
-            toast.innerHTML = mensaje;
-            container.appendChild(toast);
-
-            // Agregar animación si no existe
-            if (!document.getElementById('toast-styles')) {
-                const style = document.createElement('style');
-                style.id = 'toast-styles';
-                style.textContent = '@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes slideOut{from{transform:translateX(0);opacity:1}to{transform:translateX(100%);opacity:0}}';
-                document.head.appendChild(style);
-            }
-
-            setTimeout(() => {
-                toast.style.animation = 'slideOut 0.3s ease';
-                setTimeout(() => toast.remove(), 300);
-            }, duracion);
-
-            return toast; // Retornar referencia al toast
-        }
 
         // Almacenar toasts de búsqueda por userId para poder eliminarlos
         const toastsBusqueda = {};
@@ -1450,11 +1450,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- ACTUALIZACIÓN DE SALDO EN VIVO ---
     socket.on('actualizar_saldo', (nuevoSaldo) => {
+        console.log("Socket event: actualizar_saldo recibida", nuevoSaldo);
         if (currentUser) currentUser.saldo = nuevoSaldo;
         if (userBalanceDisplay) userBalanceDisplay.textContent = '$' + nuevoSaldo;
     });
 
     socket.on('notificacion', (data) => {
+        console.log("Socket event: notificacion recibida", data);
         if (data.mensaje) {
             mostrarToast(data.mensaje, 5000);
         }

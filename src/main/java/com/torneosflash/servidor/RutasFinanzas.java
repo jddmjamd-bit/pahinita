@@ -144,17 +144,24 @@ public class RutasFinanzas {
 
     // --- Helpers ---
     static void notificarUsuario(SocketIOServer io, int userId, String mensaje, double saldo) {
+        System.out.println("Intentando notificar al usuario ID: " + userId + " - Mensaje: " + mensaje);
+        boolean found = false;
         for (SocketIOClient client : io.getSockets().values()) {
             if (client.getUserData() != null &&
                 client.getUserData().has("id") &&
                 client.getUserData().get("id").getAsInt() == userId) {
-
+                
+                System.out.println("-> Socket encontrado para usuario " + userId + "! Emitiendo eventos...");
+                found = true;
                 JsonObject notifData = new JsonObject();
                 notifData.addProperty("mensaje", mensaje);
                 notifData.addProperty("saldo", saldo);
                 client.emit("notificacion", notifData);
                 client.emit("actualizar_saldo", new JsonPrimitive(saldo));
             }
+        }
+        if (!found) {
+            System.out.println("-> ADVERTENCIA: No se encontró ningún socket conectado para el usuario ID " + userId);
         }
     }
 
