@@ -196,8 +196,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Socket.IO - Conexión remota para app móvil, local para web
     try {
         socket = isNativeApp
-            ? io(API_BASE_URL, { transports: ['websocket', 'polling'], withCredentials: true })
-            : io({ transports: ['websocket', 'polling'], withCredentials: true });
+            ? io(API_BASE_URL, { transports: ['websocket'], withCredentials: true })
+            : io({ transports: ['websocket'], withCredentials: true });
 
         // Auto-registrar al reconectar
         socket.on('connect', () => {

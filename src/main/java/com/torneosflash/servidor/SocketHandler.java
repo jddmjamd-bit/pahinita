@@ -52,6 +52,7 @@ public class SocketHandler {
             // --- REGISTRAR SOCKET ---
             socket.on("registrar_socket", (client, data) -> {
                 try {
+                    System.out.println("INTENTO DE REGISTRAR SOCKET: " + data[0]);
                     JsonObject user = ((JsonElement) data[0]).getAsJsonObject();
                     int userId = user.get("id").getAsInt();
                     String username = user.get("username").getAsString();

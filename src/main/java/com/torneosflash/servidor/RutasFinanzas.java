@@ -145,8 +145,10 @@ public class RutasFinanzas {
     // --- Helpers ---
     static void notificarUsuario(SocketIOServer io, int userId, String mensaje, double saldo) {
         System.out.println("Intentando notificar al usuario ID: " + userId + " - Mensaje: " + mensaje);
+        System.out.println("-> Total sockets conectados actualmente: " + io.getSockets().size());
         boolean found = false;
         for (SocketIOClient client : io.getSockets().values()) {
+            System.out.println("-> Revisando socket SID: " + client.getSid() + " | Tiene UserData? " + (client.getUserData() != null));
             if (client.getUserData() != null &&
                 client.getUserData().has("id") &&
                 client.getUserData().get("id").getAsInt() == userId) {
