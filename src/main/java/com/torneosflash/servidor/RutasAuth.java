@@ -67,31 +67,41 @@ public class RutasAuth {
 
         // POST /api/login
         app.post("/api/login", ctx -> {
-            JsonObject body = parseBody(ctx);
-            String email = body.get("email").getAsString().trim().toLowerCase();
-            String password = body.get("password").getAsString();
+            try {
+                JsonObject body = parseBody(ctx);
+                String email = body.get("email").getAsString().trim().toLowerCase();
+                String password = body.get("password").getAsString();
 
-            JsonObject user = usuarioDAO.buscarPorEmail(email);
-            if (user == null) {
-                ctx.status(400).json(errorJson("Usuario no encontrado"));
-                return;
+                JsonObject user = usuarioDAO.buscarPorEmail(email);
+                if (user == null) {
+                    ctx.status(400).result(errorJson("Usuario no encontrado").toString()).contentType("application/json");
+                    return;
+                }
+
+                String storedHash = user.get("password").getAsString();
+                if (!BCrypt.checkpw(password, storedHash)) {
+                    ctx.status(400).result(errorJson("Contraseña incorrecta").toString()).contentType("application/json");
+                    return;
+                }
+
+                int userId = user.get("id").getAsNumber().intValue();
+                ctx.cookie("userId", String.valueOf(userId), 365 * 24 * 3600);
+
+                // No enviar password al frontend
+                user.remove("password");
+                JsonObject response = new JsonObject();
+                response.addProperty("success", true);
+                response.add("user", user);
+                String jsonStr = response.toString();
+                System.out.println("📤 LOGIN RESPONSE (" + jsonStr.length() + " chars): " + jsonStr.substring(0, Math.min(200, jsonStr.length())));
+                ctx.status(200);
+                ctx.contentType("application/json");
+                ctx.result(jsonStr);
+            } catch (Exception e) {
+                System.out.println("❌ ERROR EN LOGIN: " + e.getClass().getName() + ": " + e.getMessage());
+                e.printStackTrace();
+                ctx.status(500).result(errorJson("Error interno: " + e.getMessage()).toString()).contentType("application/json");
             }
-
-            String storedHash = user.get("password").getAsString();
-            if (!BCrypt.checkpw(password, storedHash)) {
-                ctx.status(400).json(errorJson("Contraseña incorrecta"));
-                return;
-            }
-
-            int userId = user.get("id").getAsNumber().intValue();
-            ctx.cookie("userId", String.valueOf(userId), 365 * 24 * 3600);
-
-            // No enviar password al frontend
-            user.remove("password");
-            JsonObject response = new JsonObject();
-            response.addProperty("success", true);
-            response.add("user", user);
-            ctx.result(response.toString()).contentType("application/json");
         });
 
         // GET /api/session
