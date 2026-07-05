@@ -199,6 +199,15 @@ document.addEventListener('DOMContentLoaded', () => {
             ? io(API_BASE_URL, { transports: ['websocket', 'polling'], withCredentials: true })
             : io({ transports: ['websocket', 'polling'], withCredentials: true });
 
+        // Auto-registrar al reconectar
+        socket.on('connect', () => {
+            console.log("🔌 Socket conectado/reconectado");
+            if (currentUser) {
+                console.log("🔄 Re-registrando usuario en el socket");
+                socket.emit('registrar_socket', currentUser);
+            }
+        });
+
         // Almacenar toasts de búsqueda por userId para poder eliminarlos
         const toastsBusqueda = {};
 
