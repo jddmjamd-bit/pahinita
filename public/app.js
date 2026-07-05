@@ -1454,6 +1454,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (userBalanceDisplay) userBalanceDisplay.textContent = '$' + nuevoSaldo;
     });
 
+    socket.on('notificacion', (data) => {
+        if (data.mensaje) {
+            mostrarToast(data.mensaje, 5000);
+        }
+    });
+
     // --- LÓGICA DOBLE CONFIRMACIÓN ---
     if (btnStartGame) {
         btnStartGame.addEventListener('click', () => {

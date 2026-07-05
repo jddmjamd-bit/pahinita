@@ -80,7 +80,9 @@ public class RutasAdmin {
                     double saldo = u != null ? u.get("saldo").getAsDouble() : 0;
                     notificarUsuario(io, userId, "❌ Retiro rechazado. Saldo devuelto.", saldo);
                 } else {
-                    notificarUsuario(io, userId, "❌ Recarga rechazada.", 0);
+                    JsonObject u = db.queryOne("SELECT saldo FROM users WHERE id = ?", userId);
+                    double saldo = u != null ? u.get("saldo").getAsDouble() : 0;
+                    notificarUsuario(io, userId, "❌ Recarga rechazada.", saldo);
                 }
                 db.update("UPDATE transactions SET estado = 'rechazado' WHERE id = ?", transId);
                 ctx.json(successJson("Rechazada", 0));
