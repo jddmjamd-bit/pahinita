@@ -7,6 +7,7 @@ import com.torneosflash.dao.UsuarioDAO;
 import io.javalin.Javalin;
 import io.javalin.http.Context;
 import org.mindrot.jbcrypt.BCrypt;
+import jakarta.servlet.http.Cookie;
 
 /**
  * Rutas de autenticación: registro, login, sesión, logout.
@@ -60,8 +61,8 @@ public class RutasAuth {
                 return;
             }
 
-            // Setear cookie de sesión
-            ctx.cookie("userId", String.valueOf(newId), 365 * 24 * 3600);
+            // Setear cookie de sesión (directo por servlet, evita bug Javalin 6 + Java 17)
+            setCookieDirect(ctx, "userId", String.valueOf(newId), 365 * 24 * 3600);
             ctx.result(successJson("Registrado exitosamente", newId).toString()).contentType("application/json");
         });
 
@@ -85,7 +86,7 @@ public class RutasAuth {
                 }
 
                 int userId = user.get("id").getAsNumber().intValue();
-                ctx.cookie("userId", String.valueOf(userId), 365 * 24 * 3600);
+                setCookieDirect(ctx, "userId", String.valueOf(userId), 365 * 24 * 3600);
 
                 // No enviar password al frontend
                 user.remove("password");
@@ -106,7 +107,7 @@ public class RutasAuth {
 
         // GET /api/session
         app.get("/api/session", ctx -> {
-            String cookieVal = ctx.cookie("userId");
+            String cookieVal = getCookieDirect(ctx, "userId");
             if (cookieVal == null || cookieVal.isEmpty()) {
                 ctx.status(400).json(errorJson("No hay sesión"));
                 return;
@@ -131,7 +132,7 @@ public class RutasAuth {
 
         // POST /api/logout
         app.post("/api/logout", ctx -> {
-            ctx.removeCookie("userId");
+            setCookieDirect(ctx, "userId", "", 0);
             ctx.json(successJson("Sesión cerrada", 0));
         });
 
@@ -229,5 +230,23 @@ public class RutasAuth {
         obj.addProperty("message", message);
         if (id > 0) obj.addProperty("userId", id);
         return obj;
+    }
+
+    // --- Cookie helpers (bypass Javalin 6 bug con Java 17) ---
+    private static void setCookieDirect(Context ctx, String name, String value, int maxAge) {
+        Cookie c = new Cookie(name, value);
+        c.setPath("/");
+        c.setMaxAge(maxAge);
+        ctx.res().addCookie(c);
+    }
+
+    private static String getCookieDirect(Context ctx, String name) {
+        Cookie[] cookies = ctx.req().getCookies();
+        if (cookies != null) {
+            for (Cookie c : cookies) {
+                if (name.equals(c.getName())) return c.getValue();
+            }
+        }
+        return null;
     }
 }
