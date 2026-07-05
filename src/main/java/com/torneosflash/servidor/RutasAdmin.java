@@ -19,9 +19,9 @@ public class RutasAdmin {
     public static void register(Javalin app, UsuarioDAO usuarioDAO, GenericDAO db,
                                  SocketIOServer io) {
 
-        // GET /api/admin/transactions
+        // GET /api/admin/transactions (solo pendientes)
         app.get("/api/admin/transactions", ctx -> {
-            ctx.json(db.query("SELECT * FROM transactions ORDER BY id DESC"));
+            ctx.json(db.query("SELECT * FROM transactions WHERE estado = 'pendiente' ORDER BY id DESC"));
         });
 
         // GET /api/admin/disputes
@@ -60,6 +60,13 @@ public class RutasAdmin {
 
             JsonObject trans = db.queryOne("SELECT * FROM transactions WHERE id = ?", transId);
             if (trans == null) { ctx.json(errorJson("No existe")); return; }
+
+            // Evitar procesar transacciones que ya fueron aprobadas/rechazadas
+            String estadoActual = trans.get("estado").getAsString();
+            if (!"pendiente".equals(estadoActual)) {
+                ctx.json(errorJson("Esta transacción ya fue procesada (" + estadoActual + ")"));
+                return;
+            }
 
             String tipo = trans.get("tipo").getAsString();
             int userId = trans.get("usuario_id").getAsNumber().intValue();

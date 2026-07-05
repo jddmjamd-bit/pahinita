@@ -165,7 +165,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
         socket = isNativeApp
             ? io(API_BASE_URL, { transports: ['websocket', 'polling'], withCredentials: true })
-            : io();
+            : io({ transports: ['websocket', 'polling'], withCredentials: true });
 
         // --- TOAST NOTIFICATION IN-APP ---
         function mostrarToast(mensaje, duracion = 600000) {
@@ -639,7 +639,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    if (loginForm) loginForm.addEventListener('submit', async (e) => { e.preventDefault(); try { const res = await fetch(API_BASE_URL + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(loginForm))) }); const r = await res.json(); if (res.ok) { if (!r.user.tipo_suscripcion) r.user.tipo_suscripcion = 'free'; enterLobby(r.user); } else alert(r.error); } catch (e) { alert('Error interno en login: ' + e.message); console.error(e); } });
+    if (loginForm) loginForm.addEventListener('submit', async (e) => { e.preventDefault(); try { const res = await fetch(API_BASE_URL + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(loginForm))) }); const r = await res.json(); if (res.ok) { if (!r.user.tipo_suscripcion) r.user.tipo_suscripcion = 'free'; enterLobby(r.user); } else alert(r.error); } catch (e) { } });
 
     if (registroForm) registroForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -676,8 +676,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert('Error: ' + (data.error || 'Revisa los datos'));
             }
         } catch (e) {
-            alert('Error de conexión o interno en registro: ' + e.message);
-            console.error(e);
+            alert('Error de conexión');
         }
     });
 
@@ -955,6 +954,7 @@ document.addEventListener('DOMContentLoaded', () => {
         list.forEach(t => {
             const div = document.createElement('div');
             div.className = 'trans-item';
+            div.setAttribute('data-trans-id', t.id);
 
             // Definir color y tipo
             let colorMonto = t.tipo === 'retiro' ? '#ed4245' : '#43b581'; // Rojo si sale, Verde si entra
@@ -975,7 +975,44 @@ document.addEventListener('DOMContentLoaded', () => {
             c.appendChild(div);
         });
     };
-    window.procesarTransaccionAdmin = async (id, act) => { if (!confirm(`¿${act}?`)) return; const res = await fetch(API_BASE_URL + '/api/admin/transaction/process', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transId: id, action: act }) }); const d = await res.json(); alert(d.message); cargarTransaccionesAdmin(); };
+    window.procesarTransaccionAdmin = async (id, act) => {
+        if (!confirm(`¿${act === 'approve' ? 'Aprobar' : 'Rechazar'} esta solicitud?`)) return;
+        // Deshabilitar botones de esta transacción mientras se procesa
+        const transItem = document.querySelector(`.trans-item[data-trans-id="${id}"]`);
+        if (transItem) {
+            transItem.querySelectorAll('button').forEach(b => b.disabled = true);
+        }
+        try {
+            const res = await fetch(API_BASE_URL + '/api/admin/transaction/process', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ transId: id, action: act })
+            });
+            const d = await res.json();
+            if (d.error) {
+                alert('Error: ' + d.error);
+                if (transItem) transItem.querySelectorAll('button').forEach(b => b.disabled = false);
+                return;
+            }
+            // Eliminar la solicitud del DOM con animación
+            if (transItem) {
+                transItem.style.transition = 'opacity 0.3s, transform 0.3s';
+                transItem.style.opacity = '0';
+                transItem.style.transform = 'translateX(30px)';
+                setTimeout(() => {
+                    transItem.remove();
+                    // Si no quedan más solicitudes, mostrar mensaje vacío
+                    const container = document.getElementById('admin-transactions-list');
+                    if (container && container.children.length === 0) {
+                        container.innerHTML = '<p style="text-align:center;color:#bbb">Nada pendiente.</p>';
+                    }
+                }, 300);
+            }
+        } catch (e) {
+            alert('Error de conexión');
+            if (transItem) transItem.querySelectorAll('button').forEach(b => b.disabled = false);
+        }
+    };
     // --- LÓGICA DISPUTAS ADMIN (CON CULPABLE) ---
     window.cargarDisputasAdmin = async () => {
         const res = await fetch(API_BASE_URL + '/api/admin/disputes');
