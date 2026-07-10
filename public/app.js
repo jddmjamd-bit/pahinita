@@ -26,6 +26,7 @@ async function verificarSesion(enterIfValid = true) {
             return data.user;
         }
     } catch (e) {
+        console.error(e);
         console.log("No hay sesión activa.");
     }
     return null;
@@ -559,6 +560,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     usernameStatus.textContent = data.message;
                 } catch (e) {
+                    console.error(e);
                     usernameStatus.className = 'tag-status visible error';
                     usernameStatus.textContent = '⚠️ Error de conexión';
                     usernameValid = false;
@@ -596,6 +598,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     emailStatus.textContent = data.message;
                 } catch (e) {
+                    console.error(e);
                     emailStatus.className = 'tag-status visible error';
                     emailStatus.textContent = '⚠️ Error de conexión';
                     emailValid = false;
@@ -640,6 +643,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         playerTagValid = false;
                     }
                 } catch (e) {
+                    console.error(e);
                     playerTagStatus.className = 'tag-status visible error';
                     playerTagStatus.textContent = '⚠️ Error de conexión';
                     playerTagValid = false;
@@ -648,7 +652,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    if (loginForm) loginForm.addEventListener('submit', async (e) => { e.preventDefault(); try { const res = await fetch(API_BASE_URL + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(loginForm))) }); const r = await res.json(); if (res.ok) { if (!r.user.tipo_suscripcion) r.user.tipo_suscripcion = 'free'; enterLobby(r.user); } else alert(r.error); } catch (e) { } });
+    if (loginForm) loginForm.addEventListener('submit', async (e) => { e.preventDefault(); try { const res = await fetch(API_BASE_URL + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(loginForm))) }); const r = await res.json(); if (res.ok) { if (!r.user.tipo_suscripcion) r.user.tipo_suscripcion = 'free'; enterLobby(r.user); } else alert(r.error); } catch (e) { console.error(e); } });
 
     if (registroForm) registroForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -685,6 +689,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert('Error: ' + (data.error || 'Revisa los datos'));
             }
         } catch (e) {
+            console.error(e);
             alert('Error de conexión');
         }
     });
@@ -1018,6 +1023,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }, 300);
             }
         } catch (e) {
+            console.error(e);
             alert('Error de conexión');
             if (transItem) transItem.querySelectorAll('button').forEach(b => b.disabled = false);
         }
@@ -1387,7 +1393,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Importante: Borrar cookie antes de redirigir para evitar loop de auto-login
             try {
                 await fetch(API_BASE_URL + '/api/logout', { method: 'POST' });
-            } catch (e) { }
+            } catch (e) { console.error(e); }
             // Redirigir al login
             window.location.href = window.location.origin + window.location.pathname + '?kicked=' + Date.now();
         });
@@ -1908,6 +1914,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert(data.error);
             }
         } catch (e) {
+            console.error(e);
             alert("Error eliminando sorteo");
         }
     };

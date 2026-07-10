@@ -193,6 +193,7 @@
                     container.appendChild(btn);
                 }
             } catch (e) {
+                console.error(e);
                 document.getElementById('tables-list').innerHTML = '<p style="color:#ed4245;">Error cargando tablas</p>';
             }
         }
@@ -211,6 +212,7 @@
                 const data = await res.json();
                 renderTabla(nombre, data.columns, data.rows);
             } catch (e) {
+                console.error(e);
                 main.innerHTML = `<p style="color:#ed4245;">Error: ${e.message}</p>`;
             }
         }
@@ -296,6 +298,7 @@
                     toast('❌ Error: ' + data.error, true);
                 }
             } catch (e) {
+                console.error(e);
                 toast('❌ Error de conexión', true);
             }
         }
@@ -318,6 +321,7 @@
                     toast('❌ Error: ' + data.error, true);
                 }
             } catch (e) {
+                console.error(e);
                 toast('❌ Error', true);
             }
         }
@@ -351,6 +355,7 @@
                     toast('❌ ' + result.error, true);
                 }
             } catch (e) {
+                console.error(e);
                 toast('❌ Error', true);
             }
         }
@@ -370,6 +375,7 @@
                 URL.revokeObjectURL(url);
                 toast('✅ Exportación completada');
             } catch (e) {
+                console.error(e);
                 toast('❌ Error exportando', true);
             }
         }
@@ -398,6 +404,7 @@
                     document.getElementById('btn-confirmar-import').disabled = false;
                     document.getElementById('file-drop').innerHTML = `✅ ${file.name}`;
                 } catch (err) {
+                    console.error(err);
                     toast('❌ Archivo JSON inválido', true);
                 }
             };
@@ -444,6 +451,7 @@
                     toast('❌ ' + data.error, true);
                 }
             } catch (e) {
+                console.error(e);
                 toast('❌ Error importando', true);
             }
             document.getElementById('btn-confirmar-import').disabled = false;
