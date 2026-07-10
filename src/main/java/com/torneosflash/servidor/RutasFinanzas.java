@@ -82,6 +82,10 @@ public class RutasFinanzas {
         // POST /api/wompi/init (iniciar pago Wompi)
         app.post("/api/wompi/init", ctx -> {
             JsonObject body = parseBody(ctx);
+            if (!body.has("monto") || body.get("monto").isJsonNull()) {
+                ctx.status(400).json(errorJson("El monto es requerido"));
+                return;
+            }
             double monto = body.get("monto").getAsDouble();
 
             // Calcular el total con comisiones
