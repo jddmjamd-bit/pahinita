@@ -96,6 +96,13 @@ public class RutasFinanzas {
             // Generar referencia
             String reference = "TF-" + System.currentTimeMillis();
 
+            // Registrar transacción pendiente en la base de datos
+            int userId = body.get("userId").getAsInt();
+            String username = body.get("username").getAsString();
+            db.update("INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado) " +
+                    "VALUES (?, ?, 'deposito', 'wompi', ?, ?, 'pendiente')",
+                    userId, username, monto, reference);
+
             // Firma de integridad
             String integritySecret = config.getWompiIntegritySecret();
             String toSign = reference + montoCentavos + "COP" + integritySecret;

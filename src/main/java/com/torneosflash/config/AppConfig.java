@@ -20,6 +20,8 @@ public class AppConfig {
     private final String wompiPublicKey;
     private final String wompiPrivateKey;
     private final String wompiIntegritySecret;
+    private final String wompiUserPrincipalId;
+    private final String wompiXApiKey;
     private final String dbAdminSecret;
     private final String cookieSecret;
 
@@ -34,6 +36,8 @@ public class AppConfig {
         this.wompiPublicKey = getEnv("WOMPI_PUBLIC_KEY", "");
         this.wompiPrivateKey = getEnv("WOMPI_PRIVATE_KEY", "");
         this.wompiIntegritySecret = getEnv("WOMPI_INTEGRITY_SECRET", "");
+        this.wompiUserPrincipalId = getEnv("WOMPI_USER_PRINCIPAL_ID", "");
+        this.wompiXApiKey = getEnv("WOMPI_X_API_KEY", "");
         this.dbAdminSecret = getEnv("DB_ADMIN_SECRET", "torneos2024");
         this.cookieSecret = "secreto_super_seguro";
     }
@@ -54,6 +58,8 @@ public class AppConfig {
     public String getWompiPublicKey() { return wompiPublicKey; }
     public String getWompiPrivateKey() { return wompiPrivateKey; }
     public String getWompiIntegritySecret() { return wompiIntegritySecret; }
+    public String getWompiUserPrincipalId() { return wompiUserPrincipalId; }
+    public String getWompiXApiKey() { return wompiXApiKey; }
     public String getDbAdminSecret() { return dbAdminSecret; }
     public String getCookieSecret() { return cookieSecret; }
 
@@ -61,3 +67,4 @@ public class AppConfig {
     public boolean hasFirebase() { return !firebaseServiceAccount.isEmpty(); }
     public boolean hasGmail() { return !gmailUser.isEmpty() && !gmailPass.isEmpty(); }
 }
+    
