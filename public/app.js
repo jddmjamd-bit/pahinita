@@ -881,19 +881,24 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: JSON.stringify({
                         userId: currentUser.id,
                         username: currentUser.username,
-                        montoBase: monto
+                        monto: Number(monto)
                     })
                 });
+
+                if (!res.ok) {
+                    const errData = await res.json();
+                    throw new Error(errData.error || "Error al iniciar pago");
+                }
 
                 const datos = await res.json();
 
                 // 2. Configurar Widget
                 const checkout = new WidgetCheckout({
-                    currency: datos.moneda,
-                    amountInCents: datos.montoCentavos,
-                    reference: datos.referencia,
-                    publicKey: datos.llavePublica,
-                    signature: { integrity: datos.firma }, // ¡Seguridad!
+                    currency: "COP",
+                    amountInCents: datos.amountInCents,
+                    reference: datos.reference,
+                    publicKey: datos.publicKey,
+                    signature: { integrity: datos.signature }, // ¡Seguridad!
                     redirectUrl: window.location.href, // Opcional: A dónde vuelve al terminar
                 });
 
