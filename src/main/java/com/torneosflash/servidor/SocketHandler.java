@@ -136,8 +136,8 @@ public class SocketHandler {
                     String tipo = msg.has("tipo") ? msg.get("tipo").getAsString() : "texto";
                     String fecha = java.time.Instant.now().toString();
 
-                    db.update("INSERT INTO messages (canal, usuario, texto, tipo, fecha) VALUES (?, ?, ?, ?, ?)",
-                            canal, usuario, texto, tipo, fecha);
+                    db.update("INSERT INTO messages (canal, usuario, texto, tipo) VALUES (?, ?, ?, ?)",
+                            canal, usuario, texto, tipo);
                     msg.addProperty("fecha", fecha);
                     io.emit("mensaje_chat", msg);
                 } catch (Exception e) { System.err.println("Error mensaje_chat: " + e.getMessage()); }
@@ -305,8 +305,8 @@ public class SocketHandler {
                     JsonObject d = ((JsonElement) data[0]).getAsJsonObject();
                     if (d.has("salaId")) {
                         String fecha = java.time.Instant.now().toString();
-                        db.update("INSERT INTO messages (canal, usuario, texto, tipo, fecha) VALUES (?, ?, ?, 'texto', ?)",
-                                d.get("salaId").getAsString(), d.get("usuario").getAsString(), d.get("texto").getAsString(), fecha);
+                        db.update("INSERT INTO messages (canal, usuario, texto, tipo) VALUES (?, ?, ?, 'texto')",
+                                d.get("salaId").getAsString(), d.get("usuario").getAsString(), d.get("texto").getAsString());
                         d.addProperty("fecha", fecha);
                         io.to(d.get("salaId").getAsString()).emit("mensaje_privado", d);
                     }
@@ -578,7 +578,7 @@ public class SocketHandler {
     private void logClash(String texto) {
         System.out.println(texto);
         String fecha = java.time.Instant.now().toString();
-        db.update("INSERT INTO messages (canal, usuario, texto, tipo, fecha) VALUES ('clash_logs', 'SISTEMA', ?, 'log', ?)", texto, fecha);
+        db.update("INSERT INTO messages (canal, usuario, texto, tipo) VALUES ('clash_logs', 'SISTEMA', ?, 'log')", texto);
         JsonObject logData = new JsonObject();
         logData.addProperty("canal", "clash_logs");
         logData.addProperty("usuario", "SISTEMA");
