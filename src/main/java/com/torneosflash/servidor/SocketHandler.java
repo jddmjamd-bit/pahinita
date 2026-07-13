@@ -585,7 +585,7 @@ public class SocketHandler {
         logData.addProperty("texto", texto);
         logData.addProperty("tipo", "log");
         logData.addProperty("fecha", fecha);
-        io.emit("nuevo_mensaje", logData);
+        io.emit("mensaje_chat", logData);
     }
 
     // --- Clases internas ---
