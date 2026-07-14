@@ -78,7 +78,7 @@ public class SocketHandler {
                     usuariosOnline.add(userId);
                     System.out.println("✅ Usuario " + username + " (" + userId + ") está ONLINE");
 
-                    // Enviar búsquedas activas
+                    // Enviar búsquedas activas de otros usuarios
                     for (Map.Entry<Integer, BusquedaActiva> entry : busquedasActivas.entrySet()) {
                         if (entry.getKey() != userId) {
                             JsonObject bData = new JsonObject();
@@ -86,6 +86,22 @@ public class SocketHandler {
                             bData.addProperty("oderId", entry.getValue().oderId);
                             client.emit("alguien_buscando", bData);
                         }
+                    }
+
+                    // Verificar si ESTE usuario tiene una búsqueda activa (reconexión)
+                    if (busquedasActivas.containsKey(userId)) {
+                        BusquedaActiva miBusqueda = busquedasActivas.get(userId);
+                        // Actualizar referencia del socket en la búsqueda activa
+                        miBusqueda.socket = client;
+                        // Reemplazar en la cola de espera
+                        colaEsperaClash.removeIf(s -> s.getUserData() != null &&
+                                s.getUserData().get("id").getAsInt() == userId);
+                        colaEsperaClash.add(client);
+                        // Notificar al frontend para restaurar estado visual
+                        JsonObject buscandoData = new JsonObject();
+                        buscandoData.addProperty("mensaje", "Tu búsqueda sigue activa");
+                        client.emit("buscando_activo", buscandoData);
+                        System.out.println("🔄 " + username + " reconectado con búsqueda activa");
                     }
 
                     // Recuperar sala si existe

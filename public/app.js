@@ -739,6 +739,11 @@ document.addEventListener('DOMContentLoaded', () => {
             ejecutarCambioVista('private', null);
             console.log("➡️ Navegando a private (partida_encontrada)");
         }
+        else if (user.estado === 'buscando_partida') {
+            currentUser.estado = 'buscando_partida';
+            actualizarEstadoVisual('buscando_partida');
+            console.log("➡️ Restaurado estado visual: buscando_partida");
+        }
         else {
             actualizarEstadoVisual('normal');
         }
