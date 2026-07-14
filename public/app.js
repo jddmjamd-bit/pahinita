@@ -245,7 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
         socket.on('buscando_activo', (data) => {
             console.log("🔄 Reconectado con búsqueda activa");
             if (typeof actualizarEstadoVisual === 'function') {
-                actualizarEstadoVisual('buscando', true);
+                actualizarEstadoVisual('buscando_partida', true);
             }
         });
 
