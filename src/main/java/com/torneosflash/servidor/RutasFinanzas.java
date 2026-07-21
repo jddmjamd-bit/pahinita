@@ -76,7 +76,12 @@ public class RutasFinanzas {
             double nuevoSaldo = updated != null ? updated.get("saldo").getAsDouble() : 0;
             notificarUsuario(io, userId, "⏳ Retiro en proceso...", nuevoSaldo);
 
-            ctx.json(successJson("Retiro solicitado", 0));
+            // Incluir newBalance en la respuesta HTTP para que el frontend actualice inmediatamente
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            response.addProperty("message", "Retiro solicitado");
+            response.addProperty("newBalance", nuevoSaldo);
+            ctx.json(response);
         });
 
         // POST /api/wompi/init (iniciar pago Wompi)
