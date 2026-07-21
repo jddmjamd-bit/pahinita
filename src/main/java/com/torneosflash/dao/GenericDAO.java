@@ -2,6 +2,7 @@ package com.torneosflash.dao;
 
 import com.google.gson.JsonObject;
 import java.sql.*;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 
 /**
@@ -116,6 +117,13 @@ public class GenericDAO {
                 obj.addProperty(col, rs.getDouble(i));
             } else if (type == Types.BOOLEAN || type == Types.BIT) {
                 obj.addProperty(col, rs.getBoolean(i));
+            } else if (type == Types.TIMESTAMP) {
+                Timestamp ts = rs.getTimestamp(i);
+                if (ts != null) {
+                    obj.addProperty(col, ts.toInstant().toString());
+                } else {
+                    obj.addProperty(col, (String) null);
+                }
             } else {
                 obj.addProperty(col, val.toString());
             }
