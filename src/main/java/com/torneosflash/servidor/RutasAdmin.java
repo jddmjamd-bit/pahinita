@@ -33,20 +33,26 @@ public class RutasAdmin {
         app.get("/api/admin/stats", ctx -> {
             JsonObject stats = new JsonObject();
 
-            JsonObject usersCount = db.queryOne("SELECT COUNT(*) as count FROM users");
-            stats.addProperty("totalUsuarios", usersCount != null ? usersCount.get("count").getAsLong() : 0);
+            // Dinero en circulación = suma de saldos de todos los usuarios
+            JsonObject saldoSum = db.queryOne("SELECT COALESCE(SUM(saldo),0) as total FROM users");
+            stats.addProperty("totalUsuarios", saldoSum != null ? saldoSum.get("total").getAsDouble() : 0);
 
-            JsonObject matchesCount = db.queryOne("SELECT COUNT(*) as count FROM matches");
-            stats.addProperty("totalPartidas", matchesCount != null ? matchesCount.get("count").getAsLong() : 0);
-
+            // Ganancias del admin = suma de admin_wallet
             JsonObject walletSum = db.queryOne("SELECT COALESCE(SUM(monto),0) as total FROM admin_wallet");
-            stats.addProperty("boveda", walletSum != null ? walletSum.get("total").getAsDouble() : 0);
+            stats.addProperty("totalGanancias", walletSum != null ? walletSum.get("total").getAsDouble() : 0);
 
-            JsonObject pendingCount = db.queryOne("SELECT COUNT(*) as count FROM transactions WHERE estado = 'pendiente'");
-            stats.addProperty("transaccionesPendientes", pendingCount != null ? pendingCount.get("count").getAsLong() : 0);
-
-            JsonObject disputeCount = db.queryOne("SELECT COUNT(*) as count FROM matches WHERE estado = 'disputa'");
-            stats.addProperty("disputasPendientes", disputeCount != null ? disputeCount.get("count").getAsLong() : 0);
+            // Lista de todos los usuarios con sus detalles
+            java.util.ArrayList<JsonObject> usuarios = db.query(
+                "SELECT id, username, email, saldo, tipo_suscripcion, ganancia_generada, " +
+                "total_partidas, total_victorias, victorias_normales, victorias_disputa, " +
+                "total_derrotas, derrotas_normales, derrotas_disputa, " +
+                "faltas, salidas_chat, salidas_x, salidas_canal, salidas_desconexion " +
+                "FROM users ORDER BY saldo DESC");
+            JsonArray listaUsuarios = new JsonArray();
+            for (JsonObject u : usuarios) {
+                listaUsuarios.add(u);
+            }
+            stats.add("listaUsuarios", listaUsuarios);
 
             stats.addProperty("usuariosOnline", io.getSockets().size());
             ctx.json(stats);
