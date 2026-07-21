@@ -7,6 +7,9 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 
 /**
  * Servicio para consultar la API de Clash Royale.
@@ -15,6 +18,14 @@ import java.nio.charset.StandardCharsets;
 public class ClashApiServicio {
 
     private final String apiToken;
+
+    /**
+     * Formatter para parsear el formato battleTime de la API de Clash Royale.
+     * Formato: yyyyMMdd'T'HHmmss.SSS'Z' (ejemplo: 20260721T230000.000Z)
+     */
+    private static final DateTimeFormatter CLASH_TIME_FORMAT = DateTimeFormatter
+            .ofPattern("yyyyMMdd'T'HHmmss.SSS'Z'")
+            .withZone(ZoneOffset.UTC);
 
     public ClashApiServicio(String apiToken) {
         this.apiToken = apiToken;
@@ -56,14 +67,44 @@ public class ClashApiServicio {
     }
 
     /**
-     * Busca una batalla entre dos jugadores después de cierta hora.
-     * Retorna JsonObject con datos del resultado o null si no encuentra.
+     * Parsea el formato de tiempo de la API de Clash Royale a un Instant.
+     * El formato es yyyyMMdd'T'HHmmss.SSS'Z' (ejemplo: 20260721T230000.000Z)
+     * @return Instant parseado, o null si no se puede parsear
      */
-    public JsonObject findMatchingBattle(String tag1, String tag2) {
+    private Instant parseBattleTime(String battleTime) {
+        if (battleTime == null || battleTime.isEmpty()) return null;
+        try {
+            return Instant.from(CLASH_TIME_FORMAT.parse(battleTime));
+        } catch (Exception e) {
+            System.err.println("Error parseando battleTime '" + battleTime + "': " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Busca una batalla entre dos jugadores que haya ocurrido DESPUÉS de matchStartTime.
+     * Retorna JsonObject con datos del resultado o null si no encuentra.
+     *
+     * @param tag1 Player tag del jugador 1
+     * @param tag2 Player tag del jugador 2
+     * @param matchStartTime Timestamp ISO de cuándo se inició el match en la plataforma.
+     *                       Solo se aceptan batallas posteriores a este momento.
+     */
+    public JsonObject findMatchingBattle(String tag1, String tag2, String matchStartTime) {
         if (tag1 == null || tag2 == null) return null;
 
         String normalizedTag1 = tag1.toUpperCase().replace("#", "");
         String normalizedTag2 = tag2.toUpperCase().replace("#", "");
+
+        // Parsear el timestamp de inicio del match
+        Instant matchStart = null;
+        if (matchStartTime != null && !matchStartTime.isEmpty()) {
+            try {
+                matchStart = Instant.parse(matchStartTime);
+            } catch (Exception e) {
+                System.err.println("Error parseando matchStartTime '" + matchStartTime + "': " + e.getMessage());
+            }
+        }
 
         JsonArray battles = fetchBattleLog(tag1);
         if (battles == null) return null;
@@ -74,6 +115,15 @@ public class ClashApiServicio {
             // Verificar tipo de batalla (solo 1v1)
             String type = battle.has("type") ? battle.get("type").getAsString() : "";
             if (type.contains("clanWar") || type.contains("challenge")) continue;
+
+            // Filtrar por tiempo: solo aceptar batallas POSTERIORES al inicio del match
+            if (matchStart != null) {
+                String battleTimeStr = battle.has("battleTime") ? battle.get("battleTime").getAsString() : "";
+                Instant battleInstant = parseBattleTime(battleTimeStr);
+                if (battleInstant == null || !battleInstant.isAfter(matchStart)) {
+                    continue; // Batalla anterior al inicio del match, ignorar
+                }
+            }
 
             // Obtener tags de los jugadores en la batalla
             JsonArray team = battle.getAsJsonArray("team");

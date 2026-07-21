@@ -269,14 +269,15 @@ public class SocketHandler {
                         }
 
                         match.iniciado = true;
+                        match.matchStartTime = java.time.Instant.now().toString();
                         match.apuesta = ap1;
 
 
                         // Obtener tags
                         JsonObject p1 = db.queryOne("SELECT player_tag FROM users WHERE id = ?", ids.get(0));
                         JsonObject p2 = db.queryOne("SELECT player_tag FROM users WHERE id = ?", ids.get(1));
-                        match.playerTag1 = p1 != null ? p1.get("player_tag").getAsString() : "";
-                        match.playerTag2 = p2 != null ? p2.get("player_tag").getAsString() : "";
+                        match.playerTag1 = p1 != null && p1.has("player_tag") && !p1.get("player_tag").isJsonNull() ? p1.get("player_tag").getAsString() : "";
+                        match.playerTag2 = p2 != null && p2.has("player_tag") && !p2.get("player_tag").isJsonNull() ? p2.get("player_tag").getAsString() : "";
 
                         // Descontar saldo
                         for (SocketIOClient p : match.players) {
@@ -456,7 +457,7 @@ public class SocketHandler {
 
                 if (match.playerTag1.isEmpty() || match.playerTag2.isEmpty()) return;
 
-                JsonObject battleResult = clashApi.findMatchingBattle(match.playerTag1, match.playerTag2);
+                JsonObject battleResult = clashApi.findMatchingBattle(match.playerTag1, match.playerTag2, match.matchStartTime);
 
                 if (battleResult != null) {
                     match.pollFuture.cancel(false);
@@ -468,7 +469,7 @@ public class SocketHandler {
                     for (SocketIOClient p : match.players) {
                         if (p.getUserData() == null) continue;
                         JsonObject pTag = db.queryOne("SELECT player_tag FROM users WHERE id = ?", p.getUserData().get("id").getAsInt());
-                        if (pTag != null && pTag.get("player_tag").getAsString().replace("#", "").toUpperCase().equals(winnerTag)) {
+                        if (pTag != null && pTag.has("player_tag") && !pTag.get("player_tag").isJsonNull() && pTag.get("player_tag").getAsString().replace("#", "").toUpperCase().equals(winnerTag)) {
                             idGanador = p.getUserData().get("id").getAsInt();
                             winnerSocket = p;
                             break;
@@ -611,6 +612,7 @@ public class SocketHandler {
         boolean iniciado = false;
         int dbId = 0;
         String playerTag1 = "", playerTag2 = "";
+        String matchStartTime = "";
         ConcurrentHashMap<Integer, JsonObject> votosInicio = new ConcurrentHashMap<>();
         ConcurrentHashMap<Integer, ScheduledFuture<?>> disconnectTimers = new ConcurrentHashMap<>();
         int pollCount = 0;
