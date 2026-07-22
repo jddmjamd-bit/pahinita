@@ -1127,7 +1127,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const fechaMsg = data.fecha ? new Date(data.fecha) : new Date(); const diaMsg = fechaMsg.toDateString();
         if (diaMsg !== lastDatePainted[canal]) { const sep = document.createElement('div'); sep.classList.add('date-separator'); sep.textContent = (diaMsg === new Date().toDateString()) ? "Hoy" : fechaMsg.toLocaleDateString(); contenedor.appendChild(sep); lastDatePainted[canal] = diaMsg; }
         const div = document.createElement('div'); div.classList.add('msg'); div.classList.add((currentUser && data.usuario === currentUser.username) ? 'own' : 'other');
-        let content = ''; if (data.tipo === 'imagen') content = `<img src="${data.texto}" class="chat-image" onclick="abrirLightbox(this.src, 'imagen')">`; else if (data.tipo === 'video') content = `<video src="${data.texto}" class="chat-video" controls></video>`; else {
+        let content = ''; if (data.tipo === 'imagen') content = `<img src="${data.texto}" class="chat-image" onclick="window.open(this.src)">`; else if (data.tipo === 'video') content = `<video src="${data.texto}" class="chat-video" controls></video>`; else {
             // AQUÍ ESTÁ EL CAMBIO: Usamos la función convertirLinks
             content = `<span class="msg-text">${convertirLinks(data.texto)}</span>`;
         }
