@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Torneos Flash</title>
     <link rel="stylesheet" href="style.css">
-    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <!-- LIBRERÍA OFICIAL DE WOMPI -->
     <script type="text/javascript" src="https://checkout.wompi.co/widget.js"></script>
@@ -376,32 +376,6 @@
             </div>
         </main>
     </div>
-    <!-- Modal Lightbox para imágenes/videos -->
-    <div id="media-lightbox" class="media-lightbox" onclick="cerrarLightbox(event)">
-        <button class="lightbox-close" onclick="cerrarLightbox()">&times;</button>
-        <div class="lightbox-content" id="lightbox-content"></div>
-    </div>
-    <script>
-        function abrirLightbox(src, tipo) {
-            const lb = document.getElementById('media-lightbox');
-            const cont = document.getElementById('lightbox-content');
-            if (tipo === 'video') {
-                cont.innerHTML = '<video src="' + src + '" class="lightbox-video" controls autoplay></video>';
-            } else {
-                cont.innerHTML = '<img src="' + src + '" class="lightbox-img">';
-            }
-            lb.classList.add('active');
-            document.body.style.overflow = 'hidden';
-        }
-        function cerrarLightbox(e) {
-            if (e && e.target !== document.getElementById('media-lightbox') && !e.target.classList.contains('lightbox-close')) return;
-            const lb = document.getElementById('media-lightbox');
-            lb.classList.remove('active');
-            document.getElementById('lightbox-content').innerHTML = '';
-            document.body.style.overflow = '';
-        }
-        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') cerrarLightbox(); });
-    </script>
     <script src="app.js"></script>
 </body>
 

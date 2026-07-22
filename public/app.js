@@ -26,6 +26,7 @@ async function verificarSesion(enterIfValid = true) {
             return data.user;
         }
     } catch (e) {
+        console.error(e);
         console.log("No hay sesión activa.");
     }
     return null;
@@ -161,43 +162,52 @@ document.addEventListener('DOMContentLoaded', () => {
         if (user) enterLobby(user);
     });
 
+    // --- TOAST NOTIFICATION IN-APP ---
+    window.mostrarToast = function(mensaje, duracion = 6000) {
+        // Crear o reusar contenedor de toasts
+        let container = document.getElementById('toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'toast-container';
+            container.style.cssText = 'position:fixed;top:70px;right:10px;z-index:9999;display:flex;flex-direction:column;gap:8px;';
+            document.body.appendChild(container);
+        }
+
+        const toast = document.createElement('div');
+        toast.style.cssText = 'background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;padding:12px 20px;border-radius:10px;box-shadow:0 4px 15px rgba(0,0,0,0.3);font-size:14px;animation:slideIn 0.3s ease;max-width:280px;';
+        toast.innerHTML = mensaje;
+        container.appendChild(toast);
+
+        // Agregar animación si no existe
+        if (!document.getElementById('toast-styles')) {
+            const style = document.createElement('style');
+            style.id = 'toast-styles';
+            style.textContent = '@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes slideOut{from{transform:translateX(0);opacity:1}to{transform:translateX(100%);opacity:0}}';
+            document.head.appendChild(style);
+        }
+
+        setTimeout(() => {
+            toast.style.animation = 'slideOut 0.3s ease';
+            setTimeout(() => toast.remove(), 300);
+        }, duracion);
+
+        return toast; // Retornar referencia al toast
+    };
+
     // Socket.IO - Conexión remota para app móvil, local para web
     try {
         socket = isNativeApp
-            ? io(API_BASE_URL, { transports: ['websocket', 'polling'], withCredentials: true })
-            : io();
+            ? io(API_BASE_URL, { transports: ['websocket'], withCredentials: true })
+            : io({ transports: ['websocket'], withCredentials: true });
 
-        // --- TOAST NOTIFICATION IN-APP ---
-        function mostrarToast(mensaje, duracion = 600000) {
-            // Crear o reusar contenedor de toasts
-            let container = document.getElementById('toast-container');
-            if (!container) {
-                container = document.createElement('div');
-                container.id = 'toast-container';
-                container.style.cssText = 'position:fixed;top:70px;right:10px;z-index:9999;display:flex;flex-direction:column;gap:8px;';
-                document.body.appendChild(container);
+        // Auto-registrar al reconectar
+        socket.on('connect', () => {
+            console.log("🔌 Socket conectado/reconectado");
+            if (currentUser) {
+                console.log("🔄 Re-registrando usuario en el socket");
+                socket.emit('registrar_socket', currentUser);
             }
-
-            const toast = document.createElement('div');
-            toast.style.cssText = 'background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;padding:12px 20px;border-radius:10px;box-shadow:0 4px 15px rgba(0,0,0,0.3);font-size:14px;animation:slideIn 0.3s ease;max-width:280px;';
-            toast.innerHTML = mensaje;
-            container.appendChild(toast);
-
-            // Agregar animación si no existe
-            if (!document.getElementById('toast-styles')) {
-                const style = document.createElement('style');
-                style.id = 'toast-styles';
-                style.textContent = '@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes slideOut{from{transform:translateX(0);opacity:1}to{transform:translateX(100%);opacity:0}}';
-                document.head.appendChild(style);
-            }
-
-            setTimeout(() => {
-                toast.style.animation = 'slideOut 0.3s ease';
-                setTimeout(() => toast.remove(), 300);
-            }, duracion);
-
-            return toast; // Retornar referencia al toast
-        }
+        });
 
         // Almacenar toasts de búsqueda por userId para poder eliminarlos
         const toastsBusqueda = {};
@@ -235,7 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
         socket.on('buscando_activo', (data) => {
             console.log("🔄 Reconectado con búsqueda activa");
             if (typeof actualizarEstadoVisual === 'function') {
-                actualizarEstadoVisual('buscando', true);
+                actualizarEstadoVisual('buscando_partida', true);
             }
         });
 
@@ -550,6 +560,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     usernameStatus.textContent = data.message;
                 } catch (e) {
+                    console.error(e);
                     usernameStatus.className = 'tag-status visible error';
                     usernameStatus.textContent = '⚠️ Error de conexión';
                     usernameValid = false;
@@ -587,6 +598,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     emailStatus.textContent = data.message;
                 } catch (e) {
+                    console.error(e);
                     emailStatus.className = 'tag-status visible error';
                     emailStatus.textContent = '⚠️ Error de conexión';
                     emailValid = false;
@@ -631,6 +643,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         playerTagValid = false;
                     }
                 } catch (e) {
+                    console.error(e);
                     playerTagStatus.className = 'tag-status visible error';
                     playerTagStatus.textContent = '⚠️ Error de conexión';
                     playerTagValid = false;
@@ -639,7 +652,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    if (loginForm) loginForm.addEventListener('submit', async (e) => { e.preventDefault(); try { const res = await fetch(API_BASE_URL + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(loginForm))) }); const r = await res.json(); if (res.ok) { if (!r.user.tipo_suscripcion) r.user.tipo_suscripcion = 'free'; enterLobby(r.user); } else alert(r.error); } catch (e) { alert('Error interno en login: ' + e.message); console.error(e); } });
+    if (loginForm) loginForm.addEventListener('submit', async (e) => { e.preventDefault(); try { const res = await fetch(API_BASE_URL + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(loginForm))) }); const r = await res.json(); if (res.ok) { if (!r.user.tipo_suscripcion) r.user.tipo_suscripcion = 'free'; enterLobby(r.user); } else alert(r.error); } catch (e) { console.error(e); } });
 
     if (registroForm) registroForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -676,8 +689,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert('Error: ' + (data.error || 'Revisa los datos'));
             }
         } catch (e) {
-            alert('Error de conexión o interno en registro: ' + e.message);
             console.error(e);
+            alert('Error de conexión');
         }
     });
 
@@ -725,6 +738,11 @@ document.addEventListener('DOMContentLoaded', () => {
             actualizarEstadoVisual('partida_encontrada');
             ejecutarCambioVista('private', null);
             console.log("➡️ Navegando a private (partida_encontrada)");
+        }
+        else if (user.estado === 'buscando_partida') {
+            currentUser.estado = 'buscando_partida';
+            actualizarEstadoVisual('buscando_partida');
+            console.log("➡️ Restaurado estado visual: buscando_partida");
         }
         else {
             actualizarEstadoVisual('normal');
@@ -868,19 +886,24 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: JSON.stringify({
                         userId: currentUser.id,
                         username: currentUser.username,
-                        montoBase: monto
+                        monto: Number(monto)
                     })
                 });
+
+                if (!res.ok) {
+                    const errData = await res.json();
+                    throw new Error(errData.error || "Error al iniciar pago");
+                }
 
                 const datos = await res.json();
 
                 // 2. Configurar Widget
                 const checkout = new WidgetCheckout({
-                    currency: datos.moneda,
-                    amountInCents: datos.montoCentavos,
-                    reference: datos.referencia,
-                    publicKey: datos.llavePublica,
-                    signature: { integrity: datos.firma }, // ¡Seguridad!
+                    currency: "COP",
+                    amountInCents: datos.amountInCents,
+                    reference: datos.reference,
+                    publicKey: datos.publicKey,
+                    signature: { integrity: datos.signature }, // ¡Seguridad!
                     redirectUrl: window.location.href, // Opcional: A dónde vuelve al terminar
                 });
 
@@ -955,6 +978,7 @@ document.addEventListener('DOMContentLoaded', () => {
         list.forEach(t => {
             const div = document.createElement('div');
             div.className = 'trans-item';
+            div.setAttribute('data-trans-id', t.id);
 
             // Definir color y tipo
             let colorMonto = t.tipo === 'retiro' ? '#ed4245' : '#43b581'; // Rojo si sale, Verde si entra
@@ -975,7 +999,45 @@ document.addEventListener('DOMContentLoaded', () => {
             c.appendChild(div);
         });
     };
-    window.procesarTransaccionAdmin = async (id, act) => { if (!confirm(`¿${act}?`)) return; const res = await fetch(API_BASE_URL + '/api/admin/transaction/process', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transId: id, action: act }) }); const d = await res.json(); alert(d.message); cargarTransaccionesAdmin(); };
+    window.procesarTransaccionAdmin = async (id, act) => {
+        if (!confirm(`¿${act === 'approve' ? 'Aprobar' : 'Rechazar'} esta solicitud?`)) return;
+        // Deshabilitar botones de esta transacción mientras se procesa
+        const transItem = document.querySelector(`.trans-item[data-trans-id="${id}"]`);
+        if (transItem) {
+            transItem.querySelectorAll('button').forEach(b => b.disabled = true);
+        }
+        try {
+            const res = await fetch(API_BASE_URL + '/api/admin/transaction/process', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ transId: id, action: act })
+            });
+            const d = await res.json();
+            if (d.error) {
+                alert('Error: ' + d.error);
+                if (transItem) transItem.querySelectorAll('button').forEach(b => b.disabled = false);
+                return;
+            }
+            // Eliminar la solicitud del DOM con animación
+            if (transItem) {
+                transItem.style.transition = 'opacity 0.3s, transform 0.3s';
+                transItem.style.opacity = '0';
+                transItem.style.transform = 'translateX(30px)';
+                setTimeout(() => {
+                    transItem.remove();
+                    // Si no quedan más solicitudes, mostrar mensaje vacío
+                    const container = document.getElementById('admin-transactions-list');
+                    if (container && container.children.length === 0) {
+                        container.innerHTML = '<p style="text-align:center;color:#bbb">Nada pendiente.</p>';
+                    }
+                }, 300);
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error de conexión');
+            if (transItem) transItem.querySelectorAll('button').forEach(b => b.disabled = false);
+        }
+    };
     // --- LÓGICA DISPUTAS ADMIN (CON CULPABLE) ---
     window.cargarDisputasAdmin = async () => {
         const res = await fetch(API_BASE_URL + '/api/admin/disputes');
@@ -1341,7 +1403,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Importante: Borrar cookie antes de redirigir para evitar loop de auto-login
             try {
                 await fetch(API_BASE_URL + '/api/logout', { method: 'POST' });
-            } catch (e) { }
+            } catch (e) { console.error(e); }
             // Redirigir al login
             window.location.href = window.location.origin + window.location.pathname + '?kicked=' + Date.now();
         });
@@ -1413,8 +1475,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- ACTUALIZACIÓN DE SALDO EN VIVO ---
     socket.on('actualizar_saldo', (nuevoSaldo) => {
+        console.log("Socket event: actualizar_saldo recibida", nuevoSaldo);
         if (currentUser) currentUser.saldo = nuevoSaldo;
         if (userBalanceDisplay) userBalanceDisplay.textContent = '$' + nuevoSaldo;
+    });
+
+    socket.on('notificacion', (data) => {
+        console.log("Socket event: notificacion recibida", data);
+        if (data.mensaje) {
+            mostrarToast(data.mensaje, 5000);
+        }
     });
 
     // --- LÓGICA DOBLE CONFIRMACIÓN ---
@@ -1854,6 +1924,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert(data.error);
             }
         } catch (e) {
+            console.error(e);
             alert("Error eliminando sorteo");
         }
     };
