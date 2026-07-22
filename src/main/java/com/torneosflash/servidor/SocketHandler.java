@@ -452,6 +452,13 @@ public class SocketHandler {
                     } else {
                         // Negociación - timer 90 segundos
                         System.out.println("🔌 " + client.getUserData().get("username").getAsString() + " se fue en negociación. Timer 90s.");
+                        
+                        // Cancelar su voto si lo tenía
+                        if (match.votosInicio.containsKey(userId)) {
+                            match.votosInicio.remove(userId);
+                            match.confirmaciones.remove(userId);
+                            client.to(salaId).emit("rival_cancelo_inicio");
+                        }
 
                         JsonObject timerData = new JsonObject();
                         timerData.addProperty("tiempo", 90);

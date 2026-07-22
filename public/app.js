@@ -1445,6 +1445,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 4. Activar botón
         if (btnStartGame) {
+            // No tocar el botón si estamos esperando confirmación del rival
+            if (btnStartGame.classList.contains('waiting-cancel')) return;
+
             if (error === "" && modo.length >= 3 && !isNaN(dinero)) {
                 btnStartGame.disabled = false;
                 btnStartGame.classList.add('enabled');
@@ -1481,15 +1484,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 socket.emit('cancelar_inicio');
                 btnStartGame.textContent = "🎮 COMENZAR PARTIDA";
                 btnStartGame.disabled = false;
+                btnStartGame.classList.remove('waiting-cancel');
                 btnStartGame.classList.add('enabled');
-                btnStartGame.style.backgroundColor = "#43b581";
+                btnStartGame.style.backgroundColor = ""; // reset inline style
                 return;
             }
 
             // Cambiar texto visualmente
             btnStartGame.textContent = "⏳ ESPERANDO AL RIVAL... (Click para cancelar)";
             btnStartGame.classList.remove('enabled');
-            btnStartGame.style.backgroundColor = "#faa61a"; // Amarillo
+            btnStartGame.classList.add('waiting-cancel');
 
             // Enviar voto
             socket.emit('iniciar_juego', {
@@ -1503,8 +1507,8 @@ document.addEventListener('DOMContentLoaded', () => {
     socket.on('esperando_inicio_rival', () => {
         if (btnStartGame) {
             btnStartGame.textContent = "⏳ ESPERANDO AL RIVAL... (Click para cancelar)";
-            btnStartGame.style.backgroundColor = "#faa61a"; // Amarillo
             btnStartGame.classList.remove('enabled');
+            btnStartGame.classList.add('waiting-cancel');
         }
     });
 
@@ -1521,8 +1525,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnStartGame) {
             btnStartGame.textContent = "🎮 COMENZAR PARTIDA";
             btnStartGame.disabled = false;
+            btnStartGame.classList.remove('waiting-cancel');
             btnStartGame.classList.add('enabled');
-            btnStartGame.style.backgroundColor = "#43b581";
+            btnStartGame.style.backgroundColor = "";
         }
     });
 
@@ -1618,6 +1623,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 inputGameMode.disabled = false;
                 inputBetAmount.disabled = false;
                 btnStartGame.textContent = "🎮 COMENZAR PARTIDA";
+                btnStartGame.classList.remove('waiting-cancel');
+                btnStartGame.style.backgroundColor = "";
                 
                 // Actualizar validación para ver si el botón debe habilitarse
                 validarNegociacion();
@@ -1652,8 +1659,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (btnStartGame) {
                 btnStartGame.textContent = "🎮 COMENZAR PARTIDA";
                 btnStartGame.disabled = false;
+                btnStartGame.classList.remove('waiting-cancel');
                 btnStartGame.classList.add('enabled');
-                btnStartGame.style.backgroundColor = "#43b581";
+                btnStartGame.style.backgroundColor = "";
             }
         });
 
@@ -1662,8 +1670,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (btnStartGame) {
                 btnStartGame.textContent = "🎮 COMENZAR PARTIDA";
                 btnStartGame.disabled = false;
+                btnStartGame.classList.remove('waiting-cancel');
                 btnStartGame.classList.add('enabled');
-                btnStartGame.style.backgroundColor = "#43b581";
+                btnStartGame.style.backgroundColor = "";
             }
         });
 
