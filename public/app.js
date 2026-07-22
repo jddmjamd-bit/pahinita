@@ -6,6 +6,31 @@ const isNativeApp = typeof window.Capacitor !== 'undefined';
 const API_BASE_URL = isNativeApp ? 'https://torneos-beta.onrender.com' : '';
 console.log(`📱 Modo: ${isNativeApp ? 'APP NATIVA' : 'WEB'}, API: ${API_BASE_URL || 'local'}`);
 
+window.abrirMediaModal = function(src, tipo) {
+    let lb = document.getElementById('media-lightbox');
+    if (!lb) {
+        lb = document.createElement('div');
+        lb.id = 'media-lightbox';
+        lb.className = 'media-lightbox';
+        lb.innerHTML = '<button class="lightbox-close" onclick="document.getElementById(\'media-lightbox\').style.display=\'none\'; document.body.style.overflow=\'\';">&times;</button><div class="lightbox-content" id="lightbox-content"></div>';
+        lb.onclick = function(e) {
+            if (e.target === lb) { lb.style.display = 'none'; document.body.style.overflow = ''; document.getElementById('lightbox-content').innerHTML = ''; }
+        };
+        document.body.appendChild(lb);
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && lb.style.display === 'flex') { lb.style.display = 'none'; document.body.style.overflow = ''; document.getElementById('lightbox-content').innerHTML = ''; }
+        });
+    }
+    const cont = document.getElementById('lightbox-content');
+    if (tipo === 'video') {
+        cont.innerHTML = `<video src="${src}" class="lightbox-video" controls autoplay></video>`;
+    } else {
+        cont.innerHTML = `<img src="${src}" class="lightbox-img">`;
+    }
+    lb.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+};
+
 // --- FUNCIÓN GLOBAL DE VERIFICACIÓN DE SESIÓN (Accesible desde visibilitychange) ---
 async function verificarSesion(enterIfValid = true) {
     try {
@@ -1189,7 +1214,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const fechaMsg = data.fecha ? new Date(data.fecha) : new Date(); const diaMsg = fechaMsg.toDateString();
         if (diaMsg !== lastDatePainted[canal]) { const sep = document.createElement('div'); sep.classList.add('date-separator'); sep.textContent = (diaMsg === new Date().toDateString()) ? "Hoy" : fechaMsg.toLocaleDateString(); contenedor.appendChild(sep); lastDatePainted[canal] = diaMsg; }
         const div = document.createElement('div'); div.classList.add('msg'); div.classList.add((currentUser && data.usuario === currentUser.username) ? 'own' : 'other');
-        let content = ''; if (data.tipo === 'imagen') content = `<img src="${data.texto}" class="chat-image" onclick="window.open(this.src)">`; else if (data.tipo === 'video') content = `<video src="${data.texto}" class="chat-video" controls></video>`; else {
+        let content = ''; if (data.tipo === 'imagen') content = `<img src="${data.texto}" class="chat-image" onclick="window.abrirMediaModal(this.src, 'imagen')">`; else if (data.tipo === 'video') content = `<video src="${data.texto}" class="chat-video" controls onclick="window.abrirMediaModal(this.src, 'video')"></video>`; else {
             // AQUÍ ESTÁ EL CAMBIO: Usamos la función convertirLinks
             content = `<span class="msg-text">${convertirLinks(data.texto)}</span>`;
         }
