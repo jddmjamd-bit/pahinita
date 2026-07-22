@@ -72,6 +72,12 @@ public class Main {
         // 5. SERVIDOR HTTP (Javalin)
         // ============================================
         Javalin app = Javalin.create(javalinConfig -> {
+            // Aumentar límites de WebSocket a 50MB
+            javalinConfig.jetty.modifyWebSocketServletFactory(wsFactory -> {
+                wsFactory.setMaxTextMessageSize(50_000_000);
+                wsFactory.setMaxBinaryMessageSize(50_000_000);
+            });
+
             // Configurar Gson como el Object Mapper oficial
             Gson gson = new GsonBuilder().create();
             javalinConfig.jsonMapper(new JsonMapper() {

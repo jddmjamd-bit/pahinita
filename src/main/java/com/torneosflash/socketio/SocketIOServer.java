@@ -96,7 +96,7 @@ public class SocketIOServer {
                 openData.add("upgrades", gson.toJsonTree(new String[]{"websocket"}));
                 openData.addProperty("pingInterval", PING_INTERVAL);
                 openData.addProperty("pingTimeout", PING_TIMEOUT);
-                openData.addProperty("maxPayload", 1000000);
+                openData.addProperty("maxPayload", 50000000);
 
                 ctx.contentType("text/plain; charset=UTF-8");
                 ctx.result("0" + openData.toString());
@@ -194,7 +194,7 @@ public class SocketIOServer {
         openData.add("upgrades", gson.toJsonTree(new String[0]));
         openData.addProperty("pingInterval", PING_INTERVAL);
         openData.addProperty("pingTimeout", PING_TIMEOUT);
-        openData.addProperty("maxPayload", 1000000);
+        openData.addProperty("maxPayload", 50000000);
         client.sendRaw("0" + openData.toString());
     }
 
