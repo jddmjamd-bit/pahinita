@@ -105,34 +105,58 @@ public class SocketHandler {
                     }
 
                     // Recuperar sala si existe
-                    String salaActual = user.has("sala_actual") && !user.get("sala_actual").isJsonNull() ?
-                            user.get("sala_actual").getAsString() : null;
+                    JsonObject dbUser = db.queryOne("SELECT sala_actual, estado FROM users WHERE id = ?", userId);
+                    String salaActual = (dbUser != null && dbUser.has("sala_actual") && !dbUser.get("sala_actual").isJsonNull()) ?
+                            dbUser.get("sala_actual").getAsString() : null;
                     if (salaActual != null && activeMatches.containsKey(salaActual)) {
                         ActiveMatch match = activeMatches.get(salaActual);
                         // Cancelar timer de desconexión
                         if (match.disconnectTimers.containsKey(userId)) {
                             match.disconnectTimers.get(userId).cancel(false);
                             match.disconnectTimers.remove(userId);
-                            client.to(salaActual).emit("rival_reconectado");
+                            
+                            JsonObject reData = new JsonObject();
+                            reData.addProperty("username", username);
+                            client.to(salaActual).emit("rival_reconectado", reData);
                         }
                         client.join(salaActual);
                         client.setCurrentRoom(salaActual);
 
-                        // Reemplazar socket en el match
+                        // Reemplazar socket en el match y encontrar rival
+                        JsonObject rivalData = null;
                         for (int i = 0; i < match.players.size(); i++) {
-                            if (match.players.get(i).getUserData() != null &&
-                                match.players.get(i).getUserData().get("id").getAsInt() == userId) {
-                                match.players.set(i, client);
-                                break;
+                            SocketIOClient p = match.players.get(i);
+                            if (p.getUserData() != null) {
+                                if (p.getUserData().get("id").getAsInt() == userId) {
+                                    match.players.set(i, client);
+                                } else {
+                                    rivalData = p.getUserData();
+                                }
                             }
                         }
+
+                        // Si no se encontró en memoria, buscarlo en BD
+                        if (rivalData == null) {
+                           rivalData = db.queryOne("SELECT * FROM users WHERE sala_actual = ? AND id != ?", salaActual, userId);
+                        }
+                        
+                        // Calculo de maxApuesta
+                        double miSaldo = user.get("saldo").getAsDouble();
+                        double rivalSaldo = rivalData != null && rivalData.has("saldo") ? rivalData.get("saldo").getAsDouble() : 0;
+                        double maxAp = Math.min(miSaldo, rivalSaldo);
 
                         // Datos para restaurar
                         ArrayList<JsonObject> msgs = db.query("SELECT * FROM messages WHERE canal = ? ORDER BY id ASC", salaActual);
                         JsonObject restoreData = new JsonObject();
                         restoreData.addProperty("salaId", salaActual);
                         restoreData.addProperty("iniciado", match.iniciado);
+                        restoreData.addProperty("estado", dbUser != null && dbUser.has("estado") ? dbUser.get("estado").getAsString() : "partida_encontrada");
+                        restoreData.addProperty("maxApuesta", maxAp);
+                        if (rivalData != null) restoreData.add("rival", rivalData);
                         restoreData.add("historial", gson.toJsonTree(msgs));
+                        restoreData.addProperty("lastModo", match.lastModo);
+                        restoreData.addProperty("lastDinero", match.lastDinero);
+                        
                         client.emit("restaurar_partida", restoreData);
                     }
 
@@ -238,9 +262,16 @@ public class SocketHandler {
 
             // --- NEGOCIACIÓN EN VIVO ---
             socket.on("negociacion_live", (client, data) -> {
-                JsonObject d = ((JsonElement) data[0]).getAsJsonObject();
-                String salaId = d.get("salaId").getAsString();
-                client.to(salaId).emit("actualizar_negociacion", d);
+                try {
+                    JsonObject d = ((JsonElement) data[0]).getAsJsonObject();
+                    String salaId = d.get("salaId").getAsString();
+                    if (activeMatches.containsKey(salaId)) {
+                        ActiveMatch match = activeMatches.get(salaId);
+                        if (d.has("modo")) match.lastModo = d.get("modo").getAsString();
+                        if (d.has("dinero")) match.lastDinero = d.get("dinero").getAsString();
+                    }
+                    client.to(salaId).emit("actualizar_negociacion", d);
+                } catch (Exception ignored) {}
             });
 
             // --- INICIAR JUEGO ---
@@ -267,11 +298,74 @@ public class SocketHandler {
                             io.to(salaId).emit("error_negociacion", new JsonPrimitive("Montos distintos"));
                             return;
                         }
+                        
+                        String modo1 = match.votosInicio.get(ids.get(0)).has("modo") ? match.votosInicio.get(ids.get(0)).get("modo").getAsString() : "N/A";
+
+                        // Emitir confirmación modal
+                        JsonObject confirmData = new JsonObject();
+                        confirmData.addProperty("modo", modo1);
+                        confirmData.addProperty("monto", ap1);
+                        io.to(salaId).emit("confirmar_partida", confirmData);
+                        
+                        // Limpiar confirmaciones anteriores si las hay
+                        match.confirmaciones.clear();
+                    } else {
+                        client.emit("esperando_inicio_rival");
+                    }
+                } catch (Exception e) {
+                    System.err.println("Error iniciar_juego: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            });
+
+            // --- CANCELAR INICIO ---
+            socket.on("cancelar_inicio", (client, data) -> {
+                try {
+                    String salaId = client.getCurrentRoom();
+                    if (salaId == null || !activeMatches.containsKey(salaId)) return;
+                    ActiveMatch match = activeMatches.get(salaId);
+                    if (match.iniciado) return;
+
+                    int myId = client.getUserData().get("id").getAsInt();
+                    match.votosInicio.remove(myId);
+                    client.to(salaId).emit("rival_cancelo_inicio");
+                } catch (Exception ignored) {}
+            });
+
+            // --- RESPUESTA DE CONFIRMACION ---
+            socket.on("confirmar_partida_resp", (client, data) -> {
+                try {
+                    JsonObject d = ((JsonElement) data[0]).getAsJsonObject();
+                    boolean acepta = d.get("acepta").getAsBoolean();
+                    String salaId = client.getCurrentRoom();
+                    if (salaId == null || !activeMatches.containsKey(salaId)) return;
+                    ActiveMatch match = activeMatches.get(salaId);
+                    if (match.iniciado) return;
+
+                    int myId = client.getUserData().get("id").getAsInt();
+                    
+                    if (!acepta) {
+                        // Alguien rechazó la confirmación
+                        match.votosInicio.clear();
+                        match.confirmaciones.clear();
+                        io.to(salaId).emit("confirmacion_rechazada");
+                        return;
+                    }
+
+                    match.confirmaciones.put(myId, true);
+                    
+                    if (match.players.size() == 2 && match.confirmaciones.size() == 2) {
+                        // Ambos confirmaron, iniciar el juego de verdad
+                        List<Integer> ids = new ArrayList<>();
+                        for (SocketIOClient p : match.players) ids.add(p.getUserData().get("id").getAsInt());
+                        
+                        int ap1 = match.votosInicio.get(ids.get(0)).get("dinero").getAsInt();
+                        String modo = match.votosInicio.get(ids.get(0)).has("modo") ?
+                                match.votosInicio.get(ids.get(0)).get("modo").getAsString() : "N/A";
 
                         match.iniciado = true;
                         match.matchStartTime = java.time.Instant.now().toString();
                         match.apuesta = ap1;
-
 
                         // Obtener tags
                         JsonObject p1 = db.queryOne("SELECT player_tag FROM users WHERE id = ?", ids.get(0));
@@ -285,7 +379,7 @@ public class SocketHandler {
                             db.update("UPDATE users SET saldo = saldo - ?, estado = 'jugando', paso_juego = 0, total_apostado = total_apostado + ? WHERE id = ?",
                                     (double) match.apuesta, (double) match.apuesta, pid);
                             JsonObject saldoRes = db.queryOne("SELECT saldo FROM users WHERE id = ?", pid);
-                            double nuevoSaldo = saldoRes != null ? saldoRes.get("saldo").getAsDouble() : 0;
+                            double nuevoSaldo = saldoRes != null && saldoRes.has("saldo") ? saldoRes.get("saldo").getAsDouble() : 0;
                             p.getUserData().addProperty("saldo", nuevoSaldo);
                             p.emit("actualizar_saldo", new JsonPrimitive(nuevoSaldo));
                         }
@@ -293,8 +387,7 @@ public class SocketHandler {
                         // Crear match en BD
                         String j1 = match.players.get(0).getUserData().get("username").getAsString();
                         String j2 = match.players.get(1).getUserData().get("username").getAsString();
-                        String modo = match.votosInicio.get(ids.get(0)).has("modo") ?
-                                match.votosInicio.get(ids.get(0)).get("modo").getAsString() : "N/A";
+                        
                         int dbId = db.insertReturningId("INSERT INTO matches (jugador1, jugador2, modo, apuesta) VALUES (?, ?, ?, ?) RETURNING id",
                                 j1, j2, modo, (double) match.apuesta);
                         match.dbId = dbId;
@@ -307,12 +400,9 @@ public class SocketHandler {
 
                         // Iniciar polling de la API
                         iniciarPollingApi(salaId, match, ids);
-                    } else {
-                        client.emit("esperando_inicio_rival");
                     }
                 } catch (Exception e) {
-                    System.err.println("Error iniciar_juego: " + e.getMessage());
-                    e.printStackTrace();
+                    System.err.println("Error confirmar_partida_resp: " + e.getMessage());
                 }
             });
 
@@ -615,6 +705,9 @@ public class SocketHandler {
         String matchStartTime = "";
         ConcurrentHashMap<Integer, JsonObject> votosInicio = new ConcurrentHashMap<>();
         ConcurrentHashMap<Integer, ScheduledFuture<?>> disconnectTimers = new ConcurrentHashMap<>();
+        ConcurrentHashMap<Integer, Boolean> confirmaciones = new ConcurrentHashMap<>();
+        String lastModo = "";
+        String lastDinero = "";
         int pollCount = 0;
         ScheduledFuture<?> pollFuture;
     }

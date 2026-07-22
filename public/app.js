@@ -1249,46 +1249,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         socket.on('error_busqueda', (m) => { alert(m); actualizarEstadoVisual('normal'); });
 
-        // Handler para reconexión con partida activa - navegar automáticamente al chat privado
-        socket.on('restaurar_partida', (data) => {
-            console.log("🔄 Restaurando partida:", data);
-            currentRoomId = data.salaId;
-            maxBetAllowed = data.maxApuesta;
-
-            // Limpieza
-            const privateMsgs = document.getElementById('private-messages');
-            if (privateMsgs) privateMsgs.innerHTML = '';
-
-            // Mostrar datos del rival
-            document.getElementById('rival-name').textContent = `VS ${data.rival.username}`;
-            document.getElementById('max-bet-info').textContent = `Tope: $${maxBetAllowed.toLocaleString()}`;
-
-            // Restaurar historial de chat privado
-            if (data.historial && data.historial.length > 0) {
-                data.historial.forEach(msg => {
-                    agregarBurbujaPrivada(msg);
-                });
-            }
-
-            // Configurar UI según estado
-            if (data.iniciado) {
-                // Partida ya iniciada - ir a resultado
-                actualizarEstadoVisual('jugando', true);
-                ejecutarCambioVista('game_result', null);
-            } else {
-                // En negociación - ir a chat privado
-                inputGameMode.value = '';
-                inputBetAmount.value = '';
-                inputGameMode.disabled = false;
-                inputBetAmount.disabled = false;
-                btnStartGame.textContent = "🎮 COMENZAR PARTIDA";
-                btnStartGame.disabled = true;
-                btnStartGame.classList.remove('enabled');
-
-                actualizarEstadoVisual('partida_encontrada', true);
-                ejecutarCambioVista('private', null);
-            }
-        });
 
         socket.on('partida_encontrada', (data) => {
             alert(`¡RIVAL ENCONTRADO!`);
@@ -1516,9 +1476,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnStartGame) {
         btnStartGame.addEventListener('click', () => {
             if (!currentUser) return;
+            
+            if (btnStartGame.textContent === "⏳ ESPERANDO AL RIVAL... (Click para cancelar)") {
+                socket.emit('cancelar_inicio');
+                btnStartGame.textContent = "🎮 COMENZAR PARTIDA";
+                btnStartGame.disabled = false;
+                btnStartGame.classList.add('enabled');
+                btnStartGame.style.backgroundColor = "#43b581";
+                return;
+            }
+
             // Cambiar texto visualmente
-            btnStartGame.textContent = "⏳ ESPERANDO AL RIVAL...";
-            btnStartGame.disabled = true;
+            btnStartGame.textContent = "⏳ ESPERANDO AL RIVAL... (Click para cancelar)";
             btnStartGame.classList.remove('enabled');
             btnStartGame.style.backgroundColor = "#faa61a"; // Amarillo
 
@@ -1533,8 +1502,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- EVENTOS DE DOBLE CONFIRMACIÓN ---
     socket.on('esperando_inicio_rival', () => {
         if (btnStartGame) {
-            btnStartGame.textContent = "⏳ ESPERANDO AL RIVAL...";
-            btnStartGame.disabled = true;
+            btnStartGame.textContent = "⏳ ESPERANDO AL RIVAL... (Click para cancelar)";
             btnStartGame.style.backgroundColor = "#faa61a"; // Amarillo
             btnStartGame.classList.remove('enabled');
         }
@@ -1542,7 +1510,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     socket.on('rival_listo_inicio', () => {
         // Si yo aún no he dado listo, me avisa
-        if (btnStartGame && btnStartGame.textContent !== "⏳ ESPERANDO AL RIVAL...") {
+        if (btnStartGame && btnStartGame.textContent !== "⏳ ESPERANDO AL RIVAL... (Click para cancelar)") {
             alert("¡Tu rival está listo! Dale a COMENZAR para iniciar.");
         }
     });
@@ -1603,25 +1571,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Nombre del Rival
             const rivalObj = data.rival;
-            document.getElementById('rival-name').textContent = `VS ${rivalObj.username}`;
+            if (rivalObj) {
+                document.getElementById('rival-name').textContent = `VS ${rivalObj.username}`;
 
-            // 3. Calcular y Mostrar Estadísticas del Rival
-            let winRate = 0;
-            if (rivalObj.total_partidas > 0) {
-                winRate = Math.round((rivalObj.total_victorias / rivalObj.total_partidas) * 100);
+                // 3. Calcular y Mostrar Estadísticas del Rival
+                let winRate = 0;
+                if (rivalObj.total_partidas > 0) {
+                    winRate = Math.round((rivalObj.total_victorias / rivalObj.total_partidas) * 100);
+                }
+                const huidas = (rivalObj.salidas_chat || 0);
+
+                const statsBox = document.getElementById('rival-stats');
+                if (statsBox) {
+                    const colorWin = winRate >= 50 ? '#43b581' : '#ed4245';
+                    const colorFaltas = rivalObj.faltas > 0 ? '#ed4245' : '#bbb';
+
+                    statsBox.innerHTML = `
+                        <span style="color:${colorWin}" title="Win Rate">🏆 ${winRate}%</span>
+                        <span style="color:${colorFaltas}" title="Culpable en Disputas">💀 ${rivalObj.faltas || 0}</span>
+                        <span title="Huidas">🏃 ${huidas}</span>
+                    `;
+                }
             }
-            const huidas = (rivalObj.salidas_chat || 0);
 
-            const statsBox = document.getElementById('rival-stats');
-            if (statsBox) {
-                const colorWin = winRate >= 50 ? '#43b581' : '#ed4245';
-                const colorFaltas = rivalObj.faltas > 0 ? '#ed4245' : '#bbb';
-
-                statsBox.innerHTML = `
-                    <span style="color:${colorWin}" title="Win Rate">🏆 ${winRate}%</span>
-                    <span style="color:${colorFaltas}" title="Culpable en Disputas">💀 ${rivalObj.faltas || 0}</span>
-                    <span title="Huidas">🏃 ${huidas}</span>
-                `;
+            // Restaurar chat privado
+            const privateMsgs = document.getElementById('private-messages');
+            if (privateMsgs) privateMsgs.innerHTML = '';
+            if (data.historial && data.historial.length > 0) {
+                data.historial.forEach(msg => {
+                    agregarBurbuja(msg, privateMsgs, 'privado');
+                });
             }
 
             // 4. Restaurar Estado de la UI
@@ -1633,11 +1612,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 btnStartGame.disabled = true;
                 btnStartGame.classList.remove('enabled');
             } else {
-                // Si estamos negociando, desbloqueamos
+                // Si estamos negociando, desbloqueamos y rellenamos
+                inputGameMode.value = data.lastModo || '';
+                inputBetAmount.value = data.lastDinero || '';
                 inputGameMode.disabled = false;
                 inputBetAmount.disabled = false;
                 btnStartGame.textContent = "🎮 COMENZAR PARTIDA";
-                // (La validación normal se encargará de habilitarlo si hay datos)
+                
+                // Actualizar validación para ver si el botón debe habilitarse
+                validarNegociacion();
             }
 
             // 5. Ir a la vista correcta según el estado
@@ -1655,6 +1638,50 @@ document.addEventListener('DOMContentLoaded', () => {
 
             console.log("Conexión recuperada y chat reactivado.");
         });
+
+        // --- EVENTOS DE CONFIRMACIÓN DE PARTIDA ---
+        socket.on('confirmar_partida', (data) => {
+            document.getElementById('confirm-modo').textContent = data.modo;
+            document.getElementById('confirm-apuesta').textContent = data.monto;
+            document.getElementById('match-confirm-modal').classList.remove('hidden');
+        });
+
+        socket.on('confirmacion_rechazada', () => {
+            document.getElementById('match-confirm-modal').classList.add('hidden');
+            alert("⚠️ Alguien rechazó la confirmación de la partida.");
+            if (btnStartGame) {
+                btnStartGame.textContent = "🎮 COMENZAR PARTIDA";
+                btnStartGame.disabled = false;
+                btnStartGame.classList.add('enabled');
+                btnStartGame.style.backgroundColor = "#43b581";
+            }
+        });
+
+        socket.on('rival_cancelo_inicio', () => {
+            alert("⚠️ El rival canceló su voto para iniciar.");
+            if (btnStartGame) {
+                btnStartGame.textContent = "🎮 COMENZAR PARTIDA";
+                btnStartGame.disabled = false;
+                btnStartGame.classList.add('enabled');
+                btnStartGame.style.backgroundColor = "#43b581";
+            }
+        });
+
+        const btnAcceptMatch = document.getElementById('btn-accept-match');
+        const btnRejectMatch = document.getElementById('btn-reject-match');
+        if (btnAcceptMatch) {
+            btnAcceptMatch.addEventListener('click', () => {
+                socket.emit('confirmar_partida_resp', { acepta: true });
+                btnAcceptMatch.disabled = true;
+                btnAcceptMatch.textContent = "Esperando...";
+            });
+        }
+        if (btnRejectMatch) {
+            btnRejectMatch.addEventListener('click', () => {
+                socket.emit('confirmar_partida_resp', { acepta: false });
+                document.getElementById('match-confirm-modal').classList.add('hidden');
+            });
+        }
     }
 
     if (btnWin && btnLose && btnConfirmResult) {

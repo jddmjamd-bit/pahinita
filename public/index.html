@@ -285,6 +285,26 @@
                 </div>
             </div>
 
+            <!-- MODAL CONFIRMACIÓN DE PARTIDA -->
+            <div id="match-confirm-modal" class="modal-overlay hidden">
+                <div class="modal-content" style="text-align: center;">
+                    <header class="modal-header">
+                        <h3 style="margin: 0 auto;">⚠️ Confirmar Partida</h3>
+                    </header>
+                    <div class="deposit-section">
+                        <p style="color: #bbb; margin-bottom: 15px;">¿Estás seguro de iniciar con esta configuración?</p>
+                        <div style="background: #202225; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                            <p style="font-size: 1.1rem;">Modo: <strong id="confirm-modo" style="color: #fff;"></strong></p>
+                            <p style="font-size: 1.1rem; margin-top: 5px;">Apuesta: $<strong id="confirm-apuesta" style="color: #faa61a;"></strong></p>
+                        </div>
+                        <div style="display: flex; gap: 10px; justify-content: center;">
+                            <button id="btn-reject-match" class="deposit-action-btn" style="background: #ed4245; flex: 1; margin-top: 0;">Rechazar</button>
+                            <button id="btn-accept-match" class="deposit-action-btn" style="background: #43b581; flex: 1; margin-top: 0;">Aceptar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- LEADERBOARD -->
             <div id="view-leaderboard" class="view-section hidden">
                 <header class="chat-header">
