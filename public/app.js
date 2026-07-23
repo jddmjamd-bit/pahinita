@@ -1487,6 +1487,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 btnStartGame.classList.remove('waiting-cancel');
                 btnStartGame.classList.add('enabled');
                 btnStartGame.style.backgroundColor = ""; // reset inline style
+                btnStartGame.style.pointerEvents = ""; // reset inline pointer-events
                 return;
             }
 
@@ -1494,6 +1495,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btnStartGame.textContent = "⏳ ESPERANDO AL RIVAL... (Click para cancelar)";
             btnStartGame.classList.remove('enabled');
             btnStartGame.classList.add('waiting-cancel');
+            btnStartGame.style.pointerEvents = "all";
 
             // Enviar voto
             socket.emit('iniciar_juego', {
@@ -1509,6 +1511,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btnStartGame.textContent = "⏳ ESPERANDO AL RIVAL... (Click para cancelar)";
             btnStartGame.classList.remove('enabled');
             btnStartGame.classList.add('waiting-cancel');
+            btnStartGame.style.pointerEvents = "all";
         }
     });
 
@@ -1528,6 +1531,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btnStartGame.classList.remove('waiting-cancel');
             btnStartGame.classList.add('enabled');
             btnStartGame.style.backgroundColor = "";
+            btnStartGame.style.pointerEvents = "";
         }
     });
 
@@ -1625,6 +1629,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 btnStartGame.textContent = "🎮 COMENZAR PARTIDA";
                 btnStartGame.classList.remove('waiting-cancel');
                 btnStartGame.style.backgroundColor = "";
+                btnStartGame.style.pointerEvents = "";
                 
                 // Actualizar validación para ver si el botón debe habilitarse
                 validarNegociacion();
@@ -1662,6 +1667,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 btnStartGame.classList.remove('waiting-cancel');
                 btnStartGame.classList.add('enabled');
                 btnStartGame.style.backgroundColor = "";
+                btnStartGame.style.pointerEvents = "";
             }
         });
 
@@ -1673,6 +1679,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 btnStartGame.classList.remove('waiting-cancel');
                 btnStartGame.classList.add('enabled');
                 btnStartGame.style.backgroundColor = "";
+                btnStartGame.style.pointerEvents = "";
             }
         });
 
