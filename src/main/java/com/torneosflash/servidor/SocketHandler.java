@@ -3,6 +3,7 @@ package com.torneosflash.servidor;
 import com.google.gson.*;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.servicio.ClashApiServicio;
+import com.torneosflash.servicio.NotificacionPushServicio;
 import com.torneosflash.socketio.SocketIOClient;
 import com.torneosflash.socketio.SocketIOServer;
 import java.util.*;
@@ -25,13 +26,15 @@ public class SocketHandler {
     private final GenericDAO db;
     private final SocketIOServer io;
     private final ClashApiServicio clashApi;
+    private final NotificacionPushServicio pushService;
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
     private final Gson gson = new Gson();
 
-    public SocketHandler(GenericDAO db, SocketIOServer io, ClashApiServicio clashApi) {
+    public SocketHandler(GenericDAO db, SocketIOServer io, ClashApiServicio clashApi, NotificacionPushServicio pushService) {
         this.db = db;
         this.io = io;
         this.clashApi = clashApi;
+        this.pushService = pushService;
     }
 
     /**
@@ -180,6 +183,18 @@ public class SocketHandler {
                             canal, usuario, texto, tipo);
                     msg.addProperty("fecha", fecha);
                     io.emit("mensaje_chat", msg);
+
+                    // Push notification para mensajes de chat (a todos excepto el remitente)
+                    if (client.getUserData() != null) {
+                        int senderId = client.getUserData().get("id").getAsInt();
+                        String nombreCanal = canal.equals("general") ? "General" : canal.equals("clash") ? "Clash" : canal.equals("anuncios") ? "Anuncios" : canal;
+                        if (tipo.equals("texto")) {
+                            String preview = texto.length() > 50 ? texto.substring(0, 50) + "..." : texto;
+                            pushService.enviarPushATodos(db, Set.of(senderId), "💬 Mensaje en " + nombreCanal, usuario + ": " + preview);
+                        } else {
+                            pushService.enviarPushATodos(db, Set.of(senderId), "💬 Mensaje en " + nombreCanal, usuario + " envió " + (tipo.equals("imagen") ? "una imagen" : "un video"));
+                        }
+                    }
                 } catch (Exception e) { System.err.println("Error mensaje_chat: " + e.getMessage()); }
             });
 
@@ -232,6 +247,9 @@ public class SocketHandler {
                     buscandoData.addProperty("username", username);
                     buscandoData.addProperty("oderId", userId);
                     io.emit("alguien_buscando", buscandoData);
+
+                    // Push: notificar a todos que alguien busca partida
+                    pushService.enviarPushATodos(db, Set.of(userId), "🔍 Partida disponible", username + " está buscando partida!");
 
                     logClash("🔍 " + username + " busca...");
 
@@ -416,6 +434,22 @@ public class SocketHandler {
                                 d.get("salaId").getAsString(), d.get("usuario").getAsString(), d.get("texto").getAsString());
                         d.addProperty("fecha", fecha);
                         io.to(d.get("salaId").getAsString()).emit("mensaje_privado", d);
+
+                        // Push: notificar al rival sobre mensaje privado
+                        if (client.getUserData() != null) {
+                            int senderId = client.getUserData().get("id").getAsInt();
+                            String salaId = d.get("salaId").getAsString();
+                            if (activeMatches.containsKey(salaId)) {
+                                for (SocketIOClient p : activeMatches.get(salaId).players) {
+                                    if (p.getUserData() != null && p.getUserData().get("id").getAsInt() != senderId) {
+                                        String texto = d.get("texto").getAsString();
+                                        String preview = texto.length() > 50 ? texto.substring(0, 50) + "..." : texto;
+                                        pushService.enviarPush(db, p.getUserData().get("id").getAsInt(),
+                                                "💬 Mensaje privado", d.get("usuario").getAsString() + ": " + preview);
+                                    }
+                                }
+                            }
+                        }
                     }
                 } catch (Exception ignored) {}
             });
@@ -528,6 +562,10 @@ public class SocketHandler {
                 meSocket.emit("partida_encontrada", matchData);
                 if (rivalConectado) rivalSocket.emit("partida_encontrada", matchData);
 
+                // Push: notificar a ambos que se encontró partida
+                pushService.enviarPush(db, myId, "🎮 ¡Rival encontrado!", "Se encontró partida contra " + rival.username);
+                pushService.enviarPush(db, rival.oderId, "🎮 ¡Rival encontrado!", "Se encontró partida contra " + myData.get("username").getAsString());
+
                 // Limpiar búsquedas
                 colaEsperaClash.removeIf(s -> s.getUserData() != null &&
                         (s.getUserData().get("id").getAsInt() == myId || s.getUserData().get("id").getAsInt() == rival.oderId));
@@ -627,8 +665,13 @@ public class SocketHandler {
                         resultData.addProperty("ganador", winnerName);
                         resultData.addProperty("premio", premio);
                         resultData.addProperty("esGanador", esGanador);
-                        resultData.addProperty("mensaje", esGanador ? "🏆 ¡GANASTE! Recibiste $" + (int) premio : "💀 Perdiste. " + winnerName + " ganó la partida.");
+                        String mensajeResult = esGanador ? "🏆 ¡GANASTE! Recibiste $" + (int) premio : "💀 Perdiste. " + winnerName + " ganó la partida.";
+                        resultData.addProperty("mensaje", mensajeResult);
                         p.emit("resultado_api", resultData);
+
+                        // Push: notificar resultado
+                        String tituloResult = esGanador ? "🏆 ¡Ganaste!" : "💀 Resultado";
+                        pushService.enviarPush(db, p.getUserData().get("id").getAsInt(), tituloResult, mensajeResult);
                     }
                     liberarJugadores(salaId, match);
 

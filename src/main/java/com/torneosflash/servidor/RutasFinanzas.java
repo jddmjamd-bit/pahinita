@@ -3,6 +3,7 @@ package com.torneosflash.servidor;
 import com.google.gson.*;
 import com.torneosflash.config.AppConfig;
 import com.torneosflash.dao.GenericDAO;
+import com.torneosflash.servicio.NotificacionPushServicio;
 import com.torneosflash.socketio.SocketIOServer;
 import com.torneosflash.socketio.SocketIOClient;
 import io.javalin.Javalin;
@@ -16,7 +17,10 @@ import static com.torneosflash.servidor.RutasAuth.*;
  */
 public class RutasFinanzas {
 
-    public static void register(Javalin app, GenericDAO db, AppConfig config, SocketIOServer io) {
+    private static NotificacionPushServicio pushService;
+
+    public static void register(Javalin app, GenericDAO db, AppConfig config, SocketIOServer io, NotificacionPushServicio push) {
+        pushService = push;
 
         // POST /api/deposit (depósito manual por admin)
         app.post("/api/deposit", ctx -> {
@@ -30,7 +34,7 @@ public class RutasFinanzas {
             if (u != null) nuevoSaldo = u.get("saldo").getAsDouble();
 
             // Notificar via socket
-            notificarUsuario(io, userId, "✅ Recarga acreditada.", nuevoSaldo);
+            notificarUsuario(io, db, userId, "✅ Recarga acreditada.", nuevoSaldo);
             ctx.json(successJson("Depósito realizado", 0));
         });
 
@@ -74,7 +78,7 @@ public class RutasFinanzas {
             // Notificar saldo actualizado
             JsonObject updated = db.queryOne("SELECT saldo FROM users WHERE id = ?", userId);
             double nuevoSaldo = updated != null ? updated.get("saldo").getAsDouble() : 0;
-            notificarUsuario(io, userId, "⏳ Retiro en proceso...", nuevoSaldo);
+            notificarUsuario(io, db, userId, "⏳ Retiro en proceso...", nuevoSaldo);
 
             // Incluir newBalance en la respuesta HTTP para que el frontend actualice inmediatamente
             JsonObject response = new JsonObject();
@@ -147,7 +151,7 @@ public class RutasFinanzas {
 
                         JsonObject u = db.queryOne("SELECT saldo FROM users WHERE id = ?", userId);
                         double nuevoSaldo = u != null ? u.get("saldo").getAsDouble() : 0;
-                        notificarUsuario(io, userId, "✅ Pago Wompi aprobado. Saldo acreditado.", nuevoSaldo);
+                        notificarUsuario(io, db, userId, "✅ Pago Wompi aprobado. Saldo acreditado.", nuevoSaldo);
                     }
                 }
                 ctx.result("OK");
@@ -159,7 +163,7 @@ public class RutasFinanzas {
     }
 
     // --- Helpers ---
-    static void notificarUsuario(SocketIOServer io, int userId, String mensaje, double saldo) {
+    static void notificarUsuario(SocketIOServer io, GenericDAO db, int userId, String mensaje, double saldo) {
         System.out.println("Intentando notificar al usuario ID: " + userId + " - Mensaje: " + mensaje);
         System.out.println("-> Total sockets conectados actualmente: " + io.getSockets().size());
         boolean found = false;
@@ -180,6 +184,11 @@ public class RutasFinanzas {
         }
         if (!found) {
             System.out.println("-> ADVERTENCIA: No se encontró ningún socket conectado para el usuario ID " + userId);
+        }
+
+        // Enviar push notification (llega incluso con navegador cerrado)
+        if (pushService != null) {
+            pushService.enviarPush(db, userId, "Torneos Flash", mensaje);
         }
     }
 

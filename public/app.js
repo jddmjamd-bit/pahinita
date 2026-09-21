@@ -180,6 +180,90 @@ document.addEventListener('DOMContentLoaded', () => {
         navigator.mediaDevices.getUserMedia({ audio: true })
             .then(() => console.log("🎤 Permiso de micrófono concedido"))
             .catch(e => console.log("🎤 Permiso de micrófono denegado:", e.message));
+
+        // --- FIREBASE WEB PUSH NOTIFICATIONS ---
+        if (typeof firebase !== 'undefined' && firebase.messaging) {
+            try {
+                // Inicializar Firebase
+                const firebaseApp = firebase.initializeApp({
+                    apiKey: "AIzaSyBBodVPEhPdol4VZSpoSniJsKqDqMI72JA",
+                    authDomain: "partidas-torneos.firebaseapp.com",
+                    projectId: "partidas-torneos",
+                    storageBucket: "partidas-torneos.firebasestorage.app",
+                    messagingSenderId: "406556638556",
+                    appId: "1:406556638556:web:4b3f9249c649b5e5681599"
+                });
+
+                const messaging = firebase.messaging();
+
+                // Registrar Service Worker
+                navigator.serviceWorker.register('/firebase-messaging-sw.js')
+                    .then((registration) => {
+                        console.log("🔔 Service Worker registrado");
+
+                        // Solicitar permiso de notificaciones
+                        Notification.requestPermission().then((permission) => {
+                            console.log("🔔 Permiso de notificaciones:", permission);
+                            if (permission === 'granted') {
+                                // Obtener FCM token
+                                messaging.getToken({
+                                    vapidKey: 'BFXm9jDYCe9fBFivXLCWNf9EqP1zCUno4VXewyBXiULOaqqCZd-B5l1agc_8fiGjovXI39BFsFsGQ-Mpdl8Ou60',
+                                    serviceWorkerRegistration: registration
+                                }).then((token) => {
+                                    if (token) {
+                                        console.log("🔔 FCM Token web obtenido:", token.substring(0, 20) + "...");
+                                        window.fcmWebToken = token;
+                                        // Si ya tenemos usuario logueado, registrar token
+                                        if (sessionUserId) {
+                                            fetch(API_BASE_URL + '/api/register-token', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ userId: sessionUserId, token: token })
+                                            }).then(() => console.log("🔔 Token web registrado en servidor"))
+                                              .catch(e => console.error("Error registrando token web:", e));
+                                        }
+                                    }
+                                }).catch(e => console.error("🔔 Error obteniendo FCM token:", e));
+                            }
+                        });
+                    })
+                    .catch(e => console.error("🔔 Error registrando SW:", e));
+
+                // Manejar mensajes en foreground (NO mostrar notificación del sistema, el toast ya lo hace)
+                messaging.onMessage((payload) => {
+                    console.log("🔔 Push recibido en foreground (ignorado, toast maneja):", payload.notification?.title);
+                });
+
+                // Limpiar notificaciones al volver a la pestaña
+                document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState === 'visible') {
+                        // Limpiar notificaciones del service worker
+                        if (navigator.serviceWorker.controller) {
+                            navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_NOTIFICATIONS' });
+                        }
+                        // También intentar limpiar directamente
+                        navigator.serviceWorker.ready.then(reg => {
+                            reg.getNotifications().then(notifications => {
+                                notifications.forEach(n => n.close());
+                                if (notifications.length > 0) console.log("🔔 Notificaciones limpiadas:", notifications.length);
+                            });
+                        });
+                    }
+                });
+
+                // Limpiar al cargar la página
+                navigator.serviceWorker.ready.then(reg => {
+                    reg.getNotifications().then(notifications => {
+                        notifications.forEach(n => n.close());
+                    });
+                });
+
+            } catch (e) {
+                console.error("🔔 Error inicializando Firebase Messaging:", e);
+            }
+        } else {
+            console.log("⚠️ Firebase SDK no disponible");
+        }
     }
 
     // --- AUTO-LOGIN CON COOKIES ---
@@ -725,12 +809,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // --- REGISTRAR SOCKET: Siempre emitir (Socket.IO encola si no está conectado) ---
         if (socket) socket.emit('registrar_socket', user);
 
-        // --- REGISTRAR TOKEN FCM SI EXISTE ---
-        if (window.fcmToken && user.id) {
+        // --- REGISTRAR TOKEN FCM SI EXISTE (NATIVO o WEB) ---
+        const tokenToRegister = window.fcmToken || window.fcmWebToken;
+        if (tokenToRegister && user.id) {
             fetch(API_BASE_URL + '/api/register-token', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: user.id, token: window.fcmToken })
+                body: JSON.stringify({ userId: user.id, token: tokenToRegister })
             }).then(() => console.log("🔔 Token FCM registrado al login"))
                 .catch(e => console.error("Error registrando token:", e));
         }

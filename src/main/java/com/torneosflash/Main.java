@@ -6,6 +6,7 @@ import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.dao.UsuarioDAO;
 import com.torneosflash.servicio.ClashApiServicio;
 import com.torneosflash.servicio.CorreoServicio;
+import com.torneosflash.servicio.NotificacionPushServicio;
 import com.torneosflash.servidor.*;
 import com.torneosflash.socketio.SocketIOServer;
 import io.javalin.Javalin;
@@ -62,6 +63,12 @@ public class Main {
         }
 
         CorreoServicio correo = new CorreoServicio(config.getGmailUser(), config.getGmailPass());
+
+        // Servicio de Push Notifications (FCM)
+        NotificacionPushServicio pushService = new NotificacionPushServicio(
+                config.getFirebaseServiceAccount(),
+                "https://torneos-beta.onrender.com"
+        );
 
         // ============================================
         // 4. SOCKET.IO
@@ -130,9 +137,9 @@ public class Main {
         // 7. REGISTRAR RUTAS HTTP
         // ============================================
         RutasAuth.register(app, usuarioDAO, db, config, clashApi);
-        RutasFinanzas.register(app, db, config, socketServer);
-        RutasAdmin.register(app, usuarioDAO, db, socketServer);
-        RutasSorteos.register(app, db, socketServer, correo);
+        RutasFinanzas.register(app, db, config, socketServer, pushService);
+        RutasAdmin.register(app, usuarioDAO, db, socketServer, pushService);
+        RutasSorteos.register(app, db, socketServer, correo, pushService);
         RutasLeaderboard.register(app, db, socketServer);
         RutasDbAdmin.register(app, db, config);
         RutasMedia.register(app, db);
@@ -140,7 +147,7 @@ public class Main {
         // ============================================
         // 8. REGISTRAR SOCKET HANDLERS
         // ============================================
-        SocketHandler socketHandler = new SocketHandler(db, socketServer, clashApi);
+        SocketHandler socketHandler = new SocketHandler(db, socketServer, clashApi, pushService);
         socketHandler.registrar();
 
         // ============================================

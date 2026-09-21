@@ -3,6 +3,7 @@ package com.torneosflash.servidor;
 import com.google.gson.*;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.dao.UsuarioDAO;
+import com.torneosflash.servicio.NotificacionPushServicio;
 import com.torneosflash.socketio.SocketIOServer;
 import com.torneosflash.socketio.SocketIOClient;
 import io.javalin.Javalin;
@@ -17,7 +18,7 @@ import static com.torneosflash.servidor.RutasFinanzas.notificarUsuario;
 public class RutasAdmin {
 
     public static void register(Javalin app, UsuarioDAO usuarioDAO, GenericDAO db,
-                                 SocketIOServer io) {
+                                 SocketIOServer io, NotificacionPushServicio pushService) {
 
         // GET /api/admin/transactions (solo pendientes)
         app.get("/api/admin/transactions", ctx -> {
@@ -84,11 +85,11 @@ public class RutasAdmin {
                     db.update("UPDATE users SET saldo = saldo + ? WHERE id = ?", monto, userId);
                     JsonObject u = db.queryOne("SELECT saldo FROM users WHERE id = ?", userId);
                     double saldo = u != null ? u.get("saldo").getAsDouble() : 0;
-                    notificarUsuario(io, userId, "❌ Retiro rechazado. Saldo devuelto.", saldo);
+                    notificarUsuario(io, db, userId, "❌ Retiro rechazado. Saldo devuelto.", saldo);
                 } else {
                     JsonObject u = db.queryOne("SELECT saldo FROM users WHERE id = ?", userId);
                     double saldo = u != null ? u.get("saldo").getAsDouble() : 0;
-                    notificarUsuario(io, userId, "❌ Recarga rechazada.", saldo);
+                    notificarUsuario(io, db, userId, "❌ Recarga rechazada.", saldo);
                 }
                 db.update("UPDATE transactions SET estado = 'rechazado' WHERE id = ?", transId);
                 ctx.json(successJson("Rechazada", 0));
@@ -98,11 +99,11 @@ public class RutasAdmin {
                     db.update("UPDATE users SET saldo = saldo + ? WHERE id = ?", monto, userId);
                     JsonObject u = db.queryOne("SELECT saldo FROM users WHERE id = ?", userId);
                     double saldo = u != null ? u.get("saldo").getAsDouble() : 0;
-                    notificarUsuario(io, userId, "✅ Recarga aprobada.", saldo);
+                    notificarUsuario(io, db, userId, "✅ Recarga aprobada.", saldo);
                 } else {
                     JsonObject u = db.queryOne("SELECT saldo FROM users WHERE id = ?", userId);
                     double saldo = u != null ? u.get("saldo").getAsDouble() : 0;
-                    notificarUsuario(io, userId, "✅ Tu retiro ha sido enviado.", saldo);
+                    notificarUsuario(io, db, userId, "✅ Tu retiro ha sido enviado.", saldo);
                 }
                 db.update("UPDATE transactions SET estado = 'completado' WHERE id = ?", transId);
                 ctx.json(successJson("Aprobada", 0));

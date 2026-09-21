@@ -2,6 +2,7 @@ package com.torneosflash.servidor;
 
 import com.google.gson.*;
 import com.torneosflash.dao.GenericDAO;
+import com.torneosflash.servicio.NotificacionPushServicio;
 import com.torneosflash.socketio.SocketIOServer;
 import com.torneosflash.servicio.CorreoServicio;
 import io.javalin.Javalin;
@@ -14,7 +15,10 @@ import static com.torneosflash.servidor.RutasAuth.*;
  */
 public class RutasSorteos {
 
-    public static void register(Javalin app, GenericDAO db, SocketIOServer io, CorreoServicio correo) {
+    private static NotificacionPushServicio pushService;
+
+    public static void register(Javalin app, GenericDAO db, SocketIOServer io, CorreoServicio correo, NotificacionPushServicio push) {
+        pushService = push;
 
         // GET /api/raffle/tickets/:userId
         app.get("/api/raffle/tickets/{userId}", ctx -> {
@@ -146,6 +150,11 @@ public class RutasSorteos {
             JsonObject nuevoSorteo = db.queryOne("SELECT * FROM raffles WHERE id = ?", newId);
             io.emit("nuevo_sorteo", nuevoSorteo);
 
+            // Push: notificar a todos sobre nuevo sorteo
+            if (pushService != null) {
+                pushService.enviarPushATodos(db, java.util.Set.of(), "🎁 ¡Nuevo sorteo!", "Sorteo \"" + nombre + "\" disponible");
+            }
+
             JsonObject res = new JsonObject();
             res.addProperty("success", true);
             res.add("sorteo", nuevoSorteo);
@@ -226,6 +235,11 @@ public class RutasSorteos {
             ganadorData.addProperty("ganadorNombre", ganadorNombre);
             ganadorData.addProperty("ganadorId", ganadorId);
             io.emit("sorteo_ganador", ganadorData);
+
+            // Push: notificar al ganador del sorteo
+            if (pushService != null) {
+                pushService.enviarPush(db, ganadorId, "🏆 ¡Ganaste el sorteo!", "¡Felicidades! Ganaste \"" + nombre + "\"");
+            }
 
             System.out.println("🏆 Sorteo #" + raffleId + " completado. Ganador: " + ganadorNombre);
         } catch (Exception e) {
