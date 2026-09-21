@@ -160,6 +160,12 @@ public class ConexionDB {
                     "fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
             System.out.println("   ✓ Tabla leaderboard_history");
 
+            // 11. Media files (videos subidos por HTTP)
+            stmt.execute("CREATE TABLE IF NOT EXISTS media_files (" +
+                    "id SERIAL PRIMARY KEY, filename TEXT, content_type TEXT, " +
+                    "data BYTEA, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+            System.out.println("   ✓ Tabla media_files");
+
             System.out.println("👍 Todas las tablas verificadas en PostgreSQL.");
         } catch (Exception e) {
             System.err.println("❌ Error inicializando tablas: " + e.getMessage());

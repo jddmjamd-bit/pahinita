@@ -97,6 +97,7 @@ public class GenericDAO {
             else if (p instanceof Long) ps.setLong(i + 1, (Long) p);
             else if (p instanceof Double) ps.setDouble(i + 1, (Double) p);
             else if (p instanceof String) ps.setString(i + 1, (String) p);
+            else if (p instanceof byte[]) ps.setBytes(i + 1, (byte[]) p);
             else if (p == null) ps.setNull(i + 1, Types.VARCHAR);
             else ps.setObject(i + 1, p);
         }

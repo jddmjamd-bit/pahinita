@@ -135,6 +135,7 @@ public class Main {
         RutasSorteos.register(app, db, socketServer, correo);
         RutasLeaderboard.register(app, db, socketServer);
         RutasDbAdmin.register(app, db, config);
+        RutasMedia.register(app, db);
 
         // ============================================
         // 8. REGISTRAR SOCKET HANDLERS
