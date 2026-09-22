@@ -626,14 +626,30 @@ public class SocketHandler {
                     double pozo = match.apuesta * 2;
                     double comision = pozo * 0.20;
                     double premio = pozo - comision;
-                    double util = comision / 2;
+
+                    double comSorteos = comision * 0.20;
+                    double comMisiones = comision * 0.10;
+                    double comLogros = comision * 0.05;
+                    double comLeaderboard = comision * 0.15;
+                    double comDevolucion = comision * 0.15;
+                    double comReferidos = comision * 0.10;
+                    double comGanancia = comision - (comSorteos + comMisiones + comLogros + comLeaderboard + comDevolucion + comReferidos);
+                    double util = comGanancia / 2.0;
 
                     db.update("UPDATE users SET saldo = saldo + ?, total_ganado = total_ganado + ? WHERE id = ?", premio, premio, idGanador);
                     db.update("UPDATE users SET ganancia_generada = ganancia_generada + ? WHERE id IN (?, ?)", util, ids.get(0), ids.get(1));
                     db.update("UPDATE users SET total_victorias = total_victorias + 1, victorias_normales = victorias_normales + 1, total_partidas = total_partidas + 1, victorias_dia = victorias_dia + 1, victorias_semana = victorias_semana + 1, victorias_mes = victorias_mes + 1, victorias_ano = victorias_ano + 1 WHERE id = ?", idGanador);
                     int idPerdedor = (idGanador == ids.get(0)) ? ids.get(1) : ids.get(0);
                     db.update("UPDATE users SET total_derrotas = total_derrotas + 1, derrotas_normales = derrotas_normales + 1, total_partidas = total_partidas + 1 WHERE id = ?", idPerdedor);
-                    db.update("INSERT INTO admin_wallet (monto, razon, detalle) VALUES (?, 'comision_match', ?)", comision, "Match #" + match.dbId);
+
+                    String detalle = "Match #" + match.dbId;
+                    db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'sorteos')", comSorteos, detalle);
+                    db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'misiones')", comMisiones, detalle);
+                    db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'logros')", comLogros, detalle);
+                    db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'leaderboard')", comLeaderboard, detalle);
+                    db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'devolucion')", comDevolucion, detalle);
+                    db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'referidos')", comReferidos, detalle);
+                    db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'ganancia')", comGanancia, detalle);
 
                     // Acumular tickets
                     for (SocketIOClient p : match.players) {

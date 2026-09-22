@@ -119,7 +119,9 @@ public class ConexionDB {
             // 5. Bóveda Admin
             stmt.execute("CREATE TABLE IF NOT EXISTS admin_wallet (" +
                     "id SERIAL PRIMARY KEY, monto NUMERIC, razon TEXT, detalle TEXT, " +
+                    "categoria TEXT, " +
                     "fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+            ejecutarSilencioso(stmt, "ALTER TABLE admin_wallet ADD COLUMN IF NOT EXISTS categoria TEXT");
             System.out.println("   ✓ Tabla admin_wallet");
 
             // 6. Tokens FCM
@@ -167,8 +169,65 @@ public class ConexionDB {
             System.out.println("   ✓ Tabla media_files");
 
             System.out.println("👍 Todas las tablas verificadas en PostgreSQL.");
+
+            // Migración de datos antiguos de admin_wallet
+            migrarAdminWalletAntiguo(conn);
+
         } catch (Exception e) {
             System.err.println("❌ Error inicializando tablas: " + e.getMessage());
+        }
+    }
+
+    private void migrarAdminWalletAntiguo(Connection conn) {
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT * FROM admin_wallet WHERE categoria IS NULL")) {
+            
+            boolean hayMigraciones = false;
+            while (rs.next()) {
+                hayMigraciones = true;
+                int id = rs.getInt("id");
+                double monto = rs.getDouble("monto");
+                String razon = rs.getString("razon");
+                String detalle = rs.getString("detalle");
+                Timestamp fecha = rs.getTimestamp("fecha");
+
+                double comSorteos = monto * 0.20;
+                double comMisiones = monto * 0.10;
+                double comLogros = monto * 0.05;
+                double comLeaderboard = monto * 0.15;
+                double comDevolucion = monto * 0.15;
+                double comReferidos = monto * 0.10;
+                double comGanancia = monto - (comSorteos + comMisiones + comLogros + comLeaderboard + comDevolucion + comReferidos);
+
+                String insertSQL = "INSERT INTO admin_wallet (monto, razon, detalle, categoria, fecha) VALUES (?, ?, ?, ?, ?)";
+                try (PreparedStatement pst = conn.prepareStatement(insertSQL)) {
+                    Object[][] distribucion = {
+                        {comSorteos, "sorteos"}, {comMisiones, "misiones"}, {comLogros, "logros"},
+                        {comLeaderboard, "leaderboard"}, {comDevolucion, "devolucion"},
+                        {comReferidos, "referidos"}, {comGanancia, "ganancia"}
+                    };
+                    for (Object[] dist : distribucion) {
+                        pst.setDouble(1, (Double) dist[0]);
+                        pst.setString(2, razon);
+                        pst.setString(3, detalle);
+                        pst.setString(4, (String) dist[1]);
+                        pst.setTimestamp(5, fecha);
+                        pst.addBatch();
+                    }
+                    pst.executeBatch();
+                }
+
+                // Borrar la fila original sin categoría
+                try (PreparedStatement pstDelete = conn.prepareStatement("DELETE FROM admin_wallet WHERE id = ?")) {
+                    pstDelete.setInt(1, id);
+                    pstDelete.executeUpdate();
+                }
+            }
+            if (hayMigraciones) {
+                System.out.println("🔄 Migración de admin_wallet completada: registros antiguos divididos en 7 categorías.");
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ Error migrando admin_wallet: " + e.getMessage());
         }
     }
 

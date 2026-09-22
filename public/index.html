@@ -130,16 +130,20 @@
                 class="close-btn">&times;</button>
         </header>
 
-        <div class="stats-summary" style="display:flex; gap:10px; margin-bottom:20px;">
+        <div class="stats-summary" style="display:flex; gap:10px; margin-bottom:10px;">
             <div style="flex:1; background:#202225; padding:10px; border-radius:5px; text-align:center;">
                 <small>Dinero en Circulación (Usuarios)</small>
                 <h2 id="stat-users-money" style="color:#faa61a;">$0</h2>
             </div>
-            <div
-                style="flex:1; background:#202225; padding:10px; border-radius:5px; text-align:center; border: 1px solid #43b581;">
-                <small>MI DINERO (Ganancias)</small>
+            <div style="flex:1; background:#202225; padding:10px; border-radius:5px; text-align:center; border: 1px solid #43b581;">
+                <small>TOTAL HISTÓRICO (Comisiones)</small>
                 <h2 id="stat-admin-money" style="color:#43b581;">$0</h2>
             </div>
+        </div>
+
+        <h4 style="margin-bottom: 10px; color: #bbb;">Desglose de Comisiones</h4>
+        <div id="admin-category-breakdown" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 20px;">
+            <p style="color:#bbb; font-size:0.8rem;">Cargando categorías...</p>
         </div>
 
         <h4>Usuarios Registrados</h4>

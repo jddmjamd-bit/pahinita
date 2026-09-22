@@ -1234,6 +1234,32 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('stat-users-money').textContent = '$' + data.totalUsuarios.toLocaleString();
         document.getElementById('stat-admin-money').textContent = '$' + data.totalGanancias.toLocaleString();
 
+        // Llenar desglose de categorías
+        const breakdownContainer = document.getElementById('admin-category-breakdown');
+        if (breakdownContainer && data.desglose) {
+            breakdownContainer.innerHTML = '';
+            const iconos = {
+                sorteos: '🎰', misiones: '📋', logros: '🏅', 
+                leaderboard: '🏆', devolucion: '🔄', ganancia: '💰', referidos: '👥'
+            };
+            const nombres = {
+                sorteos: 'Sorteos (20%)', misiones: 'Misiones (10%)', logros: 'Logros (5%)', 
+                leaderboard: 'Leaderboard (15%)', devolucion: 'Devolución (15%)', ganancia: 'Ganancia (25%)', referidos: 'Referidos (10%)'
+            };
+            
+            for (const [cat, monto] of Object.entries(data.desglose)) {
+                const div = document.createElement('div');
+                div.style = "background:#202225; padding:10px; border-radius:5px; text-align:center; border: 1px solid #2f3136;";
+                div.innerHTML = `
+                    <div style="font-size: 1.5rem; margin-bottom: 5px;">${iconos[cat] || '📌'}</div>
+                    <div style="font-size: 0.75rem; color: #bbb; margin-bottom: 5px;">${nombres[cat] || cat}</div>
+                    <div style="color: #4ecca3; font-weight: bold;">Actual: $${monto.toLocaleString()}</div>
+                    <div style="color: #faa61a; font-size: 0.8rem; margin-top: 3px;">Histórico: $${monto.toLocaleString()}</div>
+                `;
+                breakdownContainer.appendChild(div);
+            }
+        }
+
         // Llenar lista usuarios
         const lista = document.getElementById('admin-users-list');
         lista.innerHTML = '';

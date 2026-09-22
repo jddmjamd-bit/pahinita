@@ -38,9 +38,18 @@ public class RutasAdmin {
             JsonObject saldoSum = db.queryOne("SELECT COALESCE(SUM(saldo),0) as total FROM users");
             stats.addProperty("totalUsuarios", saldoSum != null ? saldoSum.get("total").getAsDouble() : 0);
 
-            // Ganancias del admin = suma de admin_wallet
+            // Ganancias del admin = suma de admin_wallet (histórico total)
             JsonObject walletSum = db.queryOne("SELECT COALESCE(SUM(monto),0) as total FROM admin_wallet");
             stats.addProperty("totalGanancias", walletSum != null ? walletSum.get("total").getAsDouble() : 0);
+
+            // Desglose por categorías (Actual e Histórico - por ahora es lo mismo)
+            String[] categorias = {"sorteos", "misiones", "logros", "leaderboard", "devolucion", "ganancia", "referidos"};
+            JsonObject desglose = new JsonObject();
+            for (String cat : categorias) {
+                JsonObject catSum = db.queryOne("SELECT COALESCE(SUM(monto),0) as total FROM admin_wallet WHERE categoria = ?", cat);
+                desglose.addProperty(cat, catSum != null ? catSum.get("total").getAsDouble() : 0);
+            }
+            stats.add("desglose", desglose);
 
             // Lista de todos los usuarios con sus detalles
             java.util.ArrayList<JsonObject> usuarios = db.query(
@@ -128,7 +137,14 @@ public class RutasAdmin {
             double pozo = apuesta * 2;
             double comision = pozo * 0.20;
             double premio = pozo - comision;
-            double utilidad = comision / 2;
+            double comSorteos = comision * 0.20;
+            double comMisiones = comision * 0.10;
+            double comLogros = comision * 0.05;
+            double comLeaderboard = comision * 0.15;
+            double comDevolucion = comision * 0.15;
+            double comReferidos = comision * 0.10;
+            double comGanancia = comision - (comSorteos + comMisiones + comLogros + comLeaderboard + comDevolucion + comReferidos);
+            double utilidad = comGanancia / 2.0;
 
             String j1 = match.get("jugador1").getAsString();
             String j2 = match.get("jugador2").getAsString();
@@ -140,8 +156,15 @@ public class RutasAdmin {
             // Stats
             db.update("UPDATE users SET ganancia_generada = ganancia_generada + ? WHERE username IN (?, ?)",
                     utilidad, j1, j2);
-            db.update("INSERT INTO admin_wallet (monto, razon, detalle) VALUES (?, 'comision_disputa', ?)",
-                    comision, "Match #" + matchId);
+            
+            String detalle = "Match #" + matchId;
+            db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'sorteos')", comSorteos, detalle);
+            db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'misiones')", comMisiones, detalle);
+            db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'logros')", comLogros, detalle);
+            db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'leaderboard')", comLeaderboard, detalle);
+            db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'devolucion')", comDevolucion, detalle);
+            db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'referidos')", comReferidos, detalle);
+            db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'ganancia')", comGanancia, detalle);
 
             // Victorias/derrotas
             db.update("UPDATE users SET total_victorias = total_victorias + 1, victorias_disputa = victorias_disputa + 1, " +
