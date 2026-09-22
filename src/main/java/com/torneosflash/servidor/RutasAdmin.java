@@ -54,6 +54,7 @@ public class RutasAdmin {
             // Lista de todos los usuarios con sus detalles
             java.util.ArrayList<JsonObject> usuarios = db.query(
                 "SELECT id, username, email, saldo, tipo_suscripcion, ganancia_generada, " +
+                "gen_sorteos, gen_misiones, gen_logros, gen_leaderboard, gen_devolucion, gen_referidos, " +
                 "total_partidas, total_victorias, victorias_normales, victorias_disputa, " +
                 "total_derrotas, derrotas_normales, derrotas_disputa, " +
                 "faltas, salidas_chat, salidas_x, salidas_canal, salidas_desconexion " +
@@ -154,8 +155,8 @@ public class RutasAdmin {
                     premio, premio, winnerId);
 
             // Stats
-            db.update("UPDATE users SET ganancia_generada = ganancia_generada + ? WHERE username IN (?, ?)",
-                    utilidad, j1, j2);
+            db.update("UPDATE users SET ganancia_generada = ganancia_generada + ?, gen_sorteos = gen_sorteos + ?, gen_misiones = gen_misiones + ?, gen_logros = gen_logros + ?, gen_leaderboard = gen_leaderboard + ?, gen_devolucion = gen_devolucion + ?, gen_referidos = gen_referidos + ? WHERE username IN (?, ?)",
+                    utilidad, comSorteos / 2.0, comMisiones / 2.0, comLogros / 2.0, comLeaderboard / 2.0, comDevolucion / 2.0, comReferidos / 2.0, j1, j2);
             
             String detalle = "Match #" + matchId;
             db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'sorteos')", comSorteos, detalle);

@@ -637,7 +637,8 @@ public class SocketHandler {
                     double util = comGanancia / 2.0;
 
                     db.update("UPDATE users SET saldo = saldo + ?, total_ganado = total_ganado + ? WHERE id = ?", premio, premio, idGanador);
-                    db.update("UPDATE users SET ganancia_generada = ganancia_generada + ? WHERE id IN (?, ?)", util, ids.get(0), ids.get(1));
+                    db.update("UPDATE users SET ganancia_generada = ganancia_generada + ?, gen_sorteos = gen_sorteos + ?, gen_misiones = gen_misiones + ?, gen_logros = gen_logros + ?, gen_leaderboard = gen_leaderboard + ?, gen_devolucion = gen_devolucion + ?, gen_referidos = gen_referidos + ? WHERE id IN (?, ?)", 
+                              util, comSorteos / 2.0, comMisiones / 2.0, comLogros / 2.0, comLeaderboard / 2.0, comDevolucion / 2.0, comReferidos / 2.0, ids.get(0), ids.get(1));
                     db.update("UPDATE users SET total_victorias = total_victorias + 1, victorias_normales = victorias_normales + 1, total_partidas = total_partidas + 1, victorias_dia = victorias_dia + 1, victorias_semana = victorias_semana + 1, victorias_mes = victorias_mes + 1, victorias_ano = victorias_ano + 1 WHERE id = ?", idGanador);
                     int idPerdedor = (idGanador == ids.get(0)) ? ids.get(1) : ids.get(0);
                     db.update("UPDATE users SET total_derrotas = total_derrotas + 1, derrotas_normales = derrotas_normales + 1, total_partidas = total_partidas + 1 WHERE id = ?", idPerdedor);

@@ -94,6 +94,27 @@ public class ConexionDB {
             ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS victorias_semana INTEGER DEFAULT 0");
             ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS victorias_mes INTEGER DEFAULT 0");
             ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS victorias_ano INTEGER DEFAULT 0");
+            
+            // Nuevas columnas para desglose de ganancia por usuario
+            String[] genCols = {"gen_sorteos", "gen_misiones", "gen_logros", "gen_leaderboard", "gen_devolucion", "gen_referidos"};
+            for (String col : genCols) {
+                ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS " + col + " NUMERIC DEFAULT 0");
+            }
+            
+            // Migrar ganancia_generada antigua
+            // La antigua ganancia_generada era el 50% de la comisión total.
+            // Para encontrar la comisión total que generó el usuario: ganancia_generada * 2.
+            // Entonces, gen_sorteos = (ganancia_generada * 2) * 0.20 / 2 = ganancia_generada * 0.20
+            // y así sucesivamente. Y la nueva ganancia_generada será el 25% de la comisión, o sea ganancia_generada_antigua * 0.25 / 0.50 = ganancia_generada_antigua * 0.50 (espera: comision=200, antigua=100. Nueva ganancia = 200*0.25/2 = 25. O sea antigua * 0.25).
+            ejecutarSilencioso(stmt, "UPDATE users SET " +
+                    "gen_sorteos = ganancia_generada * 0.20, " +
+                    "gen_misiones = ganancia_generada * 0.10, " +
+                    "gen_logros = ganancia_generada * 0.05, " +
+                    "gen_leaderboard = ganancia_generada * 0.15, " +
+                    "gen_devolucion = ganancia_generada * 0.15, " +
+                    "gen_referidos = ganancia_generada * 0.10, " +
+                    "ganancia_generada = ganancia_generada * 0.25 " +
+                    "WHERE gen_sorteos = 0 AND ganancia_generada > 0");
             System.out.println("   ✓ Tabla users");
 
             // 2. Mensajes

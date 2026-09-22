@@ -1294,6 +1294,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="stat-item"><span class="stat-label">HUIDAS TOTALES</span><span class="stat-val val-gold">${u.salidas_chat || 0}</span></div>
                     <div class="stat-item"><span class="stat-label">DETALLE HUIDAS</span><span class="stat-val" style="font-size:0.65em">X:${u.salidas_x} | Nav:${u.salidas_canal} | Desc:${u.salidas_desconexion}</span></div>
                 </div>
+
+                <div style="margin-top: 10px; background: #2f3136; padding: 8px; border-radius: 5px;">
+                    <div style="font-size: 0.75rem; color: #bbb; margin-bottom: 5px; text-transform: uppercase;">Aportes del usuario a las categorías</div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 5px;">
+                        <div class="stat-item" style="background:#202225; padding:5px;"><span class="stat-label">🎰 Sorteos</span><span class="stat-val" style="color:#4ecca3">$${(u.gen_sorteos || 0).toLocaleString()}</span></div>
+                        <div class="stat-item" style="background:#202225; padding:5px;"><span class="stat-label">📋 Misiones</span><span class="stat-val" style="color:#4ecca3">$${(u.gen_misiones || 0).toLocaleString()}</span></div>
+                        <div class="stat-item" style="background:#202225; padding:5px;"><span class="stat-label">🏅 Logros</span><span class="stat-val" style="color:#4ecca3">$${(u.gen_logros || 0).toLocaleString()}</span></div>
+                        <div class="stat-item" style="background:#202225; padding:5px;"><span class="stat-label">🏆 Leaderboard</span><span class="stat-val" style="color:#4ecca3">$${(u.gen_leaderboard || 0).toLocaleString()}</span></div>
+                        <div class="stat-item" style="background:#202225; padding:5px;"><span class="stat-label">🔄 Devolución</span><span class="stat-val" style="color:#4ecca3">$${(u.gen_devolucion || 0).toLocaleString()}</span></div>
+                        <div class="stat-item" style="background:#202225; padding:5px;"><span class="stat-label">👥 Referidos</span><span class="stat-val" style="color:#4ecca3">$${(u.gen_referidos || 0).toLocaleString()}</span></div>
+                        <div class="stat-item" style="background:#202225; padding:5px; border: 1px solid #faa61a;"><span class="stat-label">💰 Ganancia Neta</span><span class="stat-val" style="color:#faa61a">$${(u.ganancia_generada || 0).toLocaleString()}</span></div>
+                    </div>
+                </div>
             `;
             lista.appendChild(div);
         });
