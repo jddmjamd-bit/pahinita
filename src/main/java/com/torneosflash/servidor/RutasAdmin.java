@@ -166,6 +166,12 @@ public class RutasAdmin {
             db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'misiones')", comMisiones, detalle);
             db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'logros')", comLogros, detalle);
             db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'leaderboard')", comLeaderboard, detalle);
+            
+            // Repartir comisión de leaderboard en los 4 pozos (día, semana, mes, año)
+            double parteLeaderboard = comLeaderboard / 4.0;
+            db.update("UPDATE leaderboard_pools SET dia = dia + ?, semana = semana + ?, mes = mes + ?, ano = ano + ? WHERE id = 1", 
+                      parteLeaderboard, parteLeaderboard, parteLeaderboard, parteLeaderboard);
+
             db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'devolucion')", comDevolucion, detalle);
             db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'referidos')", comReferidos, detalle);
             db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'ganancia')", comGanancia, detalle);
