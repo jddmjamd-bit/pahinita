@@ -188,27 +188,25 @@ public class RutasAdmin {
             JsonObject j2Data = db.queryOne("SELECT id FROM users WHERE username = ?", j2);
             if (j1Data != null) {
                 int j1Id = j1Data.get("id").getAsNumber().intValue();
-                int ticketsJ1 = RutasSorteos.acumularTickets(db, j1Id, comSorteos / 2.0);
-                if (ticketsJ1 > 0) {
-                    for (SocketIOClient s : io.getSockets().values()) {
-                        if (s.getUserData() != null && s.getUserData().get("id").getAsNumber().intValue() == j1Id) {
-                            JsonObject ticketData = new JsonObject();
-                            ticketData.addProperty("cantidad", ticketsJ1);
-                            s.emit("tickets_ganados", ticketData);
-                        }
+                int[] resultadoJ1 = RutasSorteos.acumularTickets(db, j1Id, comSorteos / 2.0);
+                for (SocketIOClient s : io.getSockets().values()) {
+                    if (s.getUserData() != null && s.getUserData().get("id").getAsNumber().intValue() == j1Id) {
+                        JsonObject ticketData = new JsonObject();
+                        ticketData.addProperty("cantidad", resultadoJ1[0]);
+                        ticketData.addProperty("acumulado", resultadoJ1[1]);
+                        s.emit("tickets_ganados", ticketData);
                     }
                 }
             }
             if (j2Data != null) {
                 int j2Id = j2Data.get("id").getAsNumber().intValue();
-                int ticketsJ2 = RutasSorteos.acumularTickets(db, j2Id, comSorteos / 2.0);
-                if (ticketsJ2 > 0) {
-                    for (SocketIOClient s : io.getSockets().values()) {
-                        if (s.getUserData() != null && s.getUserData().get("id").getAsNumber().intValue() == j2Id) {
-                            JsonObject ticketData = new JsonObject();
-                            ticketData.addProperty("cantidad", ticketsJ2);
-                            s.emit("tickets_ganados", ticketData);
-                        }
+                int[] resultadoJ2 = RutasSorteos.acumularTickets(db, j2Id, comSorteos / 2.0);
+                for (SocketIOClient s : io.getSockets().values()) {
+                    if (s.getUserData() != null && s.getUserData().get("id").getAsNumber().intValue() == j2Id) {
+                        JsonObject ticketData = new JsonObject();
+                        ticketData.addProperty("cantidad", resultadoJ2[0]);
+                        ticketData.addProperty("acumulado", resultadoJ2[1]);
+                        s.emit("tickets_ganados", ticketData);
                     }
                 }
             }

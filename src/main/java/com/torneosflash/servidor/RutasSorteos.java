@@ -23,9 +23,10 @@ public class RutasSorteos {
         // GET /api/raffle/tickets/:userId
         app.get("/api/raffle/tickets/{userId}", ctx -> {
             int userId = Integer.parseInt(ctx.pathParam("userId"));
-            JsonObject result = db.queryOne("SELECT cantidad FROM user_tickets WHERE user_id = ?", userId);
+            JsonObject result = db.queryOne("SELECT cantidad, acumulado FROM user_tickets WHERE user_id = ?", userId);
             JsonObject res = new JsonObject();
             res.addProperty("tickets", result != null ? result.get("cantidad").getAsLong() : 0);
+            res.addProperty("acumulado", result != null ? result.get("acumulado").getAsLong() : 0);
             ctx.json(res);
         });
 
@@ -252,7 +253,7 @@ public class RutasSorteos {
      * Recibe la porción de comisión de sorteos que le corresponde a este jugador (comSorteos / 2).
      * Se genera 1 ticket cada 1000 pesos acumulados.
      */
-    public static int acumularTickets(GenericDAO db, int userId, double montoComisionSorteo) {
+    public static int[] acumularTickets(GenericDAO db, int userId, double montoComisionSorteo) {
         try {
             JsonObject ticketRes = db.queryOne("SELECT * FROM user_tickets WHERE user_id = ?", userId);
             if (ticketRes == null) {
@@ -270,14 +271,14 @@ public class RutasSorteos {
             if (ticketsNuevos > 0) {
                 db.update("UPDATE user_tickets SET cantidad = cantidad + ?, acumulado = ? WHERE user_id = ?",
                         ticketsNuevos, residuo, userId);
-                return ticketsNuevos;
+                return new int[]{ticketsNuevos, residuo};
             } else {
                 db.update("UPDATE user_tickets SET acumulado = ? WHERE user_id = ?", nuevoAcumulado, userId);
-                return 0;
+                return new int[]{0, nuevoAcumulado};
             }
         } catch (Exception e) {
             System.err.println("Error acumulando tickets: " + e.getMessage());
-            return 0;
+            return new int[]{0, 0};
         }
     }
 }

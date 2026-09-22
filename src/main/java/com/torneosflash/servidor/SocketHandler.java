@@ -658,12 +658,14 @@ public class SocketHandler {
                     // Acumular tickets (cada jugador recibe su mitad de la comisión de sorteos)
                     for (SocketIOClient p : match.players) {
                         if (p.getUserData() == null) continue;
-                        int ticketsGanados = RutasSorteos.acumularTickets(db, p.getUserData().get("id").getAsInt(), comSorteos / 2.0);
-                        if (ticketsGanados > 0) {
-                            JsonObject ticketData = new JsonObject();
-                            ticketData.addProperty("cantidad", ticketsGanados);
-                            p.emit("tickets_ganados", ticketData);
-                        }
+                        int[] resultadoTickets = RutasSorteos.acumularTickets(db, p.getUserData().get("id").getAsInt(), comSorteos / 2.0);
+                        int ticketsGanados = resultadoTickets[0];
+                        int nuevoAcumulado = resultadoTickets[1];
+                        
+                        JsonObject ticketData = new JsonObject();
+                        ticketData.addProperty("cantidad", ticketsGanados);
+                        ticketData.addProperty("acumulado", nuevoAcumulado);
+                        p.emit("tickets_ganados", ticketData);
                     }
 
                     // Actualizar saldo del ganador

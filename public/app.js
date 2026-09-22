@@ -1581,8 +1581,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (elTexto) {
             if (!isNaN(dinero) && dinero >= 1000) {
                 // Hacemos la matemática explícita
+                // Hacemos la matemática explícita
                 const totalMesa = dinero * 2;
-                const comision = totalMesa * 0.20;
+                let porcentajeComision = 0.25 - ((dinero - 1000) / 19000) * 0.15;
+                if (porcentajeComision > 0.25) porcentajeComision = 0.25;
+                if (porcentajeComision < 0.10) porcentajeComision = 0.10;
+                const comision = totalMesa * porcentajeComision;
                 const ganancia = totalMesa - comision;
 
                 console.log(`Calculando: Apuesta ${dinero} -> Gana ${ganancia}`); // MIRA LA CONSOLA SI FALLA
@@ -1896,6 +1900,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- SISTEMA DE SORTEOS ---
 
     let userTickets = 0;
+    let userAcumulado = 0;
     let sorteos = [];
     let countdownInterval = null;
 
@@ -1907,7 +1912,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 const ticketsRes = await fetch(API_BASE_URL + `/api/raffle/tickets/${currentUser.id}`, { credentials: 'include' });
                 const ticketsData = await ticketsRes.json();
                 userTickets = ticketsData.tickets || 0;
+                userAcumulado = ticketsData.acumulado || 0;
                 document.getElementById('user-tickets-count').textContent = userTickets;
+                
+                const fillElement = document.getElementById('next-ticket-fill');
+                const textElement = document.getElementById('next-ticket-text');
+                if (fillElement && textElement) {
+                    const progresoSiguiente = Math.min(100, (userAcumulado / 1000) * 100);
+                    fillElement.style.width = progresoSiguiente + '%';
+                    textElement.textContent = `$${Math.round(userAcumulado)} / $1000`;
+                }
             }
 
             // Cargar sorteos activos
@@ -2205,15 +2219,28 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Listener para tickets ganados en partida
+    // Listener para tickets ganados y progreso de tickets
     socket.on('tickets_ganados', (data) => {
-        console.log(`🎟️ Ganaste ${data.cantidad} ticket(s)`);
-        if (typeof mostrarToast === 'function') {
-            mostrarToast(`🎟️ ¡Ganaste <strong>${data.cantidad}</strong> ticket(s) para sorteos!`, 5000);
+        if (data.cantidad > 0) {
+            console.log(`🎟️ Ganaste ${data.cantidad} ticket(s)`);
+            if (typeof mostrarToast === 'function') {
+                mostrarToast(`🎟️ ¡Ganaste <strong>${data.cantidad}</strong> ticket(s) para sorteos!`, 5000);
+            }
+            userTickets += data.cantidad;
+            const ticketDisplay = document.getElementById('user-tickets-count');
+            if (ticketDisplay) ticketDisplay.textContent = userTickets;
         }
-        userTickets += data.cantidad;
-        const ticketDisplay = document.getElementById('user-tickets-count');
-        if (ticketDisplay) ticketDisplay.textContent = userTickets;
+
+        if (data.acumulado !== undefined) {
+            userAcumulado = data.acumulado;
+            const fillElement = document.getElementById('next-ticket-fill');
+            const textElement = document.getElementById('next-ticket-text');
+            if (fillElement && textElement) {
+                const progresoSiguiente = Math.min(100, (userAcumulado / 1000) * 100);
+                fillElement.style.width = progresoSiguiente + '%';
+                textElement.textContent = `$${Math.round(userAcumulado)} / $1000`;
+            }
+        }
     });
 
     // EXTRAS
