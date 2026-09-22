@@ -1924,6 +1924,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
+            // Cargar pozo de premios
+            try {
+                const poolRes = await fetch(API_BASE_URL + '/api/raffle/pool', { credentials: 'include' });
+                const poolData = await poolRes.json();
+                const poolAmount = poolData.pool || 0;
+                const poolElement = document.getElementById('raffle-pool-amount');
+                if (poolElement) poolElement.textContent = '$' + poolAmount.toLocaleString();
+            } catch (e) {
+                console.error("Error cargando pool:", e);
+            }
+
             // Cargar sorteos activos
             const res = await fetch(API_BASE_URL + '/api/raffle/offers', { credentials: 'include' });
             sorteos = await res.json();

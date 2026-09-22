@@ -30,6 +30,14 @@ public class RutasSorteos {
             ctx.json(res);
         });
 
+        // GET /api/raffle/pool
+        app.get("/api/raffle/pool", ctx -> {
+            JsonObject poolRes = db.queryOne("SELECT COALESCE(SUM(gen_sorteos), 0) as total FROM users");
+            JsonObject res = new JsonObject();
+            res.addProperty("pool", poolRes != null ? poolRes.get("total").getAsDouble() : 0);
+            ctx.json(res);
+        });
+
         // GET /api/raffle/offers
         app.get("/api/raffle/offers", ctx -> {
             String cookieVal = ctx.cookie("userId");
