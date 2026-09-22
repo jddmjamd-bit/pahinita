@@ -136,7 +136,10 @@ public class RutasAdmin {
             int winnerId = winner.get("id").getAsNumber().intValue();
             double apuesta = match.get("apuesta").getAsDouble();
             double pozo = apuesta * 2;
-            double comision = pozo * 0.20;
+            double porcentajeComision = 0.25 - ((apuesta - 1000.0) / 19000.0) * 0.15;
+            if (porcentajeComision > 0.25) porcentajeComision = 0.25;
+            if (porcentajeComision < 0.10) porcentajeComision = 0.10;
+            double comision = pozo * porcentajeComision;
             double premio = pozo - comision;
             double comSorteos = comision * 0.20;
             double comMisiones = comision * 0.10;
@@ -178,6 +181,36 @@ public class RutasAdmin {
 
             if (culpableNombre != null && !"nadie".equals(culpableNombre)) {
                 db.update("UPDATE users SET faltas = faltas + 1 WHERE username = ?", culpableNombre);
+            }
+
+            // Acumular tickets para ambos jugadores (cada uno recibe su mitad de la comisión de sorteos)
+            JsonObject j1Data = db.queryOne("SELECT id FROM users WHERE username = ?", j1);
+            JsonObject j2Data = db.queryOne("SELECT id FROM users WHERE username = ?", j2);
+            if (j1Data != null) {
+                int j1Id = j1Data.get("id").getAsNumber().intValue();
+                int ticketsJ1 = RutasSorteos.acumularTickets(db, j1Id, comSorteos / 2.0);
+                if (ticketsJ1 > 0) {
+                    for (SocketIOClient s : io.getSockets().values()) {
+                        if (s.getUserData() != null && s.getUserData().get("id").getAsNumber().intValue() == j1Id) {
+                            JsonObject ticketData = new JsonObject();
+                            ticketData.addProperty("cantidad", ticketsJ1);
+                            s.emit("tickets_ganados", ticketData);
+                        }
+                    }
+                }
+            }
+            if (j2Data != null) {
+                int j2Id = j2Data.get("id").getAsNumber().intValue();
+                int ticketsJ2 = RutasSorteos.acumularTickets(db, j2Id, comSorteos / 2.0);
+                if (ticketsJ2 > 0) {
+                    for (SocketIOClient s : io.getSockets().values()) {
+                        if (s.getUserData() != null && s.getUserData().get("id").getAsNumber().intValue() == j2Id) {
+                            JsonObject ticketData = new JsonObject();
+                            ticketData.addProperty("cantidad", ticketsJ2);
+                            s.emit("tickets_ganados", ticketData);
+                        }
+                    }
+                }
             }
 
             // Cerrar match y liberar jugadores

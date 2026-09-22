@@ -249,8 +249,10 @@ public class RutasSorteos {
 
     /**
      * Acumular tickets cuando termina una partida.
+     * Recibe la porción de comisión de sorteos que le corresponde a este jugador (comSorteos / 2).
+     * Se genera 1 ticket cada 1000 pesos acumulados.
      */
-    public static int acumularTickets(GenericDAO db, int userId, double montoApostado) {
+    public static int acumularTickets(GenericDAO db, int userId, double montoComisionSorteo) {
         try {
             JsonObject ticketRes = db.queryOne("SELECT * FROM user_tickets WHERE user_id = ?", userId);
             if (ticketRes == null) {
@@ -259,10 +261,10 @@ public class RutasSorteos {
             }
 
             int acumuladoAnterior = (int) ticketRes.get("acumulado").getAsLong();
-            int nuevoAcumulado = acumuladoAnterior + (int) montoApostado;
-            int ticketsAnteriores = acumuladoAnterior / 6000;
-            int ticketsGanados = nuevoAcumulado / 6000;
-            int residuo = nuevoAcumulado % 6000;
+            int nuevoAcumulado = acumuladoAnterior + (int) montoComisionSorteo;
+            int ticketsAnteriores = acumuladoAnterior / 1000;
+            int ticketsGanados = nuevoAcumulado / 1000;
+            int residuo = nuevoAcumulado % 1000;
             int ticketsNuevos = ticketsGanados - ticketsAnteriores;
 
             if (ticketsNuevos > 0) {

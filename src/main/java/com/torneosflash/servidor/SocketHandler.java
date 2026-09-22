@@ -624,7 +624,10 @@ public class SocketHandler {
 
                     // Procesar ganador
                     double pozo = match.apuesta * 2;
-                    double comision = pozo * 0.20;
+                    double porcentajeComision = 0.25 - ((match.apuesta - 1000.0) / 19000.0) * 0.15;
+                    if (porcentajeComision > 0.25) porcentajeComision = 0.25;
+                    if (porcentajeComision < 0.10) porcentajeComision = 0.10;
+                    double comision = pozo * porcentajeComision;
                     double premio = pozo - comision;
 
                     double comSorteos = comision * 0.20;
@@ -652,10 +655,10 @@ public class SocketHandler {
                     db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'referidos')", comReferidos, detalle);
                     db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'ganancia')", comGanancia, detalle);
 
-                    // Acumular tickets
+                    // Acumular tickets (cada jugador recibe su mitad de la comisión de sorteos)
                     for (SocketIOClient p : match.players) {
                         if (p.getUserData() == null) continue;
-                        int ticketsGanados = RutasSorteos.acumularTickets(db, p.getUserData().get("id").getAsInt(), match.apuesta);
+                        int ticketsGanados = RutasSorteos.acumularTickets(db, p.getUserData().get("id").getAsInt(), comSorteos / 2.0);
                         if (ticketsGanados > 0) {
                             JsonObject ticketData = new JsonObject();
                             ticketData.addProperty("cantidad", ticketsGanados);
