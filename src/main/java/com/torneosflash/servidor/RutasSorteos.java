@@ -38,6 +38,54 @@ public class RutasSorteos {
             ctx.json(res);
         });
 
+        // GET /api/raffle/poll
+        app.get("/api/raffle/poll", ctx -> {
+            String cookieVal = ctx.cookie("userId");
+            int userId = 0;
+            try { userId = Integer.parseInt(cookieVal); } catch (Exception ignored) {}
+
+            // Contar votos por categoría
+            ArrayList<JsonObject> counts = db.query("SELECT categoria, COUNT(*) as votos FROM raffle_votes GROUP BY categoria");
+            
+            // Ver voto del usuario actual
+            JsonObject miVoto = null;
+            if (userId > 0) {
+                miVoto = db.queryOne("SELECT categoria FROM raffle_votes WHERE user_id = ?", userId);
+            }
+
+            JsonObject res = new JsonObject();
+            JsonArray categorias = new JsonArray();
+            for (JsonObject count : counts) {
+                categorias.add(count);
+            }
+            res.add("resultados", categorias);
+            res.addProperty("miVoto", miVoto != null ? miVoto.get("categoria").getAsString() : null);
+
+            ctx.json(res);
+        });
+
+        // POST /api/raffle/vote
+        app.post("/api/raffle/vote", ctx -> {
+            JsonObject body = parseBody(ctx);
+            int userId = body.get("userId").getAsInt();
+            String categoria = body.get("categoria").getAsString();
+
+            db.update("INSERT INTO raffle_votes (user_id, categoria) VALUES (?, ?) " +
+                    "ON CONFLICT (user_id) DO UPDATE SET categoria = ?", userId, categoria, categoria);
+            
+            ctx.json(successJson("Voto registrado", 0));
+        });
+
+        // DELETE /api/admin/raffle/poll
+        app.delete("/api/admin/raffle/poll", ctx -> {
+            db.update("DELETE FROM raffle_votes");
+            io.emit("poll_reset", new JsonObject());
+            if (pushService != null) {
+                pushService.enviarPushATodos(db, java.util.Set.of(), "📊 ¡Nueva Encuesta de Sorteos!", "La encuesta se ha reiniciado. ¡Entra y vota por tu premio favorito!");
+            }
+            ctx.json(successJson("Encuesta reiniciada", 0));
+        });
+
         // GET /api/raffle/offers
         app.get("/api/raffle/offers", ctx -> {
             String cookieVal = ctx.cookie("userId");

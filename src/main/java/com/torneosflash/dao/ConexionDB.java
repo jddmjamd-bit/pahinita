@@ -163,8 +163,16 @@ public class ConexionDB {
                     "id SERIAL PRIMARY KEY, nombre TEXT NOT NULL, categoria TEXT NOT NULL, " +
                     "precio INTEGER NOT NULL, tickets_necesarios INTEGER NOT NULL, " +
                     "tickets_actuales INTEGER DEFAULT 0, fecha_limite TIMESTAMP, " +
-                    "estado TEXT DEFAULT 'activo', ganador_id INTEGER, ganador_nombre TEXT, " +
-                    "fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP, fecha_completado TIMESTAMP)");
+                    "estado TEXT DEFAULT 'activo', ganador_id INTEGER REFERENCES users(id), " +
+                    "ganador_nombre TEXT, fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                    "fecha_completado TIMESTAMP)");
+            System.out.println("   ✓ Tabla raffles");
+
+            // 8.1 Votos Sorteos
+            stmt.execute("CREATE TABLE IF NOT EXISTS raffle_votes (" +
+                    "user_id INTEGER PRIMARY KEY REFERENCES users(id), " +
+                    "categoria TEXT NOT NULL)");
+            System.out.println("   ✓ Tabla raffle_votes");
             ejecutarSilencioso(stmt, "ALTER TABLE raffles ADD COLUMN IF NOT EXISTS fecha_completado TIMESTAMP");
             System.out.println("   ✓ Tabla raffles");
 

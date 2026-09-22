@@ -1935,6 +1935,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error("Error cargando pool:", e);
             }
 
+            // Cargar Encuesta
+            await cargarEncuesta();
+
             // Cargar sorteos activos
             const res = await fetch(API_BASE_URL + '/api/raffle/offers', { credentials: 'include' });
             sorteos = await res.json();
@@ -2174,6 +2177,106 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // --- ENCUESTA DE PREMIOS ---
+    const categoriasEncuesta = {
+        'gemas': '💎 Gemas',
+        'pass': '👑 Pass Royale',
+        'evoluciones': '✨ Evoluciones',
+        'emotes': '😄 Emotes',
+        'cartas': '🃏 Cartas (Legendarias/Campeones)',
+        'comodines': '🎴 Comodines',
+        'especial': '🎁 Oferta Especial'
+    };
+
+    window.cargarEncuesta = async function() {
+        if (!currentUser) return;
+        try {
+            const res = await fetch(API_BASE_URL + '/api/raffle/poll', { credentials: 'include' });
+            const data = await res.json();
+            
+            // Mostrar botón de reset para admins
+            const btnReset = document.getElementById('btn-reset-poll');
+            if (btnReset) {
+                if (currentUser.tipo_suscripcion === 'admin') btnReset.classList.remove('hidden');
+                else btnReset.classList.add('hidden');
+            }
+
+            renderizarEncuesta(data.resultados || [], data.miVoto);
+        } catch (e) {
+            console.error("Error cargando encuesta:", e);
+        }
+    }
+
+    function renderizarEncuesta(resultados, miVoto) {
+        const container = document.getElementById('poll-list');
+        if (!container) return;
+
+        let totalVotos = 0;
+        const votosPorCat = {};
+        
+        resultados.forEach(r => {
+            totalVotos += parseInt(r.votos) || 0;
+            votosPorCat[r.categoria] = parseInt(r.votos) || 0;
+        });
+
+        const keys = Object.keys(categoriasEncuesta);
+        let html = '';
+
+        keys.forEach(cat => {
+            const votos = votosPorCat[cat] || 0;
+            const porcentaje = totalVotos > 0 ? Math.round((votos / totalVotos) * 100) : 0;
+            const isVoted = miVoto === cat;
+            
+            html += `
+                <div class="poll-item ${isVoted ? 'voted' : ''}" onclick="votarSorteo('${cat}')">
+                    <div class="poll-fill" style="width: ${porcentaje}%"></div>
+                    <div class="poll-content">
+                        <span class="poll-title">${categoriasEncuesta[cat]}</span>
+                        <span class="poll-stats">${porcentaje}% (${votos} votos)</span>
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+    }
+
+    window.votarSorteo = async function(categoria) {
+        if (!currentUser) return;
+        try {
+            const res = await fetch(API_BASE_URL + '/api/raffle/vote', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ userId: currentUser.id, categoria })
+            });
+            const data = await res.json();
+            if (data.error) {
+                if (typeof mostrarToast === 'function') mostrarToast(data.error);
+                else alert(data.error);
+            } else {
+                cargarEncuesta();
+            }
+        } catch (e) {
+            console.error("Error votando:", e);
+        }
+    };
+
+    window.reiniciarEncuesta = async function() {
+        if (!confirm("¿Estás seguro de reiniciar la encuesta? Todos los votos se borrarán.")) return;
+        try {
+            const res = await fetch(API_BASE_URL + '/api/admin/raffle/poll', {
+                method: 'DELETE',
+                credentials: 'include'
+            });
+            const data = await res.json();
+            if (data.error) alert(data.error);
+            else cargarEncuesta();
+        } catch (e) {
+            console.error("Error reiniciando encuesta:", e);
+        }
+    };
+
     // Socket listeners para sorteos
     socket.on('nuevo_sorteo', (sorteo) => {
         console.log("🆕 Nuevo sorteo:", sorteo.nombre);
@@ -2227,6 +2330,12 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log("🗑️ Sorteo eliminado:", data.raffleId);
         if (!views.sorteos.classList.contains('hidden')) {
             cargarSorteos();
+        }
+    });
+
+    socket.on('poll_reset', () => {
+        if (!views.sorteos.classList.contains('hidden')) {
+            cargarEncuesta();
         }
     });
 

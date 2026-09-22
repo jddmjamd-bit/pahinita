@@ -261,6 +261,18 @@
                     <span style="color: #ffffff; font-size: 1.1rem;">💰 Hay <strong style="color: #43b581; font-size: 1.3rem;" id="raffle-pool-amount">$0</strong> acumulados en premios</span>
                 </div>
 
+                <!-- Encuesta de Premios -->
+                <div class="poll-container">
+                    <div class="poll-header">
+                        <h4>📊 ¿Qué premio quieres en el próximo sorteo?</h4>
+                        <!-- Botón Admin para resetear -->
+                        <button id="btn-reset-poll" class="btn-reset-poll hidden" onclick="reiniciarEncuesta()">🔄 Reiniciar</button>
+                    </div>
+                    <div id="poll-list">
+                        <p style="text-align:center; color:#bbb;">Cargando encuesta...</p>
+                    </div>
+                </div>
+
                 <!-- Admin: Botón crear sorteo -->
                 <div id="sorteos-admin-controls" class="sorteos-admin-controls hidden">
                     <button onclick="abrirModalCrearSorteo()" class="btn-crear-sorteo">➕ Crear Sorteo</button>
