@@ -651,6 +651,12 @@ public class SocketHandler {
                     db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'misiones')", comMisiones, detalle);
                     db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'logros')", comLogros, detalle);
                     db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'leaderboard')", comLeaderboard, detalle);
+                    
+                    // Repartir comisión de leaderboard en los 4 pozos (día, semana, mes, año)
+                    double parteLeaderboard = comLeaderboard / 4.0;
+                    db.update("UPDATE leaderboard_pools SET dia = dia + ?, semana = semana + ?, mes = mes + ?, ano = ano + ? WHERE id = 1", 
+                              parteLeaderboard, parteLeaderboard, parteLeaderboard, parteLeaderboard);
+
                     db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'devolucion')", comDevolucion, detalle);
                     db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'referidos')", comReferidos, detalle);
                     db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'ganancia')", comGanancia, detalle);

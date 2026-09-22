@@ -197,6 +197,14 @@ public class ConexionDB {
                     "data BYTEA, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
             System.out.println("   ✓ Tabla media_files");
 
+            // 12. Leaderboard Pools (acumula las comisiones)
+            stmt.execute("CREATE TABLE IF NOT EXISTS leaderboard_pools (" +
+                    "id SERIAL PRIMARY KEY, dia NUMERIC DEFAULT 0, semana NUMERIC DEFAULT 0, " +
+                    "mes NUMERIC DEFAULT 0, ano NUMERIC DEFAULT 0)");
+            ejecutarSilencioso(stmt, "INSERT INTO leaderboard_pools (id, dia, semana, mes, ano) " +
+                    "SELECT 1, 0, 0, 0, 0 WHERE NOT EXISTS (SELECT 1 FROM leaderboard_pools WHERE id = 1)");
+            System.out.println("   ✓ Tabla leaderboard_pools");
+
             System.out.println("👍 Todas las tablas verificadas en PostgreSQL.");
 
             // Migración de datos antiguos de admin_wallet
