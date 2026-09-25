@@ -136,7 +136,7 @@ public class RutasAdmin {
             int winnerId = winner.get("id").getAsNumber().intValue();
             double apuesta = match.get("apuesta").getAsDouble();
             double pozo = apuesta * 2;
-            double porcentajeComision = 0.25 - ((pozo - 1000.0) / 19000.0) * 0.15;
+            double porcentajeComision = 0.25 - ((pozo - 2000.0) / 18000.0) * 0.15;
             if (porcentajeComision > 0.25) porcentajeComision = 0.25;
             if (porcentajeComision < 0.10) porcentajeComision = 0.10;
             double comisionTeorica = pozo * porcentajeComision;

@@ -1570,7 +1570,7 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (!valorRaw) { } // Si está vacío
         else if (isNaN(dinero)) { }
         else if (dinero < 1000) { error = "Mínimo $1.000"; }
-        else if (dinero > 25000) { error = "Máximo $25.000"; }
+        else if (dinero > 10000) { error = "Máximo $10.000"; }
         else if (dinero > maxBetAllowed) { error = `Tope saldos: $${maxBetAllowed}`; }
 
         // Mostrar error si existe
@@ -1583,7 +1583,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Hacemos la matemática explícita
                 // Hacemos la matemática explícita
                 const totalMesa = dinero * 2;
-                let porcentajeComision = 0.25 - ((totalMesa - 1000) / 19000) * 0.15;
+                let porcentajeComision = 0.25 - ((totalMesa - 2000) / 18000) * 0.15;
                 if (porcentajeComision > 0.25) porcentajeComision = 0.25;
                 if (porcentajeComision < 0.10) porcentajeComision = 0.10;
                 const comision = totalMesa * porcentajeComision;
