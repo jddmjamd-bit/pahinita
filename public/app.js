@@ -1583,7 +1583,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Hacemos la matemática explícita
                 // Hacemos la matemática explícita
                 const totalMesa = dinero * 2;
-                let porcentajeComision = 0.25 - ((dinero - 1000) / 19000) * 0.15;
+                let porcentajeComision = 0.25 - ((totalMesa - 1000) / 19000) * 0.15;
                 if (porcentajeComision > 0.25) porcentajeComision = 0.25;
                 if (porcentajeComision < 0.10) porcentajeComision = 0.10;
                 const comision = totalMesa * porcentajeComision;
