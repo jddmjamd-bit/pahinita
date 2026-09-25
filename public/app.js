@@ -1587,7 +1587,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (porcentajeComision > 0.25) porcentajeComision = 0.25;
                 if (porcentajeComision < 0.10) porcentajeComision = 0.10;
                 const comision = totalMesa * porcentajeComision;
-                const ganancia = totalMesa - comision;
+                const ganancia = Math.floor(totalMesa - comision);
 
                 console.log(`Calculando: Apuesta ${dinero} -> Gana ${ganancia}`); // MIRA LA CONSOLA SI FALLA
 

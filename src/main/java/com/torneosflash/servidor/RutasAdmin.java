@@ -139,15 +139,16 @@ public class RutasAdmin {
             double porcentajeComision = 0.25 - ((apuesta - 1000.0) / 19000.0) * 0.15;
             if (porcentajeComision > 0.25) porcentajeComision = 0.25;
             if (porcentajeComision < 0.10) porcentajeComision = 0.10;
-            double comision = pozo * porcentajeComision;
-            double premio = pozo - comision;
-            double comSorteos = Math.floor(comision * 0.20);
-            double comMisiones = Math.floor(comision * 0.10);
-            double comLogros = Math.floor(comision * 0.05);
-            double comLeaderboard = Math.floor(comision * 0.15);
-            double comDevolucion = Math.floor(comision * 0.15);
-            double comReferidos = Math.floor(comision * 0.10);
-            double comGanancia = comision - (comSorteos + comMisiones + comLogros + comLeaderboard + comDevolucion + comReferidos);
+            double comisionTeorica = pozo * porcentajeComision;
+            double premio = Math.floor(pozo - comisionTeorica);
+            double comisionReal = pozo - premio;
+            double comSorteos = Math.floor(comisionTeorica * 0.20);
+            double comMisiones = Math.floor(comisionTeorica * 0.10);
+            double comLogros = Math.floor(comisionTeorica * 0.05);
+            double comLeaderboard = Math.floor(comisionTeorica * 0.15);
+            double comDevolucion = Math.floor(comisionTeorica * 0.15);
+            double comReferidos = Math.floor(comisionTeorica * 0.10);
+            double comGanancia = comisionReal - (comSorteos + comMisiones + comLogros + comLeaderboard + comDevolucion + comReferidos);
             double utilidad = comGanancia / 2.0;
 
             String j1 = match.get("jugador1").getAsString();

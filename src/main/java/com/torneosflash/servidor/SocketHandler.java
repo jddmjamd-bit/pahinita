@@ -627,16 +627,17 @@ public class SocketHandler {
                     double porcentajeComision = 0.25 - ((match.apuesta - 1000.0) / 19000.0) * 0.15;
                     if (porcentajeComision > 0.25) porcentajeComision = 0.25;
                     if (porcentajeComision < 0.10) porcentajeComision = 0.10;
-                    double comision = pozo * porcentajeComision;
-                    double premio = pozo - comision;
+                    double comisionTeorica = pozo * porcentajeComision;
+                    double premio = Math.floor(pozo - comisionTeorica);
+                    double comisionReal = pozo - premio;
 
-                    double comSorteos = Math.floor(comision * 0.20);
-                    double comMisiones = Math.floor(comision * 0.10);
-                    double comLogros = Math.floor(comision * 0.05);
-                    double comLeaderboard = Math.floor(comision * 0.15);
-                    double comDevolucion = Math.floor(comision * 0.15);
-                    double comReferidos = Math.floor(comision * 0.10);
-                    double comGanancia = comision - (comSorteos + comMisiones + comLogros + comLeaderboard + comDevolucion + comReferidos);
+                    double comSorteos = Math.floor(comisionTeorica * 0.20);
+                    double comMisiones = Math.floor(comisionTeorica * 0.10);
+                    double comLogros = Math.floor(comisionTeorica * 0.05);
+                    double comLeaderboard = Math.floor(comisionTeorica * 0.15);
+                    double comDevolucion = Math.floor(comisionTeorica * 0.15);
+                    double comReferidos = Math.floor(comisionTeorica * 0.10);
+                    double comGanancia = comisionReal - (comSorteos + comMisiones + comLogros + comLeaderboard + comDevolucion + comReferidos);
                     double util = comGanancia / 2.0;
 
                     db.update("UPDATE users SET saldo = saldo + ?, total_ganado = total_ganado + ? WHERE id = ?", premio, premio, idGanador);
