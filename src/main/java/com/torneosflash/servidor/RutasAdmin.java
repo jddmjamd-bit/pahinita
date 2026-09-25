@@ -141,12 +141,12 @@ public class RutasAdmin {
             if (porcentajeComision < 0.10) porcentajeComision = 0.10;
             double comision = pozo * porcentajeComision;
             double premio = pozo - comision;
-            double comSorteos = comision * 0.20;
-            double comMisiones = comision * 0.10;
-            double comLogros = comision * 0.05;
-            double comLeaderboard = comision * 0.15;
-            double comDevolucion = comision * 0.15;
-            double comReferidos = comision * 0.10;
+            double comSorteos = Math.floor(comision * 0.20);
+            double comMisiones = Math.floor(comision * 0.10);
+            double comLogros = Math.floor(comision * 0.05);
+            double comLeaderboard = Math.floor(comision * 0.15);
+            double comDevolucion = Math.floor(comision * 0.15);
+            double comReferidos = Math.floor(comision * 0.10);
             double comGanancia = comision - (comSorteos + comMisiones + comLogros + comLeaderboard + comDevolucion + comReferidos);
             double utilidad = comGanancia / 2.0;
 
