@@ -67,8 +67,7 @@ public class Main {
         // Servicio de Push Notifications (FCM)
         NotificacionPushServicio pushService = new NotificacionPushServicio(
                 config.getFirebaseServiceAccount(),
-                "https://torneos-beta.onrender.com"
-        );
+                "https://torneos-beta.onrender.com");
 
         // ============================================
         // 4. SOCKET.IO
@@ -112,7 +111,7 @@ public class Main {
 
             // Servir archivos estáticos (frontend)
             // Buscar carpeta public/ en varios lugares
-            String[] possiblePaths = {"public", "../public", "src/main/resources/public"};
+            String[] possiblePaths = { "public", "../public", "src/main/resources/public" };
             for (String path : possiblePaths) {
                 File dir = new File(path);
                 if (dir.exists() && dir.isDirectory()) {
@@ -175,7 +174,7 @@ public class Main {
         }, 1, 1, TimeUnit.MINUTES);
 
         // Leaderboard reset check cada minuto
-        final String[] ultimoReset = {null, null, null, null}; // dia, semana, mes, año
+        final String[] ultimoReset = { null, null, null, null }; // dia, semana, mes, año
         scheduler.scheduleAtFixedRate(() -> {
             Calendar cal = Calendar.getInstance();
             int hora = cal.get(Calendar.HOUR_OF_DAY);

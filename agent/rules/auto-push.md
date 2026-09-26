@@ -1,5 +1,5 @@
 # Regla: auto push
-
+revisar si no hay algun error en el codigo
 Después de completar cualquier tarea que modifique archivos:
 1. Ejecutá `git add .`
 2. Generá un commit message descriptivo en español (convencional commits: feat:, fix:, chore:, etc.)
