@@ -2396,12 +2396,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const now = Date.now();
             const inactiveDuration = now - lastVisibleTime;
 
-            // Si estuvo inactivo más de 5 segundos, forzamos recarga total
-            if (inactiveDuration > 5000) {
-                console.warn(`⏰ Inactividad detectada (${Math.round(inactiveDuration / 1000)}s), recargando...`);
-                window.location.reload(true);
-                return;
-            }
+            // Si estuvo inactivo, evitamos recargar la página (REMOVIDO)
 
             // Verificar que la sesión sigue siendo del mismo usuario
             const user = await verificarSesion(false);
