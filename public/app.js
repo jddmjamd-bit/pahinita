@@ -360,30 +360,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     } catch (e) { console.error(e); }
 
-    // --- FIX MAESTRO: AUTO-RECARGA POR SUSPENSIÓN ---
-
-    // 1. Detectar si Chrome restauró la página desde la memoria (La "Foto")
-    window.addEventListener('pageshow', (event) => {
-        // 'persisted' es true si la página no se cargó de la red, sino del caché
-        if (event.persisted) {
-            console.log("♻️ Página restaurada de caché. Forzando recarga...");
-            window.location.reload();
-        }
-    });
-
-    // 2. Detectar si el celular "durmió" la aplicación (Suspensión)
-    let lastTime = Date.now();
-
-    setInterval(() => {
-        const currentTime = Date.now();
-        // Si han pasado más de 4 segundos entre un tic y otro (y el intervalo es de 2s),
-        // significa que el sistema operativo congeló la app en medio.
-        if (currentTime > (lastTime + 4000)) {
-            console.log("⏰ ¡El celular se durmió! Recargando para sincronizar...");
-            window.location.reload();
-        }
-        lastTime = currentTime;
-    }, 2000);
+    // --- FIX MAESTRO: AUTO-RECARGA POR SUSPENSIÓN (REMOVIDO) ---
 
     let currentUser = null;
     let currentRoomId = null;
@@ -1458,6 +1435,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         socket.on('juego_iniciado', (data) => {
+            const confirmModal = document.getElementById('match-confirm-modal');
+            if (confirmModal) confirmModal.classList.add('hidden');
+            
             currentUser.estado = 'jugando';
             currentUser.paso_juego = 0;
 
