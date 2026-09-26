@@ -132,23 +132,20 @@ public class RutasDbAdmin {
             String column = body.get("column").getAsString();
             String value = body.has("value") && !body.get("value").isJsonNull() ? body.get("value").getAsString() : null;
 
-            // Validar columna
+            // Validar columna y obtener su tipo de dato
             try (Connection conn = db.getConnection()) {
                 PreparedStatement colPs = conn.prepareStatement(
-                        "SELECT column_name FROM information_schema.columns WHERE table_name = ?");
+                        "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = ? AND column_name = ?");
                 colPs.setString(1, tableName);
+                colPs.setString(2, column);
                 ResultSet colRs = colPs.executeQuery();
-                boolean validCol = false;
-                while (colRs.next()) {
-                    if (column.equals(colRs.getString("column_name"))) { validCol = true; break; }
-                }
-                if (!validCol) { ctx.status(400).json(errorJson("Columna no válida")); return; }
+                if (!colRs.next()) { ctx.status(400).json(errorJson("Columna no válida")); return; }
+                String dataType = colRs.getString("data_type");
 
                 String finalVal = (value != null && !value.isEmpty()) ? value : null;
                 PreparedStatement updatePs = conn.prepareStatement(
                         "UPDATE " + tableName + " SET " + column + " = ? WHERE id = ?");
-                if (finalVal == null) updatePs.setNull(1, Types.VARCHAR);
-                else updatePs.setString(1, finalVal);
+                setTypedParam(updatePs, 1, finalVal, dataType);
                 updatePs.setInt(2, id);
                 updatePs.executeUpdate();
                 ctx.json(successJson("Actualizado", 0));
@@ -171,25 +168,30 @@ public class RutasDbAdmin {
             Set<String> keys = body.keySet();
             if (keys.isEmpty()) { ctx.status(400).json(errorJson("Sin datos")); return; }
 
-            StringBuilder cols = new StringBuilder();
-            StringBuilder placeholders = new StringBuilder();
-            List<String> values = new ArrayList<>();
-            for (String key : keys) {
-                if (cols.length() > 0) { cols.append(", "); placeholders.append(", "); }
-                cols.append(key);
-                placeholders.append("?");
-                values.add(body.get(key).isJsonNull() ? null : body.get(key).getAsString());
-            }
+            try (Connection conn = db.getConnection()) {
+                // Obtener tipos de columna de la tabla
+                Map<String, String> columnTypes = getColumnTypes(conn, tableName);
 
-            try (Connection conn = db.getConnection();
-                 PreparedStatement ps = conn.prepareStatement(
-                         "INSERT INTO " + tableName + " (" + cols + ") VALUES (" + placeholders + ")")) {
-                for (int i = 0; i < values.size(); i++) {
-                    if (values.get(i) == null) ps.setNull(i + 1, Types.VARCHAR);
-                    else ps.setString(i + 1, values.get(i));
+                StringBuilder cols = new StringBuilder();
+                StringBuilder placeholders = new StringBuilder();
+                List<String> values = new ArrayList<>();
+                List<String> types = new ArrayList<>();
+                for (String key : keys) {
+                    if (cols.length() > 0) { cols.append(", "); placeholders.append(", "); }
+                    cols.append(key);
+                    placeholders.append("?");
+                    values.add(body.get(key).isJsonNull() ? null : body.get(key).getAsString());
+                    types.add(columnTypes.getOrDefault(key, "text"));
                 }
-                ps.executeUpdate();
-                ctx.json(successJson("Insertado", 0));
+
+                try (PreparedStatement ps = conn.prepareStatement(
+                         "INSERT INTO " + tableName + " (" + cols + ") VALUES (" + placeholders + ")")) {
+                    for (int i = 0; i < values.size(); i++) {
+                        setTypedParam(ps, i + 1, values.get(i), types.get(i));
+                    }
+                    ps.executeUpdate();
+                    ctx.json(successJson("Insertado", 0));
+                }
             } catch (Exception e) {
                 ctx.status(500).json(errorJson(e.getMessage()));
             }
@@ -303,6 +305,76 @@ public class RutasDbAdmin {
         if (!expectedSecret.equals(secret)) {
             ctx.status(403).result("⛔ Acceso denegado");
             ctx.skipRemainingHandlers();
+        }
+    }
+
+    /**
+     * Obtiene un mapa de columna -> data_type para una tabla.
+     */
+    private static Map<String, String> getColumnTypes(Connection conn, String tableName) throws SQLException {
+        Map<String, String> types = new LinkedHashMap<>();
+        PreparedStatement ps = conn.prepareStatement(
+                "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = ? ORDER BY ordinal_position");
+        ps.setString(1, tableName);
+        ResultSet rs = ps.executeQuery();
+        while (rs.next()) {
+            types.put(rs.getString("column_name"), rs.getString("data_type").toLowerCase());
+        }
+        ps.close();
+        return types;
+    }
+
+    /**
+     * Setea un parámetro del PreparedStatement según el tipo de dato real de la columna.
+     */
+    private static void setTypedParam(PreparedStatement ps, int index, String value, String dataType) throws SQLException {
+        if (value == null || value.isEmpty()) {
+            // Determinar el tipo SQL correcto para el null
+            int sqlType;
+            switch (dataType) {
+                case "integer": case "smallint": sqlType = Types.INTEGER; break;
+                case "bigint": sqlType = Types.BIGINT; break;
+                case "numeric": case "decimal": case "real": case "double precision": sqlType = Types.NUMERIC; break;
+                case "boolean": sqlType = Types.BOOLEAN; break;
+                case "timestamp without time zone": case "timestamp with time zone": sqlType = Types.TIMESTAMP; break;
+                case "date": sqlType = Types.DATE; break;
+                default: sqlType = Types.VARCHAR; break;
+            }
+            ps.setNull(index, sqlType);
+            return;
+        }
+
+        switch (dataType) {
+            case "integer":
+            case "smallint":
+                ps.setInt(index, Integer.parseInt(value));
+                break;
+            case "bigint":
+                ps.setLong(index, Long.parseLong(value));
+                break;
+            case "numeric":
+            case "decimal":
+                ps.setBigDecimal(index, new java.math.BigDecimal(value));
+                break;
+            case "real":
+                ps.setFloat(index, Float.parseFloat(value));
+                break;
+            case "double precision":
+                ps.setDouble(index, Double.parseDouble(value));
+                break;
+            case "boolean":
+                ps.setBoolean(index, Boolean.parseBoolean(value) || "1".equals(value));
+                break;
+            case "timestamp without time zone":
+            case "timestamp with time zone":
+                ps.setTimestamp(index, Timestamp.valueOf(value));
+                break;
+            case "date":
+                ps.setDate(index, Date.valueOf(value));
+                break;
+            default:
+                ps.setString(index, value);
+                break;
         }
     }
 }
