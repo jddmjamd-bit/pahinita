@@ -166,24 +166,8 @@ public class Main {
                     String nombre = raffle.get("nombre").getAsString();
                     System.out.println("⏰ Sorteo #" + raffleId + " (" + nombre + ") expirado");
 
-                    // Devolver tickets
-                    ArrayList<com.google.gson.JsonObject> entries = db.query(
-                            "SELECT * FROM raffle_entries WHERE raffle_id = ?", raffleId);
-                    for (com.google.gson.JsonObject entry : entries) {
-                        int ticketsAsignados = (int) entry.get("tickets_asignados").getAsLong();
-                        int userId = (int) entry.get("user_id").getAsLong();
-                        db.update("INSERT INTO user_tickets (user_id, cantidad) VALUES (?, ?) " +
-                                "ON CONFLICT (user_id) DO UPDATE SET cantidad = user_tickets.cantidad + ?",
-                                userId, ticketsAsignados, ticketsAsignados);
-                    }
-
-                    db.update("DELETE FROM raffle_entries WHERE raffle_id = ?", raffleId);
-                    db.update("UPDATE raffles SET estado = 'expirado', tickets_actuales = 0 WHERE id = ?", raffleId);
-
-                    com.google.gson.JsonObject expData = new com.google.gson.JsonObject();
-                    expData.addProperty("raffleId", raffleId);
-                    expData.addProperty("nombre", nombre);
-                    socketServer.emit("sorteo_expirado", expData);
+                    // Ejecutar el sorteo (se completará con espacios vacíos según la nueva lógica)
+                    RutasSorteos.ejecutarSorteo(db, socketServer, correo, raffleId);
                 }
             } catch (Exception e) {
                 System.err.println("Error verificando sorteos expirados: " + e.getMessage());

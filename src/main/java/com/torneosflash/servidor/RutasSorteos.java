@@ -73,6 +73,7 @@ public class RutasSorteos {
             db.update("INSERT INTO raffle_votes (user_id, categoria) VALUES (?, ?) " +
                     "ON CONFLICT (user_id) DO UPDATE SET categoria = ?", userId, categoria, categoria);
             
+            io.emit("poll_updated", new JsonObject());
             ctx.json(successJson("Voto registrado", 0));
         });
 
@@ -269,21 +270,42 @@ public class RutasSorteos {
                 for (int i = 0; i < tickets; i++) pool.add(uid);
             }
 
+            int tNecesarios = (int) raffle.get("tickets_necesarios").getAsLong();
+            int tActuales = (int) raffle.get("tickets_actuales").getAsLong();
+            int ticketsFaltantes = tNecesarios - tActuales;
+            for (int i = 0; i < ticketsFaltantes; i++) {
+                pool.add(-1);
+            }
+
             if (pool.isEmpty()) return;
 
             // Elegir ganador
             int ganadorId = pool.get(new Random().nextInt(pool.size()));
-            JsonObject ganador = db.queryOne("SELECT username, email, telefono, player_tag FROM users WHERE id = ?", ganadorId);
-            String ganadorNombre = ganador.get("username").getAsString();
+            
+            String ganadorNombre = "Admin (Vacío)";
+            String emailGanador = "N/A";
+            
+            if (ganadorId != -1) {
+                JsonObject ganador = db.queryOne("SELECT username, email, telefono, player_tag FROM users WHERE id = ?", ganadorId);
+                if (ganador != null) {
+                    ganadorNombre = ganador.get("username").getAsString();
+                    emailGanador = ganador.get("email").getAsString();
+                }
+            }
 
             // Actualizar sorteo
-            db.update("UPDATE raffles SET estado = 'completado', ganador_id = ?, ganador_nombre = ?, fecha_completado = NOW() WHERE id = ?",
-                    ganadorId, ganadorNombre, raffleId);
+            if (ganadorId == -1) {
+                db.update("UPDATE raffles SET estado = 'completado', ganador_id = NULL, ganador_nombre = ?, fecha_completado = NOW() WHERE id = ?",
+                        ganadorNombre, raffleId);
+            } else {
+                db.update("UPDATE raffles SET estado = 'completado', ganador_id = ?, ganador_nombre = ?, fecha_completado = NOW() WHERE id = ?",
+                        ganadorId, ganadorNombre, raffleId);
+            }
 
             // Notificar admin por correo
             String nombre = raffle.get("nombre").getAsString();
             correo.notificarAdmin("SORTEO COMPLETADO: " + nombre,
-                    "Ganador: " + ganadorNombre + " | Email: " + ganador.get("email").getAsString());
+                    "Ganador: " + ganadorNombre + " | Email: " + emailGanador);
 
             // Notificar por socket
             JsonObject ganadorData = new JsonObject();
@@ -294,7 +316,7 @@ public class RutasSorteos {
             io.emit("sorteo_ganador", ganadorData);
 
             // Push: notificar al ganador del sorteo
-            if (pushService != null) {
+            if (pushService != null && ganadorId != -1) {
                 pushService.enviarPush(db, ganadorId, "🏆 ¡Ganaste el sorteo!", "¡Felicidades! Ganaste \"" + nombre + "\"");
             }
 

@@ -2316,16 +2316,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    socket.on('sorteo_expirado', (data) => {
-        console.log("⏰ Sorteo expirado:", data.nombre);
-        if (typeof mostrarToast === 'function') {
-            mostrarToast(`⏰ Sorteo expirado: "${data.nombre}". Tickets devueltos.`, 5000);
-        }
-        if (!views.sorteos.classList.contains('hidden')) {
-            cargarSorteos();
-        }
-    });
-
     socket.on('sorteo_eliminado', (data) => {
         console.log("🗑️ Sorteo eliminado:", data.raffleId);
         if (!views.sorteos.classList.contains('hidden')) {
@@ -2334,6 +2324,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     socket.on('poll_reset', () => {
+        if (!views.sorteos.classList.contains('hidden')) {
+            cargarEncuesta();
+        }
+    });
+
+    socket.on('poll_updated', () => {
         if (!views.sorteos.classList.contains('hidden')) {
             cargarEncuesta();
         }

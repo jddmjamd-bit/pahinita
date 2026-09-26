@@ -1,0 +1,1 @@
+import com.google.gson.*; public class Test { public static void main(String[] args) { JsonObject o = new JsonObject(); o.addProperty("test", "hello"); System.out.println(new GsonBuilder().create().toJson(o, Object.class)); } }

@@ -67,4 +67,3 @@ public class AppConfig {
     public boolean hasFirebase() { return !firebaseServiceAccount.isEmpty(); }
     public boolean hasGmail() { return !gmailUser.isEmpty() && !gmailPass.isEmpty(); }
 }
-    
