@@ -28,7 +28,7 @@ public class RutasDbAdmin {
         // GET /admin-db/:secret - Servir el panel HTML
         app.get("/admin-db/{secret}", ctx -> {
             // Buscar admin-db.html en varios lugares
-            String[] paths = {"admin-db.html", "src/main/resources/admin-db.html", "../admin-db.html"};
+            String[] paths = { "admin-db.html", "src/main/resources/admin-db.html", "../admin-db.html" };
             for (String p : paths) {
                 File f = new File(p);
                 if (f.exists()) {
@@ -81,9 +81,15 @@ public class RutasDbAdmin {
                 ResultSet validRs = validPs.executeQuery();
                 boolean valid = false;
                 while (validRs.next()) {
-                    if (tableName.equals(validRs.getString("table_name"))) { valid = true; break; }
+                    if (tableName.equals(validRs.getString("table_name"))) {
+                        valid = true;
+                        break;
+                    }
                 }
-                if (!valid) { ctx.status(400).json(errorJson("Tabla no válida")); return; }
+                if (!valid) {
+                    ctx.status(400).json(errorJson("Tabla no válida"));
+                    return;
+                }
 
                 // Columnas
                 PreparedStatement colPs = conn.prepareStatement(
@@ -108,9 +114,12 @@ public class RutasDbAdmin {
                     for (int i = 1; i <= meta.getColumnCount(); i++) {
                         String colName = meta.getColumnName(i);
                         Object val = dataRs.getObject(i);
-                        if (val == null) row.addProperty(colName, (String) null);
-                        else if (val instanceof Number) row.addProperty(colName, ((Number) val).doubleValue());
-                        else row.addProperty(colName, val.toString());
+                        if (val == null)
+                            row.addProperty(colName, (String) null);
+                        else if (val instanceof Number)
+                            row.addProperty(colName, ((Number) val).doubleValue());
+                        else
+                            row.addProperty(colName, val.toString());
                     }
                     rows.add(row);
                 }
@@ -130,7 +139,8 @@ public class RutasDbAdmin {
             String tableName = ctx.pathParam("name");
             int id = body.get("id").getAsInt();
             String column = body.get("column").getAsString();
-            String value = body.has("value") && !body.get("value").isJsonNull() ? body.get("value").getAsString() : null;
+            String value = body.has("value") && !body.get("value").isJsonNull() ? body.get("value").getAsString()
+                    : null;
 
             // Validar columna y obtener su tipo de dato
             try (Connection conn = db.getConnection()) {
@@ -139,7 +149,10 @@ public class RutasDbAdmin {
                 colPs.setString(1, tableName);
                 colPs.setString(2, column);
                 ResultSet colRs = colPs.executeQuery();
-                if (!colRs.next()) { ctx.status(400).json(errorJson("Columna no válida")); return; }
+                if (!colRs.next()) {
+                    ctx.status(400).json(errorJson("Columna no válida"));
+                    return;
+                }
                 String dataType = colRs.getString("data_type");
 
                 String finalVal = (value != null && !value.isEmpty()) ? value : null;
@@ -166,7 +179,10 @@ public class RutasDbAdmin {
             JsonObject body = parseBody(ctx);
             String tableName = ctx.pathParam("name");
             Set<String> keys = body.keySet();
-            if (keys.isEmpty()) { ctx.status(400).json(errorJson("Sin datos")); return; }
+            if (keys.isEmpty()) {
+                ctx.status(400).json(errorJson("Sin datos"));
+                return;
+            }
 
             try (Connection conn = db.getConnection()) {
                 // Obtener tipos de columna de la tabla
@@ -177,7 +193,10 @@ public class RutasDbAdmin {
                 List<String> values = new ArrayList<>();
                 List<String> types = new ArrayList<>();
                 for (String key : keys) {
-                    if (cols.length() > 0) { cols.append(", "); placeholders.append(", "); }
+                    if (cols.length() > 0) {
+                        cols.append(", ");
+                        placeholders.append(", ");
+                    }
                     cols.append(key);
                     placeholders.append("?");
                     values.add(body.get(key).isJsonNull() ? null : body.get(key).getAsString());
@@ -185,7 +204,7 @@ public class RutasDbAdmin {
                 }
 
                 try (PreparedStatement ps = conn.prepareStatement(
-                         "INSERT INTO " + tableName + " (" + cols + ") VALUES (" + placeholders + ")")) {
+                        "INSERT INTO " + tableName + " (" + cols + ") VALUES (" + placeholders + ")")) {
                     for (int i = 0; i < values.size(); i++) {
                         setTypedParam(ps, i + 1, values.get(i), types.get(i));
                     }
@@ -216,9 +235,12 @@ public class RutasDbAdmin {
                         for (int i = 1; i <= meta.getColumnCount(); i++) {
                             String colName = meta.getColumnName(i);
                             Object val = dataRs.getObject(i);
-                            if (val == null) row.addProperty(colName, (String) null);
-                            else if (val instanceof Number) row.addProperty(colName, ((Number) val).doubleValue());
-                            else row.addProperty(colName, val.toString());
+                            if (val == null)
+                                row.addProperty(colName, (String) null);
+                            else if (val instanceof Number)
+                                row.addProperty(colName, ((Number) val).doubleValue());
+                            else
+                                row.addProperty(colName, val.toString());
                         }
                         rows.add(row);
                     }
@@ -240,8 +262,8 @@ public class RutasDbAdmin {
         app.post("/api/db-admin/{secret}/import", ctx -> {
             try {
                 JsonObject data = parseBody(ctx);
-                String[] ordenTablas = {"users", "messages", "matches", "transactions", "admin_wallet",
-                        "user_tokens", "user_tickets", "raffles", "raffle_entries"};
+                String[] ordenTablas = { "users", "messages", "matches", "transactions", "admin_wallet",
+                        "user_tokens", "user_tickets", "raffles", "raffle_entries" };
 
                 // Borrar en orden inverso
                 for (int i = ordenTablas.length - 1; i >= 0; i--) {
@@ -254,7 +276,8 @@ public class RutasDbAdmin {
                 int totalInserted = 0;
                 try (Connection conn = db.getConnection()) {
                     for (String tabla : ordenTablas) {
-                        if (!data.has(tabla) || !data.get(tabla).isJsonArray()) continue;
+                        if (!data.has(tabla) || !data.get(tabla).isJsonArray())
+                            continue;
                         JsonArray rows = data.getAsJsonArray(tabla);
                         for (JsonElement elem : rows) {
                             JsonObject row = elem.getAsJsonObject();
@@ -263,19 +286,26 @@ public class RutasDbAdmin {
                             StringBuilder ph = new StringBuilder();
                             List<String> vals = new ArrayList<>();
                             for (String key : keys) {
-                                if (cols.length() > 0) { cols.append(", "); ph.append(", "); }
-                                cols.append(key); ph.append("?");
+                                if (cols.length() > 0) {
+                                    cols.append(", ");
+                                    ph.append(", ");
+                                }
+                                cols.append(key);
+                                ph.append("?");
                                 vals.add(row.get(key).isJsonNull() ? null : row.get(key).getAsString());
                             }
                             try (PreparedStatement ps = conn.prepareStatement(
                                     "INSERT INTO " + tabla + " (" + cols + ") VALUES (" + ph + ")")) {
                                 for (int j = 0; j < vals.size(); j++) {
-                                    if (vals.get(j) == null) ps.setNull(j + 1, Types.VARCHAR);
-                                    else ps.setString(j + 1, vals.get(j));
+                                    if (vals.get(j) == null)
+                                        ps.setNull(j + 1, Types.VARCHAR);
+                                    else
+                                        ps.setString(j + 1, vals.get(j));
                                 }
                                 ps.executeUpdate();
                                 totalInserted++;
-                            } catch (Exception ignored) {}
+                            } catch (Exception ignored) {
+                            }
                         }
                     }
 
@@ -285,7 +315,8 @@ public class RutasDbAdmin {
                             try (Statement stmt = conn.createStatement()) {
                                 stmt.execute("SELECT setval(pg_get_serial_sequence('" + tabla +
                                         "', 'id'), COALESCE((SELECT MAX(id) FROM " + tabla + "), 0) + 1, false)");
-                            } catch (Exception ignored) {}
+                            } catch (Exception ignored) {
+                            }
                         }
                     }
                 }
@@ -325,20 +356,41 @@ public class RutasDbAdmin {
     }
 
     /**
-     * Setea un parámetro del PreparedStatement según el tipo de dato real de la columna.
+     * Setea un parámetro del PreparedStatement según el tipo de dato real de la
+     * columna.
      */
-    private static void setTypedParam(PreparedStatement ps, int index, String value, String dataType) throws SQLException {
+    private static void setTypedParam(PreparedStatement ps, int index, String value, String dataType)
+            throws SQLException {
         if (value == null || value.isEmpty()) {
             // Determinar el tipo SQL correcto para el null
             int sqlType;
             switch (dataType) {
-                case "integer": case "smallint": sqlType = Types.INTEGER; break;
-                case "bigint": sqlType = Types.BIGINT; break;
-                case "numeric": case "decimal": case "real": case "double precision": sqlType = Types.NUMERIC; break;
-                case "boolean": sqlType = Types.BOOLEAN; break;
-                case "timestamp without time zone": case "timestamp with time zone": sqlType = Types.TIMESTAMP; break;
-                case "date": sqlType = Types.DATE; break;
-                default: sqlType = Types.VARCHAR; break;
+                case "integer":
+                case "smallint":
+                    sqlType = Types.INTEGER;
+                    break;
+                case "bigint":
+                    sqlType = Types.BIGINT;
+                    break;
+                case "numeric":
+                case "decimal":
+                case "real":
+                case "double precision":
+                    sqlType = Types.NUMERIC;
+                    break;
+                case "boolean":
+                    sqlType = Types.BOOLEAN;
+                    break;
+                case "timestamp without time zone":
+                case "timestamp with time zone":
+                    sqlType = Types.TIMESTAMP;
+                    break;
+                case "date":
+                    sqlType = Types.DATE;
+                    break;
+                default:
+                    sqlType = Types.VARCHAR;
+                    break;
             }
             ps.setNull(index, sqlType);
             return;
@@ -370,7 +422,7 @@ public class RutasDbAdmin {
                 ps.setTimestamp(index, Timestamp.valueOf(value));
                 break;
             case "date":
-                ps.setDate(index, Date.valueOf(value));
+                ps.setDate(index, java.sql.Date.valueOf(value));
                 break;
             default:
                 ps.setString(index, value);
