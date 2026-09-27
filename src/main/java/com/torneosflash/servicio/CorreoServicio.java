@@ -14,27 +14,27 @@ public class CorreoServicio {
     private String fromEmail;
     private boolean habilitado;
 
-    public CorreoServicio(String gmailUser, String gmailPass) {
-        this.fromEmail = gmailUser;
-        this.habilitado = gmailUser != null && !gmailUser.isEmpty() &&
-                          gmailPass != null && !gmailPass.isEmpty();
+    public CorreoServicio(String smtpUser, String smtpPass) {
+        this.fromEmail = smtpUser;
+        this.habilitado = smtpUser != null && !smtpUser.isEmpty() &&
+                          smtpPass != null && !smtpPass.isEmpty();
 
         if (habilitado) {
             Properties props = new Properties();
             props.put("mail.smtp.auth", "true");
             props.put("mail.smtp.starttls.enable", "true");
-            props.put("mail.smtp.host", "smtp.gmail.com");
+            props.put("mail.smtp.host", "smtp-relay.brevo.com");
             props.put("mail.smtp.port", "587");
 
             this.session = Session.getInstance(props, new Authenticator() {
                 @Override
                 protected PasswordAuthentication getPasswordAuthentication() {
-                    return new PasswordAuthentication(gmailUser, gmailPass);
+                    return new PasswordAuthentication(smtpUser, smtpPass);
                 }
             });
-            System.out.println("✅ Servicio de correo configurado");
+            System.out.println("✅ Servicio de correo (Brevo SMTP) configurado");
         } else {
-            System.out.println("⚠️ Correo no configurado (faltan GMAIL_USER/GMAIL_PASS)");
+            System.out.println("⚠️ Correo no configurado (faltan SMTP_USER/SMTP_PASS)");
         }
     }
 

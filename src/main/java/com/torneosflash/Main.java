@@ -62,7 +62,7 @@ public class Main {
             System.out.println("❌ Fallo al conectar a la API de Clash Royale. Revisa el log de errores.");
         }
 
-        CorreoServicio correo = new CorreoServicio(config.getGmailUser(), config.getGmailPass());
+        CorreoServicio correo = new CorreoServicio(config.getSmtpUser(), config.getSmtpPass());
 
         // Servicio de Push Notifications (FCM)
         NotificacionPushServicio pushService = new NotificacionPushServicio(

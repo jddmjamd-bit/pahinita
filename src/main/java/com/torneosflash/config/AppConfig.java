@@ -15,8 +15,8 @@ public class AppConfig {
     private final String databaseUrl;
     private final String clashApiToken;
     private final String firebaseServiceAccount;
-    private final String gmailUser;
-    private final String gmailPass;
+    private final String smtpUser;
+    private final String smtpPass;
     private final String wompiPublicKey;
     private final String wompiPrivateKey;
     private final String wompiIntegritySecret;
@@ -31,8 +31,8 @@ public class AppConfig {
         this.databaseUrl = getEnv("DATABASE_URL", "");
         this.clashApiToken = getEnv("CLASH_ROYALE_API_TOKEN", "");
         this.firebaseServiceAccount = getEnv("FIREBASE_SERVICE_ACCOUNT", "");
-        this.gmailUser = getEnv("GMAIL_USER", "");
-        this.gmailPass = getEnv("GMAIL_PASS", "");
+        this.smtpUser = getEnv("SMTP_USER", "");
+        this.smtpPass = getEnv("SMTP_PASS", "");
         this.wompiPublicKey = getEnv("WOMPI_PUBLIC_KEY", "");
         this.wompiPrivateKey = getEnv("WOMPI_PRIVATE_KEY", "");
         this.wompiIntegritySecret = getEnv("WOMPI_INTEGRITY_SECRET", "");
@@ -53,8 +53,8 @@ public class AppConfig {
     public String getDatabaseUrl() { return databaseUrl; }
     public String getClashApiToken() { return clashApiToken; }
     public String getFirebaseServiceAccount() { return firebaseServiceAccount; }
-    public String getGmailUser() { return gmailUser; }
-    public String getGmailPass() { return gmailPass; }
+    public String getSmtpUser() { return smtpUser; }
+    public String getSmtpPass() { return smtpPass; }
     public String getWompiPublicKey() { return wompiPublicKey; }
     public String getWompiPrivateKey() { return wompiPrivateKey; }
     public String getWompiIntegritySecret() { return wompiIntegritySecret; }
@@ -65,5 +65,5 @@ public class AppConfig {
 
     public boolean hasClashApi() { return !clashApiToken.isEmpty(); }
     public boolean hasFirebase() { return !firebaseServiceAccount.isEmpty(); }
-    public boolean hasGmail() { return !gmailUser.isEmpty() && !gmailPass.isEmpty(); }
+    public boolean hasSmtp() { return !smtpUser.isEmpty() && !smtpPass.isEmpty(); }
 }
