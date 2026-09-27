@@ -104,34 +104,34 @@ public class RutasLeaderboard {
 
             if (pozoTotal > 0) {
                 double pozoSobrante = 0;
+                double decimalesSobrantes = 0;
 
                 // 1. Calcular premio base de cada jugador en el top
                 for (int i = 0; i < PORCENTAJES.length; i++) {
                     if (i < top.size()) {
                         JsonObject jugador = top.get(i);
-                        int premioMonto = (int) (pozoTotal * PORCENTAJES[i]);
+                        double premioExacto = pozoTotal * PORCENTAJES[i];
+                        int premioMonto = (int) premioExacto;
                         jugador.addProperty("premio_asignado", premioMonto);
+                        decimalesSobrantes += (premioExacto - premioMonto);
                     } else {
                         pozoSobrante += pozoTotal * PORCENTAJES[i];
                     }
                 }
 
                 // 2. Dividir el sobrante (si hay menos de 10 jugadores)
-                double bonoExtraJugador = 0;
+                double bonoExtraJugadorExacto = 0;
+                double mitadParaAdmin = 0;
+                
                 if (pozoSobrante > 0) {
                     double mitadParaJugadores = pozoSobrante / 2.0;
-                    double mitadParaAdmin = pozoSobrante / 2.0;
+                    mitadParaAdmin = pozoSobrante / 2.0;
 
                     if (top.size() > 0) {
-                        bonoExtraJugador = mitadParaJugadores / top.size();
+                        bonoExtraJugadorExacto = mitadParaJugadores / top.size();
                     } else {
                         // Nadie en el top, todo para el admin
                         mitadParaAdmin += mitadParaJugadores;
-                    }
-
-                    if (mitadParaAdmin > 0) {
-                        db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'ganancia_sobrante_top', ?, 'ganancia')", 
-                                  mitadParaAdmin, "Sobrante leaderboard " + configKey);
                     }
                 }
 
@@ -139,7 +139,11 @@ public class RutasLeaderboard {
                 for (int i = 0; i < top.size(); i++) {
                     JsonObject jugador = top.get(i);
                     int jugadorId = jugador.get("id").getAsNumber().intValue();
-                    int premioFinal = jugador.get("premio_asignado").getAsInt() + (int) bonoExtraJugador;
+                    
+                    int bonoInt = (int) bonoExtraJugadorExacto;
+                    decimalesSobrantes += (bonoExtraJugadorExacto - bonoInt);
+
+                    int premioFinal = jugador.get("premio_asignado").getAsInt() + bonoInt;
                     
                     if (premioFinal <= 0) continue;
 
@@ -170,6 +174,30 @@ public class RutasLeaderboard {
                     }
                     System.out.println("   🥇 #" + (i + 1) + " " + jugador.get("username").getAsString() + ": +$" + premioFinal);
                 }
+
+                // 4. Pagar al admin (sobrantes y decimales)
+                double gananciaAdminTotal = mitadParaAdmin + decimalesSobrantes;
+                if (gananciaAdminTotal > 0) {
+                    ArrayList<JsonObject> admins = db.query("SELECT id FROM users WHERE tipo_suscripcion = 'admin'");
+                    if (!admins.isEmpty()) {
+                        double cuotaAdmin = gananciaAdminTotal / admins.size();
+                        db.update("UPDATE users SET saldo = saldo + ? WHERE tipo_suscripcion = 'admin'", cuotaAdmin);
+                        
+                        // Notificar a los admins por socket
+                        for (SocketIOClient s : io.getSockets().values()) {
+                            if (s.getUserData() != null && "admin".equals(s.getUserData().get("tipo_suscripcion").getAsString())) {
+                                int aid = s.getUserData().get("id").getAsNumber().intValue();
+                                JsonObject u = db.queryOne("SELECT saldo FROM users WHERE id = ?", aid);
+                                double nuevoSaldo = u != null ? u.get("saldo").getAsDouble() : 0;
+                                s.emit("actualizar_saldo", new JsonPrimitive(nuevoSaldo));
+                            }
+                        }
+                    }
+                }
+                
+                // 5. Restar el pozo de la billetera de comisiones (leaderboard) para que actualice en panel
+                db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'cierre_leaderboard', ?, 'leaderboard')",
+                          -pozoTotal, "Cierre leaderboard " + configKey);
             }
 
             // Resetear columna
