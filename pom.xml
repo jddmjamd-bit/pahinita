@@ -54,13 +54,6 @@
             <version>2.10.1</version>
         </dependency>
 
-        <!-- Jakarta Mail (para notificaciones por correo) -->
-        <dependency>
-            <groupId>com.sun.mail</groupId>
-            <artifactId>jakarta.mail</artifactId>
-            <version>2.0.1</version>
-        </dependency>
-
         <!-- SLF4J Simple (logging requerido por Javalin) -->
         <dependency>
             <groupId>org.slf4j</groupId>

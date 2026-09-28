@@ -1,61 +1,83 @@
 package com.torneosflash.servicio;
 
-import jakarta.mail.*;
-import jakarta.mail.internet.*;
-import java.util.Properties;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 
 /**
- * Servicio de envío de correos electrónicos.
- * Equivalente al nodemailer transporter de index.js.
+ * Servicio de envío de correos electrónicos via Brevo HTTP API.
+ * Usa HTTPS (puerto 443) en vez de SMTP (puerto 587),
+ * lo cual funciona en Render y otros hostings que bloquean SMTP.
  */
 public class CorreoServicio {
 
-    private Session session;
-    private String fromEmail;
+    private final HttpClient httpClient;
+    private final String apiKey;
+    private final String senderEmail;
+    private final String senderName;
     private boolean habilitado;
 
-    public CorreoServicio(String smtpUser, String smtpPass) {
-        this.fromEmail = smtpUser;
-        this.habilitado = smtpUser != null && !smtpUser.isEmpty() &&
-                          smtpPass != null && !smtpPass.isEmpty();
+    public CorreoServicio(String brevoApiKey, String senderEmail) {
+        this.apiKey = brevoApiKey;
+        this.senderEmail = senderEmail;
+        this.senderName = "Torneos Flash Bot";
+        this.httpClient = HttpClient.newHttpClient();
+        this.habilitado = brevoApiKey != null && !brevoApiKey.isEmpty() &&
+                          senderEmail != null && !senderEmail.isEmpty();
 
         if (habilitado) {
-            Properties props = new Properties();
-            props.put("mail.smtp.auth", "true");
-            props.put("mail.smtp.starttls.enable", "true");
-            props.put("mail.smtp.starttls.required", "true");
-            props.put("mail.smtp.ssl.protocols", "TLSv1.2");
-            props.put("mail.smtp.ssl.trust", "smtp.gmail.com");
-            props.put("mail.smtp.host", "smtp.gmail.com");
-            props.put("mail.smtp.port", "587");
-
-            this.session = Session.getInstance(props, new Authenticator() {
-                @Override
-                protected PasswordAuthentication getPasswordAuthentication() {
-                    return new PasswordAuthentication(smtpUser, smtpPass);
-                }
-            });
-            System.out.println("✅ Servicio de correo (Gmail SMTP) configurado");
+            System.out.println("✅ Servicio de correo (Brevo API) configurado");
         } else {
-            System.out.println("⚠️ Correo no configurado (faltan SMTP_USER/SMTP_PASS)");
+            System.out.println("⚠️ Correo no configurado (faltan BREVO_API_KEY/BREVO_SENDER_EMAIL)");
         }
     }
 
     /**
-     * Envía un correo electrónico.
+     * Envía un correo electrónico via Brevo HTTP API.
      */
     public void enviar(String to, String subject, String body) {
         if (!habilitado) return;
 
         new Thread(() -> {
             try {
-                MimeMessage message = new MimeMessage(session);
-                message.setFrom(new InternetAddress(fromEmail, "Torneos Flash Bot"));
-                message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(to));
-                message.setSubject(subject);
-                message.setText(body);
-                Transport.send(message);
-                System.out.println("📧 Correo enviado a " + to);
+                JsonObject payload = new JsonObject();
+
+                // Remitente
+                JsonObject sender = new JsonObject();
+                sender.addProperty("name", senderName);
+                sender.addProperty("email", senderEmail);
+                payload.add("sender", sender);
+
+                // Destinatario(s)
+                JsonArray toArray = new JsonArray();
+                JsonObject recipient = new JsonObject();
+                recipient.addProperty("email", to);
+                toArray.add(recipient);
+                payload.add("to", toArray);
+
+                // Contenido
+                payload.addProperty("subject", subject);
+                payload.addProperty("textContent", body);
+
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create("https://api.brevo.com/v3/smtp/email"))
+                        .header("api-key", apiKey)
+                        .header("Content-Type", "application/json")
+                        .header("Accept", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
+                        .build();
+
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+                if (response.statusCode() == 201) {
+                    System.out.println("📧 Correo enviado a " + to);
+                } else {
+                    System.err.println("📧 Error enviando correo (" + response.statusCode() + "): " + response.body());
+                }
             } catch (Exception e) {
                 System.err.println("Error enviando correo: " + e.getMessage());
             }
@@ -63,10 +85,10 @@ public class CorreoServicio {
     }
 
     /**
-     * Envía notificación al admin (al email configurado).
+     * Envía notificación al admin (al email configurado como remitente).
      */
     public void notificarAdmin(String asunto, String detalle) {
-        enviar(fromEmail, "🔔 " + asunto, detalle);
+        enviar(senderEmail, "🔔 " + asunto, detalle);
     }
 
     public boolean isHabilitado() { return habilitado; }
