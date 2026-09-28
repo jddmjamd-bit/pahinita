@@ -23,7 +23,10 @@ public class CorreoServicio {
             Properties props = new Properties();
             props.put("mail.smtp.auth", "true");
             props.put("mail.smtp.starttls.enable", "true");
-            props.put("mail.smtp.host", "smtp-relay.brevo.com");
+            props.put("mail.smtp.starttls.required", "true");
+            props.put("mail.smtp.ssl.protocols", "TLSv1.2");
+            props.put("mail.smtp.ssl.trust", "smtp.gmail.com");
+            props.put("mail.smtp.host", "smtp.gmail.com");
             props.put("mail.smtp.port", "587");
 
             this.session = Session.getInstance(props, new Authenticator() {
@@ -32,7 +35,7 @@ public class CorreoServicio {
                     return new PasswordAuthentication(smtpUser, smtpPass);
                 }
             });
-            System.out.println("✅ Servicio de correo (Brevo SMTP) configurado");
+            System.out.println("✅ Servicio de correo (Gmail SMTP) configurado");
         } else {
             System.out.println("⚠️ Correo no configurado (faltan SMTP_USER/SMTP_PASS)");
         }
