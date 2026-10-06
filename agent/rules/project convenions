@@ -23,6 +23,6 @@
 - La lógica de negocio va en la capa de servicio (`servicio/`), no en los handlers de rutas ni en los handlers de socket.
 
 ## Después de cada tarea
-- **No resumir** lo que se hizo en el chat. En cambio, editar `CHANGELOG.md` en la raíz del proyecto agregando la entrada al inicio (debajo de la línea `---`).
+- **No resumir** lo que se hizo en el chat. En cambio, editar `CHANGELOG.md` (junto al modelo usado) y `ARCHITECTURE.md` (solo si es necesario) en la raíz del proyecto agregando la entrada al inicio (debajo de la línea `---`).
 - Ejecutar `git diff --stat` para verificar qué archivos se tocaron.
 - Seguir la regla de auto-push (add, commit con mensaje descriptivo en español, push a main).
