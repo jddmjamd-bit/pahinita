@@ -1,21 +1,30 @@
-# Etapa 1: Build
-FROM maven:3.9.6-eclipse-temurin-17 AS build
+# Etapa 1: Build Frontend
+FROM node:18-alpine AS frontend-build
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm install
+COPY frontend/ ./
+RUN npm run build
+
+# Etapa 2: Build Backend
+FROM maven:3.9.6-eclipse-temurin-17 AS backend-build
 WORKDIR /app
 COPY pom.xml .
 COPY src ./src
 # Compilar y empaquetar
 RUN mvn clean package -DskipTests
 
-# Etapa 2: Run
+# Etapa 3: Run
 FROM eclipse-temurin:17-jre
 WORKDIR /app
 # Copiar el JAR generado
-COPY --from=build /app/target/TorneosFlash-1.0.jar ./app.jar
-# Copiar los archivos estáticos del frontend
-COPY public ./public
+COPY --from=backend-build /app/target/TorneosFlash-1.0.jar ./app.jar
+# Copiar el frontend compilado (Vite emite a dist/) y colocarlo en public para que Javalin lo sirva
+COPY --from=frontend-build /app/frontend/dist ./public
+# Copiar admin-db.html por si se usa
 COPY admin-db.html .
 
-# Puerto por defecto (Javalin usará la variable de entorno PORT que Render inyecta, o 10000)
+# Puerto por defecto
 EXPOSE 10000
 
 # Ejecutar

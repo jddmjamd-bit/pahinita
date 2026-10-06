@@ -207,6 +207,24 @@ public class Main {
         }, 1, 1, TimeUnit.MINUTES);
 
         // ============================================
+        // SPA Fallback (Para React Router)
+        // ============================================
+        app.error(404, ctx -> {
+            if (!ctx.path().startsWith("/api/")) {
+                try {
+                    String[] possiblePaths = { "public/index.html", "../public/index.html", "src/main/resources/public/index.html" };
+                    for (String path : possiblePaths) {
+                        File indexFile = new File(path);
+                        if (indexFile.exists()) {
+                            ctx.html(new String(java.nio.file.Files.readAllBytes(indexFile.toPath())));
+                            return;
+                        }
+                    }
+                } catch (Exception e) {}
+            }
+        });
+
+        // ============================================
         // 10. INICIAR SERVIDOR
         // ============================================
         app.start("0.0.0.0", config.getPort());
