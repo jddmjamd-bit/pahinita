@@ -1,0 +1,186 @@
+.discord-layout {
+    display: flex;
+    height: 100vh;
+    background-color: #36393f;
+    color: white;
+    overflow: hidden;
+}
+
+.sidebar {
+    width: 250px;
+    background-color: #2f3136;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid #202225;
+    transition: transform 0.3s ease;
+    z-index: 1000;
+}
+
+.profile-box {
+    padding: 20px;
+    background-color: #202225;
+    border-bottom: 1px solid #4f545c;
+    text-align: center;
+}
+
+.profile-box h3 {
+    margin: 0 0 10px 0;
+    color: #fff;
+}
+
+.status-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #36393f;
+    padding: 5px 12px;
+    border-radius: 15px;
+    font-size: 0.85rem;
+    color: #b9bbbe;
+    margin-bottom: 10px;
+}
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    background-color: #43b581;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.money {
+    color: #43b581;
+    font-size: 1.5rem;
+    font-weight: bold;
+    margin: 10px 0;
+}
+
+.mini-btn {
+    width: 100%;
+    padding: 8px;
+    background-color: #7289da;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: filter 0.2s;
+}
+
+.mini-btn:hover {
+    filter: brightness(1.2);
+}
+
+.channels-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 15px 10px;
+}
+
+.category {
+    font-size: 0.75rem;
+    font-weight: bold;
+    color: #8e9297;
+    margin: 15px 0 5px 10px;
+}
+
+.channel {
+    padding: 8px 10px;
+    color: #8e9297;
+    cursor: pointer;
+    border-radius: 4px;
+    margin-bottom: 2px;
+    transition: background 0.2s, color 0.2s;
+}
+
+.channel:hover {
+    background-color: #393c43;
+    color: #dcddde;
+}
+
+.channel.active {
+    background-color: #4f545c;
+    color: #fff;
+}
+
+.dropdown-group .category-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.sub-channel {
+    padding-left: 25px;
+}
+
+.logout-btn {
+    padding: 15px;
+    background-color: #202225;
+    color: #f04747;
+    border: none;
+    border-top: 1px solid #4f545c;
+    cursor: pointer;
+    font-weight: bold;
+    transition: background 0.2s;
+}
+
+.logout-btn:hover {
+    background-color: #f04747;
+    color: white;
+}
+
+.chat-area {
+    flex: 1;
+    background-color: #36393f;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+}
+
+.mobile-menu-btn {
+    display: none;
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 1001;
+    background: #202225;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.mobile-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0,0,0,0.5);
+    z-index: 999;
+}
+
+@media (max-width: 768px) {
+    .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        height: 100vh;
+        transform: translateX(-100%);
+    }
+    
+    .sidebar.open {
+        transform: translateX(0);
+    }
+
+    .mobile-menu-btn {
+        display: block;
+    }
+
+    .mobile-overlay {
+        display: block;
+    }
+}

@@ -12,14 +12,16 @@ function App() {
   return (
     <Routes>
       <Route path="/auth" element={<Auth />} />
-      <Route path="/lobby" element={<Lobby />} />
-      <Route path="/admin" element={<Admin />} />
-      <Route path="/match" element={<Match />} />
-      <Route path="/chat" element={<Chat />} />
-      <Route path="/finance" element={<Finance />} />
-      <Route path="/leaderboard" element={<Leaderboard />} />
-      <Route path="/sorteos" element={<Sorteos />} />
-      <Route path="/" element={<Navigate to="/auth" replace />} />
+      <Route path="/" element={<Lobby />}>
+        <Route index element={<Navigate to="/chat" replace />} />
+        <Route path="chat" element={<Chat />} />
+        <Route path="match" element={<Match />} />
+        <Route path="finance" element={<Finance />} />
+        <Route path="leaderboard" element={<Leaderboard />} />
+        <Route path="sorteos" element={<Sorteos />} />
+        <Route path="admin" element={<Admin />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
 }

@@ -12,6 +12,12 @@ Archivos: `archivo1.java`, `archivo2.js`
 
 ---
 
+## 2026-10-06 — F2 Completar migración de módulos a React (Gemini Pro High)
+- Migrados completamente los módulos restantes a componentes funcionales de React (`Leaderboard`, `Finance`, `Sorteos`, `Chat`, `Match`, `Admin`).
+- Refactorizado `Lobby.jsx` para actuar como el Layout principal (Sidebar) con react-router-dom `<Outlet>`.
+- Refactorizado `App.jsx` para utilizar rutas anidadas bajo el layout principal.
+- Añadidos archivos de estilos `.css` individuales para cada uno de los componentes migrados, respetando el diseño original (glassmorphism/dark theme).
+Archivos: `frontend/src/pages/*.jsx`, `frontend/src/pages/*.css`, `frontend/src/App.jsx`
 ## 2026-10-06 — F2 Dividir app.js en módulos (Gemini Pro High)
 - Dividido el monolito `public/app.js` en múltiples archivos de vanilla JS (auth, lobby, match, chat, finance, leaderboard, admin, sorteos) dentro de `public/js/`.
 - Creados los componentes React estructurales (Match, Chat, Finance, Leaderboard, Sorteos) en `frontend/src/pages/`.

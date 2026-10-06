@@ -1,0 +1,77 @@
+.leaderboard-container {
+    padding: 20px;
+    max-width: 800px;
+    margin: 0 auto;
+    color: white;
+}
+.lb-tabs {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+.lb-tab {
+    background: #2f3136;
+    border: 1px solid #4f545c;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.lb-tab.active {
+    background: #7289da;
+    border-color: #7289da;
+}
+.prizes-row {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+.prize-badge {
+    background: #ffd70033;
+    border: 1px solid #ffd700;
+    padding: 5px 10px;
+    border-radius: 20px;
+    font-weight: bold;
+}
+.lb-row {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    border-bottom: 1px solid #2f3136;
+    background: #36393f;
+    margin-bottom: 5px;
+    border-radius: 4px;
+}
+.lb-row.lb-gold { border-left: 4px solid #ffd700; }
+.lb-row.lb-silver { border-left: 4px solid #c0c0c0; }
+.lb-row.lb-bronze { border-left: 4px solid #cd7f32; }
+.lb-row.lb-me { background: #4f545c; }
+.lb-pos, .lb-medal {
+    width: 40px;
+    text-align: center;
+    font-size: 1.2rem;
+    font-weight: bold;
+}
+.lb-info {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+}
+.lb-name {
+    font-weight: bold;
+    font-size: 1.1rem;
+}
+.lb-stats {
+    font-size: 0.85rem;
+    color: #b9bbbe;
+}
+.lb-wins, .lb-money-apostado, .lb-money-ganado {
+    font-weight: bold;
+    padding: 5px 10px;
+    border-radius: 4px;
+    background: #202225;
+}
+.lb-money-apostado { color: #e74c3c; }
+.lb-money-ganado { color: #2ecc71; }
