@@ -12,6 +12,11 @@ Archivos: `archivo1.java`, `archivo2.js`
 
 ---
 
+## 2026-10-06 — F6 Build + minificación (Gemini Pro High)
+- Configurada optimización de construcción en `vite.config.js` para realizar "code splitting" automático.
+- Se configuró Vite para separar los paquetes de `node_modules` en diferentes "chunks" durante la etapa de compilación (`manualChunks`), logrando una mejor carga y aprovechando el "tree shaking" y la minificación por defecto de Vite 8.
+Archivos: `frontend/vite.config.js`
+
 ## 2026-10-06 — F4 Mejorar diseño (Gemini Pro High)
 - Implementado sistema de diseño unificado en `index.css` con variables CSS para colores, bordes y espaciado (dark mode premium y UI/UX moderno).
 - Creados estilos base globales para inputs, botones y formularios (glassmorphism y animaciones) en `App.css`.

@@ -24,5 +24,8 @@
 
 ## Después de cada tarea
 - **No resumir** lo que se hizo en el chat. En cambio, editar `CHANGELOG.md` (junto al modelo usado) y `ARCHITECTURE.md` (solo si es necesario) en la raíz del proyecto agregando la entrada al inicio (debajo de la línea `---`).
+- Verificar si los cambios si son mostrados en el frontend y backend.
+- Compilar y verificar si no hay ningun error en el codigo
+- Notificar al usuario verificaciones manuales.
 - Ejecutar `git diff --stat` para verificar qué archivos se tocaron.
 - Seguir la regla de auto-push (add, commit con mensaje descriptivo en español, push a main).
