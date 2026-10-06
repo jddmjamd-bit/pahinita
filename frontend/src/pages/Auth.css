@@ -1,22 +1,13 @@
-/* Auth component specific styles */
+/* Auth specific */
 .tag-status {
-    font-size: 0.8rem;
-    margin-top: -10px;
-    margin-bottom: 10px;
+    font-size: 0.85rem;
+    margin-top: -12px;
+    margin-bottom: 16px;
     display: none;
+    animation: fadeIn var(--transition-fast);
 }
-.tag-status.visible {
-    display: block;
-}
-.tag-status.error {
-    color: #e74c3c;
-}
-.tag-status.searching {
-    color: #f39c12;
-}
-.tag-status.found {
-    color: #2ecc71;
-}
-.tag-status.not-found {
-    color: #e74c3c;
-}
+.tag-status.visible { display: block; }
+.tag-status.error { color: var(--accent-danger); }
+.tag-status.searching { color: var(--accent-warning); }
+.tag-status.found { color: var(--accent-success); }
+.tag-status.not-found { color: var(--accent-danger); }

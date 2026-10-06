@@ -12,6 +12,12 @@ Archivos: `archivo1.java`, `archivo2.js`
 
 ---
 
+## 2026-10-06 — F4 Mejorar diseño (Gemini Pro High)
+- Implementado sistema de diseño unificado en `index.css` con variables CSS para colores, bordes y espaciado (dark mode premium y UI/UX moderno).
+- Creados estilos base globales para inputs, botones y formularios (glassmorphism y animaciones) en `App.css`.
+- Reescribieron los archivos CSS de las vistas (`Auth.css`, `Lobby.css`, `Chat.css`, `Match.css`, `Finance.css`, `Leaderboard.css`, `Sorteos.css`, `Admin.css`) adoptando el nuevo sistema de diseño, sombras, fuentes (Inter, Outfit) y layout responsivo.
+Archivos: `frontend/src/index.css`, `frontend/src/App.css`, `frontend/src/pages/*.css`
+
 ## 2026-10-06 — F3 Estado centralizado (Gemini Pro High)
 - Instalados `zustand` y `socket.io-client` en el frontend.
 - Creado store global en `useAppStore.js` para manejar el estado del usuario, la instancia de socket y el estado de las partidas.
