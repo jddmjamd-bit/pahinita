@@ -1,0 +1,43 @@
+# Cómo crear un documento de una página que atraiga inversores
+
+Este vídeo explica cómo utilizar un documento de una página como primer punto de contacto entre una startup y sus potenciales inversores. Vlad y Arthur, fundadores de Launch Deck, lo diferencian de un pitch deck detallado y presentan un marco de ocho pasos para estructurarlo con claridad. El método abarca desde el encabezado, el problema y el mercado hasta el producto, la tracción, el equipo y la solicitud final. También se ofrecen una lista de verificación y plantillas para aplicar el proceso en futuros proyectos de captación de inversión.
+
+## [00:00 - 00:38] Introducción
+
+Vlad presenta el vídeo junto con Arthur, su compañero y cofundador de Launch Deck. Ambos anuncian que explicarán los aspectos básicos de un documento de una página utilizado como primer contacto con inversores potenciales. Al finalizar, el espectador debería comprender qué es este tipo de resumen, en qué se diferencia de una presentación comercial, qué objetivos cumple y cómo estructurarlo para mejorar las actividades de captación de clientes e inversión. También indican que en la descripción del vídeo se incluyen una lista de verificación con los puntos tratados y una plantilla para crear documentos de una página para futuros proyectos.
+
+## [00:38 - 01:27] ¿Qué es un documento de una página?
+
+Un documento de una página es un resumen conciso de una startup, diseñado principalmente para comunicar su propuesta a potenciales inversores. A diferencia de un pitch deck, en el que la empresa se presenta con mayor detalle, el documento de una página condensa la historia del proyecto y transmite sus elementos esenciales de forma breve y directa. Por eso resulta especialmente útil al solicitar la participación en un programa de aceleración o al iniciar el contacto con fondos de capital riesgo. Los fundadores explican que, después de tres años trabajando estrechamente con startups, han desarrollado un marco de trabajo para la primera fase del acercamiento a inversores, que se organiza en ocho pasos sencillos.
+
+## [01:27 - 01:47] Sección del encabezado
+
+El primer paso consiste en crear la sección de encabezado, que debe emplear un material similar al de la diapositiva de título de un pitch deck. Debe incluir el logotipo de la empresa o de la startup y una descripción muy breve de lo que hace el proyecto y de por qué es importante. La recomendación es expresar esta propuesta mediante una frase corta que permita al lector entender rápidamente la identidad y la relevancia de la empresa.
+
+## [01:47 - 02:24] Problema y solución
+
+La siguiente sección combina el planteamiento del problema con la solución propuesta. Primero, la startup debe explicar con claridad qué problema resuelve; dicho problema tiene que ser comprensible para cualquier lector. En una o dos frases debe mostrar por qué el mercado está desactualizado, qué deficiencias presenta la situación actual y qué evidencias respaldan esa afirmación, utilizando fuentes de información fiables. El problema y la solución también pueden presentarse de manera comparativa, mostrando el enfoque vigente y cómo la startup pretende innovarlo o mejorarlo. La solución debe responder directamente a las necesidades y dificultades descritas en el planteamiento del problema, evitando presentar una propuesta desconectada de la oportunidad identificada.
+
+## [02:24 - 02:58] El mercado objetivo
+
+Una vez expuestos el problema y la solución, el documento debe describir el mercado en el que operará la startup. El marco recomendado es el modelo SOM, SAM y TAM, que ayuda a delimitar el mercado total, el segmento disponible para el producto y la parte que realmente puede capturarse. El mercado objetivo debe ser suficientemente grande para resultar atractivo para un inversor, pero también debe estar estrechamente relacionado con la solución concreta de la empresa. Además de mostrar el tamaño actual del mercado, el documento debe explicar sus tendencias dinámicas, su crecimiento, su potencial y las razones por las que representa una oportunidad de inversión. Para ello, pueden seleccionarse dos o tres tendencias o factores clave que impulsen la evolución del sector.
+
+## [02:58 - 03:19] Presentación del producto
+
+Después de ofrecer una visión general del mercado, la startup debe mostrar su MVP, o Producto Mínimo Viable, o bien presentar una visión clara de su producto. La explicación debe ser sencilla y no debe sobrecargarse con detalles técnicos innecesarios. El objetivo es destacar las características superiores de la propuesta y responder por qué el producto es revolucionario o puede ser diez veces mejor que las alternativas de la competencia. La presentación debe concentrarse en el valor diferencial que el inversor necesita comprender rápidamente.
+
+## [03:19 - 03:41] Tracción y prueba de concepto
+
+El sexto paso consiste en demostrar los resultados obtenidos y la prueba de concepto. El documento debe incluir entre tres y cinco resultados cuantificables del proyecto, como registros, tamaño de la base de usuarios, financiación conseguida, colaboraciones establecidas o cobertura mediática. Estas evidencias permiten demostrar que la startup no se limita a tener una idea, sino que ya ha generado señales verificables de avance. También ayudan a construir una relación de confianza con el potencial inversor y a probar que el producto tiene encaje en el mercado.
+
+## [03:41 - 04:05] El equipo
+
+La sección del equipo debe presentar a las personas clave y explicar por qué ellas son las adecuadas para resolver el problema y convertir la idea en un negocio viable. Los creadores advierten que no basta con incluir fotografías y nombres. Es necesario destacar la experiencia relevante de cada integrante en el sector y explicar por qué sus capacidades hacen que el equipo pueda ejecutar el proyecto con solvencia. Este aspecto es especialmente importante en las primeras etapas, cuando el inversor todavía dispone de pocos resultados históricos y suele valorar de manera decisiva la calidad, experiencia y complementariedad del equipo fundador.
+
+## [04:05 - 04:38] Sección de cierre
+
+Una vez incorporados los elementos esenciales, el documento debe terminar de forma directa y orientada a la acción. El cierre comienza con una llamada a la acción: una frase atractiva que motive al inversor a participar en el proyecto. Después debe aparecer la sección de solicitud, en la que la startup especifica qué busca exactamente, ya sea una asociación, financiación inicial u otro tipo de apoyo. Finalmente, deben incluirse los datos de contacto y explicar cómo puede comunicarse con la empresa el inversor o cualquier otro público objetivo interesado.
+
+## [04:38 - 04:59] Conclusión
+
+El vídeo resume que un documento de una página eficaz debe concentrar, de manera clara y breve, toda la información que un inversor necesita para interesarse por una startup. Los autores invitan a descargar la lista de verificación y las plantillas disponibles en la descripción, y animan a los espectadores a dejar comentarios si desean nuevas guías o plantillas para otros materiales de inversión. Por último, solicitan que el público se suscriba al canal para no perderse el próximo vídeo de análisis.

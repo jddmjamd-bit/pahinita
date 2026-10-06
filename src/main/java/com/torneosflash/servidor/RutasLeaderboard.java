@@ -1,5 +1,7 @@
 package com.torneosflash.servidor;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.google.gson.*;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.socketio.SocketIOServer;
@@ -11,6 +13,8 @@ import java.util.*;
  * Rutas de leaderboard/rankings y lógica de premios periódicos dinámicos.
  */
 public class RutasLeaderboard {
+    private static final Logger logger = LoggerFactory.getLogger(RutasLeaderboard.class);
+
 
     private static final double[] PORCENTAJES = {0.25, 0.18, 0.14, 0.10, 0.08, 0.07, 0.06, 0.05, 0.04, 0.03};
 
@@ -83,7 +87,7 @@ public class RutasLeaderboard {
      */
     public static void premiarYResetear(GenericDAO db, SocketIOServer io, String periodo, String columna) {
         try {
-            System.out.println("🏆 Premiando leaderboard " + periodo + "...");
+            logger.info("🏆 Premiando leaderboard " + periodo + "...");
             
             JsonObject poolData = db.queryOne("SELECT * FROM leaderboard_pools WHERE id = 1");
             if (poolData == null) {
@@ -172,7 +176,7 @@ public class RutasLeaderboard {
                             s.emit("premio_leaderboard", premioData);
                         }
                     }
-                    System.out.println("   🥇 #" + (i + 1) + " " + jugador.get("username").getAsString() + ": +$" + premioFinal);
+                    logger.info("   🥇 #" + (i + 1) + " " + jugador.get("username").getAsString() + ": +$" + premioFinal);
                 }
 
                 // 4. Pagar al admin (sobrantes y decimales)
@@ -202,17 +206,17 @@ public class RutasLeaderboard {
 
             // Resetear columna
             db.update("UPDATE users SET " + columna + " = 0");
-            System.out.println("   ✅ Columna " + columna + " reseteada");
+            logger.info("   ✅ Columna " + columna + " reseteada");
 
             // Reiniciar el pozo para ese periodo
             db.update("UPDATE leaderboard_pools SET " + periodo + " = 0 WHERE id = 1");
-            System.out.println("   ✅ Pozo de " + periodo + " reiniciado a 0");
+            logger.info("   ✅ Pozo de " + periodo + " reiniciado a 0");
 
             JsonObject resetData = new JsonObject();
             resetData.addProperty("periodo", configKey);
             io.emit("leaderboard_reset", resetData);
         } catch (Exception e) {
-            System.err.println("Error premiando leaderboard " + periodo + ": " + e.getMessage());
+            logger.error("Error premiando leaderboard " + periodo + ": " + e.getMessage());
         }
     }
 }

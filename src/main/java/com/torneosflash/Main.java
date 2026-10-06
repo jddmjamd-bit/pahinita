@@ -1,5 +1,7 @@
 package com.torneosflash;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.torneosflash.config.AppConfig;
 import com.torneosflash.dao.ConexionDB;
 import com.torneosflash.dao.GenericDAO;
@@ -30,17 +32,19 @@ import java.util.concurrent.*;
  * @author TorneosFlash
  */
 public class Main {
+    private static final Logger logger = LoggerFactory.getLogger(Main.class);
+
 
     public static void main(String[] args) {
-        System.out.println("═══════════════════════════════════════════════");
-        System.out.println("     🎮 TORNEOS FLASH - Backend Java         ");
-        System.out.println("═══════════════════════════════════════════════");
+        logger.info("═══════════════════════════════════════════════");
+        logger.info("     🎮 TORNEOS FLASH - Backend Java         ");
+        logger.info("═══════════════════════════════════════════════");
 
         // ============================================
         // 1. CONFIGURACIÓN
         // ============================================
         AppConfig config = new AppConfig();
-        System.out.println("📋 Puerto: " + config.getPort());
+        logger.info("📋 Puerto: " + config.getPort());
 
         // ============================================
         // 2. BASE DE DATOS (PostgreSQL)
@@ -57,9 +61,9 @@ public class Main {
         // ============================================
         ClashApiServicio clashApi = new ClashApiServicio(config.getClashApiToken());
         if (clashApi.verificarConexionGlobal()) {
-            System.out.println("✅ Conectado a la API de Clash Royale.");
+            logger.info("✅ Conectado a la API de Clash Royale.");
         } else {
-            System.out.println("❌ Fallo al conectar a la API de Clash Royale. Revisa el log de errores.");
+            logger.info("❌ Fallo al conectar a la API de Clash Royale. Revisa el log de errores.");
         }
 
         CorreoServicio correo = new CorreoServicio(config.getBrevoApiKey(), config.getBrevoSenderEmail());
@@ -121,7 +125,7 @@ public class Main {
                         staticConfig.directory = resolvedPath;
                         staticConfig.location = Location.EXTERNAL;
                     });
-                    System.out.println("📁 Sirviendo archivos estáticos desde: " + resolvedPath);
+                    logger.info("📁 Sirviendo archivos estáticos desde: " + resolvedPath);
                     break;
                 }
             }
@@ -163,13 +167,13 @@ public class Main {
                 for (com.google.gson.JsonObject raffle : expirados) {
                     int raffleId = raffle.get("id").getAsNumber().intValue();
                     String nombre = raffle.get("nombre").getAsString();
-                    System.out.println("⏰ Sorteo #" + raffleId + " (" + nombre + ") expirado");
+                    logger.info("⏰ Sorteo #" + raffleId + " (" + nombre + ") expirado");
 
                     // Ejecutar el sorteo (se completará con espacios vacíos según la nueva lógica)
                     RutasSorteos.ejecutarSorteo(db, socketServer, correo, raffleId);
                 }
             } catch (Exception e) {
-                System.err.println("Error verificando sorteos expirados: " + e.getMessage());
+                logger.error("Error verificando sorteos expirados: " + e.getMessage());
             }
         }, 1, 1, TimeUnit.MINUTES);
 
@@ -206,8 +210,8 @@ public class Main {
         // 10. INICIAR SERVIDOR
         // ============================================
         app.start("0.0.0.0", config.getPort());
-        System.out.println("═══════════════════════════════════════════════");
-        System.out.println("  ✅ Servidor listo en puerto " + config.getPort());
-        System.out.println("═══════════════════════════════════════════════");
+        logger.info("═══════════════════════════════════════════════");
+        logger.info("  ✅ Servidor listo en puerto " + config.getPort());
+        logger.info("═══════════════════════════════════════════════");
     }
 }

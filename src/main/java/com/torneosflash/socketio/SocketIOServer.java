@@ -1,5 +1,7 @@
 package com.torneosflash.socketio;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.google.gson.*;
 import io.javalin.Javalin;
 import io.javalin.websocket.*;
@@ -15,6 +17,8 @@ import java.util.function.BiConsumer;
  * CONCEPTO POO: Encapsulamiento - toda la lógica de protocolo es interna
  */
 public class SocketIOServer {
+    private static final Logger logger = LoggerFactory.getLogger(SocketIOServer.class);
+
 
     // --- COLLECTION: ConcurrentHashMap para hilos seguros ---
     private final ConcurrentHashMap<String, SocketIOClient> clientsBySession = new ConcurrentHashMap<>();
@@ -154,7 +158,7 @@ public class SocketIOServer {
             ws.onMessage(this::handleWsMessage);
             ws.onClose(this::handleWsClose);
             ws.onError(ctx -> {
-                System.err.println("WebSocket error: " + (ctx.error() != null ? ctx.error().getMessage() : "unknown"));
+                logger.error("WebSocket error: " + (ctx.error() != null ? ctx.error().getMessage() : "unknown"));
             });
         });
 
@@ -167,7 +171,7 @@ public class SocketIOServer {
             }
         }, PING_INTERVAL, PING_INTERVAL, TimeUnit.MILLISECONDS);
 
-        System.out.println("✅ Socket.IO adapter registrado en /socket.io/");
+        logger.info("✅ Socket.IO adapter registrado en /socket.io/");
     }
 
     // --- WebSocket Handlers ---
@@ -267,7 +271,7 @@ public class SocketIOServer {
                     try {
                         connectionHandler.accept(client, new Object[]{});
                     } catch (Exception e) {
-                        System.err.println("Error in connection handler: " + e.getMessage());
+                        logger.error("Error in connection handler: " + e.getMessage());
                         e.printStackTrace();
                     }
                 }
@@ -299,7 +303,7 @@ public class SocketIOServer {
             // Fire per-client handlers first
             client.fireEvent(eventName, args);
         } catch (Exception e) {
-            System.err.println("Error parsing Socket.IO event: " + e.getMessage());
+            logger.error("Error parsing Socket.IO event: " + e.getMessage());
         }
     }
 

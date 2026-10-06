@@ -1,11 +1,15 @@
 package com.torneosflash.modelo;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 /**
  * CONCEPTO POO: Herencia - Administrador extiende Usuario
  * CONCEPTO POO: Override - sobreescribe mostrarInformacion() y obtenerTipo()
  * CONCEPTO POO: Polimorfismo - puede ser tratado como Usuario o Entidad
  */
 public class Administrador extends Usuario {
+    private static final Logger logger = LoggerFactory.getLogger(Administrador.class);
+
 
     // --- Atributo privado (ENCAPSULAMIENTO) ---
     private int nivelAcceso;
@@ -26,18 +30,18 @@ public class Administrador extends Usuario {
     // --- Métodos propios del admin ---
     public void aprobarTransaccion(Transaccion transaccion) {
         transaccion.setEstado("completado");
-        System.out.println("Admin " + getUsername() + " aprobo transaccion #" + transaccion.getId());
+        logger.info("Admin " + getUsername() + " aprobo transaccion #" + transaccion.getId());
     }
 
     public void rechazarTransaccion(Transaccion transaccion) {
         transaccion.setEstado("rechazado");
-        System.out.println("Admin " + getUsername() + " rechazo transaccion #" + transaccion.getId());
+        logger.info("Admin " + getUsername() + " rechazo transaccion #" + transaccion.getId());
     }
 
     public void resolverDisputa(Partida partida, String ganador) {
         partida.setGanador(ganador);
         partida.setEstado("finalizado");
-        System.out.println("Admin " + getUsername() + " resolvio disputa: ganador = " + ganador);
+        logger.info("Admin " + getUsername() + " resolvio disputa: ganador = " + ganador);
     }
 
     public boolean tienePermiso(int nivelRequerido) {
@@ -46,16 +50,16 @@ public class Administrador extends Usuario {
 
     public void banearUsuario(Usuario usuario) {
         usuario.setEstado("baneado");
-        System.out.println("Admin " + getUsername() + " baneo a " + usuario.getUsername());
+        logger.info("Admin " + getUsername() + " baneo a " + usuario.getUsername());
     }
 
     // --- Override (OVERRIDE) ---
     @Override
     public void mostrarInformacion() {
         imprimirSeparador();
-        System.out.println("ADMINISTRADOR: " + getUsername());
-        System.out.println("   ID: " + getId() + " | Email: " + getEmail());
-        System.out.println("   Nivel de Acceso: " + nivelAcceso);
+        logger.info("ADMINISTRADOR: " + getUsername());
+        logger.info("   ID: " + getId() + " | Email: " + getEmail());
+        logger.info("   Nivel de Acceso: " + nivelAcceso);
         imprimirSeparador();
     }
 

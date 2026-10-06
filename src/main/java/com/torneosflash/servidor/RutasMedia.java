@@ -1,5 +1,7 @@
 package com.torneosflash.servidor;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.google.gson.JsonObject;
 import com.torneosflash.dao.GenericDAO;
 import io.javalin.Javalin;
@@ -17,6 +19,8 @@ import java.util.UUID;
  * GET  /api/media/{id} → Sirve el archivo desde la BD
  */
 public class RutasMedia {
+    private static final Logger logger = LoggerFactory.getLogger(RutasMedia.class);
+
 
     public static void register(Javalin app, GenericDAO db) {
 
@@ -72,10 +76,10 @@ public class RutasMedia {
                 response.addProperty("id", mediaId);
                 ctx.json(response);
 
-                System.out.println("📹 Video subido: " + filename + " (" + fileBytes.length / 1024 + "KB) → ID: " + mediaId);
+                logger.info("📹 Video subido: " + filename + " (" + fileBytes.length / 1024 + "KB) → ID: " + mediaId);
 
             } catch (Exception e) {
-                System.err.println("❌ Error en /api/upload: " + e.getMessage());
+                logger.error("❌ Error en /api/upload: " + e.getMessage());
                 e.printStackTrace();
                 ctx.status(500).json(errorJson("Error interno al subir archivo"));
             }
@@ -139,7 +143,7 @@ public class RutasMedia {
             } catch (NumberFormatException e) {
                 ctx.status(400).result("ID inválido");
             } catch (Exception e) {
-                System.err.println("❌ Error en /api/media: " + e.getMessage());
+                logger.error("❌ Error en /api/media: " + e.getMessage());
                 ctx.status(500).result("Error interno");
             }
         });

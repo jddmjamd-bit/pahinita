@@ -1,5 +1,7 @@
 package com.torneosflash.modelo;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 /**
  * CONCEPTO POO: Clase Abstracta (abstract class)
  * CONCEPTO POO: Abstracción - define la estructura base sin implementación completa
@@ -9,6 +11,8 @@ package com.torneosflash.modelo;
  * No se puede instanciar directamente, debe ser extendida.
  */
 public abstract class Entidad {
+    private static final Logger logger = LoggerFactory.getLogger(Entidad.class);
+
 
     // --- Atributos privados (ENCAPSULAMIENTO) ---
     private int id;
@@ -42,7 +46,7 @@ public abstract class Entidad {
 
     // --- Método concreto ---
     public void imprimirSeparador() {
-        System.out.println("════════════════════════════════════════════════════");
+        logger.info("════════════════════════════════════════════════════");
     }
 
     // --- Getters y Setters (GETTER Y SETTER) ---

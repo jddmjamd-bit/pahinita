@@ -1,5 +1,7 @@
 package com.torneosflash.servidor;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.google.gson.*;
 import com.torneosflash.config.AppConfig;
 import com.torneosflash.dao.GenericDAO;
@@ -14,6 +16,8 @@ import jakarta.servlet.http.Cookie;
  * Equivalente a las rutas /api/register, /api/login, etc. en index.js
  */
 public class RutasAuth {
+    private static final Logger logger = LoggerFactory.getLogger(RutasAuth.class);
+
 
     public static void register(Javalin app, UsuarioDAO usuarioDAO, GenericDAO db, AppConfig config,
                                  com.torneosflash.servicio.ClashApiServicio clashApi) {
@@ -94,12 +98,12 @@ public class RutasAuth {
                 response.addProperty("success", true);
                 response.add("user", user);
                 String jsonStr = response.toString();
-                System.out.println("📤 LOGIN RESPONSE (" + jsonStr.length() + " chars): " + jsonStr.substring(0, Math.min(200, jsonStr.length())));
+                logger.info("📤 LOGIN RESPONSE (" + jsonStr.length() + " chars): " + jsonStr.substring(0, Math.min(200, jsonStr.length())));
                 ctx.status(200);
                 ctx.contentType("application/json");
                 ctx.result(jsonStr);
             } catch (Exception e) {
-                System.out.println("❌ ERROR EN LOGIN: " + e.getClass().getName() + ": " + e.getMessage());
+                logger.info("❌ ERROR EN LOGIN: " + e.getClass().getName() + ": " + e.getMessage());
                 e.printStackTrace();
                 ctx.status(500).result(errorJson("Error interno: " + e.getMessage()).toString()).contentType("application/json");
             }
@@ -173,7 +177,7 @@ public class RutasAuth {
             }
 
             // Verificar en API de Clash
-            System.out.println("🔍 Buscando Player Tag en la API: " + tag);
+            logger.info("🔍 Buscando Player Tag en la API: " + tag);
             try {
                 JsonObject apiResult = clashApi.verificarTag(tag);
                 JsonObject res = new JsonObject();
@@ -182,10 +186,10 @@ public class RutasAuth {
                 int trophies = apiResult.has("trophies") ? apiResult.get("trophies").getAsInt() : 0;
                 res.addProperty("name", name);
                 res.addProperty("trophies", trophies);
-                System.out.println("✅ Player Tag encontrado. Usuario: " + name + " (Trophies: " + trophies + ")");
+                logger.info("✅ Player Tag encontrado. Usuario: " + name + " (Trophies: " + trophies + ")");
                 ctx.json(res);
             } catch (Exception e) {
-                System.out.println("❌ Fallo al buscar Player Tag: " + e.getMessage());
+                logger.info("❌ Fallo al buscar Player Tag: " + e.getMessage());
                 JsonObject res = new JsonObject();
                 res.addProperty("found", false);
                 res.addProperty("message", e.getMessage());

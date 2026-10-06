@@ -1,5 +1,7 @@
 package com.torneosflash.modelo;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.torneosflash.interfaces.Procesable;
 
 /**
@@ -9,6 +11,8 @@ import com.torneosflash.interfaces.Procesable;
  * CONCEPTO POO: Override - sobreescribe mostrarInformacion(), obtenerTipo(), procesar(), estaListo()
  */
 public class Jugador extends Usuario implements Procesable {
+    private static final Logger logger = LoggerFactory.getLogger(Jugador.class);
+
 
     // --- Atributos privados (ENCAPSULAMIENTO) ---
     private String tipoSuscripcion;
@@ -77,7 +81,7 @@ public class Jugador extends Usuario implements Procesable {
         this.totalPartidas++;
         if ("normal".equals(tipo)) this.victoriasNormales++;
         else if ("disputa".equals(tipo)) this.victoriasDisputa++;
-        System.out.println("Victoria registrada para " + getUsername() + " (" + tipo + ")");
+        logger.info("Victoria registrada para " + getUsername() + " (" + tipo + ")");
     }
 
     public void registrarDerrota(String tipo) {
@@ -85,7 +89,7 @@ public class Jugador extends Usuario implements Procesable {
         this.totalPartidas++;
         if ("normal".equals(tipo)) this.derrotasNormales++;
         else if ("disputa".equals(tipo)) this.derrotasDisputa++;
-        System.out.println("Derrota registrada para " + getUsername() + " (" + tipo + ")");
+        logger.info("Derrota registrada para " + getUsername() + " (" + tipo + ")");
     }
 
     public void registrarApuesta(double monto) {
@@ -100,7 +104,7 @@ public class Jugador extends Usuario implements Procesable {
     // --- Implementación de Procesable (INTERFACE + OVERRIDE) ---
     @Override
     public void procesar() {
-        System.out.println("Procesando jugador " + getUsername() + " - Win Rate: " +
+        logger.info("Procesando jugador " + getUsername() + " - Win Rate: " +
                 String.format("%.1f", calcularWinRate()) + "%");
     }
 
@@ -113,13 +117,13 @@ public class Jugador extends Usuario implements Procesable {
     @Override
     public void mostrarInformacion() {
         imprimirSeparador();
-        System.out.println("JUGADOR: " + getUsername());
-        System.out.println("   ID: " + getId() + " | Email: " + getEmail());
-        System.out.println("   Player Tag: " + getPlayerTag() + " | Tel: " + getTelefono());
-        System.out.println("   Saldo: $" + getSaldo() + " | Suscripcion: " + tipoSuscripcion);
-        System.out.println("   Victorias: " + totalVictorias + " | Derrotas: " + totalDerrotas);
-        System.out.println("   Win Rate: " + String.format("%.1f", calcularWinRate()) + "%");
-        System.out.println("   Total Apostado: $" + totalApostado + " | Total Ganado: $" + totalGanado);
+        logger.info("JUGADOR: " + getUsername());
+        logger.info("   ID: " + getId() + " | Email: " + getEmail());
+        logger.info("   Player Tag: " + getPlayerTag() + " | Tel: " + getTelefono());
+        logger.info("   Saldo: $" + getSaldo() + " | Suscripcion: " + tipoSuscripcion);
+        logger.info("   Victorias: " + totalVictorias + " | Derrotas: " + totalDerrotas);
+        logger.info("   Win Rate: " + String.format("%.1f", calcularWinRate()) + "%");
+        logger.info("   Total Apostado: $" + totalApostado + " | Total Ganado: $" + totalGanado);
         imprimirSeparador();
     }
 

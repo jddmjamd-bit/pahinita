@@ -1,5 +1,7 @@
 package com.torneosflash.socketio;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.google.gson.*;
 import io.javalin.websocket.WsConnectContext;
 import io.javalin.websocket.WsContext;
@@ -15,6 +17,8 @@ import java.util.function.BiConsumer;
  * CONCEPTO POO: Collection - HashMap para handlers y Set para rooms
  */
 public class SocketIOClient {
+    private static final Logger logger = LoggerFactory.getLogger(SocketIOClient.class);
+
 
     // --- Atributos privados (ENCAPSULAMIENTO) ---
     private final String sid;
@@ -62,7 +66,7 @@ public class SocketIOClient {
                 wsContext.send(raw);
             }
         } catch (Exception e) {
-            System.err.println("Error sending to " + sid + ": " + e.getMessage());
+            logger.error("Error sending to " + sid + ": " + e.getMessage());
             connected = false;
         }
     }
@@ -102,7 +106,7 @@ public class SocketIOClient {
                 try {
                     handler.accept(this, args);
                 } catch (Exception e) {
-                    System.err.println("Error handling event '" + event + "': " + e.getMessage());
+                    logger.error("Error handling event '" + event + "': " + e.getMessage());
                     e.printStackTrace();
                 }
             }

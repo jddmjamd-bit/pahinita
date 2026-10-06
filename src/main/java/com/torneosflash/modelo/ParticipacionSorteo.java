@@ -1,6 +1,10 @@
 package com.torneosflash.modelo;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 public class ParticipacionSorteo extends Entidad {
+    private static final Logger logger = LoggerFactory.getLogger(ParticipacionSorteo.class);
+
     private int sorteoId;
     private int userId;
     private int ticketsAsignados;
@@ -21,7 +25,7 @@ public class ParticipacionSorteo extends Entidad {
 
     @Override public void mostrarInformacion() {
         imprimirSeparador();
-        System.out.println("PARTICIPACION #" + getId() + " | Sorteo: " + sorteoId + " | Usuario: " + userId + " | Tickets: " + ticketsAsignados);
+        logger.info("PARTICIPACION #" + getId() + " | Sorteo: " + sorteoId + " | Usuario: " + userId + " | Tickets: " + ticketsAsignados);
         imprimirSeparador();
     }
     @Override public String obtenerTipo() { return "ParticipacionSorteo"; }

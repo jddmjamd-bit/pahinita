@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UltimateClash — One Pager Execute 2026</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <style>
+        @page {
+            size: letter portrait;
+            margin: 0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #0f1117;
+            color: #e0e0e0;
+            width: 8.5in;
+            height: 11in;
+            margin: 0 auto;
+            font-size: 9pt;
+            line-height: 1.05;
+        }
+
+        .page {
+            width: 100%;
+            height: 100%;
+            padding: 0.08in 0.10in;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 2px;
+            border-bottom: 2px solid #6c5ce7;
+        }
+
+        .header h1 {
+            font-size: 16pt;
+            font-weight: 900;
+            color: #a29bfe;
+            letter-spacing: -0.5px;
+            line-height: 1;
+        }
+
+        .header .one-liner {
+            font-size: 9pt;
+            color: #b0b0b0;
+            font-weight: 500;
+        }
+
+        .header-right {
+            text-align: right;
+            font-size: 9pt;
+            color: #888;
+        }
+
+        .header-right .url {
+            color: #a29bfe;
+            font-weight: 700;
+            font-size: 9pt;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2px;
+            flex: 1;
+        }
+
+        .section {
+            background: #1a1d27;
+            border-radius: 3px;
+            padding: 2px 4px;
+            border-left: 3px solid #6c5ce7;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .section-title {
+            font-size: 9.5pt;
+            font-weight: 800;
+            text-transform: uppercase;
+            color: #a29bfe;
+            margin-bottom: 0px;
+        }
+
+        .section p {
+            margin-bottom: 0;
+            margin-top: 1px;
+        }
+
+        .hl {
+            color: #ffd700;
+            font-weight: 700;
+        }
+
+        .gr {
+            color: #00e676;
+            font-weight: 700;
+        }
+
+        .s-problema {
+            grid-column: 1;
+            grid-row: 1;
+        }
+
+        .s-producto {
+            grid-column: 2;
+            grid-row: 1;
+        }
+
+        .s-ventaja {
+            grid-column: 1 / 3;
+            grid-row: 2;
+        }
+
+        .s-mercado {
+            grid-column: 1;
+            grid-row: 3;
+        }
+
+        .s-usuario {
+            grid-column: 2;
+            grid-row: 3;
+        }
+
+        .s-traccion {
+            grid-column: 1 / 3;
+            grid-row: 4;
+        }
+
+        .s-equipo {
+            grid-column: 1;
+            grid-row: 5;
+        }
+
+        .s-buscan {
+            grid-column: 2;
+            grid-row: 5;
+            justify-content: flex-start;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 9pt;
+        }
+
+        th {
+            background: #252836;
+            color: #a29bfe;
+            padding: 1px 3px;
+            text-align: left;
+            font-weight: 700;
+            font-size: 9pt;
+        }
+
+        td {
+            padding: 1px 3px;
+            border-bottom: 1px solid #1f2233;
+        }
+
+        .us {
+            background: #1f1f33;
+            color: #fff;
+            font-weight: 600;
+        }
+
+        .tam-row td:first-child {
+            font-weight: 700;
+            color: #ffd700;
+        }
+
+        .sam-row td:first-child {
+            font-weight: 700;
+            color: #ff9800;
+        }
+
+        .som-row td:first-child {
+            font-weight: 700;
+            color: #00e676;
+        }
+
+        .traction-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 3fr;
+            gap: 2px;
+            margin-top: 1px;
+        }
+
+        .traction-col {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .traction-item {
+            text-align: center;
+            background: #252836;
+            border-radius: 3px;
+            padding: 1px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            flex: 1;
+        }
+
+        .traction-item .number {
+            font-size: 12pt;
+            font-weight: 900;
+            color: #00e676;
+            line-height: 1;
+            margin-bottom: 0px;
+        }
+
+        .traction-item .label {
+            font-size: 9pt;
+            color: #888;
+            text-transform: uppercase;
+            line-height: 1;
+        }
+
+        .traction-learning {
+            background: #252836;
+            border-radius: 3px;
+            padding: 2px 4px;
+            font-size: 9pt;
+            color: #b0b0b0;
+            display: flex;
+            align-items: center;
+        }
+
+        .traction-learning strong {
+            color: #ffd700;
+        }
+
+        .team-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 3px;
+            margin-top: 1px;
+        }
+
+        .team-member {
+            background: #252836;
+            border-radius: 3px;
+            padding: 3px 4px;
+        }
+
+        .team-member .name {
+            font-weight: 800;
+            color: #fff;
+            font-size: 9pt;
+        }
+
+        .team-member .role {
+            color: #a29bfe;
+            font-size: 9pt;
+            font-weight: 600;
+        }
+
+        .team-member .desc {
+            color: #999;
+            font-size: 9pt;
+        }
+
+        .ask-table td {
+            padding: 1px 0;
+        }
+
+        .ask-table .amount {
+            text-align: right;
+            font-weight: 700;
+            color: #00e676;
+        }
+
+        .ask-table .total-row td {
+            border-top: 1px solid #444;
+            padding-top: 1px;
+            font-weight: 800;
+            color: #ffd700;
+        }
+
+        .footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 3px;
+            border-top: 1px solid #333;
+            font-size: 9pt;
+            color: #666;
+            margin-top: auto;
+        }
+
+        .footer span {
+            color: #a29bfe;
+            margin-right: 10px;
+        }
+
+        .source {
+            color: #888;
+            font-size: 9pt;
+            font-style: italic;
+            margin-top: 1px;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #00c853;
+            color: #fff;
+            padding: 0 3px;
+            border-radius: 3px;
+            font-size: 9pt;
+            font-weight: 700;
+        }
+
+        .ref-box {
+            background: #252836;
+            border-radius: 3px;
+            padding: 3px 4px;
+            font-size: 9pt;
+            color: #999;
+            margin-top: 3px;
+            line-height: 1.1;
+            overflow-wrap: anywhere;
+        }
+
+        .ref-box a {
+            color: #a29bfe;
+            text-decoration: none;
+        }
+
+        @media print {
+            body {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="page">
+
+        <!-- HEADER -->
+        <div class="header">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <!-- LOGO: reemplaza src con la ruta de tu imagen, ej: src="logo.png" -->
+                <img src="logo.jpeg" alt="UC"
+                    style="width:40px;height:40px;border-radius:6px;object-fit:contain;border:2px dashed #6c5ce7;">
+                <div>
+                    <h1>UltimateClash</h1>
+                    <div class="one-liner">Compite en Clash Royale, demuestra tu habilidad y gana dinero real — todo
+                        automático.</div>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="url"><a href="https://torneos-beta.onrender.com" target="_blank"
+                        style="color:inherit; text-decoration:none;">torneos-beta.onrender.com</a></div>
+                <div>MVP funcional <span class="badge">EN LÍNEA</span></div>
+                <div>Execute the Idea · 2ª Ed. · 2026</div>
+            </div>
+        </div>
+
+        <div class="main-grid">
+
+            <!-- 1. PROBLEMA Y OPORTUNIDAD -->
+            <div class="section s-problema">
+                <div class="section-title">1. Problema y oportunidad</div>
+                <p>Miles de jugadores competitivos de CR quieren competir por dinero real, pero las opciones son
+                    precarias. Solo 3 grupos activos de WhatsApp concentran <span class="hl">más de 3,500
+                        membresías</span>. Cobran <span class="hl">20% de comisión fija sin devolución</span>, verifican
+                    manualmente, operan en horarios fijos y pueden cerrar cuando el admin quiera. Hemos identificado
+                    <span class="hl">15 grupos cerrados</span> por abandono.
+                </p>
+                <p style="margin-top:2px;"><strong>¿Por qué ahora?</strong> CR generó <span class="gr">$646.8M USD
+                        (gasto bruto) en 2025 (+149% vs 2024)</span> <a target="_blank"
+                        href="https://www.pocketgamer.biz/clash-royale-celebrates-10-years-and-49bn-in-player-spending-after-resurgence/"
+                        style="color:inherit;">[2]</a>. Jugadores nuevos casi
+                    +500% <a target="_blank" href="https://supercell.com/en/news/the-best-games-havent-been-made-yet/"
+                        style="color:inherit;">[5]</a>. En CO: 62% de jugadores usa móvil <a target="_blank"
+                        href="https://forbes.co/negocios/el-crecimiento-del-mercado-gamer-en-colombia-2025"
+                        style="color:inherit;">[3]</a> y Nequi supera 27M de usuarios <a target="_blank"
+                        href="https://www.valoraanalitik.com/recorrido-de-nequi-en-colombia/"
+                        style="color:inherit;">[4]</a>. Más jugadores +
+                    alta adopción de pagos digitales crean condiciones favorables para una plataforma competitiva
+                    confiable.</p>
+            </div>
+
+            <!-- 2. PRODUCTO / EMPRESA -->
+            <div class="section s-producto">
+                <div class="section-title">2. Producto / empresa</div>
+                <p><strong>UltimateClash</strong> es una plataforma web de competencias de habilidad: partidas 1v1, 2v2
+                    o torneos largos por dinero real en CR. Resultados verificados <span class="gr">automáticamente vía
+                        API de CR</span> — sin capturas, sin esperas, sin intermediarios.</p>
+                <p style="margin-top:1px;"><strong>Flujo:</strong> Registro → vincula cuenta → deposita desde $1,000 COP
+                    (Nequi/tarjeta) → busca partida → juega → cobra. Hasta el <span class="hl">75% de la comisión se
+                        devuelve</span> por sorteos, misiones, logros, ranking y referidos.</p>
+                <p style="margin-top:1px;"><strong>En desarrollo:</strong> chatbot IA (soporte automático 24/7),
+                    tutorial interactivo, verificación KYC básica, mentoría y funciones sociales.</p>
+                <p style="margin-top:1px;"><strong>Estado:</strong> <span class="badge">MVP EN LÍNEA</span> — plataforma
+                    funcional, sin usuarios activos actualmente mientras desarrollamos funciones de retención para el
+                    relanzamiento (Q4 2026).</p>
+            </div>
+
+            <!-- 3. VENTAJA COMPETITIVA -->
+            <div class="section s-ventaja">
+                <div class="section-title">3. Ventaja frente a la competencia</div>
+                <table>
+                    <tr>
+                        <th style="width:14%"></th>
+                        <th style="width:22%">Grupos WhatsApp (CO)</th>
+                        <th style="width:24%"><a target="_blank" href="https://mundogames.com/"
+                                style="color:inherit;">Mundogames</a> / <a target="_blank" href="https://torneum.com/"
+                                style="color:inherit;">Torneum</a></th>
+                        <th style="width:24%">UltimateClash</th>
+                    </tr>
+                    <tr>
+                        <td><strong>Verificación</strong></td>
+                        <td>Manual (capturas)</td>
+                        <td>Varía por juego</td>
+                        <td class="us">Automática vía API de CR</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Horario</strong></td>
+                        <td>Fijo, decide el admin</td>
+                        <td>Por evento programado</td>
+                        <td class="us">24/7, cuando haya rival</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Comisión</strong></td>
+                        <td>20% fijo, sin devolución</td>
+                        <td>Inscripciones en USD</td>
+                        <td class="us">10-25% variable, hasta 75% devuelto</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Comunidad</strong></td>
+                        <td>Chat cerrado entre torneos</td>
+                        <td>Sin foco en comunidad</td>
+                        <td class="us">Chat 24/7, mentoría, sorteos</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Continuidad</strong></td>
+                        <td>Admin puede cerrar grupo</td>
+                        <td>Solo USD, acceso limitado</td>
+                        <td class="us">Plataforma independiente, COP y USD</td>
+                    </tr>
+                </table>
+                <p style="margin-top:1px;"><strong>Defendible a 12 meses:</strong> la liquidez de
+                    jugadores (atraída estratégicamente vía alianzas con admins de WhatsApp) genera un efecto de red
+                    difícil de replicar, potenciado por nuestro ecosistema construido desde cero.</p>
+            </div>
+
+            <!-- 4. MERCADO OBJETIVO Y TAM -->
+            <div class="section s-mercado">
+                <div class="section-title">4. Mercado objetivo y TAM</div>
+                <table>
+                    <tr>
+                        <th>Nivel</th>
+                        <th>Jugadores</th>
+                        <th>USD/año</th>
+                        <th>Fórmula</th>
+                    </tr>
+                    <tr class="tam-row">
+                        <td>TAM</td>
+                        <td>72.2M MAU</td>
+                        <td>~$670M</td>
+                        <td>72.2M activos globales <a target="_blank"
+                                href="https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count"
+                                style="color:inherit;">[1]</a>
+                            × $9.28</td>
+                    </tr>
+                    <tr class="sam-row">
+                        <td>SAM</td>
+                        <td>2.17M</td>
+                        <td>$20.1M</td>
+                        <td>72.2M × 15% comp. × 20% disp. × $9.28</td>
+                    </tr>
+                    <tr class="sam-row">
+                        <td>SAM CO</td>
+                        <td>32,550</td>
+                        <td>$302K</td>
+                        <td>1.5% SAM global (estimación proxy mercado Colombia)</td>
+                    </tr>
+                    <tr class="som-row">
+                        <td>SOM Año 1</td>
+                        <td>500</td>
+                        <td>$4,640</td>
+                        <td>5K registros × 10% conversión × $9.28</td>
+                    </tr>
+                </table>
+                <p class="source">ARPPU: $9.28 USD/año = ingreso anual promedio por pagador, estimado a partir del
+                    piloto de 15 días y anualizado. Supuestos a validar: 15% competitivo, 20% dispuestos y 1.5% cuota
+                    CO.</p>
+            </div>
+
+            <!-- 5. USUARIO OBJETIVO -->
+            <div class="section s-usuario">
+                <div class="section-title">5. Usuario objetivo</div>
+                <p><strong>Perfil:</strong> Hombre, <span class="hl">18-25 años</span> <a target="_blank"
+                        href="https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count"
+                        style="color:inherit;">[1]</a>, estudiante o trabajador
+                    joven
+                    en
+                    Colombia. Juega CR 1-2h diarias, sigue el meta, busca subir de liga. Tiene Nequi, Daviplata, Llaves
+                    Bre-B o tarjeta. Puede
+                    competir desde <span class="hl">$1,000 COP</span>. Abierta a todos los niveles.
+                    Lo planteamos como competencia de habilidad; validaremos requisitos de edad y legales con asesoría
+                    especializada.</p>
+                <p style="margin-top:1px;"><strong>El usuario y el pagador son la misma persona.</strong></p>
+                <p style="margin-top:1px;"><strong>Evidencia:</strong> Participamos en grupos de WhatsApp como
+                    jugadores. Piloto de 15 días con <span class="hl">35 usuarios reales</span>. Aprendimos que sin
+                    introducción clara ni comunidad activa la retención cae → corrigiendo con tutorial interactivo,
+                    chatbot IA y funciones sociales.</p>
+            </div>
+
+            <!-- TRACCIÓN -->
+            <div class="section s-traccion" style="border-left-color: #00e676;">
+                <div class="section-title" style="color:#00e676;">Tracción — Piloto de 15 días (Diciembre 2025)</div>
+                <div class="traction-grid">
+                    <div class="traction-col">
+                        <div class="traction-item">
+                            <div class="number">35</div>
+                            <div class="label">Registrados</div>
+                        </div>
+                        <div class="traction-item">
+                            <div class="number">20</div>
+                            <div class="label">Activos/día</div>
+                        </div>
+                    </div>
+                    <div class="traction-col">
+                        <div class="traction-item">
+                            <div class="number">17</div>
+                            <div class="label">Partidas/día</div>
+                        </div>
+                        <div class="traction-item">
+                            <div class="number" style="font-size:10pt;">$300K</div>
+                            <div class="label">COP circulados</div>
+                        </div>
+                    </div>
+                    <div class="traction-col">
+                        <div class="traction-item">
+                            <div class="number" style="font-size:10pt;">$60K</div>
+                            <div class="label">COP comisiones</div>
+                        </div>
+                    </div>
+                    <div class="traction-learning">
+                        <div>Piloto operado por un solo fundador y sin presupuesto de promoción; hoy somos dos y pedimos
+                            $9,000 para marketing.<p></p> <strong>Aprendizaje:</strong> Sin introducción clara y sin
+                            comunidad,
+                            la retención caía. La
+                            plataforma sigue en línea sin usuarios activos mientras construimos funciones de
+                            retención
+                            para el relanzamiento. </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 6. EQUIPO -->
+            <div class="section s-equipo">
+                <div class="section-title">6. Equipo</div>
+                <div class="team-grid">
+                    <div class="team-member">
+                        <div class="name">Juan David Delgado M.</div>
+                        <div class="role">Líder · Programador</div>
+                        <div class="desc">Ing. Mecatrónica, UNAL. Python, Java, JS, C++. Ventas y negocios propios.
+                            Jugador competitivo CR. Construyó la plataforma desde cero.</div>
+                    </div>
+                    <div class="team-member">
+                        <div class="name">Juan José Neira B.</div>
+                        <div class="role">Diseño · Marketing</div>
+                        <div class="desc">Ing. Mecatrónica, UNAL. Competencias de emprendimiento, marketing y diseño.
+                            Jugador competitivo CR.</div>
+                    </div>
+                </div>
+                <p style="margin-top:2px;"><strong>Ventaja:</strong> Jugadores y usuarios del producto. <strong>Nos
+                        falta:</strong> Asesor legal y comercial.</p>
+                <div class="ref-box">
+                    <div style="font-weight:700; color:#fff; margin-bottom:1px;">Referencias Externas [URLs Completas]
+                    </div>
+                    [1] Udonis: <a target="_blank"
+                        href="https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count">https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count</a><br>
+                    [2] PocketGamer: <a target="_blank"
+                        href="https://www.pocketgamer.biz/clash-royale-celebrates-10-years-and-49bn-in-player-spending-after-resurgence/">https://www.pocketgamer.biz/clash-royale-celebrates-10-years-and-49bn-in-player-spending-after-resurgence/</a><br>
+                    [3] Forbes CO: <a target="_blank"
+                        href="https://forbes.co/negocios/el-crecimiento-del-mercado-gamer-en-colombia-2025">https://forbes.co/negocios/el-crecimiento-del-mercado-gamer-en-colombia-2025</a><br>
+                    [4] ValoraAnalitik: <a target="_blank"
+                        href="https://www.valoraanalitik.com/recorrido-de-nequi-en-colombia/">https://www.valoraanalitik.com/recorrido-de-nequi-en-colombia/</a><br>
+                    [5] Supercell: <a target="_blank"
+                        href="https://supercell.com/en/news/the-best-games-havent-been-made-yet/">https://supercell.com/en/news/the-best-games-havent-been-made-yet/</a><br>
+                </div>
+
+            </div>
+
+            <!-- 7. QUÉ BUSCAN -->
+            <div class="section s-buscan">
+                <div class="section-title">7. Qué buscamos de Execute</div>
+                <table class="ask-table">
+                    <tr>
+                        <td>Marketing (Meta Ads + creadores contenido LATAM)</td>
+                        <td class="amount">$9,000</td>
+                    </tr>
+                    <tr>
+                        <td>Servidores para escalar</td>
+                        <td class="amount">$500</td>
+                    </tr>
+                    <tr>
+                        <td>Torneos gratuitos iniciales</td>
+                        <td class="amount">$500</td>
+                    </tr>
+                    <tr class="total-row">
+                        <td>TOTAL SOLICITADO</td>
+                        <td class="amount">$10,000 USD</td>
+                    </tr>
+                </table>
+                <p style="margin-top:2px;"><strong>También:</strong> mentoría en regulación legal y conexión con perfil
+                    comercial.</p>
+                <p style="margin-top:1px;"><strong>Hito 6-12 meses:</strong> comunidad activa en CO + 2 países LATAM,
+                    ~300 partidas/día.</p>
+                <p style="margin-top:1px;"><strong>Monetización y Unit Economics:</strong> comisión variable (10-25%) +
+                    VIP mensual. ARPPU año 1: $9.28 USD/pagador. Costo objetivo por registro: ~$1.80 USD · CAC objetivo
+                    por pagador: ~$18 USD. LTV: por validar con el relanzamiento; buscamos que supere el CAC mediante
+                    retención y crecimiento orgánico.</p>
+            </div>
+
+        </div>
+
+
+
+        <!-- FOOTER -->
+        <div class="footer">
+            <div><span>📧 <a href="mailto:delgadomillanjuandavid3@gmail.com" target="_blank"
+                        style="color:inherit; text-decoration:none;">delgadomillanjuandavid3@gmail.com</a></span><span>📱
+                    +57 312 665 5995</span>
+                <p> <span>🌐
+                        <a href="https://torneos-beta.onrender.com" target="_blank"
+                            style="color:inherit; text-decoration:none;">torneos-beta.onrender.com</a></span></p>
+            </div>
+            <div>UltimateClash · Execute the Idea 2ª Ed. · Colombia · 2026</div>
+        </div>
+
+    </div>
+</body>
+
+</html>

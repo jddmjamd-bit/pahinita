@@ -11,6 +11,7 @@ C:\Users\juand\Downloads\pagina\TorneosFlash\src\main\java\com\torneosflash\serv
 C:\Users\juand\Downloads\pagina\TorneosFlash\src\main\java\com\torneosflash\socketio\SocketIOClient.java
 C:\Users\juand\Downloads\pagina\TorneosFlash\src\main\java\com\torneosflash\modelo\Partida.java
 C:\Users\juand\Downloads\pagina\TorneosFlash\src\main\java\com\torneosflash\servidor\RutasFinanzas.java
+C:\Users\juand\Downloads\pagina\TorneosFlash\src\main\java\com\torneosflash\servicio\JwtServicio.java
 C:\Users\juand\Downloads\pagina\TorneosFlash\src\main\java\com\torneosflash\modelo\Transaccion.java
 C:\Users\juand\Downloads\pagina\TorneosFlash\src\main\java\com\torneosflash\socketio\SocketIOServer.java
 C:\Users\juand\Downloads\pagina\TorneosFlash\src\main\java\com\torneosflash\modelo\Entidad.java
@@ -28,6 +29,7 @@ C:\Users\juand\Downloads\pagina\TorneosFlash\src\main\java\com\torneosflash\mode
 C:\Users\juand\Downloads\pagina\TorneosFlash\src\main\java\com\torneosflash\modelo\Usuario.java
 C:\Users\juand\Downloads\pagina\TorneosFlash\src\main\java\com\torneosflash\TestWs.java
 C:\Users\juand\Downloads\pagina\TorneosFlash\src\main\java\com\torneosflash\modelo\Deposito.java
+C:\Users\juand\Downloads\pagina\TorneosFlash\src\main\java\com\torneosflash\servidor\AuthMiddleware.java
 C:\Users\juand\Downloads\pagina\TorneosFlash\src\main\java\com\torneosflash\servidor\SocketHandler.java
 C:\Users\juand\Downloads\pagina\TorneosFlash\src\main\java\com\torneosflash\dao\GenericDAO.java
 C:\Users\juand\Downloads\pagina\TorneosFlash\src\main\java\com\torneosflash\dao\UsuarioDAO.java

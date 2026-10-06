@@ -1,6 +1,10 @@
 package com.torneosflash.modelo;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 public class TicketUsuario extends Entidad {
+    private static final Logger logger = LoggerFactory.getLogger(TicketUsuario.class);
+
     private int userId;
     private int cantidad;
     private int acumulado;
@@ -14,21 +18,21 @@ public class TicketUsuario extends Entidad {
 
     public void agregarTickets(int cantidad) {
         this.cantidad += cantidad; this.acumulado += cantidad;
-        System.out.println("+" + cantidad + " tickets agregados. Total: " + this.cantidad);
+        logger.info("+" + cantidad + " tickets agregados. Total: " + this.cantidad);
     }
 
     public void usarTickets(int cantidad) {
         if (this.cantidad >= cantidad) { this.cantidad -= cantidad;
-            System.out.println("-" + cantidad + " tickets usados. Restantes: " + this.cantidad);
-        } else { System.out.println("Tickets insuficientes. Tienes: " + this.cantidad); }
+            logger.info("-" + cantidad + " tickets usados. Restantes: " + this.cantidad);
+        } else { logger.info("Tickets insuficientes. Tienes: " + this.cantidad); }
     }
 
     public boolean tieneTickets() { return this.cantidad > 0; }
 
     @Override public void mostrarInformacion() {
         imprimirSeparador();
-        System.out.println("TICKETS USUARIO #" + getId());
-        System.out.println("   Usuario ID: " + userId + " | Cantidad: " + cantidad + " | Acumulado: " + acumulado);
+        logger.info("TICKETS USUARIO #" + getId());
+        logger.info("   Usuario ID: " + userId + " | Cantidad: " + cantidad + " | Acumulado: " + acumulado);
         imprimirSeparador();
     }
     @Override public String obtenerTipo() { return "TicketUsuario"; }

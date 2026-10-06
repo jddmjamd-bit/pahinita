@@ -1,5 +1,7 @@
 package com.torneosflash.servidor;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.google.gson.*;
 import com.torneosflash.config.AppConfig;
 import com.torneosflash.dao.GenericDAO;
@@ -16,6 +18,8 @@ import static com.torneosflash.servidor.RutasAuth.*;
  * Rutas de finanzas: depósitos, retiros, Wompi webhooks.
  */
 public class RutasFinanzas {
+    private static final Logger logger = LoggerFactory.getLogger(RutasFinanzas.class);
+
 
     private static NotificacionPushServicio pushService;
 
@@ -156,7 +160,7 @@ public class RutasFinanzas {
                 }
                 ctx.result("OK");
             } catch (Exception e) {
-                System.err.println("Error webhook Wompi: " + e.getMessage());
+                logger.error("Error webhook Wompi: " + e.getMessage());
                 ctx.status(500).result("Error");
             }
         });
@@ -164,16 +168,16 @@ public class RutasFinanzas {
 
     // --- Helpers ---
     static void notificarUsuario(SocketIOServer io, GenericDAO db, int userId, String mensaje, double saldo) {
-        System.out.println("Intentando notificar al usuario ID: " + userId + " - Mensaje: " + mensaje);
-        System.out.println("-> Total sockets conectados actualmente: " + io.getSockets().size());
+        logger.info("Intentando notificar al usuario ID: " + userId + " - Mensaje: " + mensaje);
+        logger.info("-> Total sockets conectados actualmente: " + io.getSockets().size());
         boolean found = false;
         for (SocketIOClient client : io.getSockets().values()) {
-            System.out.println("-> Revisando socket SID: " + client.getSid() + " | Tiene UserData? " + (client.getUserData() != null));
+            logger.info("-> Revisando socket SID: " + client.getSid() + " | Tiene UserData? " + (client.getUserData() != null));
             if (client.getUserData() != null &&
                 client.getUserData().has("id") &&
                 client.getUserData().get("id").getAsInt() == userId) {
                 
-                System.out.println("-> Socket encontrado para usuario " + userId + "! Emitiendo eventos...");
+                logger.info("-> Socket encontrado para usuario " + userId + "! Emitiendo eventos...");
                 found = true;
                 JsonObject notifData = new JsonObject();
                 notifData.addProperty("mensaje", mensaje);
@@ -183,7 +187,7 @@ public class RutasFinanzas {
             }
         }
         if (!found) {
-            System.out.println("-> ADVERTENCIA: No se encontró ningún socket conectado para el usuario ID " + userId);
+            logger.info("-> ADVERTENCIA: No se encontró ningún socket conectado para el usuario ID " + userId);
         }
 
         // Enviar push notification (llega incluso con navegador cerrado)

@@ -1,5 +1,7 @@
 package com.torneosflash.servicio;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -21,6 +23,8 @@ import java.util.concurrent.Executors;
  * Soporta envío a usuarios específicos y broadcast a todos los tokens registrados.
  */
 public class NotificacionPushServicio {
+    private static final Logger logger = LoggerFactory.getLogger(NotificacionPushServicio.class);
+
 
     private GoogleCredentials credentials;
     private final String projectId;
@@ -36,7 +40,7 @@ public class NotificacionPushServicio {
         this.executor = Executors.newFixedThreadPool(4);
 
         if (serviceAccountJson == null || serviceAccountJson.isEmpty()) {
-            System.out.println("⚠️ FIREBASE_SERVICE_ACCOUNT no configurado. Push notifications deshabilitadas.");
+            logger.info("⚠️ FIREBASE_SERVICE_ACCOUNT no configurado. Push notifications deshabilitadas.");
             this.projectId = "";
             return;
         }
@@ -50,9 +54,9 @@ public class NotificacionPushServicio {
             ).createScoped("https://www.googleapis.com/auth/firebase.messaging");
 
             this.disponible = true;
-            System.out.println("🔔 FCM Web Push inicializado (proyecto: " + projectId + ")");
+            logger.info("🔔 FCM Web Push inicializado (proyecto: " + projectId + ")");
         } catch (Exception e) {
-            System.err.println("❌ Error inicializando Firebase credentials: " + e.getMessage());
+            logger.error("❌ Error inicializando Firebase credentials: " + e.getMessage());
             throw new RuntimeException("No se pudo inicializar Firebase", e);
         }
     }
@@ -66,7 +70,7 @@ public class NotificacionPushServicio {
             credentials.refreshIfExpired();
             return credentials.getAccessToken().getTokenValue();
         } catch (Exception e) {
-            System.err.println("🔔 Error obteniendo access token FCM: " + e.getMessage());
+            logger.error("🔔 Error obteniendo access token FCM: " + e.getMessage());
             return null;
         }
     }
@@ -88,7 +92,7 @@ public class NotificacionPushServicio {
                     enviarFCM(db, accessToken, token, titulo, body);
                 }
             } catch (Exception e) {
-                System.err.println("🔔 Error enviando push a usuario " + userId + ": " + e.getMessage());
+                logger.error("🔔 Error enviando push a usuario " + userId + ": " + e.getMessage());
             }
         });
     }
@@ -112,7 +116,7 @@ public class NotificacionPushServicio {
                     enviarFCM(db, accessToken, token, titulo, body);
                 }
             } catch (Exception e) {
-                System.err.println("🔔 Error enviando push broadcast: " + e.getMessage());
+                logger.error("🔔 Error enviando push broadcast: " + e.getMessage());
             }
         });
     }
@@ -160,13 +164,13 @@ public class NotificacionPushServicio {
                 // Éxito silencioso (no spam de logs)
             } else if (response.statusCode() == 404 || response.statusCode() == 410) {
                 // Token inválido o expirado - eliminar de la BD
-                System.out.println("🔔 Token FCM inválido, eliminando...");
+                logger.info("🔔 Token FCM inválido, eliminando...");
                 db.update("DELETE FROM user_tokens WHERE fcm_token = ?", fcmToken);
             } else {
-                System.err.println("🔔 Error FCM (" + response.statusCode() + "): " + response.body());
+                logger.error("🔔 Error FCM (" + response.statusCode() + "): " + response.body());
             }
         } catch (Exception e) {
-            System.err.println("🔔 Error enviando FCM: " + e.getMessage());
+            logger.error("🔔 Error enviando FCM: " + e.getMessage());
         }
     }
 }

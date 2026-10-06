@@ -1,5 +1,7 @@
 package com.torneosflash.servidor;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.google.gson.*;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.servicio.ClashApiServicio;
@@ -16,6 +18,8 @@ import java.util.concurrent.*;
  * CONCEPTO POO: Collection - ConcurrentHashMap para matches activos, colas, búsquedas
  */
 public class SocketHandler {
+    private static final Logger logger = LoggerFactory.getLogger(SocketHandler.class);
+
 
     // Estado en memoria (equivalente a las variables globales de index.js)
     private final ConcurrentHashMap<String, ActiveMatch> activeMatches = new ConcurrentHashMap<>();
@@ -55,7 +59,7 @@ public class SocketHandler {
             // --- REGISTRAR SOCKET ---
             socket.on("registrar_socket", (client, data) -> {
                 try {
-                    System.out.println("INTENTO DE REGISTRAR SOCKET: " + data[0]);
+                    logger.info("INTENTO DE REGISTRAR SOCKET: " + data[0]);
                     JsonObject user = ((JsonElement) data[0]).getAsJsonObject();
                     int userId = user.get("id").getAsInt();
                     String username = user.get("username").getAsString();
@@ -79,7 +83,7 @@ public class SocketHandler {
 
                     client.setUserData(user);
                     usuariosOnline.add(userId);
-                    System.out.println("✅ Usuario " + username + " (" + userId + ") está ONLINE");
+                    logger.info("✅ Usuario " + username + " (" + userId + ") está ONLINE");
 
                     // Enviar búsquedas activas de otros usuarios
                     for (Map.Entry<Integer, BusquedaActiva> entry : busquedasActivas.entrySet()) {
@@ -104,7 +108,7 @@ public class SocketHandler {
                         JsonObject buscandoData = new JsonObject();
                         buscandoData.addProperty("mensaje", "Tu búsqueda sigue activa");
                         client.emit("buscando_activo", buscandoData);
-                        System.out.println("🔄 " + username + " reconectado con búsqueda activa");
+                        logger.info("🔄 " + username + " reconectado con búsqueda activa");
                     }
 
                     // Recuperar sala si existe
@@ -164,7 +168,7 @@ public class SocketHandler {
                     }
 
                 } catch (Exception e) {
-                    System.err.println("Error registrar_socket: " + e.getMessage());
+                    logger.error("Error registrar_socket: " + e.getMessage());
                     e.printStackTrace();
                 }
             });
@@ -195,7 +199,7 @@ public class SocketHandler {
                             pushService.enviarPushATodos(db, Set.of(senderId), "💬 Mensaje en " + nombreCanal, usuario + " envió " + (tipo.equals("imagen") ? "una imagen" : "un video"));
                         }
                     }
-                } catch (Exception e) { System.err.println("Error mensaje_chat: " + e.getMessage()); }
+                } catch (Exception e) { logger.error("Error mensaje_chat: " + e.getMessage()); }
             });
 
             // --- BUSCAR PARTIDA ---
@@ -257,7 +261,7 @@ public class SocketHandler {
                     intentarMatcheo(client, userId, row);
 
                 } catch (Exception e) {
-                    System.err.println("Error buscar_partida: " + e.getMessage());
+                    logger.error("Error buscar_partida: " + e.getMessage());
                     e.printStackTrace();
                 }
             });
@@ -331,7 +335,7 @@ public class SocketHandler {
                         client.emit("esperando_inicio_rival");
                     }
                 } catch (Exception e) {
-                    System.err.println("Error iniciar_juego: " + e.getMessage());
+                    logger.error("Error iniciar_juego: " + e.getMessage());
                     e.printStackTrace();
                 }
             });
@@ -420,7 +424,7 @@ public class SocketHandler {
                         iniciarPollingApi(salaId, match, ids);
                     }
                 } catch (Exception e) {
-                    System.err.println("Error confirmar_partida_resp: " + e.getMessage());
+                    logger.error("Error confirmar_partida_resp: " + e.getMessage());
                 }
             });
 
@@ -468,7 +472,7 @@ public class SocketHandler {
                 if (client.getUserData() != null) {
                     int userId = client.getUserData().get("id").getAsInt();
                     usuariosOnline.remove(userId);
-                    System.out.println("❌ Usuario " + client.getUserData().get("username").getAsString() + " está OFFLINE");
+                    logger.info("❌ Usuario " + client.getUserData().get("username").getAsString() + " está OFFLINE");
                 }
 
                 String salaId = client.getCurrentRoom();
@@ -478,14 +482,14 @@ public class SocketHandler {
 
                     if (match.iniciado) {
                         // Partida activa - esperamos indefinidamente
-                        System.out.println("🔌 " + client.getUserData().get("username").getAsString() + " desconectado de partida ACTIVA");
+                        logger.info("🔌 " + client.getUserData().get("username").getAsString() + " desconectado de partida ACTIVA");
                         JsonObject disconnData = new JsonObject();
                         disconnData.addProperty("tiempo", "indefinido");
                         disconnData.addProperty("mensaje", "Rival desconectado. Esperando...");
                         client.to(salaId).emit("rival_desconectado", disconnData);
                     } else {
                         // Negociación - timer 90 segundos
-                        System.out.println("🔌 " + client.getUserData().get("username").getAsString() + " se fue en negociación. Timer 90s.");
+                        logger.info("🔌 " + client.getUserData().get("username").getAsString() + " se fue en negociación. Timer 90s.");
                         
                         // Cancelar su voto si lo tenía
                         if (match.votosInicio.containsKey(userId)) {
@@ -588,7 +592,7 @@ public class SocketHandler {
             try {
                 if (!activeMatches.containsKey(salaId)) { match.pollFuture.cancel(false); return; }
                 match.pollCount++;
-                System.out.println("🔍 Buscando resultado #" + match.dbId + " (intento " + match.pollCount + "/" + MAX_POLLS + ")");
+                logger.info("🔍 Buscando resultado #" + match.dbId + " (intento " + match.pollCount + "/" + MAX_POLLS + ")");
 
                 if (match.playerTag1.isEmpty() || match.playerTag2.isEmpty()) return;
 
@@ -713,7 +717,7 @@ public class SocketHandler {
                     io.to(salaId).emit("disputa_timeout", timeoutData);
                     liberarJugadores(salaId, match);
                 }
-            } catch (Exception e) { System.err.println("Error en polling: " + e.getMessage()); }
+            } catch (Exception e) { logger.error("Error en polling: " + e.getMessage()); }
         }, 5, 5, TimeUnit.SECONDS);
     }
 
@@ -762,7 +766,7 @@ public class SocketHandler {
     }
 
     private void logClash(String texto) {
-        System.out.println(texto);
+        logger.info(texto);
         String fecha = java.time.Instant.now().toString();
         db.update("INSERT INTO messages (canal, usuario, texto, tipo) VALUES ('clash_logs', 'SISTEMA', ?, 'log')", texto);
         JsonObject logData = new JsonObject();

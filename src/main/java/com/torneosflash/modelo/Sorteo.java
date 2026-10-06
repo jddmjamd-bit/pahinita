@@ -1,11 +1,15 @@
 package com.torneosflash.modelo;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.torneosflash.interfaces.Exportable;
 
 /**
  * CONCEPTO POO: Interface Exportable - implementa exportarDatos() y exportarResumen()
  */
 public class Sorteo extends Entidad implements Exportable {
+    private static final Logger logger = LoggerFactory.getLogger(Sorteo.class);
+
 
     private String nombre;
     private String categoria;
@@ -52,7 +56,7 @@ public class Sorteo extends Entidad implements Exportable {
 
     public void agregarTickets(int cantidad) {
         this.ticketsActuales += cantidad;
-        System.out.println("+" + cantidad + " tickets al sorteo '" + nombre + "'. Progreso: " + ticketsActuales + "/" + ticketsNecesarios);
+        logger.info("+" + cantidad + " tickets al sorteo '" + nombre + "'. Progreso: " + ticketsActuales + "/" + ticketsNecesarios);
     }
 
     public void seleccionarGanador(int ganadorId, String ganadorNombre) {
@@ -60,7 +64,7 @@ public class Sorteo extends Entidad implements Exportable {
         this.ganadorNombre = ganadorNombre;
         this.estado = "completado";
         this.fechaCompletado = java.time.LocalDateTime.now().toString();
-        System.out.println("Ganador del sorteo '" + nombre + "': " + ganadorNombre);
+        logger.info("Ganador del sorteo '" + nombre + "': " + ganadorNombre);
     }
 
     public double calcularProgreso() {
@@ -84,13 +88,13 @@ public class Sorteo extends Entidad implements Exportable {
     @Override
     public void mostrarInformacion() {
         imprimirSeparador();
-        System.out.println("SORTEO #" + getId() + ": " + nombre);
-        System.out.println("   Categoria: " + categoria + " | Precio: $" + precio);
-        System.out.println("   Progreso: " + ticketsActuales + "/" + ticketsNecesarios +
+        logger.info("SORTEO #" + getId() + ": " + nombre);
+        logger.info("   Categoria: " + categoria + " | Precio: $" + precio);
+        logger.info("   Progreso: " + ticketsActuales + "/" + ticketsNecesarios +
                 " (" + String.format("%.1f", calcularProgreso()) + "%)");
-        System.out.println("   Estado: " + estado);
+        logger.info("   Estado: " + estado);
         if (ganadorNombre != null && !ganadorNombre.isEmpty()) {
-            System.out.println("   Ganador: " + ganadorNombre);
+            logger.info("   Ganador: " + ganadorNombre);
         }
         imprimirSeparador();
     }

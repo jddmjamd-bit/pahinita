@@ -1,5 +1,7 @@
 package com.torneosflash.servicio;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
@@ -14,6 +16,8 @@ import java.net.http.HttpResponse;
  * lo cual funciona en Render y otros hostings que bloquean SMTP.
  */
 public class CorreoServicio {
+    private static final Logger logger = LoggerFactory.getLogger(CorreoServicio.class);
+
 
     private final HttpClient httpClient;
     private final String apiKey;
@@ -30,9 +34,9 @@ public class CorreoServicio {
                           senderEmail != null && !senderEmail.isEmpty();
 
         if (habilitado) {
-            System.out.println("✅ Servicio de correo (Brevo API) configurado");
+            logger.info("✅ Servicio de correo (Brevo API) configurado");
         } else {
-            System.out.println("⚠️ Correo no configurado (faltan BREVO_API_KEY/BREVO_SENDER_EMAIL)");
+            logger.info("⚠️ Correo no configurado (faltan BREVO_API_KEY/BREVO_SENDER_EMAIL)");
         }
     }
 
@@ -74,12 +78,12 @@ public class CorreoServicio {
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
                 if (response.statusCode() == 201) {
-                    System.out.println("📧 Correo enviado a " + to);
+                    logger.info("📧 Correo enviado a " + to);
                 } else {
-                    System.err.println("📧 Error enviando correo (" + response.statusCode() + "): " + response.body());
+                    logger.error("📧 Error enviando correo (" + response.statusCode() + "): " + response.body());
                 }
             } catch (Exception e) {
-                System.err.println("Error enviando correo: " + e.getMessage());
+                logger.error("Error enviando correo: " + e.getMessage());
             }
         }).start();
     }

@@ -1,5 +1,7 @@
 package com.torneosflash.modelo;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 /**
  * CONCEPTO POO: Herencia - Usuario extiende Entidad
  * CONCEPTO POO: Override - sobreescribe mostrarInformacion() y obtenerTipo()
@@ -7,6 +9,8 @@ package com.torneosflash.modelo;
  * CONCEPTO POO: Constructores - vacío y con parámetros
  */
 public class Usuario extends Entidad {
+    private static final Logger logger = LoggerFactory.getLogger(Usuario.class);
+
 
     // --- Atributos privados (ENCAPSULAMIENTO) ---
     private String username;
@@ -67,39 +71,39 @@ public class Usuario extends Entidad {
     public void depositar(double monto) {
         if (monto > 0) {
             this.saldo += monto;
-            System.out.println("Deposito de $" + monto + " realizado para " + this.username);
+            logger.info("Deposito de $" + monto + " realizado para " + this.username);
         } else {
-            System.out.println("El monto debe ser mayor a 0");
+            logger.info("El monto debe ser mayor a 0");
         }
     }
 
     public void retirar(double monto) {
         if (verificarSaldo(monto)) {
             this.saldo -= monto;
-            System.out.println("Retiro de $" + monto + " realizado para " + this.username);
+            logger.info("Retiro de $" + monto + " realizado para " + this.username);
         } else {
-            System.out.println("Saldo insuficiente para " + this.username);
+            logger.info("Saldo insuficiente para " + this.username);
         }
     }
 
     public void registrarFalta() {
         this.faltas++;
-        System.out.println("Falta registrada para " + this.username + ". Total: " + this.faltas);
+        logger.info("Falta registrada para " + this.username + ". Total: " + this.faltas);
     }
 
     // --- Override de métodos abstractos (OVERRIDE) ---
     @Override
     public void mostrarInformacion() {
         imprimirSeparador();
-        System.out.println("USUARIO: " + username);
-        System.out.println("   ID: " + getId());
-        System.out.println("   Email: " + email);
-        System.out.println("   Player Tag: " + playerTag);
-        System.out.println("   Telefono: " + telefono);
-        System.out.println("   Saldo: $" + saldo);
-        System.out.println("   Estado: " + estado);
-        System.out.println("   Faltas: " + faltas);
-        System.out.println("   Ganancia Generada: $" + gananciaGenerada);
+        logger.info("USUARIO: " + username);
+        logger.info("   ID: " + getId());
+        logger.info("   Email: " + email);
+        logger.info("   Player Tag: " + playerTag);
+        logger.info("   Telefono: " + telefono);
+        logger.info("   Saldo: $" + saldo);
+        logger.info("   Estado: " + estado);
+        logger.info("   Faltas: " + faltas);
+        logger.info("   Ganancia Generada: $" + gananciaGenerada);
         imprimirSeparador();
     }
 

@@ -1,5 +1,7 @@
 package com.torneosflash.modelo;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.torneosflash.interfaces.Procesable;
 import com.torneosflash.interfaces.Validable;
 
@@ -8,6 +10,8 @@ import com.torneosflash.interfaces.Validable;
  * Partida implements Procesable Y Validable (polimorfismo múltiple)
  */
 public class Partida extends Entidad implements Procesable, Validable {
+    private static final Logger logger = LoggerFactory.getLogger(Partida.class);
+
 
     private String jugador1;
     private String jugador2;
@@ -41,18 +45,18 @@ public class Partida extends Entidad implements Procesable, Validable {
 
     public void iniciarPartida() {
         this.estado = "en_curso";
-        System.out.println("Partida iniciada: " + jugador1 + " vs " + jugador2 + " | Apuesta: $" + apuesta);
+        logger.info("Partida iniciada: " + jugador1 + " vs " + jugador2 + " | Apuesta: $" + apuesta);
     }
 
     public void finalizarPartida(String ganador) {
         this.ganador = ganador;
         this.estado = "finalizado";
-        System.out.println("Partida finalizada. Ganador: " + ganador);
+        logger.info("Partida finalizada. Ganador: " + ganador);
     }
 
     public void crearDisputa() {
         this.estado = "disputa";
-        System.out.println("Disputa creada para partida #" + getId());
+        logger.info("Disputa creada para partida #" + getId());
     }
 
     public boolean estaEnCurso() { return "en_curso".equals(this.estado); }
@@ -68,7 +72,7 @@ public class Partida extends Entidad implements Procesable, Validable {
         if (validar()) {
             iniciarPartida();
         } else {
-            System.out.println("No se puede procesar: " + errores);
+            logger.info("No se puede procesar: " + errores);
         }
     }
 
@@ -102,11 +106,11 @@ public class Partida extends Entidad implements Procesable, Validable {
     @Override
     public void mostrarInformacion() {
         imprimirSeparador();
-        System.out.println("PARTIDA #" + getId());
-        System.out.println("   " + jugador1 + " vs " + jugador2);
-        System.out.println("   Modo: " + modo + " | Apuesta: $" + apuesta);
-        System.out.println("   Estado: " + estado + " | Ganador: " + (ganador != null ? ganador : "Pendiente"));
-        System.out.println("   Premio: $" + String.format("%.2f", calcularPremio()));
+        logger.info("PARTIDA #" + getId());
+        logger.info("   " + jugador1 + " vs " + jugador2);
+        logger.info("   Modo: " + modo + " | Apuesta: $" + apuesta);
+        logger.info("   Estado: " + estado + " | Ganador: " + (ganador != null ? ganador : "Pendiente"));
+        logger.info("   Premio: $" + String.format("%.2f", calcularPremio()));
         imprimirSeparador();
     }
 

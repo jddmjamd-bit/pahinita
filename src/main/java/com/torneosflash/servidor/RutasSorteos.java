@@ -1,5 +1,7 @@
 package com.torneosflash.servidor;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.google.gson.*;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.servicio.NotificacionPushServicio;
@@ -14,6 +16,8 @@ import static com.torneosflash.servidor.RutasAuth.*;
  * Rutas de sorteos: tickets, participación, admin CRUD.
  */
 public class RutasSorteos {
+    private static final Logger logger = LoggerFactory.getLogger(RutasSorteos.class);
+
 
     private static NotificacionPushServicio pushService;
 
@@ -320,9 +324,9 @@ public class RutasSorteos {
                 pushService.enviarPush(db, ganadorId, "🏆 ¡Ganaste el sorteo!", "¡Felicidades! Ganaste \"" + nombre + "\"");
             }
 
-            System.out.println("🏆 Sorteo #" + raffleId + " completado. Ganador: " + ganadorNombre);
+            logger.info("🏆 Sorteo #" + raffleId + " completado. Ganador: " + ganadorNombre);
         } catch (Exception e) {
-            System.err.println("Error ejecutando sorteo: " + e.getMessage());
+            logger.error("Error ejecutando sorteo: " + e.getMessage());
         }
     }
 
@@ -355,7 +359,7 @@ public class RutasSorteos {
                 return new int[]{0, nuevoAcumulado};
             }
         } catch (Exception e) {
-            System.err.println("Error acumulando tickets: " + e.getMessage());
+            logger.error("Error acumulando tickets: " + e.getMessage());
             return new int[]{0, 0};
         }
     }

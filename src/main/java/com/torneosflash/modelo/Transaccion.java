@@ -1,5 +1,7 @@
 package com.torneosflash.modelo;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.torneosflash.interfaces.Procesable;
 
 /**
@@ -9,6 +11,8 @@ import com.torneosflash.interfaces.Procesable;
  * CONCEPTO POO: Abstracción - define procesar() como abstracto para las subclases
  */
 public abstract class Transaccion extends Entidad implements Procesable {
+    private static final Logger logger = LoggerFactory.getLogger(Transaccion.class);
+
 
     // --- Atributos privados (ENCAPSULAMIENTO) ---
     private int usuarioId;
@@ -65,11 +69,11 @@ public abstract class Transaccion extends Entidad implements Procesable {
     @Override
     public void mostrarInformacion() {
         imprimirSeparador();
-        System.out.println("TRANSACCION #" + getId());
-        System.out.println("   Usuario: " + usuarioNombre + " (ID: " + usuarioId + ")");
-        System.out.println("   Tipo: " + tipo + " | Metodo: " + metodo);
-        System.out.println("   Monto: $" + monto + " | Estado: " + estado);
-        System.out.println("   Referencia: " + referencia);
+        logger.info("TRANSACCION #" + getId());
+        logger.info("   Usuario: " + usuarioNombre + " (ID: " + usuarioId + ")");
+        logger.info("   Tipo: " + tipo + " | Metodo: " + metodo);
+        logger.info("   Monto: $" + monto + " | Estado: " + estado);
+        logger.info("   Referencia: " + referencia);
         imprimirSeparador();
     }
 

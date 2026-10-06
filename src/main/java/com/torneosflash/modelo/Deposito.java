@@ -1,10 +1,14 @@
 package com.torneosflash.modelo;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 /**
  * CONCEPTO POO: Herencia - Deposito extiende Transaccion (abstract)
  * CONCEPTO POO: Override - implementa el método abstracto procesar()
  */
 public class Deposito extends Transaccion {
+    private static final Logger logger = LoggerFactory.getLogger(Deposito.class);
+
 
     private String llavePublica;
     private double comision;
@@ -27,8 +31,8 @@ public class Deposito extends Transaccion {
     public void procesar() {
         this.comision = calcularComision();
         setEstado("completado");
-        System.out.println("Deposito de $" + getMonto() + " procesado para " + getUsuarioNombre());
-        System.out.println("   Comision cobrada: $" + String.format("%.2f", comision));
+        logger.info("Deposito de $" + getMonto() + " procesado para " + getUsuarioNombre());
+        logger.info("   Comision cobrada: $" + String.format("%.2f", comision));
     }
 
     public double calcularComision() {
@@ -38,18 +42,18 @@ public class Deposito extends Transaccion {
     }
 
     public void procesarPago() {
-        System.out.println("Procesando pago con llave: " + llavePublica);
+        logger.info("Procesando pago con llave: " + llavePublica);
         procesar();
     }
 
     @Override
     public void mostrarInformacion() {
         imprimirSeparador();
-        System.out.println("DEPOSITO #" + getId());
-        System.out.println("   Usuario: " + getUsuarioNombre());
-        System.out.println("   Monto: $" + getMonto() + " | Comision: $" + String.format("%.2f", comision));
-        System.out.println("   Estado: " + getEstado());
-        System.out.println("   Referencia: " + getReferencia());
+        logger.info("DEPOSITO #" + getId());
+        logger.info("   Usuario: " + getUsuarioNombre());
+        logger.info("   Monto: $" + getMonto() + " | Comision: $" + String.format("%.2f", comision));
+        logger.info("   Estado: " + getEstado());
+        logger.info("   Referencia: " + getReferencia());
         imprimirSeparador();
     }
 

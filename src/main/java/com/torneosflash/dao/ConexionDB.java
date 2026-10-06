@@ -1,5 +1,7 @@
 package com.torneosflash.dao;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import java.sql.*;
@@ -10,6 +12,8 @@ import java.sql.*;
  * Usa HikariCP como pool de conexiones.
  */
 public class ConexionDB {
+    private static final Logger logger = LoggerFactory.getLogger(ConexionDB.class);
+
 
     // --- Singleton (ENCAPSULAMIENTO) ---
     private static ConexionDB instancia;
@@ -28,9 +32,9 @@ public class ConexionDB {
             config.addDataSourceProperty("sslfactory", "org.postgresql.ssl.NonValidatingFactory");
             config.addDataSourceProperty("sslmode", "require");
             this.dataSource = new HikariDataSource(config);
-            System.out.println("✅ ¡Conexión exitosa a PostgreSQL!");
+            logger.info("✅ ¡Conexión exitosa a PostgreSQL!");
         } catch (Exception e) {
-            System.err.println("❌ Error conectando a PostgreSQL: " + e.getMessage());
+            logger.error("❌ Error conectando a PostgreSQL: " + e.getMessage());
         }
     }
 
@@ -74,7 +78,7 @@ public class ConexionDB {
      */
     public void inicializarTablas() {
         try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
-            System.out.println("🔄 Verificando tablas en PostgreSQL...");
+            logger.info("🔄 Verificando tablas en PostgreSQL...");
 
             // 1. Usuarios
             stmt.execute("CREATE TABLE IF NOT EXISTS users (" +
@@ -115,27 +119,27 @@ public class ConexionDB {
                     "gen_referidos = ganancia_generada * 0.10, " +
                     "ganancia_generada = ganancia_generada * 0.25 " +
                     "WHERE gen_sorteos = 0 AND ganancia_generada > 0");
-            System.out.println("   ✓ Tabla users");
+            logger.info("   ✓ Tabla users");
 
             // 2. Mensajes
             stmt.execute("CREATE TABLE IF NOT EXISTS messages (" +
                     "id SERIAL PRIMARY KEY, canal TEXT DEFAULT 'general', usuario TEXT, texto TEXT, " +
                     "tipo TEXT DEFAULT 'texto', fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
-            System.out.println("   ✓ Tabla messages");
+            logger.info("   ✓ Tabla messages");
 
             // 3. Partidas
             stmt.execute("CREATE TABLE IF NOT EXISTS matches (" +
                     "id SERIAL PRIMARY KEY, jugador1 TEXT, jugador2 TEXT, modo TEXT, " +
                     "apuesta NUMERIC, ganador TEXT DEFAULT NULL, estado TEXT DEFAULT 'en_curso', " +
                     "fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
-            System.out.println("   ✓ Tabla matches");
+            logger.info("   ✓ Tabla matches");
 
             // 4. Transacciones
             stmt.execute("CREATE TABLE IF NOT EXISTS transactions (" +
                     "id SERIAL PRIMARY KEY, usuario_id INTEGER, usuario_nombre TEXT, tipo TEXT, " +
                     "metodo TEXT, monto NUMERIC, referencia TEXT, estado TEXT DEFAULT 'pendiente', " +
                     "fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
-            System.out.println("   ✓ Tabla transactions");
+            logger.info("   ✓ Tabla transactions");
 
             // 5. Bóveda Admin
             stmt.execute("CREATE TABLE IF NOT EXISTS admin_wallet (" +
@@ -143,20 +147,20 @@ public class ConexionDB {
                     "categoria TEXT, " +
                     "fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
             ejecutarSilencioso(stmt, "ALTER TABLE admin_wallet ADD COLUMN IF NOT EXISTS categoria TEXT");
-            System.out.println("   ✓ Tabla admin_wallet");
+            logger.info("   ✓ Tabla admin_wallet");
 
             // 6. Tokens FCM
             stmt.execute("CREATE TABLE IF NOT EXISTS user_tokens (" +
                     "id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id), " +
                     "fcm_token TEXT, UNIQUE(user_id, fcm_token))");
-            System.out.println("   ✓ Tabla user_tokens");
+            logger.info("   ✓ Tabla user_tokens");
 
             // 7. Tickets
             stmt.execute("CREATE TABLE IF NOT EXISTS user_tickets (" +
                     "id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id), " +
                     "cantidad INTEGER DEFAULT 0, acumulado INTEGER DEFAULT 0, UNIQUE(user_id))");
             ejecutarSilencioso(stmt, "ALTER TABLE user_tickets ADD COLUMN IF NOT EXISTS acumulado INTEGER DEFAULT 0");
-            System.out.println("   ✓ Tabla user_tickets");
+            logger.info("   ✓ Tabla user_tickets");
 
             // 8. Sorteos
             stmt.execute("CREATE TABLE IF NOT EXISTS raffles (" +
@@ -166,22 +170,22 @@ public class ConexionDB {
                     "estado TEXT DEFAULT 'activo', ganador_id INTEGER REFERENCES users(id), " +
                     "ganador_nombre TEXT, fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
                     "fecha_completado TIMESTAMP)");
-            System.out.println("   ✓ Tabla raffles");
+            logger.info("   ✓ Tabla raffles");
 
             // 8.1 Votos Sorteos
             stmt.execute("CREATE TABLE IF NOT EXISTS raffle_votes (" +
                     "user_id INTEGER PRIMARY KEY REFERENCES users(id), " +
                     "categoria TEXT NOT NULL)");
-            System.out.println("   ✓ Tabla raffle_votes");
+            logger.info("   ✓ Tabla raffle_votes");
             ejecutarSilencioso(stmt, "ALTER TABLE raffles ADD COLUMN IF NOT EXISTS fecha_completado TIMESTAMP");
-            System.out.println("   ✓ Tabla raffles");
+            logger.info("   ✓ Tabla raffles");
 
             // 9. Participaciones
             stmt.execute("CREATE TABLE IF NOT EXISTS raffle_entries (" +
                     "id SERIAL PRIMARY KEY, raffle_id INTEGER REFERENCES raffles(id) ON DELETE CASCADE, " +
                     "user_id INTEGER REFERENCES users(id), tickets_asignados INTEGER DEFAULT 0, " +
                     "fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(raffle_id, user_id))");
-            System.out.println("   ✓ Tabla raffle_entries");
+            logger.info("   ✓ Tabla raffle_entries");
 
             // 10. Leaderboard history
             ejecutarSilencioso(stmt, "CREATE TABLE IF NOT EXISTS leaderboard_history (" +
@@ -189,13 +193,13 @@ public class ConexionDB {
                     "victorias INTEGER DEFAULT 0, ganancias NUMERIC DEFAULT 0, posicion INTEGER, " +
                     "premio NUMERIC DEFAULT 0, fecha_inicio TEXT, fecha_fin TEXT, " +
                     "fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
-            System.out.println("   ✓ Tabla leaderboard_history");
+            logger.info("   ✓ Tabla leaderboard_history");
 
             // 11. Media files (videos subidos por HTTP)
             stmt.execute("CREATE TABLE IF NOT EXISTS media_files (" +
                     "id SERIAL PRIMARY KEY, filename TEXT, content_type TEXT, " +
                     "data BYTEA, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
-            System.out.println("   ✓ Tabla media_files");
+            logger.info("   ✓ Tabla media_files");
 
             // 12. Leaderboard Pools (acumula las comisiones)
             stmt.execute("CREATE TABLE IF NOT EXISTS leaderboard_pools (" +
@@ -203,15 +207,15 @@ public class ConexionDB {
                     "mes NUMERIC DEFAULT 0, ano NUMERIC DEFAULT 0)");
             ejecutarSilencioso(stmt, "INSERT INTO leaderboard_pools (id, dia, semana, mes, ano) " +
                     "SELECT 1, 0, 0, 0, 0 WHERE NOT EXISTS (SELECT 1 FROM leaderboard_pools WHERE id = 1)");
-            System.out.println("   ✓ Tabla leaderboard_pools");
+            logger.info("   ✓ Tabla leaderboard_pools");
 
-            System.out.println("👍 Todas las tablas verificadas en PostgreSQL.");
+            logger.info("👍 Todas las tablas verificadas en PostgreSQL.");
 
             // Migración de datos antiguos de admin_wallet
             migrarAdminWalletAntiguo(conn);
 
         } catch (Exception e) {
-            System.err.println("❌ Error inicializando tablas: " + e.getMessage());
+            logger.error("❌ Error inicializando tablas: " + e.getMessage());
         }
     }
 
@@ -261,10 +265,10 @@ public class ConexionDB {
                 }
             }
             if (hayMigraciones) {
-                System.out.println("🔄 Migración de admin_wallet completada: registros antiguos divididos en 7 categorías.");
+                logger.info("🔄 Migración de admin_wallet completada: registros antiguos divididos en 7 categorías.");
             }
         } catch (SQLException e) {
-            System.err.println("❌ Error migrando admin_wallet: " + e.getMessage());
+            logger.error("❌ Error migrando admin_wallet: " + e.getMessage());
         }
     }
 

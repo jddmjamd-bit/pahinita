@@ -1,5 +1,7 @@
 package com.torneosflash.modelo;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.torneosflash.interfaces.Validable;
 
 /**
@@ -8,6 +10,8 @@ import com.torneosflash.interfaces.Validable;
  * CONCEPTO POO: Override - implementa procesar(), validar(), obtenerErrores()
  */
 public class Retiro extends Transaccion implements Validable {
+    private static final Logger logger = LoggerFactory.getLogger(Retiro.class);
+
 
     private String datosCuenta;
     private String errores;
@@ -30,15 +34,15 @@ public class Retiro extends Transaccion implements Validable {
     public void procesar() {
         if (validar()) {
             setEstado("completado");
-            System.out.println("Retiro de $" + getMonto() + " procesado para " + getUsuarioNombre());
+            logger.info("Retiro de $" + getMonto() + " procesado para " + getUsuarioNombre());
         } else {
             setEstado("rechazado");
-            System.out.println("Retiro rechazado: " + errores);
+            logger.info("Retiro rechazado: " + errores);
         }
     }
 
     public void procesarRetiro() {
-        System.out.println("Procesando retiro a cuenta: " + datosCuenta);
+        logger.info("Procesando retiro a cuenta: " + datosCuenta);
         procesar();
     }
 
@@ -65,10 +69,10 @@ public class Retiro extends Transaccion implements Validable {
     @Override
     public void mostrarInformacion() {
         imprimirSeparador();
-        System.out.println("RETIRO #" + getId());
-        System.out.println("   Usuario: " + getUsuarioNombre());
-        System.out.println("   Monto: $" + getMonto() + " | Estado: " + getEstado());
-        System.out.println("   Cuenta destino: " + datosCuenta);
+        logger.info("RETIRO #" + getId());
+        logger.info("   Usuario: " + getUsuarioNombre());
+        logger.info("   Monto: $" + getMonto() + " | Estado: " + getEstado());
+        logger.info("   Cuenta destino: " + datosCuenta);
         imprimirSeparador();
     }
 

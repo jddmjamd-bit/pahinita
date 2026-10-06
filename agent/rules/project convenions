@@ -1,0 +1,28 @@
+# Regla: Convenciones del proyecto
+
+## Autenticación
+- Nunca leer `userId` del body del request. Sacarlo siempre de la sesión (JWT verificado en middleware).
+- El socket se autentica en el handshake con el JWT. No confiar en datos que mande el cliente.
+
+## Dinero
+- Todo movimiento de dinero pasa por `WalletService`. Nunca hacer `UPDATE users SET saldo` directo.
+- Usar `BigDecimal` o `int` (centavos/tokens). Nunca `double` para dinero.
+- Verificar saldo con `WHERE saldo >= ?` dentro de la misma transacción SQL. No consultar y luego descontar en queries separados.
+- Si una tarea toca dinero, marcar el bloque con `// REVIEW-MONEY`.
+
+## Seguridad
+- Escapar todo HTML del usuario. Nunca usar `innerHTML` con datos del usuario; usar `textContent` o una librería de sanitización.
+- Las consultas SQL siempre usan `PreparedStatement` con `?`. Nunca concatenar strings del usuario en SQL.
+- Validar todos los inputs del servidor: montos positivos, dentro de rango, tipos correctos.
+- No enviar `password`, `email` ni `telefono` al rival ni en broadcasts. Hacer `SELECT` solo de los campos necesarios.
+
+## Arquitectura
+- Cada funcionalidad nueva lanza un evento en el bus de eventos y no notifica directamente.
+- Las tablas nuevas se crean con una migración de Flyway, no en `ConexionDB.inicializarTablas()`.
+- Toda configuración va en variables de entorno, nunca hardcodeada.
+- La lógica de negocio va en la capa de servicio (`servicio/`), no en los handlers de rutas ni en los handlers de socket.
+
+## Después de cada tarea
+- **No resumir** lo que se hizo en el chat. En cambio, editar `CHANGELOG.md` en la raíz del proyecto agregando la entrada al inicio (debajo de la línea `---`).
+- Ejecutar `git diff --stat` para verificar qué archivos se tocaron.
+- Seguir la regla de auto-push (add, commit con mensaje descriptivo en español, push a main).

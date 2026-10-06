@@ -1,9 +1,13 @@
 package com.torneosflash.modelo;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 /**
  * CONCEPTO POO: Herencia - Mensaje extiende Entidad
  */
 public class Mensaje extends Entidad {
+    private static final Logger logger = LoggerFactory.getLogger(Mensaje.class);
+
 
     private String canal;
     private String usuario;
@@ -27,7 +31,7 @@ public class Mensaje extends Entidad {
     }
 
     public void enviarMensaje() {
-        System.out.println("[" + canal + "] " + usuario + ": " + texto);
+        logger.info("[" + canal + "] " + usuario + ": " + texto);
     }
 
     public boolean esDelSistema() { return "SISTEMA".equals(this.usuario); }
@@ -36,10 +40,10 @@ public class Mensaje extends Entidad {
     @Override
     public void mostrarInformacion() {
         imprimirSeparador();
-        System.out.println("MENSAJE #" + getId());
-        System.out.println("   Canal: " + canal + " | Usuario: " + usuario);
-        System.out.println("   Tipo: " + tipo);
-        System.out.println("   Texto: " + texto);
+        logger.info("MENSAJE #" + getId());
+        logger.info("   Canal: " + canal + " | Usuario: " + usuario);
+        logger.info("   Tipo: " + tipo);
+        logger.info("   Texto: " + texto);
         imprimirSeparador();
     }
 

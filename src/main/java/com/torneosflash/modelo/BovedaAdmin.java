@@ -1,11 +1,15 @@
 package com.torneosflash.modelo;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.torneosflash.interfaces.Exportable;
 
 /**
  * CONCEPTO POO: Interface Exportable implementada
  */
 public class BovedaAdmin extends Entidad implements Exportable {
+    private static final Logger logger = LoggerFactory.getLogger(BovedaAdmin.class);
+
 
     private double monto;
     private String razon;
@@ -19,7 +23,7 @@ public class BovedaAdmin extends Entidad implements Exportable {
     }
 
     public void registrarMovimiento() {
-        System.out.println("Movimiento en boveda: $" + monto + " - " + razon);
+        logger.info("Movimiento en boveda: $" + monto + " - " + razon);
     }
 
     public boolean esIngreso() { return this.monto > 0; }
@@ -38,8 +42,8 @@ public class BovedaAdmin extends Entidad implements Exportable {
 
     @Override public void mostrarInformacion() {
         imprimirSeparador();
-        System.out.println("BOVEDA ADMIN #" + getId());
-        System.out.println("   Monto: $" + monto + " | Razon: " + razon + " | Detalle: " + detalle);
+        logger.info("BOVEDA ADMIN #" + getId());
+        logger.info("   Monto: $" + monto + " | Razon: " + razon + " | Detalle: " + detalle);
         imprimirSeparador();
     }
     @Override public String obtenerTipo() { return "BovedaAdmin"; }

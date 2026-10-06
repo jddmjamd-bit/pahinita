@@ -1,5 +1,7 @@
 package com.torneosflash.servicio;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.google.gson.*;
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -16,6 +18,8 @@ import java.time.format.DateTimeFormatter;
  * Equivalente a las funciones fetchBattleLog() y findMatchingBattle() de index.js.
  */
 public class ClashApiServicio {
+    private static final Logger logger = LoggerFactory.getLogger(ClashApiServicio.class);
+
 
     private final String apiToken;
 
@@ -49,7 +53,7 @@ public class ClashApiServicio {
 
             int code = conn.getResponseCode();
             if (code != 200) {
-                System.err.println("Clash API error " + code + " para tag " + tag);
+                logger.error("Clash API error " + code + " para tag " + tag);
                 return null;
             }
 
@@ -61,7 +65,7 @@ public class ClashApiServicio {
 
             return JsonParser.parseString(sb.toString()).getAsJsonArray();
         } catch (Exception e) {
-            System.err.println("Error fetchBattleLog: " + e.getMessage());
+            logger.error("Error fetchBattleLog: " + e.getMessage());
             return null;
         }
     }
@@ -76,7 +80,7 @@ public class ClashApiServicio {
         try {
             return Instant.from(CLASH_TIME_FORMAT.parse(battleTime));
         } catch (Exception e) {
-            System.err.println("Error parseando battleTime '" + battleTime + "': " + e.getMessage());
+            logger.error("Error parseando battleTime '" + battleTime + "': " + e.getMessage());
             return null;
         }
     }
@@ -102,7 +106,7 @@ public class ClashApiServicio {
             try {
                 matchStart = Instant.parse(matchStartTime);
             } catch (Exception e) {
-                System.err.println("Error parseando matchStartTime '" + matchStartTime + "': " + e.getMessage());
+                logger.error("Error parseando matchStartTime '" + matchStartTime + "': " + e.getMessage());
             }
         }
 
@@ -218,7 +222,7 @@ public class ClashApiServicio {
      */
     public boolean verificarConexionGlobal() {
         if (apiToken == null || apiToken.isEmpty()) {
-            System.err.println("❌ ERROR: CLASH_ROYALE_API_TOKEN no está configurado.");
+            logger.error("❌ ERROR: CLASH_ROYALE_API_TOKEN no está configurado.");
             return false;
         }
 
@@ -242,14 +246,14 @@ public class ClashApiServicio {
                     String line;
                     while ((line = reader.readLine()) != null) sb.append(line);
                     reader.close();
-                    System.err.println("❌ ERROR de Clash API (Código " + code + "): " + sb.toString());
+                    logger.error("❌ ERROR de Clash API (Código " + code + "): " + sb.toString());
                 } else {
-                    System.err.println("❌ ERROR HTTP de Clash API (Código " + code + ")");
+                    logger.error("❌ ERROR HTTP de Clash API (Código " + code + ")");
                 }
                 return false;
             }
         } catch (Exception e) {
-            System.err.println("❌ ERROR al conectar con la API de Clash Royale: " + e.getMessage());
+            logger.error("❌ ERROR al conectar con la API de Clash Royale: " + e.getMessage());
             return false;
         }
     }

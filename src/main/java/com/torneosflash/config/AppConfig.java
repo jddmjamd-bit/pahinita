@@ -1,5 +1,7 @@
 package com.torneosflash.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 /**
  * Configuración de la aplicación.
  * Lee las variables de entorno necesarias para conectar a PostgreSQL,
@@ -9,6 +11,8 @@ package com.torneosflash.config;
  * acceso solo por getters.
  */
 public class AppConfig {
+    private static final Logger logger = LoggerFactory.getLogger(AppConfig.class);
+
 
     // --- Atributos privados (ENCAPSULAMIENTO) ---
     private final int port;
@@ -23,7 +27,12 @@ public class AppConfig {
     private final String wompiUserPrincipalId;
     private final String wompiXApiKey;
     private final String dbAdminSecret;
-    private final String cookieSecret;
+
+    // --- Sesión JWT ---
+    private final String jwtSecret;
+    private final long jwtExpirationSeconds;
+    private final boolean cookieSecure;
+    private final String cookieSameSite;
 
     // --- Constructor (CONSTRUCTOR con parámetros desde env) ---
     public AppConfig() {
@@ -39,7 +48,38 @@ public class AppConfig {
         this.wompiUserPrincipalId = getEnv("WOMPI_USER_PRINCIPAL_ID", "");
         this.wompiXApiKey = getEnv("WOMPI_X_API_KEY", "");
         this.dbAdminSecret = getEnv("DB_ADMIN_SECRET", "torneos2024");
-        this.cookieSecret = "secreto_super_seguro";
+
+        this.jwtSecret = resolverJwtSecret(getEnv("JWT_SECRET", ""));
+        this.jwtExpirationSeconds = Long.parseLong(getEnv("JWT_EXPIRATION_DAYS", "30")) * 24L * 3600L;
+        this.cookieSameSite = normalizarSameSite(getEnv("COOKIE_SAMESITE", "Lax"));
+        // SameSite=None exige Secure; en cualquier otro caso se respeta COOKIE_SECURE (default true)
+        this.cookieSecure = "None".equals(cookieSameSite)
+                || Boolean.parseBoolean(getEnv("COOKIE_SECURE", "true"));
+    }
+
+    /**
+     * Si no hay JWT_SECRET (o es muy corto) se genera uno aleatorio en memoria.
+     * Las sesiones se invalidarán en cada reinicio, así que en producción
+     * SIEMPRE debe definirse JWT_SECRET (mínimo 32 caracteres).
+     */
+    private static String resolverJwtSecret(String fromEnv) {
+        if (fromEnv.length() >= 32) return fromEnv;
+        if (!fromEnv.isEmpty()) {
+            logger.error("⚠️ JWT_SECRET tiene menos de 32 caracteres. Se ignora y se usa uno aleatorio.");
+        } else {
+            logger.error("⚠️ JWT_SECRET no definido. Se usa uno aleatorio: las sesiones se perderán al reiniciar.");
+        }
+        byte[] bytes = new byte[48];
+        new java.security.SecureRandom().nextBytes(bytes);
+        return java.util.Base64.getEncoder().encodeToString(bytes);
+    }
+
+    private static String normalizarSameSite(String value) {
+        switch (value.trim().toLowerCase()) {
+            case "strict": return "Strict";
+            case "none": return "None";
+            default: return "Lax";
+        }
     }
 
     // Método auxiliar para leer variables de entorno con valor por defecto
@@ -61,7 +101,10 @@ public class AppConfig {
     public String getWompiUserPrincipalId() { return wompiUserPrincipalId; }
     public String getWompiXApiKey() { return wompiXApiKey; }
     public String getDbAdminSecret() { return dbAdminSecret; }
-    public String getCookieSecret() { return cookieSecret; }
+    public String getJwtSecret() { return jwtSecret; }
+    public long getJwtExpirationSeconds() { return jwtExpirationSeconds; }
+    public boolean isCookieSecure() { return cookieSecure; }
+    public String getCookieSameSite() { return cookieSameSite; }
 
     public boolean hasClashApi() { return !clashApiToken.isEmpty(); }
     public boolean hasFirebase() { return !firebaseServiceAccount.isEmpty(); }
