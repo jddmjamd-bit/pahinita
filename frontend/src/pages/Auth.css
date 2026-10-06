@@ -1,0 +1,22 @@
+/* Auth component specific styles */
+.tag-status {
+    font-size: 0.8rem;
+    margin-top: -10px;
+    margin-bottom: 10px;
+    display: none;
+}
+.tag-status.visible {
+    display: block;
+}
+.tag-status.error {
+    color: #e74c3c;
+}
+.tag-status.searching {
+    color: #f39c12;
+}
+.tag-status.found {
+    color: #2ecc71;
+}
+.tag-status.not-found {
+    color: #e74c3c;
+}
