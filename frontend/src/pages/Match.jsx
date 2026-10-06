@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useAppStore } from '../store/useAppStore';
 import './Match.css';
 
 export default function Match() {
@@ -24,7 +25,8 @@ export default function Match() {
     const [apiStatusText, setApiStatusText] = useState('Buscando resultado en Clash Royale...');
     const [apiResult, setApiResult] = useState(null); // { esGanador, premio, ganador, crowns, mensaje }
 
-    const currentUser = JSON.parse(localStorage.getItem('currentUser')) || null;
+    const currentUser = useAppStore(state => state.user);
+    const socket = useAppStore(state => state.socket);
     const chatEndRef = useRef(null);
 
     useEffect(() => {

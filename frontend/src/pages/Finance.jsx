@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useAppStore } from '../store/useAppStore';
 import './Finance.css';
 
 const API_BASE_URL = 'https://torneos-beta.onrender.com';
@@ -18,7 +19,8 @@ export default function Finance() {
     const [withdrawAccount, setWithdrawAccount] = useState('');
     const [withdrawName, setWithdrawName] = useState('');
 
-    const currentUser = JSON.parse(localStorage.getItem('currentUser')) || null;
+    const currentUser = useAppStore(state => state.user);
+    const setUser = useAppStore(state => state.setUser);
 
     // Calculos de comisión Wompi
     const calculateTotalAuto = (val) => {
@@ -128,8 +130,7 @@ export default function Finance() {
             const data = await res.json();
             if (data.success) {
                 alert(data.message);
-                currentUser.saldo = data.newBalance;
-                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                setUser({ ...currentUser, saldo: data.newBalance });
                 setWithdrawAmount('');
                 setWithdrawAccount('');
                 setWithdrawName('');

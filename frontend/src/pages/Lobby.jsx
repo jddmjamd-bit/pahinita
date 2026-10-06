@@ -1,17 +1,30 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { useAppStore } from '../store/useAppStore';
 import './Lobby.css';
 
 export default function Lobby() {
     const navigate = useNavigate();
     const location = useLocation();
-    const currentUser = JSON.parse(localStorage.getItem('currentUser')) || { username: 'Usuario', saldo: 0, estado: 'normal' };
+    
+    const currentUser = useAppStore(state => state.user) || { username: 'Usuario', saldo: 0, estado: 'normal' };
+    const logout = useAppStore(state => state.logout);
+    const connectSocket = useAppStore(state => state.connectSocket);
+    const disconnectSocket = useAppStore(state => state.disconnectSocket);
+
+    useEffect(() => {
+        if (currentUser && currentUser.username !== 'Usuario') {
+            connectSocket();
+        } else {
+            disconnectSocket();
+        }
+    }, [currentUser, connectSocket, disconnectSocket]);
+
     const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [clashMenuOpen, setClashMenuOpen] = useState(false);
 
     const handleLogout = async () => {
-        // TODO: F3 logout logic
-        localStorage.removeItem('currentUser');
+        logout();
         navigate('/auth');
     };
 

@@ -12,6 +12,12 @@ Archivos: `archivo1.java`, `archivo2.js`
 
 ---
 
+## 2026-10-06 — F3 Estado centralizado (Gemini Pro High)
+- Instalados `zustand` y `socket.io-client` en el frontend.
+- Creado store global en `useAppStore.js` para manejar el estado del usuario, la instancia de socket y el estado de las partidas.
+- Refactorizados todos los componentes (Auth, Lobby, Match, Chat, Finance, Leaderboard, Sorteos, Admin) para reemplazar `localStorage` por el store de Zustand.
+Archivos: `frontend/package.json`, `frontend/src/store/useAppStore.js`, `frontend/src/pages/*.jsx`
+
 ## 2026-10-06 — F2 Completar migración de módulos a React (Gemini Pro High)
 - Migrados completamente los módulos restantes a componentes funcionales de React (`Leaderboard`, `Finance`, `Sorteos`, `Chat`, `Match`, `Admin`).
 - Refactorizado `Lobby.jsx` para actuar como el Layout principal (Sidebar) con react-router-dom `<Outlet>`.

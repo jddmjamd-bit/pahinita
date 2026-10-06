@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAppStore } from '../store/useAppStore';
 import './Auth.css';
 
 const API_BASE_URL = 'https://torneos-beta.onrender.com'; // TODO: use env variables later
@@ -7,6 +8,7 @@ const API_BASE_URL = 'https://torneos-beta.onrender.com'; // TODO: use env varia
 export default function Auth() {
     const [isLogin, setIsLogin] = useState(false);
     const navigate = useNavigate();
+    const setUser = useAppStore(state => state.setUser);
 
     // Formularios
     const [username, setUsername] = useState('');
@@ -151,8 +153,7 @@ export default function Auth() {
             });
             const data = await res.json();
             if (res.ok) {
-                // Guardar usuario en localStorage temporalmente hasta F3
-                localStorage.setItem('currentUser', JSON.stringify(data.user));
+                setUser(data.user);
                 navigate('/lobby');
             } else {
                 alert(data.error);

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useAppStore } from '../store/useAppStore';
 import './Leaderboard.css';
 
 const API_BASE_URL = 'https://torneos-beta.onrender.com';
@@ -10,8 +11,7 @@ export default function Leaderboard() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
-    // TODO: Obtener del estado global en F3
-    const currentUser = JSON.parse(localStorage.getItem('currentUser')) || null;
+    const currentUser = useAppStore(state => state.user);
 
     useEffect(() => {
         const fetchLeaderboard = async () => {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useAppStore } from '../store/useAppStore';
 import './Chat.css';
 
 const API_BASE_URL = 'https://torneos-beta.onrender.com';
@@ -20,7 +21,8 @@ export default function Chat() {
     const [isUploading, setIsUploading] = useState(false);
     const chatEndRef = useRef(null);
 
-    const currentUser = JSON.parse(localStorage.getItem('currentUser')) || null;
+    const currentUser = useAppStore(state => state.user);
+    const socket = useAppStore(state => state.socket);
     const esAdmin = currentUser?.tipo_suscripcion === 'admin';
 
     useEffect(() => {

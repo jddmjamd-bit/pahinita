@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useAppStore } from '../store/useAppStore';
 import './Sorteos.css';
 
 const API_BASE_URL = 'https://torneos-beta.onrender.com';
@@ -12,7 +13,7 @@ export default function Sorteos() {
     const [miVoto, setMiVoto] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    const currentUser = JSON.parse(localStorage.getItem('currentUser')) || null;
+    const currentUser = useAppStore(state => state.user);
     const esAdmin = currentUser && currentUser.tipo_suscripcion === 'admin';
 
     // Formulario crear sorteo

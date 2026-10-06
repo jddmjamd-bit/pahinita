@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useAppStore } from '../store/useAppStore';
 import './Admin.css';
 
 const API_BASE_URL = 'https://torneos-beta.onrender.com';
@@ -18,7 +19,7 @@ export default function Admin() {
     // Form inputs for disputes
     const [disputeResolutions, setDisputeResolutions] = useState({});
 
-    const currentUser = JSON.parse(localStorage.getItem('currentUser')) || null;
+    const currentUser = useAppStore(state => state.user);
 
     useEffect(() => {
         if (currentUser?.tipo_suscripcion === 'admin') {
