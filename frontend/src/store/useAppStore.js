@@ -4,6 +4,14 @@ import { io } from 'socket.io-client';
 const API_BASE_URL = 'https://torneos-beta.onrender.com'; // TODO: use env variables
 
 export const useAppStore = create((set, get) => ({
+    // Modo Claro/Oscuro
+    theme: localStorage.getItem('appTheme') || 'dark',
+    toggleTheme: () => {
+        const newTheme = get().theme === 'dark' ? 'light' : 'dark';
+        localStorage.setItem('appTheme', newTheme);
+        set({ theme: newTheme });
+    },
+
     // Estado del usuario
     user: JSON.parse(localStorage.getItem('currentUser')) || null,
     setUser: (userData) => {
