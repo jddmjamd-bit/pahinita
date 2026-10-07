@@ -4,9 +4,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.google.gson.*;
 import com.torneosflash.dao.GenericDAO;
+import com.torneosflash.servicio.WalletService;
 import com.torneosflash.socketio.SocketIOServer;
 import com.torneosflash.socketio.SocketIOClient;
 import io.javalin.Javalin;
+import java.math.BigDecimal;
 import java.util.*;
 
 /**
@@ -17,6 +19,7 @@ public class RutasLeaderboard {
 
 
     private static final double[] PORCENTAJES = {0.25, 0.18, 0.14, 0.10, 0.08, 0.07, 0.06, 0.05, 0.04, 0.03};
+    private static WalletService wallet;
 
     private static JsonArray calcularPremiosDinamicos(double pozoTotal) {
         JsonArray premios = new JsonArray();
@@ -29,7 +32,8 @@ public class RutasLeaderboard {
         return premios;
     }
 
-    public static void register(Javalin app, GenericDAO db, SocketIOServer io) {
+    public static void register(Javalin app, GenericDAO db, SocketIOServer io, WalletService walletService) {
+        wallet = walletService;
 
         // GET /api/leaderboard/:periodo
         app.get("/api/leaderboard/{periodo}", ctx -> {
@@ -151,8 +155,8 @@ public class RutasLeaderboard {
                     
                     if (premioFinal <= 0) continue;
 
-                    // Dar premio
-                    db.update("UPDATE users SET saldo = saldo + ? WHERE id = ?", (double) premioFinal, jugadorId);
+                    // Dar premio // REVIEW-MONEY
+                    WalletService.WalletResult premioResult = wallet.premiar(jugadorId, BigDecimal.valueOf(premioFinal), "Premio leaderboard #" + (i + 1) + " " + configKey);
 
                     // Historial
                     db.update("INSERT INTO leaderboard_history (user_id, username, periodo, victorias, ganancias, posicion, premio, fecha_inicio, fecha_fin) " +
@@ -164,8 +168,8 @@ public class RutasLeaderboard {
                     // Notificar por socket
                     for (SocketIOClient s : io.getSockets().values()) {
                         if (s.getUserData() != null && s.getUserData().get("id").getAsNumber().intValue() == jugadorId) {
-                            JsonObject u = db.queryOne("SELECT saldo FROM users WHERE id = ?", jugadorId);
-                            double nuevoSaldo = u != null ? u.get("saldo").getAsDouble() : 0;
+                            double nuevoSaldo = premioResult.isSuccess() ? premioResult.getNuevoSaldoDouble() :
+                                    wallet.obtenerSaldo(jugadorId).doubleValue();
                             s.emit("actualizar_saldo", new JsonPrimitive(nuevoSaldo));
 
                             JsonObject premioData = new JsonObject();
@@ -185,14 +189,14 @@ public class RutasLeaderboard {
                     ArrayList<JsonObject> admins = db.query("SELECT id FROM users WHERE tipo_suscripcion = 'admin'");
                     if (!admins.isEmpty()) {
                         double cuotaAdmin = gananciaAdminTotal / admins.size();
-                        db.update("UPDATE users SET saldo = saldo + ? WHERE tipo_suscripcion = 'admin'", cuotaAdmin);
+                        // REVIEW-MONEY
+                        wallet.premiarAdmins(BigDecimal.valueOf(cuotaAdmin), "Leaderboard sobrantes " + configKey);
                         
                         // Notificar a los admins por socket
                         for (SocketIOClient s : io.getSockets().values()) {
                             if (s.getUserData() != null && "admin".equals(s.getUserData().get("tipo_suscripcion").getAsString())) {
                                 int aid = s.getUserData().get("id").getAsNumber().intValue();
-                                JsonObject u = db.queryOne("SELECT saldo FROM users WHERE id = ?", aid);
-                                double nuevoSaldo = u != null ? u.get("saldo").getAsDouble() : 0;
+                                double nuevoSaldo = wallet.obtenerSaldo(aid).doubleValue();
                                 s.emit("actualizar_saldo", new JsonPrimitive(nuevoSaldo));
                             }
                         }

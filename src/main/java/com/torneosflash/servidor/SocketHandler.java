@@ -6,8 +6,12 @@ import com.google.gson.*;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.servicio.ClashApiServicio;
 import com.torneosflash.servicio.NotificacionPushServicio;
+import com.torneosflash.servicio.WalletService;
+import com.torneosflash.servicio.WalletService.WalletResult;
+import com.torneosflash.servicio.WalletService.LiquidacionResult;
 import com.torneosflash.socketio.SocketIOClient;
 import com.torneosflash.socketio.SocketIOServer;
+import java.math.BigDecimal;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -31,14 +35,16 @@ public class SocketHandler {
     private final SocketIOServer io;
     private final ClashApiServicio clashApi;
     private final NotificacionPushServicio pushService;
+    private final WalletService wallet;
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
     private final Gson gson = new Gson();
 
-    public SocketHandler(GenericDAO db, SocketIOServer io, ClashApiServicio clashApi, NotificacionPushServicio pushService) {
+    public SocketHandler(GenericDAO db, SocketIOServer io, ClashApiServicio clashApi, NotificacionPushServicio pushService, WalletService wallet) {
         this.db = db;
         this.io = io;
         this.clashApi = clashApi;
         this.pushService = pushService;
+        this.wallet = wallet;
     }
 
     /**
@@ -395,15 +401,19 @@ public class SocketHandler {
                         match.playerTag1 = p1 != null && p1.has("player_tag") && !p1.get("player_tag").isJsonNull() ? p1.get("player_tag").getAsString() : "";
                         match.playerTag2 = p2 != null && p2.has("player_tag") && !p2.get("player_tag").isJsonNull() ? p2.get("player_tag").getAsString() : "";
 
-                        // Descontar saldo
+                        // Descontar saldo atómicamente via WalletService // REVIEW-MONEY
                         for (SocketIOClient p : match.players) {
                             int pid = p.getUserData().get("id").getAsInt();
-                            db.update("UPDATE users SET saldo = saldo - ?, estado = 'jugando', paso_juego = 0, total_apostado = total_apostado + ? WHERE id = ?",
-                                    (double) match.apuesta, (double) match.apuesta, pid);
-                            JsonObject saldoRes = db.queryOne("SELECT saldo FROM users WHERE id = ?", pid);
-                            double nuevoSaldo = saldoRes != null && saldoRes.has("saldo") ? saldoRes.get("saldo").getAsDouble() : 0;
-                            p.getUserData().addProperty("saldo", nuevoSaldo);
-                            p.emit("actualizar_saldo", new JsonPrimitive(nuevoSaldo));
+                            WalletResult apResult = wallet.apostar(pid, BigDecimal.valueOf(match.apuesta));
+                            if (!apResult.isSuccess()) {
+                                io.to(salaId).emit("error_negociacion", new JsonPrimitive("Saldo insuficiente para " + p.getUserData().get("username").getAsString()));
+                                match.votosInicio.clear();
+                                match.confirmaciones.clear();
+                                match.iniciado = false;
+                                return;
+                            }
+                            p.getUserData().addProperty("saldo", apResult.getNuevoSaldoDouble());
+                            p.emit("actualizar_saldo", new JsonPrimitive(apResult.getNuevoSaldoDouble()));
                         }
 
                         // Crear match en BD
@@ -626,50 +636,26 @@ public class SocketHandler {
                         return;
                     }
 
-                    // Procesar ganador
-                    double pozo = match.apuesta * 2;
-                    double porcentajeComision = 0.25 - ((pozo - 2000.0) / 18000.0) * 0.15;
-                    if (porcentajeComision > 0.25) porcentajeComision = 0.25;
-                    if (porcentajeComision < 0.10) porcentajeComision = 0.10;
-                    double comisionTeorica = pozo * porcentajeComision;
-                    double premio = Math.floor(pozo - comisionTeorica);
-                    double comisionReal = pozo - premio;
-
-                    double comSorteos = Math.floor(comisionTeorica * 0.20);
-                    double comMisiones = Math.floor(comisionTeorica * 0.10);
-                    double comLogros = Math.floor(comisionTeorica * 0.05);
-                    double comLeaderboard = Math.floor(comisionTeorica * 0.15);
-                    double comDevolucion = Math.floor(comisionTeorica * 0.15);
-                    double comReferidos = Math.floor(comisionTeorica * 0.10);
-                    double comGanancia = comisionReal - (comSorteos + comMisiones + comLogros + comLeaderboard + comDevolucion + comReferidos);
-                    double util = comGanancia / 2.0;
-
-                    db.update("UPDATE users SET saldo = saldo + ?, total_ganado = total_ganado + ? WHERE id = ?", premio, premio, idGanador);
-                    db.update("UPDATE users SET ganancia_generada = ganancia_generada + ?, gen_sorteos = gen_sorteos + ?, gen_misiones = gen_misiones + ?, gen_logros = gen_logros + ?, gen_leaderboard = gen_leaderboard + ?, gen_devolucion = gen_devolucion + ?, gen_referidos = gen_referidos + ? WHERE id IN (?, ?)", 
-                              util, comSorteos / 2.0, comMisiones / 2.0, comLogros / 2.0, comLeaderboard / 2.0, comDevolucion / 2.0, comReferidos / 2.0, ids.get(0), ids.get(1));
-                    db.update("UPDATE users SET total_victorias = total_victorias + 1, victorias_normales = victorias_normales + 1, total_partidas = total_partidas + 1, victorias_dia = victorias_dia + 1, victorias_semana = victorias_semana + 1, victorias_mes = victorias_mes + 1, victorias_ano = victorias_ano + 1 WHERE id = ?", idGanador);
+                    // Liquidar partida atómicamente via WalletService // REVIEW-MONEY
                     int idPerdedor = (idGanador == ids.get(0)) ? ids.get(1) : ids.get(0);
-                    db.update("UPDATE users SET total_derrotas = total_derrotas + 1, derrotas_normales = derrotas_normales + 1, total_partidas = total_partidas + 1 WHERE id = ?", idPerdedor);
+                    LiquidacionResult liq = wallet.liquidar(idGanador, idPerdedor,
+                            BigDecimal.valueOf(match.apuesta), match.dbId, "comision_match");
 
-                    String detalle = "Match #" + match.dbId;
-                    db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'sorteos')", comSorteos, detalle);
-                    db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'misiones')", comMisiones, detalle);
-                    db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'logros')", comLogros, detalle);
-                    db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'leaderboard')", comLeaderboard, detalle);
-                    
-                    // Repartir comisión de leaderboard en los 4 pozos (día, semana, mes, año)
-                    double parteLeaderboard = comLeaderboard / 4.0;
-                    db.update("UPDATE leaderboard_pools SET dia = dia + ?, semana = semana + ?, mes = mes + ?, ano = ano + ? WHERE id = 1", 
-                              parteLeaderboard, parteLeaderboard, parteLeaderboard, parteLeaderboard);
-
-                    db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'devolucion')", comDevolucion, detalle);
-                    db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'referidos')", comReferidos, detalle);
-                    db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_match', ?, 'ganancia')", comGanancia, detalle);
+                    if (!liq.success) {
+                        logger.error("❌ Error liquidando match #{}: {}", match.dbId, liq.error);
+                        db.update("UPDATE matches SET estado = 'disputa' WHERE id = ?", match.dbId);
+                        JsonObject errData = new JsonObject();
+                        errData.addProperty("mensaje", "Error al liquidar. Disputa creada.");
+                        io.to(salaId).emit("disputa_creada", errData);
+                        liberarJugadores(salaId, match);
+                        return;
+                    }
 
                     // Acumular tickets (cada jugador recibe su mitad de la comisión de sorteos)
+                    double comSorteosHalf = liq.comSorteos.doubleValue() / 2.0;
                     for (SocketIOClient p : match.players) {
                         if (p.getUserData() == null) continue;
-                        int[] resultadoTickets = RutasSorteos.acumularTickets(db, p.getUserData().get("id").getAsInt(), comSorteos / 2.0);
+                        int[] resultadoTickets = RutasSorteos.acumularTickets(db, p.getUserData().get("id").getAsInt(), comSorteosHalf);
                         int ticketsGanados = resultadoTickets[0];
                         int nuevoAcumulado = resultadoTickets[1];
                         
@@ -681,24 +667,23 @@ public class SocketHandler {
 
                     // Actualizar saldo del ganador
                     if (winnerSocket != null) {
-                        JsonObject saldoRes = db.queryOne("SELECT saldo FROM users WHERE id = ?", idGanador);
-                        double nuevoSaldo = saldoRes != null ? saldoRes.get("saldo").getAsDouble() : 0;
-                        winnerSocket.emit("actualizar_saldo", new JsonPrimitive(nuevoSaldo));
+                        winnerSocket.emit("actualizar_saldo", new JsonPrimitive(liq.nuevoSaldoGanador.doubleValue()));
                     }
 
                     String winnerName = winnerSocket != null ? winnerSocket.getUserData().get("username").getAsString() : "Ganador";
                     db.update("UPDATE matches SET estado = 'finalizada', ganador = ? WHERE id = ?", winnerName, match.dbId);
                     logClash("🏆 GANADOR API #" + match.dbId + ": " + winnerName);
 
+                    double premioDouble = liq.premio.doubleValue();
                     // Notificar resultado
                     for (SocketIOClient p : match.players) {
                         if (p.getUserData() == null) continue;
                         boolean esGanador = p.getUserData().get("id").getAsInt() == idGanador;
                         JsonObject resultData = new JsonObject();
                         resultData.addProperty("ganador", winnerName);
-                        resultData.addProperty("premio", premio);
+                        resultData.addProperty("premio", premioDouble);
                         resultData.addProperty("esGanador", esGanador);
-                        String mensajeResult = esGanador ? "🏆 ¡GANASTE! Recibiste $" + (int) premio : "💀 Perdiste. " + winnerName + " ganó la partida.";
+                        String mensajeResult = esGanador ? "🏆 ¡GANASTE! Recibiste $" + (int) premioDouble : "💀 Perdiste. " + winnerName + " ganó la partida.";
                         resultData.addProperty("mensaje", mensajeResult);
                         p.emit("resultado_api", resultData);
 

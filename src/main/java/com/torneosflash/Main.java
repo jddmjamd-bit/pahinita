@@ -6,6 +6,7 @@ import com.torneosflash.config.AppConfig;
 import com.torneosflash.dao.ConexionDB;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.dao.UsuarioDAO;
+import com.torneosflash.servicio.WalletService;
 import com.torneosflash.servicio.ClashApiServicio;
 import com.torneosflash.servicio.CorreoServicio;
 import com.torneosflash.servicio.NotificacionPushServicio;
@@ -55,6 +56,9 @@ public class Main {
         // DAOs
         UsuarioDAO usuarioDAO = new UsuarioDAO(conexion);
         GenericDAO db = new GenericDAO(conexion);
+
+        // WalletService — centraliza todo movimiento de dinero
+        WalletService wallet = new WalletService(conexion);
 
         // ============================================
         // 3. SERVICIOS
@@ -140,17 +144,17 @@ public class Main {
         // 7. REGISTRAR RUTAS HTTP
         // ============================================
         RutasAuth.register(app, usuarioDAO, db, config, clashApi);
-        RutasFinanzas.register(app, db, config, socketServer, pushService);
-        RutasAdmin.register(app, usuarioDAO, db, socketServer, pushService);
+        RutasFinanzas.register(app, db, config, socketServer, pushService, wallet);
+        RutasAdmin.register(app, usuarioDAO, db, socketServer, pushService, wallet);
         RutasSorteos.register(app, db, socketServer, correo, pushService);
-        RutasLeaderboard.register(app, db, socketServer);
+        RutasLeaderboard.register(app, db, socketServer, wallet);
         RutasDbAdmin.register(app, db, config);
         RutasMedia.register(app, db);
 
         // ============================================
         // 8. REGISTRAR SOCKET HANDLERS
         // ============================================
-        SocketHandler socketHandler = new SocketHandler(db, socketServer, clashApi, pushService);
+        SocketHandler socketHandler = new SocketHandler(db, socketServer, clashApi, pushService, wallet);
         socketHandler.registrar();
 
         // ============================================

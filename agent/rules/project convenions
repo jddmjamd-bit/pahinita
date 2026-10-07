@@ -24,6 +24,7 @@
 
 ## Después de cada tarea
 - **No resumir** lo que se hizo en el chat. En cambio, editar `CHANGELOG.md` (junto al modelo usado) y `ARCHITECTURE.md` (solo si es necesario) en la raíz del proyecto agregando la entrada al inicio (debajo de la línea `---`).
+- despues de cada mensaje editar el ARCHITECTURE.md para documentar el cambio. si el cambio no es significativo, no editarlo. y el `CHANGELOG.md`
 - Verificar si los cambios si son mostrados en el frontend y backend.
 - Compilar y verificar si no hay ningun error en el codigo
 - Notificar al usuario verificaciones manuales.

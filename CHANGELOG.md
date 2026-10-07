@@ -12,6 +12,14 @@ Archivos: `archivo1.java`, `archivo2.js`
 
 ---
 
+## 2026-10-07 — 20 Capacitor (app móvil) (Gemini 3.1 Pro (High))
+- Implementada integración inicial de Capacitor para envolver la app React en nativo (Android e iOS).
+- Instalados plugins `@capacitor/core`, `@capacitor/splash-screen`, `@capacitor/push-notifications` y `@capacitor/camera`.
+- Creado hook en React `useCapacitor.js` para ocultar el Splash Screen y solicitar permisos de cámara, micrófono y notificaciones push al abrir la app.
+- Modificado `AndroidManifest.xml` para incluir explícitamente los permisos `CAMERA`, `RECORD_AUDIO` y `POST_NOTIFICATIONS`.
+- Utilizado `@capacitor/assets` para generar automáticamente todos los íconos de la app y el splash screen para Android e iOS a partir de `logo.jpeg`.
+Archivos: `frontend/package.json`, `frontend/src/hooks/useCapacitor.js`, `frontend/src/App.jsx`, `frontend/android/app/src/main/AndroidManifest.xml`
+
 ## 2026-10-06 — F6 Build + minificación (Gemini Pro High)
 - Configurada optimización de construcción en `vite.config.js` para realizar "code splitting" automático.
 - Se configuró Vite para separar los paquetes de `node_modules` en diferentes "chunks" durante la etapa de compilación (`manualChunks`), logrando una mejor carga y aprovechando el "tree shaking" y la minificación por defecto de Vite 8.

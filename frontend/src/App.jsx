@@ -10,9 +10,13 @@ import Finance from './pages/Finance'
 import Leaderboard from './pages/Leaderboard'
 import Sorteos from './pages/Sorteos'
 
+import { useCapacitor } from './hooks/useCapacitor'
+
 function App() {
   const theme = useAppStore(state => state.theme);
   const toggleTheme = useAppStore(state => state.toggleTheme);
+  
+  useCapacitor();
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);

@@ -6,9 +6,12 @@ import com.google.gson.*;
 import com.torneosflash.config.AppConfig;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.servicio.NotificacionPushServicio;
+import com.torneosflash.servicio.WalletService;
+import com.torneosflash.servicio.WalletService.WalletResult;
 import com.torneosflash.socketio.SocketIOServer;
 import com.torneosflash.socketio.SocketIOClient;
 import io.javalin.Javalin;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
@@ -22,23 +25,26 @@ public class RutasFinanzas {
 
 
     private static NotificacionPushServicio pushService;
+    private static WalletService wallet;
 
-    public static void register(Javalin app, GenericDAO db, AppConfig config, SocketIOServer io, NotificacionPushServicio push) {
+    public static void register(Javalin app, GenericDAO db, AppConfig config, SocketIOServer io, NotificacionPushServicio push, WalletService walletService) {
         pushService = push;
+        wallet = walletService;
 
         // POST /api/deposit (depósito manual por admin)
         app.post("/api/deposit", ctx -> {
             JsonObject body = parseBody(ctx);
             int userId = body.get("userId").getAsInt();
-            double monto = body.get("monto").getAsDouble();
+            BigDecimal monto = new BigDecimal(body.get("monto").getAsString()); // REVIEW-MONEY
 
-            db.update("UPDATE users SET saldo = saldo + ? WHERE id = ?", monto, userId);
-            double nuevoSaldo = 0;
-            JsonObject u = db.queryOne("SELECT saldo FROM users WHERE id = ?", userId);
-            if (u != null) nuevoSaldo = u.get("saldo").getAsDouble();
+            WalletResult result = wallet.depositar(userId, monto, "Depósito manual admin"); // REVIEW-MONEY
+            if (!result.isSuccess()) {
+                ctx.json(errorJson(result.getError()));
+                return;
+            }
 
             // Notificar via socket
-            notificarUsuario(io, db, userId, "✅ Recarga acreditada.", nuevoSaldo);
+            notificarUsuario(io, db, userId, "✅ Recarga acreditada.", result.getNuevoSaldoDouble());
             ctx.json(successJson("Depósito realizado", 0));
         });
 
@@ -61,34 +67,29 @@ public class RutasFinanzas {
             JsonObject body = parseBody(ctx);
             int userId = body.get("userId").getAsInt();
             String username = body.get("username").getAsString();
-            double monto = body.get("monto").getAsDouble();
+            BigDecimal monto = new BigDecimal(body.get("monto").getAsString()); // REVIEW-MONEY
             String metodo = body.has("metodo") ? body.get("metodo").getAsString() : "nequi_retiro";
             String referencia = body.has("referencia") ? body.get("referencia").getAsString() : "";
 
-            // Verificar saldo
-            JsonObject user = db.queryOne("SELECT saldo FROM users WHERE id = ?", userId);
-            if (user == null || user.get("saldo").getAsDouble() < monto) {
-                ctx.json(errorJson("Saldo insuficiente"));
+            // Descontar saldo atómicamente con verificación // REVIEW-MONEY
+            WalletResult result = wallet.retirar(userId, monto, "Retiro " + metodo);
+            if (!result.isSuccess()) {
+                ctx.json(errorJson(result.getError()));
                 return;
             }
 
-            // Descontar saldo inmediatamente
-            db.update("UPDATE users SET saldo = saldo - ? WHERE id = ?", monto, userId);
-
             // Crear transacción
             db.update("INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia) " +
-                    "VALUES (?, ?, 'retiro', ?, ?, ?)", userId, username, metodo, monto, referencia);
+                    "VALUES (?, ?, 'retiro', ?, ?, ?)", userId, username, metodo, monto.doubleValue(), referencia);
 
             // Notificar saldo actualizado
-            JsonObject updated = db.queryOne("SELECT saldo FROM users WHERE id = ?", userId);
-            double nuevoSaldo = updated != null ? updated.get("saldo").getAsDouble() : 0;
-            notificarUsuario(io, db, userId, "⏳ Retiro en proceso...", nuevoSaldo);
+            notificarUsuario(io, db, userId, "⏳ Retiro en proceso...", result.getNuevoSaldoDouble());
 
             // Incluir newBalance en la respuesta HTTP para que el frontend actualice inmediatamente
             JsonObject response = new JsonObject();
             response.addProperty("success", true);
             response.addProperty("message", "Retiro solicitado");
-            response.addProperty("newBalance", nuevoSaldo);
+            response.addProperty("newBalance", result.getNuevoSaldoDouble());
             ctx.json(response);
         });
 
@@ -147,15 +148,15 @@ public class RutasFinanzas {
 
                     if (trans != null) {
                         int userId = trans.get("usuario_id").getAsNumber().intValue();
-                        double monto = trans.get("monto").getAsDouble();
+                        BigDecimal monto = BigDecimal.valueOf(trans.get("monto").getAsDouble()); // REVIEW-MONEY
 
-                        // Acreditar saldo
-                        db.update("UPDATE users SET saldo = saldo + ? WHERE id = ?", monto, userId);
+                        // Acreditar saldo atómicamente // REVIEW-MONEY
+                        WalletResult result = wallet.depositar(userId, monto, "Pago Wompi ref:" + reference);
                         db.update("UPDATE transactions SET estado = 'completado' WHERE referencia = ?", reference);
 
-                        JsonObject u = db.queryOne("SELECT saldo FROM users WHERE id = ?", userId);
-                        double nuevoSaldo = u != null ? u.get("saldo").getAsDouble() : 0;
-                        notificarUsuario(io, db, userId, "✅ Pago Wompi aprobado. Saldo acreditado.", nuevoSaldo);
+                        if (result.isSuccess()) {
+                            notificarUsuario(io, db, userId, "✅ Pago Wompi aprobado. Saldo acreditado.", result.getNuevoSaldoDouble());
+                        }
                     }
                 }
                 ctx.result("OK");

@@ -4,9 +4,13 @@ import com.google.gson.*;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.dao.UsuarioDAO;
 import com.torneosflash.servicio.NotificacionPushServicio;
+import com.torneosflash.servicio.WalletService;
+import com.torneosflash.servicio.WalletService.WalletResult;
+import com.torneosflash.servicio.WalletService.LiquidacionResult;
 import com.torneosflash.socketio.SocketIOServer;
 import com.torneosflash.socketio.SocketIOClient;
 import io.javalin.Javalin;
+import java.math.BigDecimal;
 import java.net.URI;
 
 import static com.torneosflash.servidor.RutasAuth.*;
@@ -17,8 +21,12 @@ import static com.torneosflash.servidor.RutasFinanzas.notificarUsuario;
  */
 public class RutasAdmin {
 
+    private static WalletService wallet;
+
     public static void register(Javalin app, UsuarioDAO usuarioDAO, GenericDAO db,
-                                 SocketIOServer io, NotificacionPushServicio pushService) {
+                                 SocketIOServer io, NotificacionPushServicio pushService,
+                                 WalletService walletService) {
+        wallet = walletService;
 
         // GET /api/admin/transactions (solo pendientes)
         app.get("/api/admin/transactions", ctx -> {
@@ -91,29 +99,26 @@ public class RutasAdmin {
 
             if ("reject".equals(action)) {
                 if ("retiro".equals(tipo)) {
-                    // Devolver dinero
-                    db.update("UPDATE users SET saldo = saldo + ? WHERE id = ?", monto, userId);
-                    JsonObject u = db.queryOne("SELECT saldo FROM users WHERE id = ?", userId);
-                    double saldo = u != null ? u.get("saldo").getAsDouble() : 0;
+                    // Devolver dinero // REVIEW-MONEY
+                    WalletResult result = wallet.depositar(userId, BigDecimal.valueOf(monto), "Retiro rechazado, devolución");
+                    double saldo = result.isSuccess() ? result.getNuevoSaldoDouble() : 0;
                     notificarUsuario(io, db, userId, "❌ Retiro rechazado. Saldo devuelto.", saldo);
                 } else {
-                    JsonObject u = db.queryOne("SELECT saldo FROM users WHERE id = ?", userId);
-                    double saldo = u != null ? u.get("saldo").getAsDouble() : 0;
-                    notificarUsuario(io, db, userId, "❌ Recarga rechazada.", saldo);
+                    BigDecimal saldoActual = wallet.obtenerSaldo(userId);
+                    notificarUsuario(io, db, userId, "❌ Recarga rechazada.", saldoActual.doubleValue());
                 }
                 db.update("UPDATE transactions SET estado = 'rechazado' WHERE id = ?", transId);
                 ctx.json(successJson("Rechazada", 0));
             } else {
                 // Aprobar
                 if ("deposito".equals(tipo)) {
-                    db.update("UPDATE users SET saldo = saldo + ? WHERE id = ?", monto, userId);
-                    JsonObject u = db.queryOne("SELECT saldo FROM users WHERE id = ?", userId);
-                    double saldo = u != null ? u.get("saldo").getAsDouble() : 0;
+                    // REVIEW-MONEY
+                    WalletResult result = wallet.depositar(userId, BigDecimal.valueOf(monto), "Depósito aprobado por admin");
+                    double saldo = result.isSuccess() ? result.getNuevoSaldoDouble() : 0;
                     notificarUsuario(io, db, userId, "✅ Recarga aprobada.", saldo);
                 } else {
-                    JsonObject u = db.queryOne("SELECT saldo FROM users WHERE id = ?", userId);
-                    double saldo = u != null ? u.get("saldo").getAsDouble() : 0;
-                    notificarUsuario(io, db, userId, "✅ Tu retiro ha sido enviado.", saldo);
+                    BigDecimal saldoActual = wallet.obtenerSaldo(userId);
+                    notificarUsuario(io, db, userId, "✅ Tu retiro ha sido enviado.", saldoActual.doubleValue());
                 }
                 db.update("UPDATE transactions SET estado = 'completado' WHERE id = ?", transId);
                 ctx.json(successJson("Aprobada", 0));
@@ -134,57 +139,25 @@ public class RutasAdmin {
             if (winner == null) { ctx.json(errorJson("Ganador no encontrado")); return; }
 
             int winnerId = winner.get("id").getAsNumber().intValue();
-            double apuesta = match.get("apuesta").getAsDouble();
-            double pozo = apuesta * 2;
-            double porcentajeComision = 0.25 - ((pozo - 2000.0) / 18000.0) * 0.15;
-            if (porcentajeComision > 0.25) porcentajeComision = 0.25;
-            if (porcentajeComision < 0.10) porcentajeComision = 0.10;
-            double comisionTeorica = pozo * porcentajeComision;
-            double premio = Math.floor(pozo - comisionTeorica);
-            double comisionReal = pozo - premio;
-            double comSorteos = Math.floor(comisionTeorica * 0.20);
-            double comMisiones = Math.floor(comisionTeorica * 0.10);
-            double comLogros = Math.floor(comisionTeorica * 0.05);
-            double comLeaderboard = Math.floor(comisionTeorica * 0.15);
-            double comDevolucion = Math.floor(comisionTeorica * 0.15);
-            double comReferidos = Math.floor(comisionTeorica * 0.10);
-            double comGanancia = comisionReal - (comSorteos + comMisiones + comLogros + comLeaderboard + comDevolucion + comReferidos);
-            double utilidad = comGanancia / 2.0;
+            BigDecimal apuesta = BigDecimal.valueOf(match.get("apuesta").getAsDouble()); // REVIEW-MONEY
 
             String j1 = match.get("jugador1").getAsString();
             String j2 = match.get("jugador2").getAsString();
-
-            // Pagar al ganador
-            db.update("UPDATE users SET saldo = saldo + ?, total_ganado = total_ganado + ? WHERE id = ?",
-                    premio, premio, winnerId);
-
-            // Stats
-            db.update("UPDATE users SET ganancia_generada = ganancia_generada + ?, gen_sorteos = gen_sorteos + ?, gen_misiones = gen_misiones + ?, gen_logros = gen_logros + ?, gen_leaderboard = gen_leaderboard + ?, gen_devolucion = gen_devolucion + ?, gen_referidos = gen_referidos + ? WHERE username IN (?, ?)",
-                    utilidad, comSorteos / 2.0, comMisiones / 2.0, comLogros / 2.0, comLeaderboard / 2.0, comDevolucion / 2.0, comReferidos / 2.0, j1, j2);
-            
-            String detalle = "Match #" + matchId;
-            db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'sorteos')", comSorteos, detalle);
-            db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'misiones')", comMisiones, detalle);
-            db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'logros')", comLogros, detalle);
-            db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'leaderboard')", comLeaderboard, detalle);
-            
-            // Repartir comisión de leaderboard en los 4 pozos (día, semana, mes, año)
-            double parteLeaderboard = comLeaderboard / 4.0;
-            db.update("UPDATE leaderboard_pools SET dia = dia + ?, semana = semana + ?, mes = mes + ?, ano = ano + ? WHERE id = 1", 
-                      parteLeaderboard, parteLeaderboard, parteLeaderboard, parteLeaderboard);
-
-            db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'devolucion')", comDevolucion, detalle);
-            db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'referidos')", comReferidos, detalle);
-            db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'comision_disputa', ?, 'ganancia')", comGanancia, detalle);
-
-            // Victorias/derrotas
-            db.update("UPDATE users SET total_victorias = total_victorias + 1, victorias_disputa = victorias_disputa + 1, " +
-                    "total_partidas = total_partidas + 1, victorias_dia = victorias_dia + 1, " +
-                    "victorias_semana = victorias_semana + 1, victorias_mes = victorias_mes + 1, " +
-                    "victorias_ano = victorias_ano + 1 WHERE id = ?", winnerId);
             String perdedor = ganadorNombre.equals(j1) ? j2 : j1;
-            db.update("UPDATE users SET total_derrotas = total_derrotas + 1, derrotas_disputa = derrotas_disputa + 1, " +
-                    "total_partidas = total_partidas + 1 WHERE username = ?", perdedor);
+            JsonObject perdedorData = db.queryOne("SELECT id FROM users WHERE username = ?", perdedor);
+            int perdedorId = perdedorData != null ? perdedorData.get("id").getAsNumber().intValue() : 0;
+
+            // Liquidar partida atómicamente via WalletService // REVIEW-MONEY
+            LiquidacionResult liq = wallet.liquidar(winnerId, perdedorId, apuesta, matchId, "comision_disputa");
+            if (!liq.success) {
+                ctx.json(errorJson("Error al liquidar: " + liq.error));
+                return;
+            }
+
+            // Estadisticas de disputa (override las normales que ya puso liquidar)
+            // liquidar() ya puso victorias_normales, pero para disputas queremos victorias_disputa
+            db.update("UPDATE users SET victorias_normales = victorias_normales - 1, victorias_disputa = victorias_disputa + 1 WHERE id = ?", winnerId);
+            db.update("UPDATE users SET derrotas_normales = derrotas_normales - 1, derrotas_disputa = derrotas_disputa + 1 WHERE username = ?", perdedor);
 
             if (culpableNombre != null && !"nadie".equals(culpableNombre)) {
                 db.update("UPDATE users SET faltas = faltas + 1 WHERE username = ?", culpableNombre);
@@ -193,9 +166,10 @@ public class RutasAdmin {
             // Acumular tickets para ambos jugadores (cada uno recibe su mitad de la comisión de sorteos)
             JsonObject j1Data = db.queryOne("SELECT id FROM users WHERE username = ?", j1);
             JsonObject j2Data = db.queryOne("SELECT id FROM users WHERE username = ?", j2);
+            double comSorteosHalf = liq.comSorteos.doubleValue() / 2.0;
             if (j1Data != null) {
                 int j1Id = j1Data.get("id").getAsNumber().intValue();
-                int[] resultadoJ1 = RutasSorteos.acumularTickets(db, j1Id, comSorteos / 2.0);
+                int[] resultadoJ1 = RutasSorteos.acumularTickets(db, j1Id, comSorteosHalf);
                 for (SocketIOClient s : io.getSockets().values()) {
                     if (s.getUserData() != null && s.getUserData().get("id").getAsNumber().intValue() == j1Id) {
                         JsonObject ticketData = new JsonObject();
@@ -207,7 +181,7 @@ public class RutasAdmin {
             }
             if (j2Data != null) {
                 int j2Id = j2Data.get("id").getAsNumber().intValue();
-                int[] resultadoJ2 = RutasSorteos.acumularTickets(db, j2Id, comSorteos / 2.0);
+                int[] resultadoJ2 = RutasSorteos.acumularTickets(db, j2Id, comSorteosHalf);
                 for (SocketIOClient s : io.getSockets().values()) {
                     if (s.getUserData() != null && s.getUserData().get("id").getAsNumber().intValue() == j2Id) {
                         JsonObject ticketData = new JsonObject();
@@ -227,10 +201,8 @@ public class RutasAdmin {
                 if (s.getUserData() != null) {
                     int sId = s.getUserData().get("id").getAsNumber().intValue();
                     if (sId == winnerId) {
-                        JsonObject u = db.queryOne("SELECT saldo FROM users WHERE id = ?", winnerId);
-                        double nuevoSaldo = u != null ? u.get("saldo").getAsDouble() : 0;
-                        s.getUserData().addProperty("saldo", nuevoSaldo);
-                        s.emit("actualizar_saldo", new JsonPrimitive(nuevoSaldo));
+                        s.getUserData().addProperty("saldo", liq.nuevoSaldoGanador.doubleValue());
+                        s.emit("actualizar_saldo", new JsonPrimitive(liq.nuevoSaldoGanador.doubleValue()));
                     }
                     String uname = s.getUserData().get("username").getAsString();
                     if (j1.equals(uname) || j2.equals(uname)) {
