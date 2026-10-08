@@ -12,6 +12,12 @@ Archivos: `archivo1.java`, `archivo2.js`
 
 ---
 
+## 2026-10-08 — L2 `.gitignore` (Claude Sonnet 5.5)
+- Creado `.gitignore` en la raíz (no existía; solo `frontend/` tenía el suyo). Ignora: `target/`, `*.class`, `*.jar` (excepto `.mvn/wrapper/*.jar`), `.env` / `.env.*` (excepto `.env.example`), `dependency-reduced-pom.xml`, `mvn-wrapper.zip`, logs, `node_modules/`, `frontend/dist/`, archivos de IDE (`.idea/`, `*.iml`) y del SO (`.DS_Store`, `Thumbs.db`).
+- Verificado que ignorar estos archivos no rompe el build: el `Dockerfile` compila con su propio Maven (`mvn clean package`) y el `Procfile` genera el JAR en el deploy.
+- Pendiente de verificación manual: si `target/`, `dependency-reduced-pom.xml` o `mvn-wrapper.zip` ya estaban versionados, `.gitignore` no los des-versiona; hay que ejecutar `git rm -r --cached target dependency-reduced-pom.xml mvn-wrapper.zip` y luego commit.
+Archivos: `.gitignore`
+
 ## 2026-10-08 — L3 Eliminar archivos sueltos (Claude Sonnet 5.5)
 - Eliminados del proyecto (movidos a `scratch/L3_archivos_sueltos_eliminados/`, mismo criterio que L1): `Test.java`, `TestError.java` (raíz, no compilaban con Maven), `src/main/java/com/torneosflash/TestWs.java` (clase de prueba con `main`, sin referencias) y `admin-db.html` de la raíz.
 - `admin-db.html` de la raíz NO era un duplicado inerte: `RutasDbAdmin` lo servía desde el directorio de trabajo y el `Dockerfile` lo copiaba (`COPY admin-db.html .`). Se conservó `public/admin-db.html` como fuente única (es idéntico salvo por `console.error(e)` extra en los `catch`).

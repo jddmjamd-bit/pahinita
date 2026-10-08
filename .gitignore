@@ -1,0 +1,26 @@
+# ===== Maven / Java =====
+target/
+*.class
+dependency-reduced-pom.xml
+mvn-wrapper.zip
+*.jar
+!.mvn/wrapper/*.jar
+
+# ===== Secretos / configuración local =====
+.env
+.env.*
+!.env.example
+
+# ===== Logs =====
+logs/
+*.log
+
+# ===== Node (la carpeta frontend/ tiene además su propio .gitignore) =====
+node_modules/
+frontend/dist/
+
+# ===== IDEs / sistema operativo =====
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
