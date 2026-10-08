@@ -27,8 +27,9 @@ public class RutasDbAdmin {
 
         // GET /admin-db/:secret - Servir el panel HTML
         app.get("/admin-db/{secret}", ctx -> {
-            // Buscar admin-db.html en varios lugares
-            String[] paths = { "admin-db.html", "src/main/resources/admin-db.html", "../admin-db.html" };
+            // Buscar admin-db.html en varios lugares (fuente única: public/admin-db.html)
+            String[] paths = { "admin-db.html", "public/admin-db.html", "../public/admin-db.html",
+                    "src/main/resources/admin-db.html" };
             for (String p : paths) {
                 File f = new File(p);
                 if (f.exists()) {

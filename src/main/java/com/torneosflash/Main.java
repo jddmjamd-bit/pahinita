@@ -27,8 +27,7 @@ import java.util.concurrent.*;
  * Configura el servidor HTTP (Javalin), Socket.IO, base de datos,
  * y registra todas las rutas.
  *
- * CONCEPTO POO: Aquí se demuestra Polimorfismo con Collection<Entidad>,
- * uso de ArrayList y HashMap, y cómo todos los componentes se conectan.
+ * Aquí se conectan todos los componentes (DAOs, servicios, rutas y sockets).
  *
  * @author TorneosFlash
  */

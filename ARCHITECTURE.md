@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — UltimateClash (TorneosFlash)
 
 > Documento de referencia para que cualquier modelo o desarrollador entienda el sistema.
-> Última actualización: 2026-10-05
+> Última actualización: 2026-10-08
 
 ---
 
@@ -14,9 +14,10 @@
 | **BD** | PostgreSQL (Render) | Pool: HikariCP, max 20 conexiones |
 | **ORM** | Ninguno | SQL directo con `PreparedStatement` vía `GenericDAO` |
 | **Auth** | Cookie `userId` en texto plano | ⚠️ **Inseguro**. Migrar a JWT httpOnly (pendiente) |
-| **Frontend** | Vanilla JS (`app.js`, 120 KB) | SPA monolítica sin framework. **Migrar a React + Vite** (pendiente) |
+| **Frontend** | Vanilla JS (`app.js`, 120 KB) | SPA monolítica sin framework. **Migrar a React + Vite** (pendiente, en progreso bajo `frontend/`) |
+| **Mobile App** | Capacitor | Genera builds nativos para Android e iOS encapsulando la app React. Gestiona Splash Screen y permisos |
 | **Pagos** | Wompi (tarjeta), Nequi (manual) | Webhook Wompi no verifica firma |
-| **Notificaciones** | Firebase Cloud Messaging (FCM) | Push via `NotificacionPushServicio` |
+| **Notificaciones** | Firebase Cloud Messaging (FCM) | Push via `NotificacionPushServicio` y `@capacitor/push-notifications` en cliente |
 | **Email** | Brevo (Sendinblue) | Vía `CorreoServicio` |
 | **Deploy** | Render (Docker) | UTC timezone, free tier |
 
@@ -26,12 +27,19 @@
 
 ```
 TorneosFlash/
-├── public/                          # Frontend (servido como estáticos)
+├── public/                          # Frontend legacy (servido como estáticos)
 │   ├── index.html                   # SPA principal
 │   ├── app.js                       # Lógica completa del frontend (~2500 líneas)
 │   ├── style.css                    # Estilos
-│   ├── admin-db.html                # Panel admin (duplicado en raíz)
+│   ├── admin-db.html                # Panel admin (fuente única; el Dockerfile lo copia a /app/admin-db.html y RutasDbAdmin lo sirve)
 │   └── firebase-messaging-sw.js     # Service worker FCM
+├── frontend/                        # Nuevo Frontend (React + Vite + Capacitor)
+│   ├── android/                     # Proyecto nativo Android (Capacitor)
+│   ├── ios/                         # Proyecto nativo iOS (Capacitor)
+│   ├── src/
+│   │   ├── hooks/useCapacitor.js    # Inicializa Capacitor, permisos y Push Notifications
+│   │   └── App.jsx                  # Raíz de React
+│   └── vite.config.js               # Configuración del empaquetador
 ├── src/main/java/com/torneosflash/
 │   ├── Main.java                    # Entry point, configura Javalin, registra rutas
 │   ├── config/

@@ -21,8 +21,8 @@ WORKDIR /app
 COPY --from=backend-build /app/target/TorneosFlash-1.0.jar ./app.jar
 # Copiar el frontend compilado (Vite emite a dist/) y colocarlo en public para que Javalin lo sirva
 COPY --from=frontend-build /app/frontend/dist ./public
-# Copiar admin-db.html por si se usa
-COPY admin-db.html .
+# Copiar admin-db.html (fuente única: public/admin-db.html) a la raíz de trabajo, donde RutasDbAdmin lo busca
+COPY public/admin-db.html ./admin-db.html
 
 # Puerto por defecto
 EXPOSE 10000

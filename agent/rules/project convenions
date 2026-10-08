@@ -1,5 +1,8 @@
 # Regla: Convenciones del proyecto
 
+## Tokens
+- En caso tal tus tokens de uso lleguen al 10% o menos del total, modificar el `CHANGELOG.md` con lo q alcanzaste a hacer y lo q faltó por terminar para luego notificar el usuario y dejar de editar
+
 ## Autenticación
 - Nunca leer `userId` del body del request. Sacarlo siempre de la sesión (JWT verificado en middleware).
 - El socket se autentica en el handshake con el JWT. No confiar en datos que mande el cliente.

@@ -12,6 +12,15 @@ Archivos: `archivo1.java`, `archivo2.js`
 
 ---
 
+## 2026-10-08 — L3 Eliminar archivos sueltos (Claude Sonnet 5.5)
+- Eliminados del proyecto (movidos a `scratch/L3_archivos_sueltos_eliminados/`, mismo criterio que L1): `Test.java`, `TestError.java` (raíz, no compilaban con Maven), `src/main/java/com/torneosflash/TestWs.java` (clase de prueba con `main`, sin referencias) y `admin-db.html` de la raíz.
+- `admin-db.html` de la raíz NO era un duplicado inerte: `RutasDbAdmin` lo servía desde el directorio de trabajo y el `Dockerfile` lo copiaba (`COPY admin-db.html .`). Se conservó `public/admin-db.html` como fuente única (es idéntico salvo por `console.error(e)` extra en los `catch`).
+- `Dockerfile`: ahora `COPY public/admin-db.html ./admin-db.html` (sin esto el build de Docker fallaba al borrar el archivo de la raíz).
+- `RutasDbAdmin.java`: lista de rutas de búsqueda actualizada a `admin-db.html`, `public/admin-db.html`, `../public/admin-db.html`, `src/main/resources/admin-db.html` (cubre Docker y ejecución local/Procfile).
+- `ARCHITECTURE.md`: actualizada la nota de `admin-db.html`.
+- Pendiente de verificación manual: compilar (`mvn -q clean compile`), build Docker y abrir `/admin-db/<secret>`.
+Archivos: `Dockerfile`, `src/main/java/com/torneosflash/servidor/RutasDbAdmin.java`, `ARCHITECTURE.md`, `Test.java`, `TestError.java`, `TestWs.java`, `admin-db.html`
+
 ## 2026-10-07 — 20 Capacitor (app móvil) (Gemini 3.1 Pro (High))
 - Implementada integración inicial de Capacitor para envolver la app React en nativo (Android e iOS).
 - Instalados plugins `@capacitor/core`, `@capacitor/splash-screen`, `@capacitor/push-notifications` y `@capacitor/camera`.
