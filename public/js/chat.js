@@ -12,26 +12,60 @@
         }, 100);
     }
     // --- FUNCIÓN PARA DETECTAR LINKS ---
-    function convertirLinks(texto) {
-        // Busca cualquier cosa que empiece por http:// o https://
+    // S5 (XSS): construye nodos DOM (texto + <a>), nunca HTML. Solo se enlazan URLs http(s).
+    function convertirLinks(texto, contenedor) {
         const urlRegex = /(https?:\/\/[^\s]+)/g;
-        return texto.replace(urlRegex, function (url) {
-            return `<a href="${url}" target="_blank" class="chat-link">${url}</a>`;
+        String(texto ?? '').split(urlRegex).forEach((parte, i) => {
+            if (!parte) return;
+            if (i % 2 === 1) { // las posiciones impares son las URLs capturadas por el split
+                const a = document.createElement('a');
+                a.href = parte;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.className = 'chat-link';
+                a.textContent = parte;
+                contenedor.appendChild(a);
+            } else {
+                contenedor.appendChild(document.createTextNode(parte));
+            }
         });
     }
+    // Un src multimedia del chat solo es válido si es un archivo propio (/api/media/ID) o, para imágenes,
+    // un data URI base64 de formato raster (nunca SVG ni javascript:). Devuelve la URL final o null.
+    function resolverMedia(src, tipo) {
+        if (typeof src !== 'string') return null;
+        if (/^\/api\/media\/\d+$/.test(src)) return API_BASE_URL + src;
+        const base = API_BASE_URL + '/api/media/';
+        if (API_BASE_URL && src.startsWith(base) && /^\d+$/.test(src.slice(base.length))) return src;
+        if (tipo === 'imagen' && /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+\/=]+$/.test(src)) return src;
+        return null;
+    }
     function agregarBurbuja(data, contenedor, canal) {
-        if (canal === 'clash_logs') { const d = document.createElement('div'); d.classList.add('log-msg'); const f = new Date(data.fecha); d.innerHTML = `<span>${data.texto}</span><span class="log-time">${f.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>`; contenedor.appendChild(d); contenedor.scrollTop = contenedor.scrollHeight; return; }
+        if (canal === 'clash_logs') { const d = document.createElement('div'); d.classList.add('log-msg'); const f = new Date(data.fecha); const t = document.createElement('span'); t.textContent = data.texto; const h = document.createElement('span'); h.className = 'log-time'; h.textContent = f.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); d.append(t, h); contenedor.appendChild(d); contenedor.scrollTop = contenedor.scrollHeight; return; }
         const fechaMsg = data.fecha ? new Date(data.fecha) : new Date(); const diaMsg = fechaMsg.toDateString();
         if (diaMsg !== lastDatePainted[canal]) { const sep = document.createElement('div'); sep.classList.add('date-separator'); sep.textContent = (diaMsg === new Date().toDateString()) ? "Hoy" : fechaMsg.toLocaleDateString(); contenedor.appendChild(sep); lastDatePainted[canal] = diaMsg; }
         const div = document.createElement('div'); div.classList.add('msg'); div.classList.add((currentUser && data.usuario === currentUser.username) ? 'own' : 'other');
-        let content = ''; if (data.tipo === 'imagen') content = `<img src="${data.texto}" class="chat-image" onclick="window.abrirMediaModal(this.src, 'imagen')">`; else if (data.tipo === 'video') content = `<video src="${data.texto}" class="chat-video" controls onclick="window.abrirMediaModal(this.src, 'video')"></video>`; else {
-            // AQUÍ ESTÁ EL CAMBIO: Usamos la función convertirLinks
-            content = `<span class="msg-text">${convertirLinks(data.texto)}</span>`;
+        // S5 (XSS): todo el contenido del usuario entra por textContent / propiedades DOM, nunca por innerHTML
+        let content;
+        const urlMedia = (data.tipo === 'imagen' || data.tipo === 'video') ? resolverMedia(data.texto, data.tipo) : null;
+        if (data.tipo === 'imagen' && urlMedia) {
+            content = document.createElement('img'); content.src = urlMedia; content.className = 'chat-image';
+            content.addEventListener('click', () => window.abrirMediaModal(urlMedia, 'imagen'));
+        } else if (data.tipo === 'video' && urlMedia) {
+            content = document.createElement('video'); content.src = urlMedia; content.className = 'chat-video'; content.controls = true;
+            content.addEventListener('click', () => window.abrirMediaModal(urlMedia, 'video'));
+        } else {
+            content = document.createElement('span'); content.className = 'msg-text';
+            if (data.tipo === 'imagen' || data.tipo === 'video') content.textContent = '[contenido no permitido]';
+            else convertirLinks(data.texto, content);
         }
 
-        let userHtml = data.usuario; let styleName = ""; if (canal === 'anuncios') { userHtml = "📢 " + data.usuario; styleName = "color:#e94560;font-weight:bold;"; }
+        const spanUser = document.createElement('span'); spanUser.className = 'msg-user';
+        if (canal === 'anuncios') { spanUser.textContent = '📢 ' + data.usuario; spanUser.style.color = '#e94560'; spanUser.style.fontWeight = 'bold'; }
+        else spanUser.textContent = data.usuario;
         const hora = data.fecha ? new Date(data.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-        div.innerHTML = `<span class="msg-user" style="${styleName}">${userHtml}</span>${content}<span class="msg-time">${hora}</span>`;
+        const spanHora = document.createElement('span'); spanHora.className = 'msg-time'; spanHora.textContent = hora;
+        div.append(spanUser, content, spanHora);
         contenedor.appendChild(div); contenedor.scrollTop = contenedor.scrollHeight;
 
     }

@@ -109,6 +109,7 @@ public class RutasMedia {
 
                     // Headers para streaming de video
                     ctx.contentType(contentType);
+                    ctx.header("X-Content-Type-Options", "nosniff"); // S5: el navegador no debe "adivinar" otro tipo (p.ej. HTML)
                     ctx.header("Accept-Ranges", "bytes");
                     ctx.header("Cache-Control", "public, max-age=86400"); // Cache 24h
 

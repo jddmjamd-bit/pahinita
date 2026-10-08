@@ -6,7 +6,27 @@ const isNativeApp = typeof window.Capacitor !== 'undefined';
 const API_BASE_URL = isNativeApp ? 'https://torneos-beta.onrender.com' : '';
 console.log(`📱 Modo: ${isNativeApp ? 'APP NATIVA' : 'WEB'}, API: ${API_BASE_URL || 'local'}`);
 
+// --- SEGURIDAD (S5 - XSS) ---
+// Escapa texto del usuario para usarlo dentro de plantillas HTML (innerHTML).
+// Regla del proyecto: preferir SIEMPRE textContent / createElement; esto es solo para plantillas grandes.
+function esc(valor) {
+    return String(valor ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Un src multimedia del chat solo es válido si es un archivo propio (/api/media/ID) o, para imágenes,
+// un data URI base64 de formato raster (nunca SVG ni javascript:). Devuelve la URL final o null.
+function resolverMedia(src, tipo) {
+    if (typeof src !== 'string') return null;
+    if (/^\/api\/media\/\d+$/.test(src)) return API_BASE_URL + src;
+    const base = API_BASE_URL + '/api/media/';
+    if (API_BASE_URL && src.startsWith(base) && /^\d+$/.test(src.slice(base.length))) return src;
+    if (tipo === 'imagen' && /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+\/=]+$/.test(src)) return src;
+    return null;
+}
+
 window.abrirMediaModal = function(src, tipo) {
+    const segura = resolverMedia(src, tipo);
+    if (!segura) return;
     let lb = document.getElementById('media-lightbox');
     if (!lb) {
         lb = document.createElement('div');
@@ -22,11 +42,12 @@ window.abrirMediaModal = function(src, tipo) {
         });
     }
     const cont = document.getElementById('lightbox-content');
-    if (tipo === 'video') {
-        cont.innerHTML = `<video src="${src}" class="lightbox-video" controls autoplay></video>`;
-    } else {
-        cont.innerHTML = `<img src="${src}" class="lightbox-img">`;
-    }
+    cont.textContent = '';
+    const el = document.createElement(tipo === 'video' ? 'video' : 'img');
+    el.src = segura;
+    if (tipo === 'video') { el.className = 'lightbox-video'; el.controls = true; el.autoplay = true; }
+    else { el.className = 'lightbox-img'; }
+    cont.appendChild(el);
     lb.style.display = 'flex';
     document.body.style.overflow = 'hidden';
 };
@@ -326,7 +347,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // No mostrar si soy yo quien busca
             if (currentUser && data.oderId === currentUser.id) return;
 
-            const toast = mostrarToast(`🔍 <strong>${data.username}</strong> está buscando partida!`);
+            const toast = mostrarToast(`🔍 <strong>${esc(data.username)}</strong> está buscando partida!`);
             toastsBusqueda[data.oderId] = toast;
         });
 
@@ -503,7 +524,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 html += `<div class="lb-row ${medalClass} ${isMe ? 'lb-me' : ''}">
                     ${medal}
                     <div class="lb-info">
-                        <span class="lb-name">${isMe ? '⭐ ' : ''}${player.username}</span>
+                        <span class="lb-name">${isMe ? '⭐ ' : ''}${esc(player.username)}</span>
                         <span class="lb-stats">${displayLabel} · ${player.total_partidas} partidas</span>
                     </div>
                     <span class="${badgeClass}">${badgeText}</span>
@@ -721,7 +742,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     if (data.found) {
                         playerTagStatus.className = 'tag-status visible found';
-                        playerTagStatus.innerHTML = `✅ ¿Tu nombre es <strong>${data.name}</strong>? (${data.trophies} 🏆)`;
+                        playerTagStatus.innerHTML = `✅ ¿Tu nombre es <strong>${esc(data.name)}</strong>? (${esc(data.trophies)} 🏆)`;
                         playerTagValid = true;
                     } else {
                         playerTagStatus.className = 'tag-status visible not-found';
@@ -804,7 +825,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         authFlow.classList.add('hidden'); discordLobby.classList.remove('hidden');
         if (user.tipo_suscripcion === 'admin') {
-            userNameDisplay.innerHTML = `👑 ${user.username} <span style="font-size:0.7rem; color:#e94560;">(ADMIN)</span>`;
+            userNameDisplay.innerHTML = `👑 ${esc(user.username)} <span style="font-size:0.7rem; color:#e94560;">(ADMIN)</span>`;
             if (btnAdminStats) btnAdminStats.classList.remove('hidden');
             if (chatElements.anuncios.form) chatElements.anuncios.form.classList.remove('hidden'); if (btnAdminPanel) btnAdminPanel.classList.remove('hidden');
         } else userNameDisplay.textContent = user.username;
@@ -1074,9 +1095,9 @@ document.addEventListener('DOMContentLoaded', () => {
             div.innerHTML = `
                 <div class="trans-info">
                     <strong style="color:${colorMonto}">${icono}</strong><br>
-                    Usuario: <strong>${t.usuario_nombre}</strong><br>
-                    Monto: <span style="color:${colorMonto}; font-size:1.1em;">$${t.monto}</span>
-                    <br><span style="font-size:0.8em; color:#bbb;">${t.referencia}</span>
+                    Usuario: <strong>${esc(t.usuario_nombre)}</strong><br>
+                    Monto: <span style="color:${colorMonto}; font-size:1.1em;">$${esc(t.monto)}</span>
+                    <br><span style="font-size:0.8em; color:#bbb;">${esc(t.referencia)}</span>
                 </div>
                 <div class="trans-actions">
                     <button class="btn-approve" onclick="procesarTransaccionAdmin(${t.id},'approve')">✅</button>
@@ -1141,24 +1162,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
             div.innerHTML = `
                 <div class="trans-info" style="width:100%; margin-bottom:10px;">
-                    <strong>Partida #${m.id}</strong>: <span style="color:#4ecca3">${m.jugador1}</span> vs <span style="color:#ed4245">${m.jugador2}</span>
-                    <br>Monto: $${m.monto}
+                    <strong>Partida #${esc(m.id)}</strong>: <span style="color:#4ecca3">${esc(m.jugador1)}</span> vs <span style="color:#ed4245">${esc(m.jugador2)}</span>
+                    <br>Monto: $${esc(m.monto)}
                 </div>
 
                 <div style="width:100%; display:flex; gap:10px; align-items:center; margin-bottom:10px;">
                     <div style="flex:1">
                         <label style="font-size:0.7rem; color:#bbb">GANADOR (Recibe $):</label>
                         <select id="ganador-${m.id}" style="width:100%; padding:5px; background:#202225; color:white; border:1px solid #43b581;">
-                            <option value="${m.jugador1}">${m.jugador1}</option>
-                            <option value="${m.jugador2}">${m.jugador2}</option>
+                            <option value="${esc(m.jugador1)}">${esc(m.jugador1)}</option>
+                            <option value="${esc(m.jugador2)}">${esc(m.jugador2)}</option>
                         </select>
                     </div>
                     <div style="flex:1">
                         <label style="font-size:0.7rem; color:#bbb">CULPABLE (Falta):</label>
                         <select id="culpable-${m.id}" style="width:100%; padding:5px; background:#202225; color:white; border:1px solid #ed4245;">
                             <option value="nadie">-- Nadie --</option>
-                            <option value="${m.jugador1}">${m.jugador1}</option>
-                            <option value="${m.jugador2}">${m.jugador2}</option>
+                            <option value="${esc(m.jugador1)}">${esc(m.jugador1)}</option>
+                            <option value="${esc(m.jugador2)}">${esc(m.jugador2)}</option>
                         </select>
                     </div>
                 </div>
@@ -1251,8 +1272,8 @@ document.addEventListener('DOMContentLoaded', () => {
             div.innerHTML = `
                 <div class="user-header-row">
                     <div class="user-basic">
-                        <span style="font-size:1.1rem;">${rol} <strong>${u.username}</strong></span>
-                        <br><span style="color:#bbb; font-size:0.8rem;">${u.email}</span>
+                        <span style="font-size:1.1rem;">${rol} <strong>${esc(u.username)}</strong></span>
+                        <br><span style="color:#bbb; font-size:0.8rem;">${esc(u.email)}</span>
                     </div>
                     <div class="user-financials">
                         <div style="color:#fff;">Saldo: <span style="color:#4ecca3;">$${u.saldo.toLocaleString()}</span></div>
@@ -1331,26 +1352,50 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 100);
     }
     // --- FUNCIÓN PARA DETECTAR LINKS ---
-    function convertirLinks(texto) {
-        // Busca cualquier cosa que empiece por http:// o https://
+    // S5 (XSS): construye nodos DOM (texto + <a>), nunca HTML. Solo se enlazan URLs http(s).
+    function convertirLinks(texto, contenedor) {
         const urlRegex = /(https?:\/\/[^\s]+)/g;
-        return texto.replace(urlRegex, function (url) {
-            return `<a href="${url}" target="_blank" class="chat-link">${url}</a>`;
+        String(texto ?? '').split(urlRegex).forEach((parte, i) => {
+            if (!parte) return;
+            if (i % 2 === 1) { // las posiciones impares son las URLs capturadas por el split
+                const a = document.createElement('a');
+                a.href = parte;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.className = 'chat-link';
+                a.textContent = parte;
+                contenedor.appendChild(a);
+            } else {
+                contenedor.appendChild(document.createTextNode(parte));
+            }
         });
     }
     function agregarBurbuja(data, contenedor, canal) {
-        if (canal === 'clash_logs') { const d = document.createElement('div'); d.classList.add('log-msg'); const f = new Date(data.fecha); d.innerHTML = `<span>${data.texto}</span><span class="log-time">${f.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>`; contenedor.appendChild(d); contenedor.scrollTop = contenedor.scrollHeight; return; }
+        if (canal === 'clash_logs') { const d = document.createElement('div'); d.classList.add('log-msg'); const f = new Date(data.fecha); const t = document.createElement('span'); t.textContent = data.texto; const h = document.createElement('span'); h.className = 'log-time'; h.textContent = f.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); d.append(t, h); contenedor.appendChild(d); contenedor.scrollTop = contenedor.scrollHeight; return; }
         const fechaMsg = data.fecha ? new Date(data.fecha) : new Date(); const diaMsg = fechaMsg.toDateString();
         if (diaMsg !== lastDatePainted[canal]) { const sep = document.createElement('div'); sep.classList.add('date-separator'); sep.textContent = (diaMsg === new Date().toDateString()) ? "Hoy" : fechaMsg.toLocaleDateString(); contenedor.appendChild(sep); lastDatePainted[canal] = diaMsg; }
         const div = document.createElement('div'); div.classList.add('msg'); div.classList.add((currentUser && data.usuario === currentUser.username) ? 'own' : 'other');
-        let content = ''; if (data.tipo === 'imagen') content = `<img src="${data.texto}" class="chat-image" onclick="window.abrirMediaModal(this.src, 'imagen')">`; else if (data.tipo === 'video') content = `<video src="${data.texto}" class="chat-video" controls onclick="window.abrirMediaModal(this.src, 'video')"></video>`; else {
-            // AQUÍ ESTÁ EL CAMBIO: Usamos la función convertirLinks
-            content = `<span class="msg-text">${convertirLinks(data.texto)}</span>`;
+        // S5 (XSS): todo el contenido del usuario entra por textContent / propiedades DOM, nunca por innerHTML
+        let content;
+        const urlMedia = (data.tipo === 'imagen' || data.tipo === 'video') ? resolverMedia(data.texto, data.tipo) : null;
+        if (data.tipo === 'imagen' && urlMedia) {
+            content = document.createElement('img'); content.src = urlMedia; content.className = 'chat-image';
+            content.addEventListener('click', () => window.abrirMediaModal(urlMedia, 'imagen'));
+        } else if (data.tipo === 'video' && urlMedia) {
+            content = document.createElement('video'); content.src = urlMedia; content.className = 'chat-video'; content.controls = true;
+            content.addEventListener('click', () => window.abrirMediaModal(urlMedia, 'video'));
+        } else {
+            content = document.createElement('span'); content.className = 'msg-text';
+            if (data.tipo === 'imagen' || data.tipo === 'video') content.textContent = '[contenido no permitido]';
+            else convertirLinks(data.texto, content);
         }
 
-        let userHtml = data.usuario; let styleName = ""; if (canal === 'anuncios') { userHtml = "📢 " + data.usuario; styleName = "color:#e94560;font-weight:bold;"; }
+        const spanUser = document.createElement('span'); spanUser.className = 'msg-user';
+        if (canal === 'anuncios') { spanUser.textContent = '📢 ' + data.usuario; spanUser.style.color = '#e94560'; spanUser.style.fontWeight = 'bold'; }
+        else spanUser.textContent = data.usuario;
         const hora = data.fecha ? new Date(data.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-        div.innerHTML = `<span class="msg-user" style="${styleName}">${userHtml}</span>${content}<span class="msg-time">${hora}</span>`;
+        const spanHora = document.createElement('span'); spanHora.className = 'msg-time'; spanHora.textContent = hora;
+        div.append(spanUser, content, spanHora);
         contenedor.appendChild(div); contenedor.scrollTop = contenedor.scrollHeight;
 
     }
@@ -1958,14 +2003,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="sorteo-card sorteo-ganador" data-id="${sorteo.id}">
                         <div class="sorteo-header">
                             <div>
-                                <span class="sorteo-nombre">${emoji} ${sorteo.nombre}</span>
-                                <span class="sorteo-categoria">${sorteo.categoria}</span>
+                                <span class="sorteo-nombre">${emoji} ${esc(sorteo.nombre)}</span>
+                                <span class="sorteo-categoria">${esc(sorteo.categoria)}</span>
                             </div>
                             ${esAdmin ? `<span class="sorteo-precio">$${sorteo.precio.toLocaleString()}</span>` : ''}
                         </div>
 
                         <div class="sorteo-ganador-info">
-                            🏆 GANADOR: <strong>${sorteo.ganador_nombre}</strong>
+                            🏆 GANADOR: <strong>${esc(sorteo.ganador_nombre)}</strong>
                         </div>
 
                         <div class="ticket-progress">
@@ -1985,8 +2030,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="sorteo-card nuevo" data-id="${sorteo.id}">
                     <div class="sorteo-header">
                         <div>
-                            <span class="sorteo-nombre">${emoji} ${sorteo.nombre}</span>
-                            <span class="sorteo-categoria">${sorteo.categoria}</span>
+                            <span class="sorteo-nombre">${emoji} ${esc(sorteo.nombre)}</span>
+                            <span class="sorteo-categoria">${esc(sorteo.categoria)}</span>
                         </div>
                         ${esAdmin ? `<span class="sorteo-precio">$${sorteo.precio.toLocaleString()}</span>` : ''}
                     </div>
@@ -2262,7 +2307,7 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log("🆕 Nuevo sorteo:", sorteo.nombre);
         // Mostrar notificación toast
         if (typeof mostrarToast === 'function') {
-            mostrarToast(`🎁 ¡Nuevo sorteo! <strong>${sorteo.nombre}</strong>`, 5000);
+            mostrarToast(`🎁 ¡Nuevo sorteo! <strong>${esc(sorteo.nombre)}</strong>`, 5000);
         }
         // Si está en la vista de sorteos, recargar
         if (!views.sorteos.classList.contains('hidden')) {
@@ -2286,7 +2331,7 @@ document.addEventListener('DOMContentLoaded', () => {
             alert(`🏆 ¡FELICIDADES! ¡GANASTE "${data.nombre}"!\n\nTe contactaremos pronto para entregar tu premio.`);
         } else {
             if (typeof mostrarToast === 'function') {
-                mostrarToast(`🏆 <strong>${data.ganadorNombre}</strong> ganó "${data.nombre}"`, 8000);
+                mostrarToast(`🏆 <strong>${esc(data.ganadorNombre)}</strong> ganó "${esc(data.nombre)}"`, 8000);
             }
         }
 

@@ -4,6 +4,17 @@ import './Chat.css';
 
 const API_BASE_URL = 'https://torneos-beta.onrender.com';
 
+// S5 (XSS): un src multimedia solo es válido si es un archivo propio (/api/media/ID) o, para imágenes,
+// un data URI base64 de formato raster (nunca SVG ni javascript:). Devuelve la URL final o null.
+const resolverMedia = (src, tipo) => {
+    if (typeof src !== 'string') return null;
+    if (/^\/api\/media\/\d+$/.test(src)) return `${API_BASE_URL}${src}`;
+    const base = `${API_BASE_URL}/api/media/`;
+    if (src.startsWith(base) && /^\d+$/.test(src.slice(base.length))) return src;
+    if (tipo === 'imagen' && /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(src)) return src;
+    return null;
+};
+
 export default function Chat() {
     const [canalActivo, setCanalActivo] = useState('general'); // 'general', 'anuncios', 'clash'
     const [mensajes, setMensajes] = useState({
@@ -114,10 +125,15 @@ export default function Chat() {
         }
 
         let content = <span className="msg-text">{convertirLinks(msg.texto)}</span>;
-        if (msg.tipo === 'imagen') {
-            content = <img src={msg.texto} className="chat-image" alt="media" onClick={() => window.open(msg.texto, '_blank')} />;
-        } else if (msg.tipo === 'video') {
-            content = <video src={msg.texto} className="chat-video" controls />;
+        if (msg.tipo === 'imagen' || msg.tipo === 'video') {
+            const urlMedia = resolverMedia(msg.texto, msg.tipo);
+            if (!urlMedia) {
+                content = <span className="msg-text">[contenido no permitido]</span>;
+            } else if (msg.tipo === 'imagen') {
+                content = <img src={urlMedia} className="chat-image" alt="media" onClick={() => window.open(urlMedia, '_blank', 'noopener,noreferrer')} />;
+            } else {
+                content = <video src={urlMedia} className="chat-video" controls />;
+            }
         }
 
         const userStyle = msg.canal === 'anuncios' ? { color: '#e94560', fontWeight: 'bold' } : {};

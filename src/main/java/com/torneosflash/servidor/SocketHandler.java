@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.google.gson.*;
 import com.torneosflash.dao.GenericDAO;
+import com.torneosflash.servicio.ChatSanitizer;
 import com.torneosflash.servicio.ClashApiServicio;
 import com.torneosflash.servicio.NotificacionPushServicio;
 import com.torneosflash.servicio.WalletService;
@@ -183,16 +184,29 @@ public class SocketHandler {
             socket.on("mensaje_chat", (client, data) -> {
                 try {
                     JsonObject msg = ((JsonElement) data[0]).getAsJsonObject();
-                    String canal = msg.get("canal").getAsString();
-                    String usuario = msg.get("usuario").getAsString();
-                    String texto = msg.get("texto").getAsString();
-                    String tipo = msg.has("tipo") ? msg.get("tipo").getAsString() : "texto";
+                    // S5 (XSS): se valida y limpia todo lo que manda el cliente antes de guardar o reenviar
+                    ChatSanitizer.MensajePublico limpio = ChatSanitizer.validarMensajePublico(
+                            str(msg, "canal"), str(msg, "usuario"), str(msg, "texto"), str(msg, "tipo"));
+                    if (limpio == null) {
+                        logger.warn("Mensaje de chat rechazado por formato inválido (sid={})", client.getSid());
+                        return;
+                    }
+                    String canal = limpio.canal();
+                    String usuario = limpio.usuario();
+                    String texto = limpio.texto();
+                    String tipo = limpio.tipo();
                     String fecha = java.time.Instant.now().toString();
 
                     db.update("INSERT INTO messages (canal, usuario, texto, tipo) VALUES (?, ?, ?, ?)",
                             canal, usuario, texto, tipo);
-                    msg.addProperty("fecha", fecha);
-                    io.emit("mensaje_chat", msg);
+                    // Solo se reenvían los campos permitidos (nunca propiedades arbitrarias del cliente)
+                    JsonObject salida = new JsonObject();
+                    salida.addProperty("canal", canal);
+                    salida.addProperty("usuario", usuario);
+                    salida.addProperty("texto", texto);
+                    salida.addProperty("tipo", tipo);
+                    salida.addProperty("fecha", fecha);
+                    io.emit("mensaje_chat", salida);
 
                     // Push notification para mensajes de chat (a todos excepto el remitente)
                     if (client.getUserData() != null) {
@@ -442,10 +456,19 @@ public class SocketHandler {
             socket.on("mensaje_privado", (client, data) -> {
                 try {
                     JsonObject d = ((JsonElement) data[0]).getAsJsonObject();
-                    if (d.has("salaId")) {
+                    // S5 (XSS): se valida y limpia todo lo que manda el cliente antes de guardar o reenviar
+                    ChatSanitizer.MensajePrivado limpio = ChatSanitizer.validarMensajePrivado(
+                            str(d, "salaId"), str(d, "usuario"), str(d, "texto"));
+                    if (limpio != null) {
+                        // Se reconstruye el objeto solo con los campos permitidos
+                        d = new JsonObject();
+                        d.addProperty("salaId", limpio.salaId());
+                        d.addProperty("usuario", limpio.usuario());
+                        d.addProperty("texto", limpio.texto());
+                        d.addProperty("tipo", "texto");
                         String fecha = java.time.Instant.now().toString();
                         db.update("INSERT INTO messages (canal, usuario, texto, tipo) VALUES (?, ?, ?, 'texto')",
-                                d.get("salaId").getAsString(), d.get("usuario").getAsString(), d.get("texto").getAsString());
+                                limpio.salaId(), limpio.usuario(), limpio.texto());
                         d.addProperty("fecha", fecha);
                         io.to(d.get("salaId").getAsString()).emit("mensaje_privado", d);
 
@@ -541,6 +564,11 @@ public class SocketHandler {
     }
 
     // --- Métodos auxiliares ---
+
+    /** Lee un campo String de un JSON del cliente sin lanzar excepción (null si falta o no es un valor simple). */
+    private static String str(JsonObject o, String clave) {
+        return (o != null && o.has(clave) && o.get(clave).isJsonPrimitive()) ? o.get(clave).getAsString() : null;
+    }
 
     private void intentarMatcheo(SocketIOClient meSocket, int myId, JsonObject myData) {
         for (Map.Entry<Integer, BusquedaActiva> entry : busquedasActivas.entrySet()) {

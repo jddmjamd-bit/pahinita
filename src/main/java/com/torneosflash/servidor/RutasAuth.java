@@ -6,6 +6,7 @@ import com.google.gson.*;
 import com.torneosflash.config.AppConfig;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.dao.UsuarioDAO;
+import com.torneosflash.servicio.ChatSanitizer;
 import io.javalin.Javalin;
 import io.javalin.http.Context;
 import org.mindrot.jbcrypt.BCrypt;
@@ -38,6 +39,11 @@ public class RutasAuth {
             }
             if (password.length() < 6) {
                 ctx.status(400).json(errorJson("La contraseña debe tener al menos 6 caracteres"));
+                return;
+            }
+            // S5 (XSS): el username se muestra en chat, rankings y paneles de admin
+            if (!ChatSanitizer.esNombreUsuarioSeguro(username)) {
+                ctx.status(400).json(errorJson("El nombre de usuario debe tener entre 3 y 30 caracteres y no puede incluir < > \" ' & ` ni caracteres de control"));
                 return;
             }
 

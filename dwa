@@ -1,0 +1,17 @@
+warning: in the working copy of 'ARCHITECTURE.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'CHANGELOG.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/pages/Chat.jsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'public/app.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'public/js/chat.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/main/java/com/torneosflash/servidor/RutasAuth.java', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/main/java/com/torneosflash/servidor/RutasMedia.java', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/main/java/com/torneosflash/servidor/SocketHandler.java', LF will be replaced by CRLF the next time Git touches it
+ ARCHITECTURE.md                                    |  17 [32m++[m
+ CHANGELOG.md                                       |  12 [32m+[m
+ frontend/src/pages/Chat.jsx                        |  24 [32m+[m[31m-[m
+ public/app.js                                      | 119 [32m+++++[m[31m---[m
+ public/js/chat.js                                  |  54 [32m+++[m[31m-[m
+ .../java/com/torneosflash/servidor/RutasAuth.java  |   6 [32m+[m
+ .../java/com/torneosflash/servidor/RutasMedia.java | 315 [32m+++++++++++[m[31m----------[m
+ .../com/torneosflash/servidor/SocketHandler.java   |  44 [32m++[m[31m-[m
+ 8 files changed, 375 insertions(+), 216 deletions(-)

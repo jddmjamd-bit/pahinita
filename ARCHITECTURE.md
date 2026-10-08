@@ -50,6 +50,7 @@ TorneosFlash/
 │   │   └── UsuarioDAO.java          # Queries específicas de usuarios
 │   ├── servicio/
 │   │   ├── ClashApiServicio.java    # Integración con API de Clash Royale
+│   │   ├── ChatSanitizer.java       # Validación/limpieza de mensajes de chat y usernames (anti-XSS)
 │   │   ├── CorreoServicio.java      # Envío de emails vía Brevo
 │   │   └── NotificacionPushServicio.java # Push FCM
 │   ├── servidor/                    # Handlers HTTP (rutas REST)
@@ -166,3 +167,19 @@ Ver archivo completo en [`agent/rules/project-conventions.md`](file:///c:/Users/
 - Tablas nuevas → Flyway
 - Config → variables de entorno
 - Post-tarea → editar `CHANGELOG.md` + auto-push
+
+---
+
+## 7. Seguridad: XSS en chat (S5)
+
+Defensa en dos capas; ninguna confía en la otra.
+
+| Capa | Dónde | Qué hace |
+|------|-------|----------|
+| **Render (frontend)** | `public/app.js` (`agregarBurbuja`, `convertirLinks`, `abrirMediaModal`), `frontend/src/pages/Chat.jsx` | El contenido del usuario entra solo por `textContent` / nodos DOM / JSX. Los links se crean con `createElement('a')` (solo `http(s)`, `rel="noopener noreferrer"`). Las plantillas grandes que aún usan `innerHTML` pasan los datos del usuario por `esc()`. Los `src` de imagen/video se validan con `resolverMedia()`. |
+| **Servidor** | `servicio/ChatSanitizer.java`, usado por `SocketHandler` (`mensaje_chat`, `mensaje_privado`) y `RutasAuth` (registro) | Valida canal (`general`/`anuncios`/`clash`), tipo (`texto`/`imagen`/`video`), quita etiquetas HTML y caracteres de control, limita longitud (500 texto, 50 usuario) y solo reenvía campos permitidos. Imagen = data URI `png/jpeg/gif/webp` (sin SVG) o `/api/media/{id}`; video = `/api/media/{id}`; multimedia solo en `anuncios`. |
+
+- El servidor **no** convierte a entidades HTML (`&lt;`): se guarda texto plano y cada frontend lo escapa al pintar, así no se ven entidades dobles.
+- `GET /api/media/{id}` responde con `X-Content-Type-Options: nosniff`.
+- Los usernames nuevos (3–30 caracteres) no pueden llevar `<`, `>`, `"`, `'`, `&`, el acento grave ni caracteres de control.
+- Límite conocido: `usuario` sigue llegando del cliente (se limpia pero no se verifica contra la sesión); se resuelve en S2 (identidad desde JWT en el handshake del socket).
