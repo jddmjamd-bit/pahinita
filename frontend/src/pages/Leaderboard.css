@@ -80,12 +80,12 @@
     font-size: 0.9rem;
     color: var(--text-secondary);
 }
-.lb-wins, .lb-money-apostado, .lb-money-ganado {
+.lb-wins, .lb-money-torneos, .lb-money-ganado {
     font-weight: 700;
     padding: 6px 12px;
     border-radius: var(--radius-full);
     background: var(--bg-base);
     margin-left: 8px;
 }
-.lb-money-apostado { color: var(--accent-danger); }
+.lb-money-torneos { color: var(--accent-danger); }
 .lb-money-ganado { color: var(--accent-success); }

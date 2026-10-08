@@ -153,10 +153,10 @@ public class SocketHandler {
                            rivalData = db.queryOne("SELECT * FROM users WHERE sala_actual = ? AND id != ?", salaActual, userId);
                         }
                         
-                        // Calculo de maxApuesta
+                        // Calculo de maxMonto
                         double miSaldo = user.get("saldo").getAsDouble();
                         double rivalSaldo = rivalData != null && rivalData.has("saldo") ? rivalData.get("saldo").getAsDouble() : 0;
-                        double maxAp = Math.min(miSaldo, rivalSaldo);
+                        double maxMonto = Math.min(miSaldo, rivalSaldo);
 
                         // Datos para restaurar
                         ArrayList<JsonObject> msgs = db.query("SELECT * FROM messages WHERE canal = ? ORDER BY id ASC", salaActual);
@@ -164,7 +164,7 @@ public class SocketHandler {
                         restoreData.addProperty("salaId", salaActual);
                         restoreData.addProperty("iniciado", match.iniciado);
                         restoreData.addProperty("estado", dbUser != null && dbUser.has("estado") ? dbUser.get("estado").getAsString() : "partida_encontrada");
-                        restoreData.addProperty("maxApuesta", maxAp);
+                        restoreData.addProperty("maxMonto", maxMonto);
                         if (rivalData != null) restoreData.add("rival", rivalData);
                         restoreData.add("historial", gson.toJsonTree(msgs));
                         restoreData.addProperty("lastModo", match.lastModo);
@@ -320,9 +320,9 @@ public class SocketHandler {
                         List<Integer> ids = new ArrayList<>();
                         for (SocketIOClient p : match.players) ids.add(p.getUserData().get("id").getAsInt());
 
-                        int ap1 = match.votosInicio.get(ids.get(0)).get("dinero").getAsInt();
-                        int ap2 = match.votosInicio.get(ids.get(1)).get("dinero").getAsInt();
-                        if (ap1 != ap2) {
+                        int monto1 = match.votosInicio.get(ids.get(0)).get("dinero").getAsInt();
+                        int monto2 = match.votosInicio.get(ids.get(1)).get("dinero").getAsInt();
+                        if (monto1 != monto2) {
                             io.to(salaId).emit("error_negociacion", new JsonPrimitive("Montos distintos"));
                             return;
                         }
@@ -332,7 +332,7 @@ public class SocketHandler {
                         // Emitir confirmación modal
                         JsonObject confirmData = new JsonObject();
                         confirmData.addProperty("modo", modo1);
-                        confirmData.addProperty("monto", ap1);
+                        confirmData.addProperty("monto", monto1);
                         io.to(salaId).emit("confirmar_partida", confirmData);
                         
                         // Limpiar confirmaciones anteriores si las hay
@@ -387,13 +387,13 @@ public class SocketHandler {
                         List<Integer> ids = new ArrayList<>();
                         for (SocketIOClient p : match.players) ids.add(p.getUserData().get("id").getAsInt());
                         
-                        int ap1 = match.votosInicio.get(ids.get(0)).get("dinero").getAsInt();
+                        int monto1 = match.votosInicio.get(ids.get(0)).get("dinero").getAsInt();
                         String modo = match.votosInicio.get(ids.get(0)).has("modo") ?
                                 match.votosInicio.get(ids.get(0)).get("modo").getAsString() : "N/A";
 
                         match.iniciado = true;
                         match.matchStartTime = java.time.Instant.now().toString();
-                        match.apuesta = ap1;
+                        match.monto = monto1;
 
                         // Obtener tags
                         JsonObject p1 = db.queryOne("SELECT player_tag FROM users WHERE id = ?", ids.get(0));
@@ -404,31 +404,31 @@ public class SocketHandler {
                         // Descontar saldo atómicamente via WalletService // REVIEW-MONEY
                         for (SocketIOClient p : match.players) {
                             int pid = p.getUserData().get("id").getAsInt();
-                            WalletResult apResult = wallet.apostar(pid, BigDecimal.valueOf(match.apuesta));
-                            if (!apResult.isSuccess()) {
+                            WalletResult torneoResult = wallet.realizarTorneo(pid, BigDecimal.valueOf(match.monto));
+                            if (!torneoResult.isSuccess()) {
                                 io.to(salaId).emit("error_negociacion", new JsonPrimitive("Saldo insuficiente para " + p.getUserData().get("username").getAsString()));
                                 match.votosInicio.clear();
                                 match.confirmaciones.clear();
                                 match.iniciado = false;
                                 return;
                             }
-                            p.getUserData().addProperty("saldo", apResult.getNuevoSaldoDouble());
-                            p.emit("actualizar_saldo", new JsonPrimitive(apResult.getNuevoSaldoDouble()));
+                            p.getUserData().addProperty("saldo", torneoResult.getNuevoSaldoDouble());
+                            p.emit("actualizar_saldo", new JsonPrimitive(torneoResult.getNuevoSaldoDouble()));
                         }
 
                         // Crear match en BD
                         String j1 = match.players.get(0).getUserData().get("username").getAsString();
                         String j2 = match.players.get(1).getUserData().get("username").getAsString();
                         
-                        int dbId = db.insertReturningId("INSERT INTO matches (jugador1, jugador2, modo, apuesta) VALUES (?, ?, ?, ?) RETURNING id",
-                                j1, j2, modo, (double) match.apuesta);
+                        int dbId = db.insertReturningId("INSERT INTO matches (jugador1, jugador2, modo, monto) VALUES (?, ?, ?, ?) RETURNING id",
+                                j1, j2, modo, (double) match.monto);
                         match.dbId = dbId;
 
                         JsonObject inicioData = new JsonObject();
-                        inicioData.addProperty("monto", match.apuesta);
+                        inicioData.addProperty("monto", match.monto);
                         inicioData.addProperty("matchId", dbId);
                         io.to(salaId).emit("juego_iniciado", inicioData);
-                        logClash("🎮 INICIO #" + dbId + " | $" + match.apuesta + " | Buscando resultado via API...");
+                        logClash("🎮 INICIO #" + dbId + " | $" + match.monto + " | Buscando resultado via API...");
 
                         // Iniciar polling de la API
                         iniciarPollingApi(salaId, match, ids);
@@ -560,7 +560,7 @@ public class SocketHandler {
                 activeMatches.put(salaId, match);
 
                 JsonObject rivalData = db.queryOne("SELECT * FROM users WHERE id = ?", rival.oderId);
-                double maxAp = Math.min(myData.get("saldo").getAsDouble(),
+                double maxMonto = Math.min(myData.get("saldo").getAsDouble(),
                         rivalData != null ? rivalData.get("saldo").getAsDouble() : 0);
 
                 db.update("UPDATE users SET estado = 'partida_encontrada', sala_actual = ? WHERE id IN (?, ?)",
@@ -571,7 +571,7 @@ public class SocketHandler {
                 matchData.addProperty("salaId", salaId);
                 matchData.add("p1", myData);
                 matchData.add("p2", rivalData);
-                matchData.addProperty("maxApuesta", maxAp);
+                matchData.addProperty("maxMonto", maxMonto);
 
                 meSocket.emit("partida_encontrada", matchData);
                 if (rivalConectado) rivalSocket.emit("partida_encontrada", matchData);
@@ -639,7 +639,7 @@ public class SocketHandler {
                     // Liquidar partida atómicamente via WalletService // REVIEW-MONEY
                     int idPerdedor = (idGanador == ids.get(0)) ? ids.get(1) : ids.get(0);
                     LiquidacionResult liq = wallet.liquidar(idGanador, idPerdedor,
-                            BigDecimal.valueOf(match.apuesta), match.dbId, "comision_match");
+                            BigDecimal.valueOf(match.monto), match.dbId, "comision_match");
 
                     if (!liq.success) {
                         logger.error("❌ Error liquidando match #{}: {}", match.dbId, liq.error);
@@ -766,7 +766,7 @@ public class SocketHandler {
     // --- Clases internas ---
     static class ActiveMatch {
         List<SocketIOClient> players = new CopyOnWriteArrayList<>();
-        double apuesta = 0;
+        double monto = 0;
         boolean iniciado = false;
         int dbId = 0;
         String playerTag1 = "", playerTag2 = "";

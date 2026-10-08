@@ -452,7 +452,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Actualizar tabs activos (safe for programmatic calls)
         const tabs = document.querySelectorAll('.lb-tab');
-        const periodoIdx = { dia: 0, semana: 1, mes: 2, ano: 3, global: 4, apostado: 5, ganado: 6 };
+        const periodoIdx = { dia: 0, semana: 1, mes: 2, ano: 3, global: 4, monto_torneos: 5, ganado: 6 };
         tabs.forEach((t, i) => {
             t.classList.toggle('active', i === periodoIdx[periodo]);
         });
@@ -479,8 +479,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            const periodoLabel = { dia: 'Hoy', semana: 'Esta semana', mes: 'Este mes', ano: 'Este año', global: 'Histórico', apostado: 'Más Apostado (Total)', ganado: 'Más Ganado (Total)' };
-            const isMoneyTab = (periodo === 'apostado' || periodo === 'ganado');
+            const periodoLabel = { dia: 'Hoy', semana: 'Esta semana', mes: 'Este mes', ano: 'Este año', global: 'Histórico', monto_torneos: 'Más Monto en Torneos (Total)', ganado: 'Más Ganado (Total)' };
+            const isMoneyTab = (periodo === 'monto_torneos' || periodo === 'ganado');
 
             let html = `<div class="lb-period-label">${periodoLabel[periodo] || periodo}</div>`;
             html += '<div class="lb-list">';
@@ -498,7 +498,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const displayValue = isMoneyTab ? player.monto : player.victorias;
                 const displayLabel = isMoneyTab ? `$${Number(displayValue).toLocaleString()}` : `${displayValue} victorias`;
                 const badgeText = isMoneyTab ? `$${Number(displayValue).toLocaleString()}` : `${displayValue}W`;
-                const badgeClass = isMoneyTab ? (periodo === 'apostado' ? 'lb-money-apostado' : 'lb-money-ganado') : 'lb-wins';
+                const badgeClass = isMoneyTab ? (periodo === 'monto_torneos' ? 'lb-money-torneos' : 'lb-money-ganado') : 'lb-wins';
 
                 html += `<div class="lb-row ${medalClass} ${isMe ? 'lb-me' : ''}">
                     ${medal}
@@ -1142,7 +1142,7 @@ document.addEventListener('DOMContentLoaded', () => {
             div.innerHTML = `
                 <div class="trans-info" style="width:100%; margin-bottom:10px;">
                     <strong>Partida #${m.id}</strong>: <span style="color:#4ecca3">${m.jugador1}</span> vs <span style="color:#ed4245">${m.jugador2}</span>
-                    <br>Apuesta: $${m.apuesta}
+                    <br>Monto: $${m.monto}
                 </div>
 
                 <div style="width:100%; display:flex; gap:10px; align-items:center; margin-bottom:10px;">
@@ -1382,7 +1382,7 @@ document.addEventListener('DOMContentLoaded', () => {
         socket.on('partida_encontrada', (data) => {
             alert(`¡RIVAL ENCONTRADO!`);
             currentRoomId = data.salaId;
-            maxBetAllowed = data.maxApuesta;
+            maxBetAllowed = data.maxMonto;
 
             // Limpieza
             const privateMsgs = document.getElementById('private-messages');
@@ -1569,7 +1569,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const comision = totalMesa * porcentajeComision;
                 const ganancia = Math.floor(totalMesa - comision);
 
-                console.log(`Calculando: Apuesta ${dinero} -> Gana ${ganancia}`); // MIRA LA CONSOLA SI FALLA
+                console.log(`Calculando: Monto ${dinero} -> Gana ${ganancia}`); // MIRA LA CONSOLA SI FALLA
 
                 elTexto.textContent = `Si ganas recibes: $${ganancia}`;
                 elTexto.style.color = "#4ecca3"; // Verde
@@ -1709,7 +1709,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // 1. Recuperar variables críticas (Esto arregla el chat)
             currentRoomId = data.salaId;
-            maxBetAllowed = data.maxApuesta;
+            maxBetAllowed = data.maxMonto;
 
             // 2. Llenar datos visuales
             document.getElementById('max-bet-info').textContent = `Tope: $${maxBetAllowed.toLocaleString()}`;
@@ -1749,7 +1749,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // 4. Restaurar Estado de la UI
-            // Si la partida ya inició, bloqueamos los inputs de apuesta
+            // Si la partida ya inició, bloqueamos los inputs de monto
             if (data.iniciado) {
                 inputGameMode.disabled = true;
                 inputBetAmount.disabled = true;
@@ -1790,7 +1790,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // --- EVENTOS DE CONFIRMACIÓN DE PARTIDA ---
         socket.on('confirmar_partida', (data) => {
             document.getElementById('confirm-modo').textContent = data.modo;
-            document.getElementById('confirm-apuesta').textContent = data.monto;
+            document.getElementById('confirm-monto').textContent = data.monto;
             document.getElementById('match-confirm-modal').classList.remove('hidden');
         });
 

@@ -12,6 +12,18 @@ Archivos: `archivo1.java`, `archivo2.js`
 
 ---
 
+## 2026-10-08 — F5 Renombrar "apuestas" (Claude Sonnet 5.5)
+- Criterio: "apuesta" como cantidad de dinero → **monto**; "apostar" como acción → **realizar torneo**; "apostado" (total acumulado) → **monto en torneos**. Sin migración: solo cambio de nombres (pedido explícito del dueño; no hay usuarios reales).
+- BD (`ConexionDB.inicializarTablas`): `matches.apuesta` → `matches.monto`; `users.total_apostado` → `users.total_monto_torneos`.
+- Backend: `WalletService.apostar()` → `realizarTorneo()` (mensajes y logs actualizados: "TORNEO", "El monto debe ser positivo"); parámetro `apuesta` → `monto` en `liquidar()`; `SocketHandler` (`ActiveMatch.monto`, `monto1/monto2`, `maxMonto`, `torneoResult`, INSERT en `matches`); `RutasAdmin` (lee `matches.monto`); `RutasLeaderboard` (periodo `apostado` → `monto_torneos`, columna `total_monto_torneos`).
+- Contratos JSON/socket cambiados: `maxApuesta` → `maxMonto` (eventos `partida_encontrada` y `restaurar_partida`); `GET /api/leaderboard/apostado` → `/api/leaderboard/monto_torneos`; disputas devuelven `monto` en vez de `apuesta`.
+- Frontend React: `Match.jsx` (etiquetas "Monto", `monto`, `maxMontoPermitido`, `handleMontoChange`), `Admin.jsx` (disputas), `Leaderboard.jsx` (pestaña "Monto en torneos", clase `lb-money-torneos`; además las pestañas ahora usan etiquetas legibles en vez de la clave cruda), `Leaderboard.css`, `useAppStore.js` (`matchState.monto`).
+- Frontend legacy: `public/index.html`, `public/app.js`, `public/js/{match,admin,leaderboard,chat}.js`, `public/style.css` (id `confirm-monto`, pestaña/etiquetas, clase `lb-money-torneos`).
+- No renombrados (identificadores en inglés `bet`): `maxBetAllowed`, `inputBetAmount`, ids `input-bet-amount` / `max-bet-info` en el frontend legacy.
+- Docs: `ARCHITECTURE.md` (tablas `users`/`matches`, flujo de dinero y diagrama de partida).
+- Pendiente de verificación manual: (1) ANTES de desplegar, en la BD existente ejecutar `ALTER TABLE matches RENAME COLUMN apuesta TO monto; ALTER TABLE users RENAME COLUMN total_apostado TO total_monto_torneos;` (o recrear las tablas); (2) `mvn -q clean compile`; (3) `cd frontend && npm run build`; (4) `git grep -inE "apuest|apostad|apostar"` para confirmar que no quedan referencias; (5) probar flujo completo: buscar partida → confirmar monto → liquidar → ranking "Monto en torneos" → disputa en panel admin.
+Archivos: `ConexionDB.java`, `WalletService.java`, `SocketHandler.java`, `RutasAdmin.java`, `RutasLeaderboard.java`, `Match.jsx`, `Admin.jsx`, `Leaderboard.jsx`, `Leaderboard.css`, `useAppStore.js`, `public/index.html`, `public/app.js`, `public/js/*.js`, `public/style.css`, `ARCHITECTURE.md`
+
 ## 2026-10-08 — L2 `.gitignore` (Claude Sonnet 5.5)
 - Creado `.gitignore` en la raíz (no existía; solo `frontend/` tenía el suyo). Ignora: `target/`, `*.class`, `*.jar` (excepto `.mvn/wrapper/*.jar`), `.env` / `.env.*` (excepto `.env.example`), `dependency-reduced-pom.xml`, `mvn-wrapper.zip`, logs, `node_modules/`, `frontend/dist/`, archivos de IDE (`.idea/`, `*.iml`) y del SO (`.DS_Store`, `Thumbs.db`).
 - Verificado que ignorar estos archivos no rompe el build: el `Dockerfile` compila con su propio Maven (`mvn clean package`) y el `Procfile` genera el JAR en el deploy.
@@ -26,6 +38,13 @@ Archivos: `.gitignore`
 - `ARCHITECTURE.md`: actualizada la nota de `admin-db.html`.
 - Pendiente de verificación manual: compilar (`mvn -q clean compile`), build Docker y abrir `/admin-db/<secret>`.
 Archivos: `Dockerfile`, `src/main/java/com/torneosflash/servidor/RutasDbAdmin.java`, `ARCHITECTURE.md`, `Test.java`, `TestError.java`, `TestWs.java`, `admin-db.html`
+
+## 2026-10-08 — L1 Eliminar modelos POO sin uso (Claude Sonnet 5.5)
+- Verificado por imports: ninguna clase de `modelo/` ni de `interfaces/` es usada por DAOs, servicios, rutas, sockets ni `Main` (todo el backend trabaja con `JsonObject`).
+- Sacadas de `src/` las 13 clases de `modelo/` y las 3 interfaces de `interfaces/` (`Exportable`, `Procesable`, `Validable`), que solo existían para esas clases.
+- Movidas a `scratch/L1_modelo_eliminado/` y `scratch/L1_interfaces_eliminado/` (no hay herramienta de borrado): borrar esas carpetas con `git rm -r`.
+- Limpiado comentario obsoleto en `Main.java` que mencionaba `Collection<Entidad>`.
+Archivos: `src/main/java/com/torneosflash/modelo/*`, `src/main/java/com/torneosflash/interfaces/*`, `Main.java`
 
 ## 2026-10-07 — 20 Capacitor (app móvil) (Gemini 3.1 Pro (High))
 - Implementada integración inicial de Capacitor para envolver la app React en nativo (Android e iOS).

@@ -73,11 +73,11 @@ export const useAppStore = create((set, get) => ({
         inMatch: false,
         rival: null,
         gameMode: '',
-        betAmount: 0,
+        monto: 0,
         status: 'idle' // idle, negotiating, waiting, playing, finished
     },
     setMatchState: (newState) => set((state) => ({ matchState: { ...state.matchState, ...newState } })),
     clearMatchState: () => set({ 
-        matchState: { inMatch: false, rival: null, gameMode: '', betAmount: 0, status: 'idle' } 
+        matchState: { inMatch: false, rival: null, gameMode: '', monto: 0, status: 'idle' } 
     }),
 }));

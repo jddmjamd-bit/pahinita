@@ -45,17 +45,17 @@ public class RutasLeaderboard {
                 case "mes": orderColumn = "victorias_mes"; break;
                 case "ano": orderColumn = "victorias_ano"; break;
                 case "global": orderColumn = "total_victorias"; break;
-                case "apostado": orderColumn = "total_apostado"; break;
+                case "monto_torneos": orderColumn = "total_monto_torneos"; break;
                 case "ganado": orderColumn = "total_ganado"; break;
                 default: ctx.status(400).json(new JsonObject()); return;
             }
 
-            boolean isMoneyTab = "apostado".equals(periodo) || "ganado".equals(periodo);
+            boolean isMoneyTab = "monto_torneos".equals(periodo) || "ganado".equals(periodo);
             String selectAlias = isMoneyTab ? orderColumn + " as monto" : orderColumn + " as victorias";
 
             ArrayList<JsonObject> rows = db.query(
                     "SELECT id, username, " + selectAlias + ", total_partidas, total_victorias, total_derrotas, " +
-                    "ganancia_generada, tipo_suscripcion, total_apostado, total_ganado FROM users WHERE " +
+                    "ganancia_generada, tipo_suscripcion, total_monto_torneos, total_ganado FROM users WHERE " +
                     orderColumn + " > 0 ORDER BY " + orderColumn + " DESC LIMIT 50");
 
             // Agregar posición

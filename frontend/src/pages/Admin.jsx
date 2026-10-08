@@ -179,7 +179,7 @@ export default function Admin() {
                                     <div key={m.id} className="dispute-item">
                                         <div className="dispute-info">
                                             <strong>Partida #{m.id}</strong>: <span style={{color:'#4ecca3'}}>{m.jugador1}</span> vs <span style={{color:'#ed4245'}}>{m.jugador2}</span><br/>
-                                            Apuesta: ${m.apuesta}
+                                            Monto: ${m.monto}
                                         </div>
                                         <div className="dispute-controls">
                                             <div className="dispute-field">

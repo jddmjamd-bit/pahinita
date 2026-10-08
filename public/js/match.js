@@ -110,7 +110,7 @@
 
             // 1. Recuperar variables críticas (Esto arregla el chat)
             currentRoomId = data.salaId;
-            maxBetAllowed = data.maxApuesta;
+            maxBetAllowed = data.maxMonto;
 
             // 2. Llenar datos visuales
             document.getElementById('max-bet-info').textContent = `Tope: $${maxBetAllowed.toLocaleString()}`;
@@ -150,7 +150,7 @@
             }
 
             // 4. Restaurar Estado de la UI
-            // Si la partida ya inició, bloqueamos los inputs de apuesta
+            // Si la partida ya inició, bloqueamos los inputs de monto
             if (data.iniciado) {
                 inputGameMode.disabled = true;
                 inputBetAmount.disabled = true;
@@ -191,7 +191,7 @@
         // --- EVENTOS DE CONFIRMACIÓN DE PARTIDA ---
         socket.on('confirmar_partida', (data) => {
             document.getElementById('confirm-modo').textContent = data.modo;
-            document.getElementById('confirm-apuesta').textContent = data.monto;
+            document.getElementById('confirm-monto').textContent = data.monto;
             document.getElementById('match-confirm-modal').classList.remove('hidden');
         });
 

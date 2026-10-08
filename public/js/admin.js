@@ -89,7 +89,7 @@
             div.innerHTML = `
                 <div class="trans-info" style="width:100%; margin-bottom:10px;">
                     <strong>Partida #${m.id}</strong>: <span style="color:#4ecca3">${m.jugador1}</span> vs <span style="color:#ed4245">${m.jugador2}</span>
-                    <br>Apuesta: $${m.apuesta}
+                    <br>Monto: $${m.monto}
                 </div>
 
                 <div style="width:100%; display:flex; gap:10px; align-items:center; margin-bottom:10px;">

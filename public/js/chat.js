@@ -63,7 +63,7 @@
         socket.on('partida_encontrada', (data) => {
             alert(`¡RIVAL ENCONTRADO!`);
             currentRoomId = data.salaId;
-            maxBetAllowed = data.maxApuesta;
+            maxBetAllowed = data.maxMonto;
 
             // Limpieza
             const privateMsgs = document.getElementById('private-messages');
@@ -250,7 +250,7 @@
                 const comision = totalMesa * porcentajeComision;
                 const ganancia = Math.floor(totalMesa - comision);
 
-                console.log(`Calculando: Apuesta ${dinero} -> Gana ${ganancia}`); // MIRA LA CONSOLA SI FALLA
+                console.log(`Calculando: Monto ${dinero} -> Gana ${ganancia}`); // MIRA LA CONSOLA SI FALLA
 
                 elTexto.textContent = `Si ganas recibes: $${ganancia}`;
                 elTexto.style.color = "#4ecca3"; // Verde

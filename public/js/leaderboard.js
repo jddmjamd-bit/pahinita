@@ -6,7 +6,7 @@
 
         // Actualizar tabs activos (safe for programmatic calls)
         const tabs = document.querySelectorAll('.lb-tab');
-        const periodoIdx = { dia: 0, semana: 1, mes: 2, ano: 3, global: 4, apostado: 5, ganado: 6 };
+        const periodoIdx = { dia: 0, semana: 1, mes: 2, ano: 3, global: 4, monto_torneos: 5, ganado: 6 };
         tabs.forEach((t, i) => {
             t.classList.toggle('active', i === periodoIdx[periodo]);
         });
@@ -33,8 +33,8 @@
                 return;
             }
 
-            const periodoLabel = { dia: 'Hoy', semana: 'Esta semana', mes: 'Este mes', ano: 'Este año', global: 'Histórico', apostado: 'Más Apostado (Total)', ganado: 'Más Ganado (Total)' };
-            const isMoneyTab = (periodo === 'apostado' || periodo === 'ganado');
+            const periodoLabel = { dia: 'Hoy', semana: 'Esta semana', mes: 'Este mes', ano: 'Este año', global: 'Histórico', monto_torneos: 'Más Monto en Torneos (Total)', ganado: 'Más Ganado (Total)' };
+            const isMoneyTab = (periodo === 'monto_torneos' || periodo === 'ganado');
 
             let html = `<div class="lb-period-label">${periodoLabel[periodo] || periodo}</div>`;
             html += '<div class="lb-list">';
@@ -52,7 +52,7 @@
                 const displayValue = isMoneyTab ? player.monto : player.victorias;
                 const displayLabel = isMoneyTab ? `$${Number(displayValue).toLocaleString()}` : `${displayValue} victorias`;
                 const badgeText = isMoneyTab ? `$${Number(displayValue).toLocaleString()}` : `${displayValue}W`;
-                const badgeClass = isMoneyTab ? (periodo === 'apostado' ? 'lb-money-apostado' : 'lb-money-ganado') : 'lb-wins';
+                const badgeClass = isMoneyTab ? (periodo === 'monto_torneos' ? 'lb-money-torneos' : 'lb-money-ganado') : 'lb-wins';
 
                 html += `<div class="lb-row ${medalClass} ${isMe ? 'lb-me' : ''}">
                     ${medal}

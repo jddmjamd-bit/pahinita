@@ -170,21 +170,21 @@ public class WalletService {
     }
 
     // ═══════════════════════════════════════════
-    // APOSTAR
+    // REALIZAR TORNEO
     // ═══════════════════════════════════════════
 
     /**
-     * Descuenta la apuesta de un jugador al iniciar una partida.
-     * Verifica saldo con WHERE saldo >= ? y también actualiza total_apostado y estado.
+     * Descuenta el monto del torneo de un jugador al iniciar una partida.
+     * Verifica saldo con WHERE saldo >= ? y también actualiza total_monto_torneos y estado.
      *
-     * @param userId  ID del jugador
-     * @param apuesta Monto de la apuesta (debe ser positivo)
+     * @param userId ID del jugador
+     * @param monto  Monto del torneo (debe ser positivo)
      * @return WalletResult con éxito/fallo y nuevo saldo
      */
     // REVIEW-MONEY
-    public WalletResult apostar(int userId, BigDecimal apuesta) {
-        if (apuesta == null || apuesta.compareTo(BigDecimal.ZERO) <= 0) {
-            return WalletResult.fail("La apuesta debe ser positiva");
+    public WalletResult realizarTorneo(int userId, BigDecimal monto) {
+        if (monto == null || monto.compareTo(BigDecimal.ZERO) <= 0) {
+            return WalletResult.fail("El monto debe ser positivo");
         }
 
         Connection conn = null;
@@ -192,32 +192,32 @@ public class WalletService {
             conn = db.getConnection();
             conn.setAutoCommit(false);
 
-            // Descontar apuesta y actualizar estado + total_apostado atómicamente
+            // Descontar monto y actualizar estado + total_monto_torneos atómicamente
             try (PreparedStatement ps = conn.prepareStatement(
-                    "UPDATE users SET saldo = saldo - ?, total_apostado = total_apostado + ?, " +
+                    "UPDATE users SET saldo = saldo - ?, total_monto_torneos = total_monto_torneos + ?, " +
                     "estado = 'jugando', paso_juego = 0 " +
                     "WHERE id = ? AND saldo >= ?")) {
-                ps.setBigDecimal(1, apuesta);
-                ps.setBigDecimal(2, apuesta);
+                ps.setBigDecimal(1, monto);
+                ps.setBigDecimal(2, monto);
                 ps.setInt(3, userId);
-                ps.setBigDecimal(4, apuesta);
+                ps.setBigDecimal(4, monto);
                 int rows = ps.executeUpdate();
                 if (rows == 0) {
                     conn.rollback();
-                    return WalletResult.fail("Saldo insuficiente para apostar");
+                    return WalletResult.fail("Saldo insuficiente para realizar el torneo");
                 }
             }
 
             BigDecimal nuevoSaldo = leerSaldo(conn, userId);
 
             conn.commit();
-            logger.info("🎲 APUESTA userId={} apuesta={} nuevoSaldo={}", userId, apuesta, nuevoSaldo);
+            logger.info("🎲 TORNEO userId={} monto={} nuevoSaldo={}", userId, monto, nuevoSaldo);
             return WalletResult.ok(nuevoSaldo);
 
         } catch (SQLException e) {
             rollbackSilencioso(conn);
-            logger.error("❌ Error en apostar userId={}: {}", userId, e.getMessage());
-            return WalletResult.fail("Error interno al apostar");
+            logger.error("❌ Error en realizarTorneo userId={}: {}", userId, e.getMessage());
+            return WalletResult.fail("Error interno al realizar el torneo");
         } finally {
             cerrarConexion(conn);
         }
@@ -276,16 +276,16 @@ public class WalletService {
      *
      * @param idGanador   ID del jugador ganador
      * @param idPerdedor  ID del jugador perdedor
-     * @param apuesta     Monto original de la apuesta (lo que cada jugador puso)
+     * @param monto       Monto original del torneo (lo que cada jugador puso)
      * @param matchDbId   ID de la partida en la BD
      * @param razonComision  "comision_match" o "comision_disputa"
      * @return LiquidacionResult con desglose completo
      */
     // REVIEW-MONEY
-    public LiquidacionResult liquidar(int idGanador, int idPerdedor, BigDecimal apuesta,
+    public LiquidacionResult liquidar(int idGanador, int idPerdedor, BigDecimal monto,
                                        int matchDbId, String razonComision) {
-        if (apuesta == null || apuesta.compareTo(BigDecimal.ZERO) <= 0) {
-            return LiquidacionResult.fail("Apuesta inválida");
+        if (monto == null || monto.compareTo(BigDecimal.ZERO) <= 0) {
+            return LiquidacionResult.fail("Monto inválido");
         }
 
         Connection conn = null;
@@ -294,7 +294,7 @@ public class WalletService {
             conn.setAutoCommit(false);
 
             // --- Cálculo de comisiones con BigDecimal ---
-            BigDecimal pozo = apuesta.multiply(BigDecimal.valueOf(2));
+            BigDecimal pozo = monto.multiply(BigDecimal.valueOf(2));
             // Porcentaje de comisión escalonado: 25% para pozo=2000, baja a 10% para pozo=20000
             BigDecimal porcentajeComision = calcularPorcentajeComision(pozo);
             BigDecimal comisionTeorica = pozo.multiply(porcentajeComision).setScale(0, RoundingMode.FLOOR);
@@ -515,7 +515,7 @@ public class WalletService {
      * Calcula el porcentaje de comisión escalonado según el pozo.
      * 25% para pozo=2000, baja linealmente a 10% para pozo=20000+.
      *
-     * @param pozo Monto total del pozo (apuesta * 2)
+     * @param pozo Monto total del pozo (monto * 2)
      * @return Porcentaje como BigDecimal (0.10 a 0.25)
      */
     // REVIEW-MONEY

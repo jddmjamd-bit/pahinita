@@ -1594,8 +1594,8 @@ a {
     font-weight: bold;
 }
 
-/* Badges de dinero para tabs Apostado/Ganado */
-.lb-money-apostado {
+/* Badges de dinero para tabs Monto en torneos/Ganado */
+.lb-money-torneos {
     background: linear-gradient(135deg, #faa61a, #e8930c);
     color: #000;
     padding: 3px 8px;

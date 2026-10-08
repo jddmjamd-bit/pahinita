@@ -325,7 +325,7 @@
                         <p style="color: #bbb; margin-bottom: 15px;">¿Estás seguro de iniciar con esta configuración?</p>
                         <div style="background: #202225; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
                             <p style="font-size: 1.1rem;">Modo: <strong id="confirm-modo" style="color: #fff;"></strong></p>
-                            <p style="font-size: 1.1rem; margin-top: 5px;">Apuesta: $<strong id="confirm-apuesta" style="color: #faa61a;"></strong></p>
+                            <p style="font-size: 1.1rem; margin-top: 5px;">Monto: $<strong id="confirm-monto" style="color: #faa61a;"></strong></p>
                         </div>
                         <div style="display: flex; gap: 10px; justify-content: center;">
                             <button id="btn-reject-match" class="deposit-action-btn" style="background: #ed4245; flex: 1; margin-top: 0;">Rechazar</button>
@@ -347,7 +347,7 @@
                         <button class="lb-tab" onclick="cargarLeaderboard('mes')">🗓️ Mes</button>
                         <button class="lb-tab" onclick="cargarLeaderboard('ano')">📊 Año</button>
                         <button class="lb-tab" onclick="cargarLeaderboard('global')">🌍 Global</button>
-                        <button class="lb-tab" onclick="cargarLeaderboard('apostado')">💰 Apostado</button>
+                        <button class="lb-tab" onclick="cargarLeaderboard('monto_torneos')">💰 Monto en torneos</button>
                         <button class="lb-tab" onclick="cargarLeaderboard('ganado')">💵 Ganado</button>
                     </div>
                     <div class="leaderboard-prizes" id="leaderboard-prizes"></div>
@@ -394,7 +394,7 @@
                         <div class="inputs-row">
                             <div class="input-group"><label>Modo:</label><input type="text" id="input-game-mode"
                                     placeholder="Ej: Elección"></div>
-                            <div class="input-group"><label>Apuesta:</label><input type="number" id="input-bet-amount"
+                            <div class="input-group"><label>Monto:</label><input type="number" id="input-bet-amount"
                                     placeholder="Mín: 1000"></div>
                         </div>
                         <!-- Texto Ganancia -->

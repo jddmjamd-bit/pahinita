@@ -41,11 +41,20 @@ export default function Leaderboard() {
         mes: 'Este mes', 
         ano: 'Este año', 
         global: 'Histórico', 
-        apostado: 'Más Apostado (Total)', 
+        monto_torneos: 'Más Monto en Torneos (Total)', 
         ganado: 'Más Ganado (Total)' 
     };
+    const tabLabels = {
+        dia: 'Día',
+        semana: 'Semana',
+        mes: 'Mes',
+        ano: 'Año',
+        global: 'Global',
+        monto_torneos: 'Monto en torneos',
+        ganado: 'Ganado'
+    };
 
-    const isMoneyTab = period === 'apostado' || period === 'ganado';
+    const isMoneyTab = period === 'monto_torneos' || period === 'ganado';
 
     return (
         <div className="leaderboard-container">
@@ -58,7 +67,7 @@ export default function Leaderboard() {
                         className={`lb-tab ${period === p ? 'active' : ''}`}
                         onClick={() => setPeriod(p)}
                     >
-                        {p.charAt(0).toUpperCase() + p.slice(1)}
+                        {tabLabels[p]}
                     </button>
                 ))}
             </div>
@@ -99,7 +108,7 @@ export default function Leaderboard() {
                                 const displayValue = isMoneyTab ? player.monto : player.victorias;
                                 const displayLabel = isMoneyTab ? `$${Number(displayValue).toLocaleString()}` : `${displayValue} victorias`;
                                 const badgeText = isMoneyTab ? `$${Number(displayValue).toLocaleString()}` : `${displayValue}W`;
-                                const badgeClass = isMoneyTab ? (period === 'apostado' ? 'lb-money-apostado' : 'lb-money-ganado') : 'lb-wins';
+                                const badgeClass = isMoneyTab ? (period === 'monto_torneos' ? 'lb-money-torneos' : 'lb-money-ganado') : 'lb-wins';
 
                                 return (
                                     <div key={player.id || idx} className={`lb-row ${medalClass} ${isMe ? 'lb-me' : ''}`}>

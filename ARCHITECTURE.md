@@ -48,7 +48,6 @@ TorneosFlash/
 │   │   ├── ConexionDB.java          # Singleton HikariCP + inicializarTablas()
 │   │   ├── GenericDAO.java          # CRUD genérico (select, insert, update, delete)
 │   │   └── UsuarioDAO.java          # Queries específicas de usuarios
-│   ├── modelo/                      # POJOs (13 clases, muchas sin uso)
 │   ├── servicio/
 │   │   ├── ClashApiServicio.java    # Integración con API de Clash Royale
 │   │   ├── CorreoServicio.java      # Envío de emails vía Brevo
@@ -61,10 +60,9 @@ TorneosFlash/
 │   │   ├── RutasLeaderboard.java    # Rankings diario/semanal/mensual/anual
 │   │   ├── RutasMedia.java          # Upload/descarga de videos
 │   │   └── RutasSorteos.java        # CRUD sorteos y participaciones
-│   ├── socketio/                    # Adaptador custom Socket.IO
-│   │   ├── SocketIOServer.java      # Parseo de paquetes Engine.IO/Socket.IO
-│   │   └── SocketIOClient.java      # Wrapper del cliente WS
-│   └── interfaces/                  # Interfaces Java (sin uso aparente)
+│   └── socketio/                    # Adaptador custom Socket.IO
+│       ├── SocketIOServer.java      # Parseo de paquetes Engine.IO/Socket.IO
+│       └── SocketIOClient.java      # Wrapper del cliente WS
 ├── agent/rules/                     # Reglas para modelos IA
 │   ├── auto-push.md
 │   └── project-conventions.md       # ← NUEVO
@@ -80,9 +78,9 @@ TorneosFlash/
 
 | Tabla | Propósito | Columnas clave |
 |-------|----------|----------------|
-| `users` | Usuarios registrados | `id`, `username`, `email`, `password` (bcrypt), `saldo`, `player_tag`, `total_victorias`, `gen_*` (desglose comisiones) |
+| `users` | Usuarios registrados | `id`, `username`, `email`, `password` (bcrypt), `saldo`, `player_tag`, `total_victorias`, `total_monto_torneos`, `gen_*` (desglose comisiones) |
 | `messages` | Chat de la app | `canal`, `usuario`, `texto`, `tipo` |
-| `matches` | Historial de partidas | `jugador1`, `jugador2`, `apuesta`, `ganador`, `estado` |
+| `matches` | Historial de partidas | `jugador1`, `jugador2`, `monto`, `ganador`, `estado` |
 | `transactions` | Depósitos y retiros | `usuario_id`, `tipo`, `metodo`, `monto`, `referencia`, `estado` |
 | `admin_wallet` | Bóveda de comisiones del admin | `monto`, `razon`, `categoria` (sorteos, misiones, etc.) |
 | `user_tokens` | Tokens FCM por usuario | `user_id`, `fcm_token` |
@@ -118,7 +116,7 @@ sequenceDiagram
     J2->>S: reportar_resultado (ganador: J1)
 
     alt Ambos coinciden
-        S->>S: Liquidar: saldo ganador += apuesta - comisión
+        S->>S: Liquidar: saldo ganador += monto*2 - comisión
         S->>S: Registrar match en BD
         S->>J1: resultado_final
         S->>J2: resultado_final
@@ -140,9 +138,9 @@ Depósito:
   Wompi (tarjeta) → webhook → RutasFinanzas → UPDATE users SET saldo += monto
   Nequi (manual)  → admin aprueba → UPDATE users SET saldo += monto
 
-Apuesta:
-  1. Se descuenta al buscar partida: UPDATE users SET saldo -= apuesta WHERE saldo >= apuesta
-  2. Al liquidar: ganador recibe (apuesta * 2 - comisión)
+Torneo (monto):
+  1. Se descuenta al buscar partida: UPDATE users SET saldo -= monto WHERE saldo >= monto (WalletService.realizarTorneo)
+  2. Al liquidar: ganador recibe (monto * 2 - comisión)
   3. Comisión se distribuye en admin_wallet por categoría (25% ganancia, 20% sorteos, 15% leaderboard, 15% devolución, 10% misiones, 10% referidos, 5% logros)
 
 Retiro:

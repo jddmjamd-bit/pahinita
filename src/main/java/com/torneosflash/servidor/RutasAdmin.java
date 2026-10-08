@@ -139,7 +139,7 @@ public class RutasAdmin {
             if (winner == null) { ctx.json(errorJson("Ganador no encontrado")); return; }
 
             int winnerId = winner.get("id").getAsNumber().intValue();
-            BigDecimal apuesta = BigDecimal.valueOf(match.get("apuesta").getAsDouble()); // REVIEW-MONEY
+            BigDecimal monto = BigDecimal.valueOf(match.get("monto").getAsDouble()); // REVIEW-MONEY
 
             String j1 = match.get("jugador1").getAsString();
             String j2 = match.get("jugador2").getAsString();
@@ -148,7 +148,7 @@ public class RutasAdmin {
             int perdedorId = perdedorData != null ? perdedorData.get("id").getAsNumber().intValue() : 0;
 
             // Liquidar partida atómicamente via WalletService // REVIEW-MONEY
-            LiquidacionResult liq = wallet.liquidar(winnerId, perdedorId, apuesta, matchId, "comision_disputa");
+            LiquidacionResult liq = wallet.liquidar(winnerId, perdedorId, monto, matchId, "comision_disputa");
             if (!liq.success) {
                 ctx.json(errorJson("Error al liquidar: " + liq.error));
                 return;

@@ -5,13 +5,13 @@ import './Match.css';
 export default function Match() {
     const [view, setView] = useState('private'); // 'private' or 'game_result'
     const [rivalData, setRivalData] = useState(null);
-    const [maxBetAllowed, setMaxBetAllowed] = useState(10000);
+    const [maxMontoPermitido, setMaxMontoPermitido] = useState(10000);
     const [chatMessages, setChatMessages] = useState([]);
     const [chatInput, setChatInput] = useState('');
     
     // Configuración
     const [gameMode, setGameMode] = useState('');
-    const [betAmount, setBetAmount] = useState('');
+    const [monto, setMonto] = useState('');
     const [btnState, setBtnState] = useState({ text: '🎮 COMENZAR', disabled: true, cssClass: '' });
     const [winText, setWinText] = useState('Ganancia: $0');
     const [validationMsg, setValidationMsg] = useState('');
@@ -48,7 +48,7 @@ export default function Match() {
         else if (isNaN(dinero)) {}
         else if (dinero < 1000) error = "Mínimo $1.000";
         else if (dinero > 10000) error = "Máximo $10.000";
-        else if (dinero > maxBetAllowed) error = `Tope saldos: $${maxBetAllowed}`;
+        else if (dinero > maxMontoPermitido) error = `Tope saldos: $${maxMontoPermitido}`;
 
         setValidationMsg(error);
 
@@ -73,13 +73,13 @@ export default function Match() {
     const handleModeChange = (e) => {
         const val = e.target.value;
         setGameMode(val);
-        validarNegociacion(val, betAmount);
+        validarNegociacion(val, monto);
         // TODO: socket.emit('negociacion_live', {...})
     };
 
-    const handleBetChange = (e) => {
+    const handleMontoChange = (e) => {
         const val = e.target.value;
-        setBetAmount(val);
+        setMonto(val);
         validarNegociacion(gameMode, val);
         // TODO: socket.emit('negociacion_live', {...})
     };
@@ -94,7 +94,7 @@ export default function Match() {
         }
         
         setBtnState({ text: '⏳ ESPERANDO AL RIVAL... (Click cancelar)', disabled: false, cssClass: 'waiting-cancel' });
-        // socket.emit('iniciar_juego', { dinero: betAmount, modo: gameMode });
+        // socket.emit('iniciar_juego', { dinero: monto, modo: gameMode });
     };
 
     const handleChatSubmit = (e) => {
@@ -133,7 +133,7 @@ export default function Match() {
                                 <span title="Culpable Disputas" style={{color: '#bbb'}}>💀 0</span>
                                 <span title="Huidas">🏃 0</span>
                             </div>
-                            <span style={{fontSize: '0.8rem', color: '#faa61a', display: 'block', marginTop: 5}}>Tope: ${maxBetAllowed.toLocaleString()}</span>
+                            <span style={{fontSize: '0.8rem', color: '#faa61a', display: 'block', marginTop: 5}}>Tope: ${maxMontoPermitido.toLocaleString()}</span>
                         </div>
 
                         <div className="mini-chat">
@@ -159,8 +159,8 @@ export default function Match() {
                                     <input type="text" placeholder="Ej: Elección" value={gameMode} onChange={handleModeChange} />
                                 </div>
                                 <div className="input-group">
-                                    <label>Apuesta:</label>
-                                    <input type="number" placeholder="Mín: 1000" value={betAmount} onChange={handleBetChange} />
+                                    <label>Monto:</label>
+                                    <input type="number" placeholder="Mín: 1000" value={monto} onChange={handleMontoChange} />
                                 </div>
                             </div>
                             <p style={{fontSize:'0.9rem', fontWeight:'bold', marginTop:5, color: winText.includes('$0') ? '#bbb' : '#4ecca3'}}>
@@ -209,7 +209,7 @@ export default function Match() {
                     <div className="modal-content text-center">
                         <h2>⚠️ ¿Aceptas la partida?</h2>
                         <p>Modo: <strong style={{color:'#7289da'}}>{confirmData.modo}</strong></p>
-                        <p>Apuesta: <strong style={{color:'#43b581'}}>${confirmData.monto}</strong></p>
+                        <p>Monto: <strong style={{color:'#43b581'}}>${confirmData.monto}</strong></p>
                         <div style={{marginTop: 20, display: 'flex', gap: 10, justifyContent: 'center'}}>
                             <button style={{background:'#43b581', padding:'10px 20px', border:'none', color:'white', borderRadius:4}} onClick={handleAcceptMatch}>{confirmBtnText}</button>
                             <button style={{background:'#ed4245', padding:'10px 20px', border:'none', color:'white', borderRadius:4}} onClick={handleRejectMatch}>Rechazar</button>

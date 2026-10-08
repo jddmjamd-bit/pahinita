@@ -92,7 +92,7 @@ public class ConexionDB {
                     "salidas_x INTEGER DEFAULT 0, salidas_canal INTEGER DEFAULT 0)");
             ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS player_tag TEXT");
             ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS telefono TEXT");
-            ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS total_apostado NUMERIC DEFAULT 0");
+            ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS total_monto_torneos NUMERIC DEFAULT 0");
             ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS total_ganado NUMERIC DEFAULT 0");
             ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS victorias_dia INTEGER DEFAULT 0");
             ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS victorias_semana INTEGER DEFAULT 0");
@@ -130,7 +130,7 @@ public class ConexionDB {
             // 3. Partidas
             stmt.execute("CREATE TABLE IF NOT EXISTS matches (" +
                     "id SERIAL PRIMARY KEY, jugador1 TEXT, jugador2 TEXT, modo TEXT, " +
-                    "apuesta NUMERIC, ganador TEXT DEFAULT NULL, estado TEXT DEFAULT 'en_curso', " +
+                    "monto NUMERIC, ganador TEXT DEFAULT NULL, estado TEXT DEFAULT 'en_curso', " +
                     "fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
             logger.info("   ✓ Tabla matches");
 
