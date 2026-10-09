@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — UltimateClash (TorneosFlash)
 
 > Documento de referencia para que cualquier modelo o desarrollador entienda el sistema.
-> Última actualización: 2026-10-08
+> Última actualización: 2026-10-09
 
 ---
 
@@ -52,7 +52,8 @@ TorneosFlash/
 │   │   ├── ClashApiServicio.java    # Integración con API de Clash Royale
 │   │   ├── ChatSanitizer.java       # Validación/limpieza de mensajes de chat y usernames (anti-XSS)
 │   │   ├── CorreoServicio.java      # Envío de emails vía Brevo
-│   │   └── NotificacionPushServicio.java # Push FCM
+│   │   ├── NotificacionPushServicio.java # Push FCM
+│   │   └── ValidadorMonto.java      # Valida montos del cliente (número, > 0, entero, rango por tipo). Ver sección 8
 │   ├── servidor/                    # Handlers HTTP (rutas REST)
 │   │   ├── RutasAuth.java           # Login, registro, sesión
 │   │   ├── RutasAdmin.java          # Operaciones admin (aprobar retiros, etc.)
@@ -183,3 +184,22 @@ Defensa en dos capas; ninguna confía en la otra.
 - `GET /api/media/{id}` responde con `X-Content-Type-Options: nosniff`.
 - Los usernames nuevos (3–30 caracteres) no pueden llevar `<`, `>`, `"`, `'`, `&`, el acento grave ni caracteres de control.
 - Límite conocido: `usuario` sigue llegando del cliente (se limpia pero no se verifica contra la sesión); se resuelve en S2 (identidad desde JWT en el handshake del socket).
+
+---
+
+## 8. Validación de montos en el servidor (D5)
+
+Todo monto que llega del cliente pasa por `servicio/ValidadorMonto` **antes** de tocar `WalletService` o la BD. `WalletService` conserva sus propias guardas (`monto > 0`, `WHERE saldo >= ?`) como segunda capa.
+
+**Un monto es válido si:** es número (JSON number o string numérico, sin notación científica ni `+`), es > 0, es en pesos enteros (`5000` / `5000.00` sí, `5000.5` no) y está dentro del rango de su tipo. Devuelve `BigDecimal` de escala 0.
+
+| Tipo | Método | Min (env) | Max (env) | Dónde se usa |
+|------|--------|-----------|-----------|--------------|
+| Depósito | `deposito()` | `MONTO_MIN_DEPOSITO` = 1000 | `MONTO_MAX_DEPOSITO` = 5.000.000 | `/api/deposit`, `/api/transaction/create`, `/api/wompi/init` |
+| Retiro | `retiro()` | `MONTO_MIN_RETIRO` = 10000 | `MONTO_MAX_RETIRO` = 5.000.000 | `/api/transaction/withdraw` |
+| Torneo | `torneo()` | `MONTO_MIN_TORNEO` = 1000 | `MONTO_MAX_TORNEO` = 10000 | socket `iniciar_juego`; mínimo en `buscar_partida` |
+| Sorteo | `sorteo()` | `MONTO_MIN_SORTEO` = 1000 | `MONTO_MAX_SORTEO` = 100.000.000 (tope `Integer.MAX_VALUE`) | `/api/admin/raffle/create` |
+
+- Los errores de validación HTTP responden **400** con `{ "error": "..." }`; en el socket se emite `error_negociacion` solo al jugador que envió el monto.
+- Negociación de torneo: el voto de cada jugador se guarda ya validado y normalizado; un voto nuevo invalida confirmaciones previas; al cobrar se exige que ambos votos existan y coincidan y que ambos tengan saldo.
+- Fuera de alcance de D5 (siguen pendientes): `double` en la comisión de Wompi y en `match.monto` (D1), reembolso atómico si falla el cobro del segundo jugador (D2), `/api/deposit` sin chequeo de admin (S3).

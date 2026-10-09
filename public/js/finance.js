@@ -30,7 +30,7 @@
             btnAutoDeposit.textContent = `Pagar $${totalPagar.toLocaleString()}`;
         });
     }
-    if (btnManualDeposit) btnManualDeposit.addEventListener('click', async () => { const m = document.getElementById('manual-amount').value; const r = document.getElementById('manual-ref').value; if (!m || !r) return alert("Datos?"); const res = await fetch(API_BASE_URL + '/api/transaction/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: currentUser.id, username: currentUser.username, tipo: 'deposito', metodo: 'manual_nequi', monto: m, referencia: r }) }); const d = await res.json(); alert(d.message); depositModal.classList.add('hidden'); });
+    if (btnManualDeposit) btnManualDeposit.addEventListener('click', async () => { const m = document.getElementById('manual-amount').value; const r = document.getElementById('manual-ref').value; if (!m || !r) return alert("Datos?"); const res = await fetch(API_BASE_URL + '/api/transaction/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: currentUser.id, username: currentUser.username, tipo: 'deposito', metodo: 'manual_nequi', monto: m, referencia: r }) }); const d = await res.json(); alert(d.error || d.message); if (!res.ok) return; depositModal.classList.add('hidden'); });
     if (btnAutoDeposit) {
         btnAutoDeposit.addEventListener('click', async () => {
             const monto = autoInput.value;
@@ -81,7 +81,7 @@
 
             } catch (error) {
                 console.error(error);
-                alert("Error iniciando Wompi");
+                alert((error && error.message) || "Error iniciando Wompi");
                 btnAutoDeposit.disabled = false;
             }
         });

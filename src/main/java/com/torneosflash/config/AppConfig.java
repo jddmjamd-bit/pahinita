@@ -2,6 +2,7 @@ package com.torneosflash.config;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.math.BigDecimal;
 /**
  * Configuración de la aplicación.
  * Lee las variables de entorno necesarias para conectar a PostgreSQL,
@@ -34,6 +35,16 @@ public class AppConfig {
     private final boolean cookieSecure;
     private final String cookieSameSite;
 
+    // --- Límites de montos (COP, pesos enteros). Los valida ValidadorMonto en el servidor. ---
+    private final BigDecimal montoMinDeposito;
+    private final BigDecimal montoMaxDeposito;
+    private final BigDecimal montoMinRetiro;
+    private final BigDecimal montoMaxRetiro;
+    private final BigDecimal montoMinTorneo;
+    private final BigDecimal montoMaxTorneo;
+    private final BigDecimal montoMinSorteo;
+    private final BigDecimal montoMaxSorteo;
+
     // --- Constructor (CONSTRUCTOR con parámetros desde env) ---
     public AppConfig() {
         this.port = Integer.parseInt(getEnv("PORT", "5000"));
@@ -55,6 +66,15 @@ public class AppConfig {
         // SameSite=None exige Secure; en cualquier otro caso se respeta COOKIE_SECURE (default true)
         this.cookieSecure = "None".equals(cookieSameSite)
                 || Boolean.parseBoolean(getEnv("COOKIE_SECURE", "true"));
+
+        this.montoMinDeposito = getEnvMonto("MONTO_MIN_DEPOSITO", "1000");
+        this.montoMaxDeposito = getEnvMonto("MONTO_MAX_DEPOSITO", "5000000");
+        this.montoMinRetiro = getEnvMonto("MONTO_MIN_RETIRO", "10000");
+        this.montoMaxRetiro = getEnvMonto("MONTO_MAX_RETIRO", "5000000");
+        this.montoMinTorneo = getEnvMonto("MONTO_MIN_TORNEO", "1000");
+        this.montoMaxTorneo = getEnvMonto("MONTO_MAX_TORNEO", "10000");
+        this.montoMinSorteo = getEnvMonto("MONTO_MIN_SORTEO", "1000");
+        this.montoMaxSorteo = getEnvMonto("MONTO_MAX_SORTEO", "100000000");
     }
 
     /**
@@ -82,6 +102,24 @@ public class AppConfig {
         }
     }
 
+    /**
+     * Lee un monto (pesos enteros positivos) de una variable de entorno.
+     * Si no está definida o es inválida se usa el valor por defecto.
+     */
+    private BigDecimal getEnvMonto(String key, String defaultValue) {
+        String raw = getEnv(key, defaultValue).trim();
+        try {
+            BigDecimal valor = new BigDecimal(raw);
+            if (valor.signum() > 0 && valor.stripTrailingZeros().scale() <= 0) {
+                return valor.setScale(0);
+            }
+        } catch (NumberFormatException ignored) {
+            // cae al log de abajo
+        }
+        logger.error("⚠️ {}='{}' no es un monto válido (entero positivo). Se usa {}.", key, raw, defaultValue);
+        return new BigDecimal(defaultValue);
+    }
+
     // Método auxiliar para leer variables de entorno con valor por defecto
     private String getEnv(String key, String defaultValue) {
         String value = System.getenv(key);
@@ -105,6 +143,14 @@ public class AppConfig {
     public long getJwtExpirationSeconds() { return jwtExpirationSeconds; }
     public boolean isCookieSecure() { return cookieSecure; }
     public String getCookieSameSite() { return cookieSameSite; }
+    public BigDecimal getMontoMinDeposito() { return montoMinDeposito; }
+    public BigDecimal getMontoMaxDeposito() { return montoMaxDeposito; }
+    public BigDecimal getMontoMinRetiro() { return montoMinRetiro; }
+    public BigDecimal getMontoMaxRetiro() { return montoMaxRetiro; }
+    public BigDecimal getMontoMinTorneo() { return montoMinTorneo; }
+    public BigDecimal getMontoMaxTorneo() { return montoMaxTorneo; }
+    public BigDecimal getMontoMinSorteo() { return montoMinSorteo; }
+    public BigDecimal getMontoMaxSorteo() { return montoMaxSorteo; }
 
     public boolean hasClashApi() { return !clashApiToken.isEmpty(); }
     public boolean hasFirebase() { return !firebaseServiceAccount.isEmpty(); }

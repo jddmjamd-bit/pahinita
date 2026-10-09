@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import com.google.gson.*;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.servicio.NotificacionPushServicio;
+import com.torneosflash.servicio.ValidadorMonto;
 import com.torneosflash.socketio.SocketIOServer;
 import com.torneosflash.servicio.CorreoServicio;
 import io.javalin.Javalin;
@@ -18,10 +19,15 @@ import static com.torneosflash.servidor.RutasAuth.*;
 public class RutasSorteos {
     private static final Logger logger = LoggerFactory.getLogger(RutasSorteos.class);
 
+    /** D5: tope de minutos de duración de un sorteo (1 año). */
+    private static final int DURACION_MAX_MINUTOS = 60 * 24 * 365;
+    /** D5: tope de tickets que se pueden sumar o quitar en una sola participación. */
+    private static final long TICKETS_DELTA_MAX = 1_000_000L;
+
 
     private static NotificacionPushServicio pushService;
 
-    public static void register(Javalin app, GenericDAO db, SocketIOServer io, CorreoServicio correo, NotificacionPushServicio push) {
+    public static void register(Javalin app, GenericDAO db, SocketIOServer io, CorreoServicio correo, NotificacionPushServicio push, ValidadorMonto validador) {
         pushService = push;
 
         // GET /api/raffle/tickets/:userId
@@ -134,6 +140,12 @@ public class RutasSorteos {
             int raffleId = body.get("raffleId").getAsInt();
             int delta = body.get("ticketsDelta").getAsInt();
 
+            // D5: la cantidad de tickets la valida el servidor (no puede ser 0 ni absurda)
+            if (delta == 0 || Math.abs((long) delta) > TICKETS_DELTA_MAX) {
+                ctx.status(400).json(errorJson("La cantidad de tickets no es válida"));
+                return;
+            }
+
             // Verificar sorteo activo
             JsonObject raffle = db.queryOne("SELECT * FROM raffles WHERE id = ? AND estado = 'activo'", raffleId);
             if (raffle == null) { ctx.status(400).json(errorJson("Sorteo no disponible")); return; }
@@ -201,13 +213,31 @@ public class RutasSorteos {
             JsonObject body = parseBody(ctx);
             String nombre = body.get("nombre").getAsString();
             String categoria = body.get("categoria").getAsString();
-            int precio = body.get("precio").getAsInt();
-            int duracionMinutos = body.get("duracionMinutos").getAsInt();
+
+            // D5: precio validado en el servidor (número, positivo, entero, dentro de rango)
+            ValidadorMonto.Resultado precioValido = validador.sorteo(body.get("precio"));
+            if (!precioValido.isValido()) {
+                ctx.status(400).json(errorJson(precioValido.getError()));
+                return;
+            }
+            int precio = precioValido.getMonto().intValueExact(); // REVIEW-MONEY (el validador acota a Integer.MAX_VALUE)
+
+            int duracionMinutos;
+            try {
+                duracionMinutos = body.get("duracionMinutos").getAsInt();
+            } catch (Exception e) {
+                ctx.status(400).json(errorJson("La duración no es válida"));
+                return;
+            }
+            if (duracionMinutos < 1 || duracionMinutos > DURACION_MAX_MINUTOS) {
+                ctx.status(400).json(errorJson("La duración debe estar entre 1 minuto y " + DURACION_MAX_MINUTOS + " minutos"));
+                return;
+            }
             int ticketsNecesarios = (int) Math.ceil(precio / 1000.0);
 
             int newId = db.insertReturningId("INSERT INTO raffles (nombre, categoria, precio, tickets_necesarios, fecha_limite) " +
-                    "VALUES (?, ?, ?, ?, NOW() + INTERVAL '" + duracionMinutos + " minutes') RETURNING id",
-                    nombre, categoria, precio, ticketsNecesarios);
+                    "VALUES (?, ?, ?, ?, NOW() + make_interval(mins => ?)) RETURNING id",
+                    nombre, categoria, precio, ticketsNecesarios, duracionMinutos);
 
             JsonObject nuevoSorteo = db.queryOne("SELECT * FROM raffles WHERE id = ?", newId);
             io.emit("nuevo_sorteo", nuevoSorteo);

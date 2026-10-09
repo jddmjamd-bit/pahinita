@@ -51,6 +51,11 @@ export default function Finance() {
                 })
             });
             const d = await res.json();
+            // D5: si el servidor rechaza el monto, se muestra su mensaje y se conserva lo escrito
+            if (!res.ok || d.error) {
+                alert(d.error || "No se pudo crear la solicitud.");
+                return;
+            }
             alert(d.message);
             setManualAmount('');
             setManualRef('');
@@ -103,7 +108,7 @@ export default function Finance() {
 
         } catch (error) {
             console.error(error);
-            alert("Error iniciando Wompi");
+            alert(error.message || "Error iniciando Wompi");
             setIsProcessing(false);
         }
     };

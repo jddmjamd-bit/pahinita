@@ -6,6 +6,7 @@ import com.google.gson.*;
 import com.torneosflash.config.AppConfig;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.servicio.NotificacionPushServicio;
+import com.torneosflash.servicio.ValidadorMonto;
 import com.torneosflash.servicio.WalletService;
 import com.torneosflash.servicio.WalletService.WalletResult;
 import com.torneosflash.socketio.SocketIOServer;
@@ -27,7 +28,7 @@ public class RutasFinanzas {
     private static NotificacionPushServicio pushService;
     private static WalletService wallet;
 
-    public static void register(Javalin app, GenericDAO db, AppConfig config, SocketIOServer io, NotificacionPushServicio push, WalletService walletService) {
+    public static void register(Javalin app, GenericDAO db, AppConfig config, SocketIOServer io, NotificacionPushServicio push, WalletService walletService, ValidadorMonto validador) {
         pushService = push;
         wallet = walletService;
 
@@ -35,7 +36,14 @@ public class RutasFinanzas {
         app.post("/api/deposit", ctx -> {
             JsonObject body = parseBody(ctx);
             int userId = body.get("userId").getAsInt();
-            BigDecimal monto = new BigDecimal(body.get("monto").getAsString()); // REVIEW-MONEY
+
+            // D5: el monto se valida en el servidor (número, positivo, entero, dentro de rango)
+            ValidadorMonto.Resultado montoValido = validador.deposito(body.get("monto"));
+            if (!montoValido.isValido()) {
+                ctx.status(400).json(errorJson(montoValido.getError()));
+                return;
+            }
+            BigDecimal monto = montoValido.getMonto(); // REVIEW-MONEY
 
             WalletResult result = wallet.depositar(userId, monto, "Depósito manual admin"); // REVIEW-MONEY
             if (!result.isSuccess()) {
@@ -54,8 +62,15 @@ public class RutasFinanzas {
             int userId = body.get("userId").getAsInt();
             String username = body.get("username").getAsString();
             String metodo = body.get("metodo").getAsString();
-            double monto = body.get("monto").getAsDouble();
             String referencia = body.has("referencia") ? body.get("referencia").getAsString() : "";
+
+            // D5: nunca se guarda una solicitud con un monto que el servidor no haya validado
+            ValidadorMonto.Resultado montoValido = validador.deposito(body.get("monto"));
+            if (!montoValido.isValido()) {
+                ctx.status(400).json(errorJson(montoValido.getError()));
+                return;
+            }
+            BigDecimal monto = montoValido.getMonto(); // REVIEW-MONEY
 
             db.update("INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia) " +
                     "VALUES (?, ?, 'deposito', ?, ?, ?)", userId, username, metodo, monto, referencia);
@@ -67,9 +82,16 @@ public class RutasFinanzas {
             JsonObject body = parseBody(ctx);
             int userId = body.get("userId").getAsInt();
             String username = body.get("username").getAsString();
-            BigDecimal monto = new BigDecimal(body.get("monto").getAsString()); // REVIEW-MONEY
             String metodo = body.has("metodo") ? body.get("metodo").getAsString() : "nequi_retiro";
             String referencia = body.has("referencia") ? body.get("referencia").getAsString() : "";
+
+            // D5: monto validado en el servidor (número, positivo, entero, dentro del rango de retiro)
+            ValidadorMonto.Resultado montoValido = validador.retiro(body.get("monto"));
+            if (!montoValido.isValido()) {
+                ctx.status(400).json(errorJson(montoValido.getError()));
+                return;
+            }
+            BigDecimal monto = montoValido.getMonto(); // REVIEW-MONEY
 
             // Descontar saldo atómicamente con verificación // REVIEW-MONEY
             WalletResult result = wallet.retirar(userId, monto, "Retiro " + metodo);
@@ -80,7 +102,7 @@ public class RutasFinanzas {
 
             // Crear transacción
             db.update("INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia) " +
-                    "VALUES (?, ?, 'retiro', ?, ?, ?)", userId, username, metodo, monto.doubleValue(), referencia);
+                    "VALUES (?, ?, 'retiro', ?, ?, ?)", userId, username, metodo, monto, referencia);
 
             // Notificar saldo actualizado
             notificarUsuario(io, db, userId, "⏳ Retiro en proceso...", result.getNuevoSaldoDouble());
@@ -96,14 +118,16 @@ public class RutasFinanzas {
         // POST /api/wompi/init (iniciar pago Wompi)
         app.post("/api/wompi/init", ctx -> {
             JsonObject body = parseBody(ctx);
-            if (!body.has("monto") || body.get("monto").isJsonNull()) {
-                ctx.status(400).json(errorJson("El monto es requerido"));
+            // D5: monto validado en el servidor (número, positivo, entero, dentro del rango de recarga)
+            ValidadorMonto.Resultado montoValido = validador.deposito(body.get("monto"));
+            if (!montoValido.isValido()) {
+                ctx.status(400).json(errorJson(montoValido.getError()));
                 return;
             }
-            double monto = body.get("monto").getAsDouble();
+            BigDecimal monto = montoValido.getMonto(); // REVIEW-MONEY
 
-            // Calcular el total con comisiones
-            double baseCara = monto + 840;
+            // Calcular el total con comisiones (el cálculo con double queda para D1; el monto ya está acotado y es entero)
+            double baseCara = monto.doubleValue() + 840;
             double totalCobrado = Math.ceil(baseCara / 0.964);
             long montoCentavos = (long) (totalCobrado * 100);
 

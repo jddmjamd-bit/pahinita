@@ -7,6 +7,7 @@ import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.servicio.ChatSanitizer;
 import com.torneosflash.servicio.ClashApiServicio;
 import com.torneosflash.servicio.NotificacionPushServicio;
+import com.torneosflash.servicio.ValidadorMonto;
 import com.torneosflash.servicio.WalletService;
 import com.torneosflash.servicio.WalletService.WalletResult;
 import com.torneosflash.servicio.WalletService.LiquidacionResult;
@@ -37,15 +38,17 @@ public class SocketHandler {
     private final ClashApiServicio clashApi;
     private final NotificacionPushServicio pushService;
     private final WalletService wallet;
+    private final ValidadorMonto validador;
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
     private final Gson gson = new Gson();
 
-    public SocketHandler(GenericDAO db, SocketIOServer io, ClashApiServicio clashApi, NotificacionPushServicio pushService, WalletService wallet) {
+    public SocketHandler(GenericDAO db, SocketIOServer io, ClashApiServicio clashApi, NotificacionPushServicio pushService, WalletService wallet, ValidadorMonto validador) {
         this.db = db;
         this.io = io;
         this.clashApi = clashApi;
         this.pushService = pushService;
         this.wallet = wallet;
+        this.validador = validador;
     }
 
     /**
@@ -229,8 +232,10 @@ public class SocketHandler {
                     int userId = usuario.get("id").getAsInt();
 
                     JsonObject row = db.queryOne("SELECT * FROM users WHERE id = ?", userId);
-                    if (row == null || row.get("saldo").getAsDouble() < 1000) {
-                        client.emit("error_busqueda", new JsonPrimitive("Saldo insuficiente"));
+                    // D5: el mínimo para buscar partida es el mínimo de torneo configurado (no un número fijo)
+                    BigDecimal minTorneo = validador.getMinTorneo();
+                    if (row == null || BigDecimal.valueOf(row.get("saldo").getAsDouble()).compareTo(minTorneo) < 0) {
+                        client.emit("error_busqueda", new JsonPrimitive("Saldo insuficiente (mínimo " + ValidadorMonto.formatear(minTorneo) + ")"));
                         return;
                     }
 
@@ -325,7 +330,19 @@ public class SocketHandler {
                     ActiveMatch match = activeMatches.get(salaId);
                     if (match.iniciado) return;
 
+                    // D5: el monto lo valida el servidor (número, positivo, entero, dentro del rango de torneo).
+                    // Un voto inválido no se guarda y solo se le avisa a quien lo envió.
+                    ValidadorMonto.Resultado montoVoto = validador.torneo(d.get("dinero"));
+                    if (!montoVoto.isValido()) {
+                        client.emit("error_negociacion", new JsonPrimitive(montoVoto.getError()));
+                        return;
+                    }
+                    // Se guarda el voto con el monto ya normalizado (entero)
+                    d.addProperty("dinero", montoVoto.getMonto().longValueExact());
+
                     int myId = client.getUserData().get("id").getAsInt();
+                    // Un voto nuevo invalida cualquier confirmación anterior (nadie acepta un monto que cambió después)
+                    match.confirmaciones.clear();
                     match.votosInicio.put(myId, d);
                     client.to(salaId).emit("rival_listo_inicio");
 
@@ -334,8 +351,8 @@ public class SocketHandler {
                         List<Integer> ids = new ArrayList<>();
                         for (SocketIOClient p : match.players) ids.add(p.getUserData().get("id").getAsInt());
 
-                        int monto1 = match.votosInicio.get(ids.get(0)).get("dinero").getAsInt();
-                        int monto2 = match.votosInicio.get(ids.get(1)).get("dinero").getAsInt();
+                        long monto1 = match.votosInicio.get(ids.get(0)).get("dinero").getAsLong();
+                        long monto2 = match.votosInicio.get(ids.get(1)).get("dinero").getAsLong();
                         if (monto1 != monto2) {
                             io.to(salaId).emit("error_negociacion", new JsonPrimitive("Montos distintos"));
                             return;
@@ -401,9 +418,33 @@ public class SocketHandler {
                         List<Integer> ids = new ArrayList<>();
                         for (SocketIOClient p : match.players) ids.add(p.getUserData().get("id").getAsInt());
                         
-                        int monto1 = match.votosInicio.get(ids.get(0)).get("dinero").getAsInt();
+                        // D5: al cobrar, ambos votos deben existir y coincidir (el monto lo acordaron los dos, no uno solo)
+                        JsonObject voto1 = match.votosInicio.get(ids.get(0));
+                        JsonObject voto2 = match.votosInicio.get(ids.get(1));
+                        if (voto1 == null || voto2 == null
+                                || voto1.get("dinero").getAsLong() != voto2.get("dinero").getAsLong()) {
+                            io.to(salaId).emit("error_negociacion", new JsonPrimitive("Los montos de ambos jugadores no coinciden"));
+                            match.votosInicio.clear();
+                            match.confirmaciones.clear();
+                            return;
+                        }
+
+                        long monto1 = voto1.get("dinero").getAsLong();
+                        BigDecimal montoTorneo = BigDecimal.valueOf(monto1); // REVIEW-MONEY
                         String modo = match.votosInicio.get(ids.get(0)).has("modo") ?
                                 match.votosInicio.get(ids.get(0)).get("modo").getAsString() : "N/A";
+
+                        // D5: antes de cobrarle a alguien, los dos deben tener saldo para el monto acordado // REVIEW-MONEY
+                        // (el cobro real sigue protegido por WHERE saldo >= ? dentro de WalletService)
+                        for (SocketIOClient p : match.players) {
+                            int pid = p.getUserData().get("id").getAsInt();
+                            if (wallet.obtenerSaldo(pid).compareTo(montoTorneo) < 0) {
+                                io.to(salaId).emit("error_negociacion", new JsonPrimitive("Saldo insuficiente para " + p.getUserData().get("username").getAsString()));
+                                match.votosInicio.clear();
+                                match.confirmaciones.clear();
+                                return;
+                            }
+                        }
 
                         match.iniciado = true;
                         match.matchStartTime = java.time.Instant.now().toString();
@@ -418,7 +459,7 @@ public class SocketHandler {
                         // Descontar saldo atómicamente via WalletService // REVIEW-MONEY
                         for (SocketIOClient p : match.players) {
                             int pid = p.getUserData().get("id").getAsInt();
-                            WalletResult torneoResult = wallet.realizarTorneo(pid, BigDecimal.valueOf(match.monto));
+                            WalletResult torneoResult = wallet.realizarTorneo(pid, montoTorneo);
                             if (!torneoResult.isSuccess()) {
                                 io.to(salaId).emit("error_negociacion", new JsonPrimitive("Saldo insuficiente para " + p.getUserData().get("username").getAsString()));
                                 match.votosInicio.clear();

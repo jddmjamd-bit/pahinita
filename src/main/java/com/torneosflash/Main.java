@@ -10,6 +10,7 @@ import com.torneosflash.servicio.WalletService;
 import com.torneosflash.servicio.ClashApiServicio;
 import com.torneosflash.servicio.CorreoServicio;
 import com.torneosflash.servicio.NotificacionPushServicio;
+import com.torneosflash.servicio.ValidadorMonto;
 import com.torneosflash.servidor.*;
 import com.torneosflash.socketio.SocketIOServer;
 import io.javalin.Javalin;
@@ -58,6 +59,9 @@ public class Main {
 
         // WalletService — centraliza todo movimiento de dinero
         WalletService wallet = new WalletService(conexion);
+
+        // ValidadorMonto — valida en el servidor todo monto que llega del cliente (D5)
+        ValidadorMonto validadorMonto = new ValidadorMonto(config);
 
         // ============================================
         // 3. SERVICIOS
@@ -143,9 +147,9 @@ public class Main {
         // 7. REGISTRAR RUTAS HTTP
         // ============================================
         RutasAuth.register(app, usuarioDAO, db, config, clashApi);
-        RutasFinanzas.register(app, db, config, socketServer, pushService, wallet);
+        RutasFinanzas.register(app, db, config, socketServer, pushService, wallet, validadorMonto);
         RutasAdmin.register(app, usuarioDAO, db, socketServer, pushService, wallet);
-        RutasSorteos.register(app, db, socketServer, correo, pushService);
+        RutasSorteos.register(app, db, socketServer, correo, pushService, validadorMonto);
         RutasLeaderboard.register(app, db, socketServer, wallet);
         RutasDbAdmin.register(app, db, config);
         RutasMedia.register(app, db);
@@ -153,7 +157,7 @@ public class Main {
         // ============================================
         // 8. REGISTRAR SOCKET HANDLERS
         // ============================================
-        SocketHandler socketHandler = new SocketHandler(db, socketServer, clashApi, pushService, wallet);
+        SocketHandler socketHandler = new SocketHandler(db, socketServer, clashApi, pushService, wallet, validadorMonto);
         socketHandler.registrar();
 
         // ============================================
