@@ -1,6 +1,7 @@
 package com.torneosflash.dao;
 
 import com.google.gson.JsonObject;
+import com.torneosflash.servicio.UsuarioVista;
 import java.sql.*;
 import java.util.ArrayList;
 
@@ -23,7 +24,7 @@ public class UsuarioDAO {
     public ArrayList<JsonObject> listarTodos() {
         ArrayList<JsonObject> lista = new ArrayList<>();
         try (Connection conn = db.getConnection();
-             PreparedStatement ps = conn.prepareStatement("SELECT * FROM users ORDER BY ganancia_generada DESC");
+             PreparedStatement ps = conn.prepareStatement("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users ORDER BY ganancia_generada DESC");
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
                 lista.add(rowToJson(rs));
@@ -32,9 +33,10 @@ public class UsuarioDAO {
         return lista;
     }
 
+    /** S6: devuelve solo las columnas de sesión (nunca el hash de la contraseña). */
     public JsonObject buscarPorId(int id) {
         try (Connection conn = db.getConnection();
-             PreparedStatement ps = conn.prepareStatement("SELECT * FROM users WHERE id = ?")) {
+             PreparedStatement ps = conn.prepareStatement("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?")) {
             ps.setInt(1, id);
             ResultSet rs = ps.executeQuery();
             if (rs.next()) return rowToJson(rs);
@@ -42,9 +44,14 @@ public class UsuarioDAO {
         return null;
     }
 
-    public JsonObject buscarPorEmail(String email) {
+    /**
+     * S6: SOLO para verificar el login. Devuelve {id, password(hash)}; ese objeto debe
+     * quedarse en el servidor y nunca serializarse hacia el cliente. Para los datos del
+     * usuario usar {@link #buscarPorId(int)}.
+     */
+    public JsonObject buscarCredencialesPorEmail(String email) {
         try (Connection conn = db.getConnection();
-             PreparedStatement ps = conn.prepareStatement("SELECT * FROM users WHERE email = ?")) {
+             PreparedStatement ps = conn.prepareStatement("SELECT id, password FROM users WHERE email = ?")) {
             ps.setString(1, email);
             ResultSet rs = ps.executeQuery();
             if (rs.next()) return rowToJson(rs);

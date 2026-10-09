@@ -83,23 +83,28 @@ public class RutasAuth {
                 String email = body.get("email").getAsString().trim().toLowerCase();
                 String password = body.get("password").getAsString();
 
-                JsonObject user = usuarioDAO.buscarPorEmail(email);
-                if (user == null) {
+                // S6: el hash vive solo en este objeto de credenciales (nunca se envía al cliente)
+                JsonObject credenciales = usuarioDAO.buscarCredencialesPorEmail(email);
+                if (credenciales == null) {
                     ctx.status(400).result(errorJson("Usuario no encontrado").toString()).contentType("application/json");
                     return;
                 }
 
-                String storedHash = user.get("password").getAsString();
+                String storedHash = credenciales.get("password").getAsString();
                 if (!BCrypt.checkpw(password, storedHash)) {
                     ctx.status(400).result(errorJson("Contraseña incorrecta").toString()).contentType("application/json");
                     return;
                 }
 
-                int userId = user.get("id").getAsNumber().intValue();
+                int userId = credenciales.get("id").getAsNumber().intValue();
                 setCookieDirect(ctx, "userId", String.valueOf(userId), 365 * 24 * 3600);
 
-                // No enviar password al frontend
-                user.remove("password");
+                // S6: los datos que van al frontend salen de una lista blanca de columnas (sin password)
+                JsonObject user = usuarioDAO.buscarPorId(userId);
+                if (user == null) {
+                    ctx.status(400).result(errorJson("Usuario no encontrado").toString()).contentType("application/json");
+                    return;
+                }
                 JsonObject response = new JsonObject();
                 response.addProperty("success", true);
                 response.add("user", user);
@@ -133,7 +138,7 @@ public class RutasAuth {
                 ctx.status(400).result(errorJson("Usuario no encontrado").toString()).contentType("application/json");
                 return;
             }
-            user.remove("password");
+            // S6: buscarPorId ya devuelve solo columnas de sesión (sin password)
             JsonObject response = new JsonObject();
             response.addProperty("success", true);
             response.add("user", user);

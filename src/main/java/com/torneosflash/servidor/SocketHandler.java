@@ -7,6 +7,7 @@ import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.servicio.ChatSanitizer;
 import com.torneosflash.servicio.ClashApiServicio;
 import com.torneosflash.servicio.NotificacionPushServicio;
+import com.torneosflash.servicio.UsuarioVista;
 import com.torneosflash.servicio.ValidadorMonto;
 import com.torneosflash.servicio.WalletService;
 import com.torneosflash.servicio.WalletService.WalletResult;
@@ -152,12 +153,18 @@ public class SocketHandler {
                             }
                         }
 
-                        // Si no se encontró en memoria, buscarlo en BD
-                        if (rivalData == null) {
-                           rivalData = db.queryOne("SELECT * FROM users WHERE sala_actual = ? AND id != ?", salaActual, userId);
+                        // S6: el rival siempre se lee de la BD con lista blanca (nunca el userData del cliente ni SELECT *)
+                        JsonObject rivalDb = null;
+                        if (rivalData != null && rivalData.has("id") && rivalData.get("id").isJsonPrimitive()) {
+                            rivalDb = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?",
+                                    rivalData.get("id").getAsInt());
                         }
+                        if (rivalDb == null) {
+                            rivalDb = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE sala_actual = ? AND id != ?", salaActual, userId);
+                        }
+                        rivalData = rivalDb;
                         
-                        // Calculo de maxMonto
+                        // Calculo de maxMonto (usa el saldo real del rival, que NO se envía al cliente)
                         double miSaldo = user.get("saldo").getAsDouble();
                         double rivalSaldo = rivalData != null && rivalData.has("saldo") ? rivalData.get("saldo").getAsDouble() : 0;
                         double maxMonto = Math.min(miSaldo, rivalSaldo);
@@ -169,7 +176,7 @@ public class SocketHandler {
                         restoreData.addProperty("iniciado", match.iniciado);
                         restoreData.addProperty("estado", dbUser != null && dbUser.has("estado") ? dbUser.get("estado").getAsString() : "partida_encontrada");
                         restoreData.addProperty("maxMonto", maxMonto);
-                        if (rivalData != null) restoreData.add("rival", rivalData);
+                        if (rivalData != null) restoreData.add("rival", UsuarioVista.paraRival(rivalData)); // S6
                         restoreData.add("historial", gson.toJsonTree(msgs));
                         restoreData.addProperty("lastModo", match.lastModo);
                         restoreData.addProperty("lastDinero", match.lastDinero);
@@ -231,7 +238,7 @@ public class SocketHandler {
                     JsonObject usuario = ((JsonElement) data[0]).getAsJsonObject();
                     int userId = usuario.get("id").getAsInt();
 
-                    JsonObject row = db.queryOne("SELECT * FROM users WHERE id = ?", userId);
+                    JsonObject row = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", userId);
                     // D5: el mínimo para buscar partida es el mínimo de torneo configurado (no un número fijo)
                     BigDecimal minTorneo = validador.getMinTorneo();
                     if (row == null || BigDecimal.valueOf(row.get("saldo").getAsDouble()).compareTo(minTorneo) < 0) {
@@ -628,7 +635,7 @@ public class SocketHandler {
                 match.players.add(rivalSocket);
                 activeMatches.put(salaId, match);
 
-                JsonObject rivalData = db.queryOne("SELECT * FROM users WHERE id = ?", rival.oderId);
+                JsonObject rivalData = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", rival.oderId);
                 double maxMonto = Math.min(myData.get("saldo").getAsDouble(),
                         rivalData != null ? rivalData.get("saldo").getAsDouble() : 0);
 
@@ -638,8 +645,8 @@ public class SocketHandler {
 
                 JsonObject matchData = new JsonObject();
                 matchData.addProperty("salaId", salaId);
-                matchData.add("p1", myData);
-                matchData.add("p2", rivalData);
+                matchData.add("p1", UsuarioVista.paraRival(myData)); // S6: solo vista pública (sin password/email/teléfono/saldo)
+                matchData.add("p2", UsuarioVista.paraRival(rivalData));
                 matchData.addProperty("maxMonto", maxMonto);
 
                 meSocket.emit("partida_encontrada", matchData);

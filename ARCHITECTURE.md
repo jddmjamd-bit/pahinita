@@ -53,6 +53,7 @@ TorneosFlash/
 │   │   ├── ChatSanitizer.java       # Validación/limpieza de mensajes de chat y usernames (anti-XSS)
 │   │   ├── CorreoServicio.java      # Envío de emails vía Brevo
 │   │   ├── NotificacionPushServicio.java # Push FCM
+│   │   ├── UsuarioVista.java        # Lista blanca de columnas de `users` que pueden salir al cliente (sesión vs. rival). Nunca `SELECT *` sobre users hacia el frontend
 │   │   └── ValidadorMonto.java      # Valida montos del cliente (número, > 0, entero, rango por tipo). Ver sección 8
 │   ├── servidor/                    # Handlers HTTP (rutas REST)
 │   │   ├── RutasAuth.java           # Login, registro, sesión
