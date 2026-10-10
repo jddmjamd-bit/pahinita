@@ -4,9 +4,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.output.MigrateResult;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -19,6 +22,9 @@ import java.util.Set;
  * S10: el "link de acceso" a la BD se construye en {@link EnlaceBD}: las credenciales
  * viajan por {@code setUsername/setPassword} (nunca dentro de la URL JDBC, así no salen en
  * logs ni mensajes de error) y el modo SSL lo decide el servidor, no la URL.
+ *
+ * A5: el esquema ya no se crea aquí. Lo versiona Flyway con los scripts de
+ * {@code src/main/resources/db/migration} y se aplica con {@link #migrar()}.
  */
 public class ConexionDB {
     private static final Logger logger = LoggerFactory.getLogger(ConexionDB.class);
@@ -28,6 +34,8 @@ public class ConexionDB {
     private static ConexionDB instancia;
     /** Tamano del pool si no se indica otro (A8: Main lo toma de DB_POOL_MAX_SIZE). */
     private static final int POOL_MAX_POR_DEFECTO = 20;
+    /** A5: carpeta (en el classpath) con los scripts V1__..., V2__... de Flyway. */
+    private static final String UBICACION_MIGRACIONES = "classpath:db/migration";
     private HikariDataSource dataSource;
 
     // --- Constructor privado (ENCAPSULAMIENTO) ---
@@ -184,206 +192,42 @@ public class ConexionDB {
     }
 
     /**
-     * Inicializa todas las tablas (equivalente a initDB() en db.js)
+     * A5 — Aplica las migraciones de Flyway pendientes (reemplaza a {@code inicializarTablas()}).
+     *
+     * <ul>
+     *   <li><b>BD vacía:</b> corre V1, V2... en orden y crea todo el esquema.</li>
+     *   <li><b>BD que ya existía sin Flyway (la de Render):</b> {@code baselineOnMigrate} marca el esquema
+     *       actual como versión 0 y aplica V1, V2... encima. V1 es idempotente, así que no cambia lo existente.</li>
+     *   <li><b>BD ya migrada:</b> solo aplica los scripts nuevos.</li>
+     * </ul>
+     *
+     * Si una migración falla lanza una excepción y la app NO debe arrancar: seguir con un esquema a medias
+     * es peor que no arrancar (el deploy anterior de Render sigue sirviendo hasta que se corrija).
+     * Cada script corre en su propia transacción: si falla se revierte entero.
+     *
+     * @throws IllegalStateException si no hay conexión con la BD
+     * @throws org.flywaydb.core.api.FlywayException si una migración falla o un script ya aplicado fue modificado
      */
-    public void inicializarTablas() {
-        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
-            logger.info("🔄 Verificando tablas en PostgreSQL...");
-
-            // 1. Usuarios
-            stmt.execute("CREATE TABLE IF NOT EXISTS users (" +
-                    "id SERIAL PRIMARY KEY, username TEXT UNIQUE, email TEXT UNIQUE, password TEXT, " +
-                    "player_tag TEXT, telefono TEXT, saldo NUMERIC DEFAULT 0, tipo_suscripcion TEXT DEFAULT 'free', " +
-                    "estado TEXT DEFAULT 'normal', sala_actual TEXT DEFAULT NULL, paso_juego INTEGER DEFAULT 0, " +
-                    "ganancia_generada NUMERIC DEFAULT 0, faltas INTEGER DEFAULT 0, " +
-                    "total_victorias INTEGER DEFAULT 0, victorias_normales INTEGER DEFAULT 0, victorias_disputa INTEGER DEFAULT 0, " +
-                    "total_derrotas INTEGER DEFAULT 0, derrotas_normales INTEGER DEFAULT 0, derrotas_disputa INTEGER DEFAULT 0, " +
-                    "total_partidas INTEGER DEFAULT 0, salidas_chat INTEGER DEFAULT 0, salidas_desconexion INTEGER DEFAULT 0, " +
-                    "salidas_x INTEGER DEFAULT 0, salidas_canal INTEGER DEFAULT 0)");
-            ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS player_tag TEXT");
-            ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS telefono TEXT");
-            ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS total_monto_torneos NUMERIC DEFAULT 0");
-            ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS total_ganado NUMERIC DEFAULT 0");
-            ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS victorias_dia INTEGER DEFAULT 0");
-            ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS victorias_semana INTEGER DEFAULT 0");
-            ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS victorias_mes INTEGER DEFAULT 0");
-            ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS victorias_ano INTEGER DEFAULT 0");
-            
-            // Nuevas columnas para desglose de ganancia por usuario
-            String[] genCols = {"gen_sorteos", "gen_misiones", "gen_logros", "gen_leaderboard", "gen_devolucion", "gen_referidos"};
-            for (String col : genCols) {
-                ejecutarSilencioso(stmt, "ALTER TABLE users ADD COLUMN IF NOT EXISTS " + col + " NUMERIC DEFAULT 0");
-            }
-            
-            // Migrar ganancia_generada antigua
-            // La antigua ganancia_generada era el 50% de la comisión total.
-            // Para encontrar la comisión total que generó el usuario: ganancia_generada * 2.
-            // Entonces, gen_sorteos = (ganancia_generada * 2) * 0.20 / 2 = ganancia_generada * 0.20
-            // y así sucesivamente. Y la nueva ganancia_generada será el 25% de la comisión, o sea ganancia_generada_antigua * 0.25 / 0.50 = ganancia_generada_antigua * 0.50 (espera: comision=200, antigua=100. Nueva ganancia = 200*0.25/2 = 25. O sea antigua * 0.25).
-            ejecutarSilencioso(stmt, "UPDATE users SET " +
-                    "gen_sorteos = ganancia_generada * 0.20, " +
-                    "gen_misiones = ganancia_generada * 0.10, " +
-                    "gen_logros = ganancia_generada * 0.05, " +
-                    "gen_leaderboard = ganancia_generada * 0.15, " +
-                    "gen_devolucion = ganancia_generada * 0.15, " +
-                    "gen_referidos = ganancia_generada * 0.10, " +
-                    "ganancia_generada = ganancia_generada * 0.25 " +
-                    "WHERE gen_sorteos = 0 AND ganancia_generada > 0");
-            logger.info("   ✓ Tabla users");
-
-            // 2. Mensajes
-            stmt.execute("CREATE TABLE IF NOT EXISTS messages (" +
-                    "id SERIAL PRIMARY KEY, canal TEXT DEFAULT 'general', usuario TEXT, texto TEXT, " +
-                    "tipo TEXT DEFAULT 'texto', fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
-            logger.info("   ✓ Tabla messages");
-
-            // 3. Partidas
-            stmt.execute("CREATE TABLE IF NOT EXISTS matches (" +
-                    "id SERIAL PRIMARY KEY, jugador1 TEXT, jugador2 TEXT, modo TEXT, " +
-                    "monto NUMERIC, ganador TEXT DEFAULT NULL, estado TEXT DEFAULT 'en_curso', " +
-                    "fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
-            logger.info("   ✓ Tabla matches");
-
-            // 4. Transacciones
-            stmt.execute("CREATE TABLE IF NOT EXISTS transactions (" +
-                    "id SERIAL PRIMARY KEY, usuario_id INTEGER, usuario_nombre TEXT, tipo TEXT, " +
-                    "metodo TEXT, monto NUMERIC, referencia TEXT, estado TEXT DEFAULT 'pendiente', " +
-                    "fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
-            logger.info("   ✓ Tabla transactions");
-
-            // 5. Bóveda Admin
-            stmt.execute("CREATE TABLE IF NOT EXISTS admin_wallet (" +
-                    "id SERIAL PRIMARY KEY, monto NUMERIC, razon TEXT, detalle TEXT, " +
-                    "categoria TEXT, " +
-                    "fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
-            ejecutarSilencioso(stmt, "ALTER TABLE admin_wallet ADD COLUMN IF NOT EXISTS categoria TEXT");
-            logger.info("   ✓ Tabla admin_wallet");
-
-            // 6. Tokens FCM
-            stmt.execute("CREATE TABLE IF NOT EXISTS user_tokens (" +
-                    "id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id), " +
-                    "fcm_token TEXT, UNIQUE(user_id, fcm_token))");
-            logger.info("   ✓ Tabla user_tokens");
-
-            // 7. Tickets
-            stmt.execute("CREATE TABLE IF NOT EXISTS user_tickets (" +
-                    "id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id), " +
-                    "cantidad INTEGER DEFAULT 0, acumulado INTEGER DEFAULT 0, UNIQUE(user_id))");
-            ejecutarSilencioso(stmt, "ALTER TABLE user_tickets ADD COLUMN IF NOT EXISTS acumulado INTEGER DEFAULT 0");
-            logger.info("   ✓ Tabla user_tickets");
-
-            // 8. Sorteos
-            stmt.execute("CREATE TABLE IF NOT EXISTS raffles (" +
-                    "id SERIAL PRIMARY KEY, nombre TEXT NOT NULL, categoria TEXT NOT NULL, " +
-                    "precio INTEGER NOT NULL, tickets_necesarios INTEGER NOT NULL, " +
-                    "tickets_actuales INTEGER DEFAULT 0, fecha_limite TIMESTAMP, " +
-                    "estado TEXT DEFAULT 'activo', ganador_id INTEGER REFERENCES users(id), " +
-                    "ganador_nombre TEXT, fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
-                    "fecha_completado TIMESTAMP)");
-            logger.info("   ✓ Tabla raffles");
-
-            // 8.1 Votos Sorteos
-            stmt.execute("CREATE TABLE IF NOT EXISTS raffle_votes (" +
-                    "user_id INTEGER PRIMARY KEY REFERENCES users(id), " +
-                    "categoria TEXT NOT NULL)");
-            logger.info("   ✓ Tabla raffle_votes");
-            ejecutarSilencioso(stmt, "ALTER TABLE raffles ADD COLUMN IF NOT EXISTS fecha_completado TIMESTAMP");
-            logger.info("   ✓ Tabla raffles");
-
-            // 9. Participaciones
-            stmt.execute("CREATE TABLE IF NOT EXISTS raffle_entries (" +
-                    "id SERIAL PRIMARY KEY, raffle_id INTEGER REFERENCES raffles(id) ON DELETE CASCADE, " +
-                    "user_id INTEGER REFERENCES users(id), tickets_asignados INTEGER DEFAULT 0, " +
-                    "fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(raffle_id, user_id))");
-            logger.info("   ✓ Tabla raffle_entries");
-
-            // 10. Leaderboard history
-            ejecutarSilencioso(stmt, "CREATE TABLE IF NOT EXISTS leaderboard_history (" +
-                    "id SERIAL PRIMARY KEY, user_id INTEGER, username TEXT, periodo TEXT, " +
-                    "victorias INTEGER DEFAULT 0, ganancias NUMERIC DEFAULT 0, posicion INTEGER, " +
-                    "premio NUMERIC DEFAULT 0, fecha_inicio TEXT, fecha_fin TEXT, " +
-                    "fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
-            logger.info("   ✓ Tabla leaderboard_history");
-
-            // 11. Media files (videos subidos por HTTP)
-            stmt.execute("CREATE TABLE IF NOT EXISTS media_files (" +
-                    "id SERIAL PRIMARY KEY, filename TEXT, content_type TEXT, " +
-                    "data BYTEA, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
-            logger.info("   ✓ Tabla media_files");
-
-            // 12. Leaderboard Pools (acumula las comisiones)
-            stmt.execute("CREATE TABLE IF NOT EXISTS leaderboard_pools (" +
-                    "id SERIAL PRIMARY KEY, dia NUMERIC DEFAULT 0, semana NUMERIC DEFAULT 0, " +
-                    "mes NUMERIC DEFAULT 0, ano NUMERIC DEFAULT 0)");
-            ejecutarSilencioso(stmt, "INSERT INTO leaderboard_pools (id, dia, semana, mes, ano) " +
-                    "SELECT 1, 0, 0, 0, 0 WHERE NOT EXISTS (SELECT 1 FROM leaderboard_pools WHERE id = 1)");
-            logger.info("   ✓ Tabla leaderboard_pools");
-
-            logger.info("👍 Todas las tablas verificadas en PostgreSQL.");
-
-            // Migración de datos antiguos de admin_wallet
-            migrarAdminWalletAntiguo(conn);
-
-        } catch (Exception e) {
-            logger.error("❌ Error inicializando tablas: " + e.getMessage());
+    public void migrar() {
+        if (dataSource == null) {
+            throw new IllegalStateException("No hay conexión con PostgreSQL: no se pueden aplicar las migraciones");
         }
-    }
+        logger.info("🔄 Aplicando migraciones de Flyway ({})...", UBICACION_MIGRACIONES);
 
-    private void migrarAdminWalletAntiguo(Connection conn) {
-        try (Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT * FROM admin_wallet WHERE categoria IS NULL")) {
-            
-            boolean hayMigraciones = false;
-            while (rs.next()) {
-                hayMigraciones = true;
-                int id = rs.getInt("id");
-                double monto = rs.getDouble("monto");
-                String razon = rs.getString("razon");
-                String detalle = rs.getString("detalle");
-                Timestamp fecha = rs.getTimestamp("fecha");
+        Flyway flyway = Flyway.configure()
+                .dataSource(dataSource)
+                .locations(UBICACION_MIGRACIONES)
+                .baselineOnMigrate(true)   // BD con tablas pero sin historial de Flyway (la de Render antes de A5)
+                .baselineVersion("0")      // el esquema previo cuenta como versión 0, así V1 sí se ejecuta
+                .baselineDescription("Esquema previo a Flyway (lo creaba inicializarTablas)")
+                .validateOnMigrate(true)   // falla si un script ya aplicado fue editado (checksum distinto)
+                .cleanDisabled(true)       // `flyway clean` borraría TODA la BD: nunca desde la app
+                .load();
 
-                double comSorteos = monto * 0.20;
-                double comMisiones = monto * 0.10;
-                double comLogros = monto * 0.05;
-                double comLeaderboard = monto * 0.15;
-                double comDevolucion = monto * 0.15;
-                double comReferidos = monto * 0.10;
-                double comGanancia = monto - (comSorteos + comMisiones + comLogros + comLeaderboard + comDevolucion + comReferidos);
-
-                String insertSQL = "INSERT INTO admin_wallet (monto, razon, detalle, categoria, fecha) VALUES (?, ?, ?, ?, ?)";
-                try (PreparedStatement pst = conn.prepareStatement(insertSQL)) {
-                    Object[][] distribucion = {
-                        {comSorteos, "sorteos"}, {comMisiones, "misiones"}, {comLogros, "logros"},
-                        {comLeaderboard, "leaderboard"}, {comDevolucion, "devolucion"},
-                        {comReferidos, "referidos"}, {comGanancia, "ganancia"}
-                    };
-                    for (Object[] dist : distribucion) {
-                        pst.setDouble(1, (Double) dist[0]);
-                        pst.setString(2, razon);
-                        pst.setString(3, detalle);
-                        pst.setString(4, (String) dist[1]);
-                        pst.setTimestamp(5, fecha);
-                        pst.addBatch();
-                    }
-                    pst.executeBatch();
-                }
-
-                // Borrar la fila original sin categoría
-                try (PreparedStatement pstDelete = conn.prepareStatement("DELETE FROM admin_wallet WHERE id = ?")) {
-                    pstDelete.setInt(1, id);
-                    pstDelete.executeUpdate();
-                }
-            }
-            if (hayMigraciones) {
-                logger.info("🔄 Migración de admin_wallet completada: registros antiguos divididos en 7 categorías.");
-            }
-        } catch (SQLException e) {
-            logger.error("❌ Error migrando admin_wallet: " + e.getMessage());
-        }
-    }
-
-    private void ejecutarSilencioso(Statement stmt, String sql) {
-        try { stmt.execute(sql); } catch (Exception ignored) {}
+        MigrateResult resultado = flyway.migrate();
+        String version = resultado.targetSchemaVersion != null ? resultado.targetSchemaVersion : "ninguna";
+        logger.info("👍 Esquema al día: {} migración(es) aplicada(s) ahora, versión actual = {}",
+                resultado.migrationsExecuted, version);
     }
 
     public void cerrar() {

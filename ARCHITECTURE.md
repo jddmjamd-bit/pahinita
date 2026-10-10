@@ -13,6 +13,7 @@
 | **WebSocket** | Adaptador custom (`socketio/`) | Emula Socket.IO sobre WS nativo de Javalin. **Migrar a netty-socketio** (pendiente) |
 | **BD** | PostgreSQL (Render) | Pool: HikariCP, max 20 conexiones. Enlace de acceso endurecido (sección 11) |
 | **ORM** | Ninguno | SQL directo con `PreparedStatement` vía `GenericDAO` |
+| **Migraciones BD** | Flyway 10 | Scripts versionados en `src/main/resources/db/migration/`; se aplican al arrancar (`ConexionDB.migrar()`). Ver sección 14 |
 | **Auth** | Cookie `userId` en texto plano | ⚠️ **Inseguro**. Migrar a JWT httpOnly (pendiente) |
 | **Frontend** | Vanilla JS (`app.js`, 120 KB) | SPA monolítica sin framework. **Migrar a React + Vite** (pendiente, en progreso bajo `frontend/`) |
 | **Mobile App** | Capacitor | Genera builds nativos para Android e iOS encapsulando la app React. Gestiona Splash Screen y permisos |
@@ -45,7 +46,7 @@ TorneosFlash/
 │   ├── config/
 │   │   └── AppConfig.java           # Lee variables de entorno
 │   ├── dao/
-│   │   ├── ConexionDB.java          # Singleton HikariCP + inicializarTablas()
+│   │   ├── ConexionDB.java          # Singleton HikariCP + migrar() (Flyway, A5)
 │   │   ├── GenericDAO.java          # CRUD genérico (select, insert, update, delete)
 │   │   └── UsuarioDAO.java          # Queries específicas de usuarios
 │   ├── eventos/
@@ -76,6 +77,8 @@ TorneosFlash/
 │   └── socketio/                    # Adaptador custom Socket.IO
 │       ├── SocketIOServer.java      # Parseo de paquetes Engine.IO/Socket.IO
 │       └── SocketIOClient.java      # Wrapper del cliente WS
+├── src/main/resources/
+│   └── db/migration/                # Migraciones Flyway: V1__esquema_base.sql, V2__migrar_datos_antiguos.sql (A5)
 ├── agent/rules/                     # Reglas para modelos IA
 │   ├── auto-push.md
 │   └── project-conventions.md       # ← NUEVO
@@ -371,3 +374,31 @@ SocketHandler (sondeo) ── WalletService.liquidar()  ← transacción SQL: sa
 - Misiones y logros (aún no existen; la comisión ya les reserva `misiones` 10% y `logros` 5%) y el ranking en vivo del leaderboard serán listeners de `match.finished` cuando se construyan. Los contadores `victorias_*` del leaderboard no se movieron a un listener porque deben ser atómicos con la liquidación.
 - Todavía no emiten evento: la disputa creada (`disputa_creada` / `disputa_timeout` en el sondeo), la partida cancelada, los movimientos de dinero de `WalletService` (depósito, retiro, premio; D2/D3 y "Notificaciones de dinero" del roadmap), el rate limiting (S8) ni los sorteos.
 - La notificación de `DISPUTA` sigue en `AdminService.resolverDisputa` (`actualizar_saldo` + `flujo_completado`, sin `resultado_api` ni push): no se cambió lo que ve el jugador.
+
+---
+
+## 14. Migraciones de BD con Flyway (A5)
+
+El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL en `src/main/resources/db/migration/` y los aplica Flyway al arrancar (`ConexionDB.migrar()`, llamado desde `Main` justo después de conectar y antes de crear DAOs). `ConexionDB.inicializarTablas()` ya no existe.
+
+| Script | Qué hace |
+|---|---|
+| `V1__esquema_base.sql` | Las 13 tablas y todas sus columnas (`CREATE TABLE IF NOT EXISTS` + `ADD COLUMN IF NOT EXISTS`), la fila `leaderboard_pools.id = 1` y el renombrado F5 (`apuesta` → `monto`, `total_apostado` → `total_monto_torneos`) solo si la BD aún tiene los nombres viejos |
+| `V2__migrar_datos_antiguos.sql` | Conversión única de datos viejos: desglose `gen_*` desde la antigua `ganancia_generada` y reparto en 7 categorías de las filas de `admin_wallet` sin categoría |
+
+**Cómo se comporta según el estado de la BD** (`baselineOnMigrate=true`, `baselineVersion=0`):
+
+| BD | Resultado |
+|---|---|
+| Vacía | Corre V1 y V2; crea todo |
+| Con tablas pero sin `flyway_schema_history` (la de Render antes de A5) | Flyway la marca como versión 0 (baseline) y aplica V1 y V2 encima; V1 es idempotente, no cambia lo existente |
+| Ya migrada | Aplica solo los scripts nuevos; si no hay, no hace nada |
+
+**Reglas**
+- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V3`; el `wallet_ledger` de D3 será `V3`). Nunca se agregan tablas en Java.
+- **Nunca editar un `V*` ya aplicado:** Flyway guarda el checksum y `validateOnMigrate` hace fallar el arranque. Para corregir algo, una migración nueva.
+- **Fail-fast:** si una migración falla, `Main` loguea el error y sale con código 1 (no se sirve tráfico con el esquema a medias). Cada script corre en su propia transacción en PostgreSQL: si falla se revierte entero.
+- `cleanDisabled=true`: la app nunca puede ejecutar `flyway clean`.
+- El panel `/admin-db` (`DbAdminService`) oculta y rechaza la tabla `flyway_schema_history`.
+- La conexión de Flyway es la misma de Hikari (mismo usuario y SSL, sección 11): el usuario de la BD debe poder crear tablas y la tabla de historial.
+- Para ver qué está aplicado: `SELECT installed_rank, version, description, success FROM flyway_schema_history ORDER BY installed_rank;`.

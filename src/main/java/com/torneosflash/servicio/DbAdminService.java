@@ -24,6 +24,13 @@ public class DbAdminService {
 
     private final GenericDAO db;
 
+    /**
+     * A5: tabla donde Flyway guarda el historial de migraciones. El panel no la muestra ni la deja tocar:
+     * editarla desde la web podría hacer que Flyway rehaga o salte migraciones. Además no tiene columna `id`,
+     * así que `ORDER BY id` (ver, exportar) fallaría con ella.
+     */
+    private static final String TABLA_FLYWAY = "flyway_schema_history";
+
     public DbAdminService(GenericDAO db) {
         this.db = db;
     }
@@ -278,7 +285,7 @@ public class DbAdminService {
     private static List<String> nombresDeTablas(Connection conn) throws SQLException {
         List<String> nombres = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name");
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name <> '" + TABLA_FLYWAY + "' ORDER BY table_name");
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) nombres.add(rs.getString("table_name"));
         }
@@ -309,7 +316,7 @@ public class DbAdminService {
     /** Lanza 400 si la tabla no existe en el esquema public. Todo nombre de tabla del request pasa por aquí. */
     private static void exigirTablaValida(Connection conn, String tableName) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ?")) {
+                "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ? AND table_name <> '" + TABLA_FLYWAY + "'")) {
             ps.setString(1, tableName);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) {

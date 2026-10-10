@@ -68,7 +68,16 @@ public class Main {
         // 2. BASE DE DATOS (PostgreSQL)
         // ============================================
         ConexionDB conexion = ConexionDB.getInstancia(config.getDatabaseUrl(), config.getDbSslMode(), config.getDbPoolMax()); // A8: DB_POOL_MAX_SIZE
-        conexion.inicializarTablas();
+        // A5: el esquema lo versiona Flyway (src/main/resources/db/migration). Si una migración falla NO se arranca:
+        // un esquema a medias es peor que un deploy caído (Render conserva la versión anterior sirviendo).
+        try {
+            conexion.migrar();
+        } catch (Exception e) {
+            logger.error("❌ Fallaron las migraciones de la BD. El servidor NO arranca: {}", e.getMessage());
+            ejecutores.cerrar();
+            conexion.cerrar();
+            System.exit(1);
+        }
 
         // DAOs
         UsuarioDAO usuarioDAO = new UsuarioDAO(conexion);
