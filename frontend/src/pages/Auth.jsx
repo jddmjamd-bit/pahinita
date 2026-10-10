@@ -38,6 +38,11 @@ export default function Auth() {
             setUsernameStatus({ text: '🔍 Verificando...', className: 'tag-status visible searching' });
             try {
                 const res = await fetch(`${API_BASE_URL}/api/check-username/${encodeURIComponent(username)}`);
+                if (res.status === 429) { // S8: rate limit, no tratarlo como "usuario ocupado"
+                    setUsernameStatus({ text: '⏳ Demasiadas solicitudes, espera unos segundos', className: 'tag-status visible error' });
+                    setUsernameValid(false);
+                    return;
+                }
                 const data = await res.json();
                 if (data.available) {
                     setUsernameStatus({ text: data.message, className: 'tag-status visible found' });
@@ -66,6 +71,11 @@ export default function Auth() {
             setEmailStatus({ text: '🔍 Verificando...', className: 'tag-status visible searching' });
             try {
                 const res = await fetch(`${API_BASE_URL}/api/check-email/${encodeURIComponent(email)}`);
+                if (res.status === 429) { // S8: rate limit, no tratarlo como "correo ya registrado"
+                    setEmailStatus({ text: '⏳ Demasiadas solicitudes, espera unos segundos', className: 'tag-status visible error' });
+                    setEmailValid(false);
+                    return;
+                }
                 const data = await res.json();
                 if (data.available) {
                     setEmailStatus({ text: data.message, className: 'tag-status visible found' });
@@ -100,6 +110,11 @@ export default function Auth() {
             setPlayerTagStatus({ text: '🔍 Verificando...', className: 'tag-status visible searching' });
             try {
                 const res = await fetch(`${API_BASE_URL}/api/verify-tag/${encodeURIComponent(tag)}`);
+                if (res.status === 429) { // S8: rate limit, no tratarlo como "usuario no encontrado"
+                    setPlayerTagStatus({ text: '⏳ Demasiadas solicitudes, espera unos segundos', className: 'tag-status visible error' });
+                    setPlayerTagValid(false);
+                    return;
+                }
                 const data = await res.json();
                 if (data.found) {
                     setPlayerTagStatus({ text: `✅ ¿Tu nombre es ${data.name}? (${data.trophies} 🏆)`, className: 'tag-status visible found' });

@@ -31,6 +31,9 @@ export default function Match() {
     const socket = useAppStore(state => state.socket);
     const chatEndRef = useRef(null);
     const simulacionRef = useRef(0); // id de la última consulta de ganancia (descarta respuestas viejas)
+    const gananciaTimerRef = useRef(null); // S8: debounce de la consulta de ganancia (antes: una petición por cada tecla/flecha del input)
+
+    useEffect(() => () => clearTimeout(gananciaTimerRef.current), []);
 
     useEffect(() => {
         // Auto-scroll chat
@@ -69,9 +72,11 @@ export default function Match() {
         setValidationMsg(error);
 
         if (!isNaN(dinero) && dinero >= 1000) {
-            actualizarGanancia(dinero);
+            clearTimeout(gananciaTimerRef.current);
+            gananciaTimerRef.current = setTimeout(() => actualizarGanancia(dinero), 400);
         } else {
             simulacionRef.current++;
+            clearTimeout(gananciaTimerRef.current);
             setWinText("Ganancia: $0");
         }
 

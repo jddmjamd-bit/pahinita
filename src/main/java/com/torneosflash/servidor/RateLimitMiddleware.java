@@ -166,6 +166,23 @@ public class RateLimitMiddleware {
         ctx.header("X-RateLimit-Remaining", String.valueOf(r.getRestantes()));
     }
 
+    /**
+     * Cabeceras CORS para la respuesta 429. Este middleware se registra antes de que Javalin instale el
+     * plugin CORS y, al rechazar, se saltan los handlers restantes: la 429 podía salir sin cabeceras CORS
+     * y el navegador la bloqueaba en la app React/Capacitor (otro origen), mostrando "Error de conexión"
+     * en vez del mensaje. Replica la regla de {@code Main} (anyHost + credenciales: se refleja el Origin)
+     * y expone {@code Retry-After} para que el frontend pueda leerlo.
+     */
+    private static void cabecerasCors(Context ctx) {
+        String origen = ctx.header("Origin");
+        if (origen != null && !origen.isBlank()) {
+            ctx.header("Access-Control-Allow-Origin", origen);
+            ctx.header("Access-Control-Allow-Credentials", "true");
+            ctx.header("Vary", "Origin");
+        }
+        ctx.header("Access-Control-Expose-Headers", "Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining");
+    }
+
     private static void rechazar(Context ctx, RateLimiter.Resultado r, Categoria categoria,
                                  String ip, String metodo, String ruta) {
         if (r.isPrimerBloqueo()) {
@@ -177,6 +194,7 @@ public class RateLimitMiddleware {
         cuerpo.addProperty("retryAfter", segundos);
 
         ctx.status(429);
+        cabecerasCors(ctx);
         ctx.header("Retry-After", String.valueOf(segundos));
         ctx.header("X-RateLimit-Limit", String.valueOf(r.getLimite()));
         ctx.header("X-RateLimit-Remaining", "0");

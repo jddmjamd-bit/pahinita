@@ -54,15 +54,25 @@ export default function Sorteos() {
             await cargarEncuesta();
 
             // Sorteos activos
+            await cargarOfertas();
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // S8: recarga solo los sorteos (1 petición). Tras participar basta con esto: los tickets del usuario
+    // ya vienen en la respuesta de /participate; recargarlo todo eran 5 peticiones por clic en +/−.
+    const cargarOfertas = async () => {
+        try {
             const res = await fetch(`${API_BASE_URL}/api/raffle/offers`, { credentials: 'include' });
-            if(res.ok) {
+            if (res.ok) {
                 const data = await res.json();
                 setSorteos(data);
             }
         } catch (e) {
             console.error(e);
-        } finally {
-            setLoading(false);
         }
     };
 
@@ -121,7 +131,7 @@ export default function Sorteos() {
             const data = await res.json();
             if (!res.ok) return alert(data.error || 'Error al participar');
             setUserTickets(data.ticketsUsuario);
-            cargarSorteos();
+            cargarOfertas();
         } catch (e) {
             alert("Error de conexión");
         }
