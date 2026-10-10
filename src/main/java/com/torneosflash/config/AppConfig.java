@@ -45,6 +45,13 @@ public class AppConfig {
     private final BigDecimal montoMinSorteo;
     private final BigDecimal montoMaxSorteo;
 
+    // --- Rate limiting (S8). Todos por IP y por minuto. Ver RateLimitMiddleware. ---
+    private final boolean rateLimitEnabled;
+    private final int rateLimitGeneralPorMin;
+    private final int rateLimitFinancieroPorMin;
+    private final int rateLimitMediaPorMin;
+    private final int rateLimitProxyHops;
+
     // --- Constructor (CONSTRUCTOR con parámetros desde env) ---
     public AppConfig() {
         this.port = Integer.parseInt(getEnv("PORT", "5000"));
@@ -75,6 +82,13 @@ public class AppConfig {
         this.montoMaxTorneo = getEnvMonto("MONTO_MAX_TORNEO", "10000");
         this.montoMinSorteo = getEnvMonto("MONTO_MIN_SORTEO", "1000");
         this.montoMaxSorteo = getEnvMonto("MONTO_MAX_SORTEO", "100000000");
+
+        this.rateLimitEnabled = Boolean.parseBoolean(getEnv("RATE_LIMIT_ENABLED", "true"));
+        this.rateLimitGeneralPorMin = getEnvEntero("RATE_LIMIT_GENERAL_PER_MIN", 60, 1);
+        this.rateLimitFinancieroPorMin = getEnvEntero("RATE_LIMIT_FINANCIAL_PER_MIN", 10, 1);
+        this.rateLimitMediaPorMin = getEnvEntero("RATE_LIMIT_MEDIA_PER_MIN", 300, 1);
+        // Cuántos proxies de confianza hay delante del servidor (Render = 1). 0 = ignorar X-Forwarded-For.
+        this.rateLimitProxyHops = getEnvEntero("RATE_LIMIT_PROXY_HOPS", 1, 0);
     }
 
     /**
@@ -120,6 +134,22 @@ public class AppConfig {
         return new BigDecimal(defaultValue);
     }
 
+    /**
+     * Lee un entero de una variable de entorno. Si no está definida, no es un número o es menor
+     * que {@code minimo}, se usa el valor por defecto.
+     */
+    private int getEnvEntero(String key, int defaultValue, int minimo) {
+        String raw = getEnv(key, String.valueOf(defaultValue)).trim();
+        try {
+            int valor = Integer.parseInt(raw);
+            if (valor >= minimo) return valor;
+        } catch (NumberFormatException ignored) {
+            // cae al log de abajo
+        }
+        logger.error("⚠️ {}='{}' no es válido (entero >= {}). Se usa {}.", key, raw, minimo, defaultValue);
+        return defaultValue;
+    }
+
     // Método auxiliar para leer variables de entorno con valor por defecto
     private String getEnv(String key, String defaultValue) {
         String value = System.getenv(key);
@@ -151,6 +181,11 @@ public class AppConfig {
     public BigDecimal getMontoMaxTorneo() { return montoMaxTorneo; }
     public BigDecimal getMontoMinSorteo() { return montoMinSorteo; }
     public BigDecimal getMontoMaxSorteo() { return montoMaxSorteo; }
+    public boolean isRateLimitEnabled() { return rateLimitEnabled; }
+    public int getRateLimitGeneralPorMin() { return rateLimitGeneralPorMin; }
+    public int getRateLimitFinancieroPorMin() { return rateLimitFinancieroPorMin; }
+    public int getRateLimitMediaPorMin() { return rateLimitMediaPorMin; }
+    public int getRateLimitProxyHops() { return rateLimitProxyHops; }
 
     public boolean hasClashApi() { return !clashApiToken.isEmpty(); }
     public boolean hasFirebase() { return !firebaseServiceAccount.isEmpty(); }

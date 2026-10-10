@@ -11,6 +11,7 @@ import com.torneosflash.servicio.ComisionService;
 import com.torneosflash.servicio.ClashApiServicio;
 import com.torneosflash.servicio.CorreoServicio;
 import com.torneosflash.servicio.NotificacionPushServicio;
+import com.torneosflash.servicio.RateLimiter;
 import com.torneosflash.servicio.ValidadorMonto;
 import com.torneosflash.servidor.*;
 import com.torneosflash.socketio.SocketIOServer;
@@ -141,6 +142,16 @@ public class Main {
                 }
             }
         });
+
+        // ============================================
+        // 5.5. RATE LIMITING (S8)
+        // Va antes de registrar rutas y sockets para que sea lo primero que corre en cada request.
+        // ============================================
+        if (config.isRateLimitEnabled()) {
+            RateLimitMiddleware.register(app, config, new RateLimiter());
+        } else {
+            logger.warn("⚠️ Rate limiting DESACTIVADO (RATE_LIMIT_ENABLED=false). No usar así en producción.");
+        }
 
         // ============================================
         // 6. REGISTRAR SOCKET.IO

@@ -53,11 +53,13 @@ TorneosFlash/
 │   │   ├── ChatSanitizer.java       # Validación/limpieza de mensajes de chat y usernames (anti-XSS)
 │   │   ├── CorreoServicio.java      # Envío de emails vía Brevo
 │   │   ├── NotificacionPushServicio.java # Push FCM
+│   │   ├── RateLimiter.java         # Contador de solicitudes por clave, ventana deslizante de 1 min (lógica pura, sin HTTP). Ver sección 10
 │   │   ├── WalletService.java       # Todo movimiento de dinero (transacciones atómicas, BigDecimal)
 │   │   ├── ComisionService.java     # Política de comisiones: % escalonado + reparto por categoría. Ver sección 9
 │   │   ├── UsuarioVista.java        # Lista blanca de columnas de `users` que pueden salir al cliente (sesión vs. rival). Nunca `SELECT *` sobre users hacia el frontend
 │   │   └── ValidadorMonto.java      # Valida montos del cliente (número, > 0, entero, rango por tipo). Ver sección 8
 │   ├── servidor/                    # Handlers HTTP (rutas REST)
+│   │   ├── RateLimitMiddleware.java # Rate limiting por IP (S8): clasifica cada request y responde 429. Ver sección 10
 │   │   ├── RutasAuth.java           # Login, registro, sesión
 │   │   ├── RutasAdmin.java          # Operaciones admin (aprobar retiros, etc.)
 │   │   ├── RutasDbAdmin.java        # CRUD admin sobre BD
@@ -237,3 +239,21 @@ Cada jugador se atribuye la mitad de cada categoría (`Desglose.porJugador()`, c
 
 - Para cambiar la política se edita **solo** `ComisionService` (constantes y enum). El panel admin y `Match.jsx` se actualizan solos.
 - Pendiente: el frontend legacy de `public/` (`app.js`, `public/js/*`) no se tocó en D4 y podría conservar su propia copia de la fórmula (no verificado); muere con la migración a React. La tarifa de pasarela Wompi (`RutasFinanzas`, `/ 0.964 + 840`) es otro cobro y sigue con `double` (D1).
+
+---
+
+## 10. Rate limiting (S8)
+
+Middleware global (`servidor/RateLimitMiddleware`, registrado en `Main` antes de rutas y sockets) que cuenta requests **por IP** con ventana deslizante de 1 minuto. El conteo vive en `servicio/RateLimiter` (en memoria: se reinicia con el servidor). Al pasarse del límite responde **429** con `{ "error": "Demasiadas solicitudes...", "retryAfter": N }` y el header `Retry-After`; las respuestas normales llevan `X-RateLimit-Limit` / `X-RateLimit-Remaining` del cubo más estricto que les aplica.
+
+| Cubo | Límite (env) | Qué rutas |
+|------|--------------|-----------|
+| General | `RATE_LIMIT_GENERAL_PER_MIN` = 60 | Todo lo que empiece por `/api/`, `/admin-db/`, `/secret-admin/`, `/admin-fix-status/` y `/check-ip` |
+| Financiero | `RATE_LIMIT_FINANCIAL_PER_MIN` = 10 | `/api/deposit`, `/api/transaction/create`, `/api/transaction/withdraw`, `/api/wompi/init`, `/api/admin/transaction/process`, `/api/admin/resolve-dispute`. Cuentan aquí **y** en el general |
+| Media | `RATE_LIMIT_MEDIA_PER_MIN` = 300 | `GET /api/media/*` (los videos hacen muchas peticiones Range; el chat carga varias imágenes a la vez) |
+
+- **Exentos:** `OPTIONS` (preflight CORS), archivos estáticos del frontend, WebSocket (Socket.IO) y `POST /api/wompi/webhook` (lo llama Wompi, no un usuario; limitarlo podría perder pagos reales. Su defensa es verificar la firma, tarea S7).
+- **IP del cliente:** detrás de Render `ctx.ip()` es la IP del proxy. Se lee `X-Forwarded-For` contando desde la **derecha** con `RATE_LIMIT_PROXY_HOPS` (default 1): lo que está a la izquierda lo escribe el cliente y es falsificable. `0` ignora el header. Si Render/Cloudflare añaden más de una entrada y varios usuarios caen en la misma clave, subir a 2 (se comprueba con `/check-ip`).
+- **Apagar (solo para pruebas locales):** `RATE_LIMIT_ENABLED=false`.
+- **Memoria:** una clave guarda como máximo `limite` marcas de tiempo; se limpian las inactivas cada minuto y hay tope de 100.000 claves.
+- **Límites conocidos:** (1) es por IP, no por usuario: varios jugadores detrás de la misma red/CGNAT comparten cupo (por eso todo es configurable); cuando el JWT (S1) esté conectado se puede añadir un cubo por `userId`. (2) No cubre mensajes de Socket.IO (spam de chat por socket): requiere un limitador propio en `SocketHandler`. (3) Login/registro entran en el cubo general (60/min); un cubo más estricto para fuerza bruta de contraseñas no estaba en S8.
