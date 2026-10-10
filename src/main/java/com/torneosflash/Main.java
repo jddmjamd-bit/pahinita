@@ -52,7 +52,7 @@ public class Main {
         // ============================================
         // 2. BASE DE DATOS (PostgreSQL)
         // ============================================
-        ConexionDB conexion = ConexionDB.getInstancia(config.getDatabaseUrl());
+        ConexionDB conexion = ConexionDB.getInstancia(config.getDatabaseUrl(), config.getDbSslMode());
         conexion.inicializarTablas();
 
         // DAOs

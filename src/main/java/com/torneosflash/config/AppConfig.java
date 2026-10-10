@@ -18,6 +18,7 @@ public class AppConfig {
     // --- Atributos privados (ENCAPSULAMIENTO) ---
     private final int port;
     private final String databaseUrl;
+    private final String dbSslMode;
     private final String clashApiToken;
     private final String firebaseServiceAccount;
     private final String brevoApiKey;
@@ -56,6 +57,8 @@ public class AppConfig {
     public AppConfig() {
         this.port = Integer.parseInt(getEnv("PORT", "5000"));
         this.databaseUrl = getEnv("DATABASE_URL", "");
+        // S10: modo SSL de la conexión a la BD (require | verify-ca | verify-full). Opcional; default require.
+        this.dbSslMode = getEnv("DB_SSLMODE", "require");
         this.clashApiToken = getEnv("CLASH_ROYALE_API_TOKEN", "");
         this.firebaseServiceAccount = getEnv("FIREBASE_SERVICE_ACCOUNT", "");
         this.brevoApiKey = getEnv("BREVO_API_KEY", "");
@@ -159,6 +162,7 @@ public class AppConfig {
     // --- Getters (GETTER) ---
     public int getPort() { return port; }
     public String getDatabaseUrl() { return databaseUrl; }
+    public String getDbSslMode() { return dbSslMode; }
     public String getClashApiToken() { return clashApiToken; }
     public String getFirebaseServiceAccount() { return firebaseServiceAccount; }
     public String getBrevoApiKey() { return brevoApiKey; }

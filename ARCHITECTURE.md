@@ -11,7 +11,7 @@
 |------|-----------|-------|
 | **Backend** | Java 17, Javalin 5 | Servidor HTTP + middleware |
 | **WebSocket** | Adaptador custom (`socketio/`) | Emula Socket.IO sobre WS nativo de Javalin. **Migrar a netty-socketio** (pendiente) |
-| **BD** | PostgreSQL (Render) | Pool: HikariCP, max 20 conexiones |
+| **BD** | PostgreSQL (Render) | Pool: HikariCP, max 20 conexiones. Enlace de acceso endurecido (sección 11) |
 | **ORM** | Ninguno | SQL directo con `PreparedStatement` vía `GenericDAO` |
 | **Auth** | Cookie `userId` en texto plano | ⚠️ **Inseguro**. Migrar a JWT httpOnly (pendiente) |
 | **Frontend** | Vanilla JS (`app.js`, 120 KB) | SPA monolítica sin framework. **Migrar a React + Vite** (pendiente, en progreso bajo `frontend/`) |
@@ -259,3 +259,19 @@ Middleware global (`servidor/RateLimitMiddleware`, registrado en `Main` antes de
 - **Clientes (frontend):** `Auth.jsx` muestra "Demasiadas solicitudes" en las validaciones de usuario/correo/tag en vez de marcarlos como ocupados; `Match.jsx` consulta la ganancia con debounce de 400 ms; `Sorteos.jsx` recarga solo `/api/raffle/offers` tras participar (2 peticiones por clic en +/−, antes 5). Finance, Leaderboard y Chat ya muestran `data.error` o ignoran respuestas no OK. No auditados: `Admin.jsx` y el frontend legacy de `public/`.
 - **Memoria:** una clave guarda como máximo `limite` marcas de tiempo; se limpian las inactivas cada minuto y hay tope de 100.000 claves.
 - **Límites conocidos:** (1) es por IP, no por usuario: varios jugadores detrás de la misma red/CGNAT comparten cupo (por eso todo es configurable); cuando el JWT (S1) esté conectado se puede añadir un cubo por `userId`. (2) No cubre mensajes de Socket.IO (spam de chat por socket): requiere un limitador propio en `SocketHandler`. (3) Login/registro entran en el cubo general (60/min); un cubo más estricto para fuerza bruta de contraseñas no estaba en S8.
+
+---
+
+## 11. Enlace de acceso a la BD (S10)
+
+`DATABASE_URL` se mantiene igual (formato de Render `postgres://usuario:clave@host/db`). `ConexionDB.EnlaceBD.desde()` lo convierte en una URL JDBC **sin credenciales** más usuario/clave por separado (`HikariConfig.setUsername/setPassword`), así la clave no aparece en la URL, en logs ni en mensajes de error (el log de arranque solo muestra `host` y `sslmode`).
+
+| Aspecto | Comportamiento |
+|---|---|
+| Credenciales | Antes de la última `@`; usuario hasta el primer `:`; se decodifica `%XX`. Claves con `:` o `@` ya no rompen la conexión |
+| SSL | Variable opcional `DB_SSLMODE`: `require` (default, cifrado), `verify-ca` o `verify-full` (además verifican el certificado). Valor inválido → `require` + log de error |
+| Parámetros de la URL | `ssl`, `sslmode` y `sslfactory` se ignoran (no se puede bajar a `disable` ni usar `NonValidatingFactory`); `user`/`password` en la query se mueven a Hikari; el resto se conserva |
+| Formatos aceptados | `postgres://`, `postgresql://`, `jdbc:postgresql://` y `host:puerto/db` |
+
+- La rotación de la contraseña de la BD se hace en Render (no desde el código).
+- `verify-full` no se ha probado contra el certificado de Render; si la conexión falla con ese modo, quitar `DB_SSLMODE`.
