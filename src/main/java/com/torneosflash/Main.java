@@ -83,7 +83,7 @@ public class Main {
         // Servicio de Push Notifications (FCM)
         NotificacionPushServicio pushService = new NotificacionPushServicio(
                 config.getFirebaseServiceAccount(),
-                "https://torneos-beta.onrender.com");
+                config.getAppBaseUrl()); // A7: antes la URL estaba escrita aquí
 
         // ============================================
         // 4. SOCKET.IO
@@ -94,10 +94,10 @@ public class Main {
         // 5. SERVIDOR HTTP (Javalin)
         // ============================================
         Javalin app = Javalin.create(javalinConfig -> {
-            // Aumentar límites de WebSocket a 50MB
+            // Límite de tamaño de mensajes WebSocket (WS_MAX_MESSAGE_BYTES, default 50 MB) // A7
             javalinConfig.jetty.modifyWebSocketServletFactory(wsFactory -> {
-                wsFactory.setMaxTextMessageSize(50_000_000);
-                wsFactory.setMaxBinaryMessageSize(50_000_000);
+                wsFactory.setMaxTextMessageSize(config.getWsMaxMessageBytes());
+                wsFactory.setMaxBinaryMessageSize(config.getWsMaxMessageBytes());
             });
 
             // Configurar Gson como el Object Mapper oficial
@@ -173,7 +173,7 @@ public class Main {
         // ============================================
         // 8. REGISTRAR SOCKET HANDLERS
         // ============================================
-        SocketHandler socketHandler = new SocketHandler(db, socketServer, clashApi, pushService, wallet, validadorMonto);
+        SocketHandler socketHandler = new SocketHandler(db, socketServer, clashApi, pushService, wallet, validadorMonto, config);
         socketHandler.registrar();
 
         // ============================================
@@ -250,7 +250,7 @@ public class Main {
         // ============================================
         // 10. INICIAR SERVIDOR
         // ============================================
-        app.start("0.0.0.0", config.getPort());
+        app.start(config.getBindHost(), config.getPort()); // A7: BIND_HOST (default 0.0.0.0)
         logger.info("═══════════════════════════════════════════════");
         logger.info("  ✅ Servidor listo en puerto " + config.getPort());
         logger.info("═══════════════════════════════════════════════");

@@ -3,6 +3,7 @@ package com.torneosflash.servidor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.google.gson.*;
+import com.torneosflash.config.AppConfig;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.servicio.ChatSanitizer;
 import com.torneosflash.servicio.ClashApiServicio;
@@ -40,16 +41,18 @@ public class SocketHandler {
     private final NotificacionPushServicio pushService;
     private final WalletService wallet;
     private final ValidadorMonto validador;
+    private final AppConfig config; // A7: timeouts y límites configurables por variable de entorno
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
     private final Gson gson = new Gson();
 
-    public SocketHandler(GenericDAO db, SocketIOServer io, ClashApiServicio clashApi, NotificacionPushServicio pushService, WalletService wallet, ValidadorMonto validador) {
+    public SocketHandler(GenericDAO db, SocketIOServer io, ClashApiServicio clashApi, NotificacionPushServicio pushService, WalletService wallet, ValidadorMonto validador, AppConfig config) {
         this.db = db;
         this.io = io;
         this.clashApi = clashApi;
         this.pushService = pushService;
         this.wallet = wallet;
         this.validador = validador;
+        this.config = config;
     }
 
     /**
@@ -60,7 +63,8 @@ public class SocketHandler {
             // Enviar historial de chats
             for (String canal : new String[]{"anuncios", "general", "clash", "clash_logs"}) {
                 ArrayList<JsonObject> msgs = db.query(
-                        "SELECT * FROM (SELECT * FROM messages WHERE canal = ? ORDER BY id DESC LIMIT 50) t ORDER BY id ASC", canal);
+                        "SELECT * FROM (SELECT * FROM messages WHERE canal = ? ORDER BY id DESC LIMIT ?) t ORDER BY id ASC",
+                        canal, config.getChatHistorialLimite()); // A7: CHAT_HISTORIAL_LIMITE (antes 50 fijo)
                 JsonObject histData = new JsonObject();
                 histData.addProperty("canal", canal);
                 histData.add("mensajes", gson.toJsonTree(msgs));
@@ -256,17 +260,18 @@ public class SocketHandler {
                     BusquedaActiva busqueda = new BusquedaActiva(userId, username, client);
                     busquedasActivas.put(userId, busqueda);
 
-                    // Timer de 10 minutos
+                    // Timer de búsqueda (BUSQUEDA_TIMEOUT_MINUTOS, default 10) // A7
+                    final int busquedaMinutos = config.getBusquedaTimeoutMinutos();
                     busqueda.timeoutFuture = scheduler.schedule(() -> {
                         if (busquedasActivas.containsKey(userId)) {
                             colaEsperaClash.removeIf(s -> s.getUserData() != null &&
                                     s.getUserData().get("id").getAsInt() == userId);
                             db.update("UPDATE users SET estado = 'normal' WHERE id = ?", userId);
-                            logClash("⏰ " + username + " - Búsqueda cancelada (10 min sin rival)");
+                            logClash("⏰ " + username + " - Búsqueda cancelada (" + busquedaMinutos + " min sin rival)");
 
                             if (busqueda.socket != null && busqueda.socket.isConnected()) {
                                 JsonObject timeoutData = new JsonObject();
-                                timeoutData.addProperty("mensaje", "⏰ Tu búsqueda fue cancelada porque nadie respondió en 10 minutos.");
+                                timeoutData.addProperty("mensaje", "⏰ Tu búsqueda fue cancelada porque nadie respondió en " + duracionTexto(busquedaMinutos * 60L) + ".");
                                 busqueda.socket.emit("busqueda_timeout", timeoutData);
                             }
 
@@ -276,7 +281,7 @@ public class SocketHandler {
                             io.emit("busqueda_cancelada", cancelData);
                             busquedasActivas.remove(userId);
                         }
-                    }, 10, TimeUnit.MINUTES);
+                    }, busquedaMinutos, TimeUnit.MINUTES);
 
                     // Notificar a todos
                     JsonObject buscandoData = new JsonObject();
@@ -569,8 +574,9 @@ public class SocketHandler {
                         disconnData.addProperty("mensaje", "Rival desconectado. Esperando...");
                         client.to(salaId).emit("rival_desconectado", disconnData);
                     } else {
-                        // Negociación - timer 90 segundos
-                        logger.info("🔌 " + client.getUserData().get("username").getAsString() + " se fue en negociación. Timer 90s.");
+                        // Negociación - timer de desconexión (NEGOCIACION_DESCONEXION_SEGUNDOS, default 90) // A7
+                        final int esperaSegundos = config.getNegociacionDesconexionSegundos();
+                        logger.info("🔌 " + client.getUserData().get("username").getAsString() + " se fue en negociación. Timer " + esperaSegundos + "s.");
                         
                         // Cancelar su voto si lo tenía
                         if (match.votosInicio.containsKey(userId)) {
@@ -580,14 +586,14 @@ public class SocketHandler {
                         }
 
                         JsonObject timerData = new JsonObject();
-                        timerData.addProperty("tiempo", 90);
+                        timerData.addProperty("tiempo", esperaSegundos);
                         client.to(salaId).emit("rival_desconectado", timerData);
 
                         ScheduledFuture<?> timer = scheduler.schedule(() -> {
                             if (activeMatches.containsKey(salaId) && !activeMatches.get(salaId).iniciado) {
                                 String uname = client.getUserData().get("username").getAsString();
                                 db.update("UPDATE users SET salidas_chat = salidas_chat + 1, salidas_desconexion = salidas_desconexion + 1 WHERE id = ?", userId);
-                                logClash("⚠️ ABANDONO Negociación: " + uname + " no volvió (90s)");
+                                logClash("⚠️ ABANDONO Negociación: " + uname + " no volvió (" + esperaSegundos + "s)");
 
                                 JsonObject cancelData = new JsonObject();
                                 cancelData.addProperty("motivo", uname + " abandonó por desconexión");
@@ -603,7 +609,7 @@ public class SocketHandler {
                                 }
                                 activeMatches.remove(salaId);
                             }
-                        }, 90, TimeUnit.SECONDS);
+                        }, esperaSegundos, TimeUnit.SECONDS);
                         match.disconnectTimers.put(userId, timer);
                     }
                 }
@@ -616,6 +622,15 @@ public class SocketHandler {
     /** Lee un campo String de un JSON del cliente sin lanzar excepción (null si falta o no es un valor simple). */
     private static String str(JsonObject o, String clave) {
         return (o != null && o.has(clave) && o.get(clave).isJsonPrimitive()) ? o.get(clave).getAsString() : null;
+    }
+
+    /** Texto legible de una duración para los mensajes al usuario: "10 minutos", "1 minuto", "90 segundos". */
+    static String duracionTexto(long segundos) {
+        if (segundos > 0 && segundos % 60 == 0) {
+            long minutos = segundos / 60;
+            return minutos + (minutos == 1 ? " minuto" : " minutos");
+        }
+        return segundos + (segundos == 1 ? " segundo" : " segundos");
     }
 
     private void intentarMatcheo(SocketIOClient meSocket, int myId, JsonObject myData) {
@@ -673,7 +688,9 @@ public class SocketHandler {
     }
 
     private void iniciarPollingApi(String salaId, ActiveMatch match, List<Integer> ids) {
-        final int MAX_POLLS = 120;
+        // A7: POLLING_MAX_INTENTOS x POLLING_INTERVALO_SEGUNDOS (default 120 x 5 s = 10 min) antes de crear la disputa
+        final int MAX_POLLS = config.getPollingMaxIntentos();
+        final int intervaloSegundos = config.getPollingIntervaloSegundos();
         match.pollFuture = scheduler.scheduleAtFixedRate(() -> {
             try {
                 if (!activeMatches.containsKey(salaId)) { match.pollFuture.cancel(false); return; }
@@ -774,12 +791,12 @@ public class SocketHandler {
                     db.update("UPDATE matches SET estado = 'disputa' WHERE id = ?", match.dbId);
                     logClash("⏰ TIMEOUT #" + match.dbId + " - Disputa creada automáticamente");
                     JsonObject timeoutData = new JsonObject();
-                    timeoutData.addProperty("mensaje", "No se encontró el resultado en 10 minutos. Disputa creada.");
+                    timeoutData.addProperty("mensaje", "No se encontró el resultado en " + duracionTexto((long) MAX_POLLS * intervaloSegundos) + ". Disputa creada.");
                     io.to(salaId).emit("disputa_timeout", timeoutData);
                     liberarJugadores(salaId, match);
                 }
             } catch (Exception e) { logger.error("Error en polling: " + e.getMessage()); }
-        }, 5, 5, TimeUnit.SECONDS);
+        }, intervaloSegundos, intervaloSegundos, TimeUnit.SECONDS);
     }
 
     private void liberarJugadores(String salaId, ActiveMatch match) {

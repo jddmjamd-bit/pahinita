@@ -30,6 +30,18 @@ public class AppConfig {
     private final String wompiXApiKey;
     private final String dbAdminSecret;
 
+    // --- Servidor / red (A7) ---
+    private final String appBaseUrl;
+    private final String bindHost;
+    private final int wsMaxMessageBytes;
+
+    // --- Temporizadores y límites de partidas/chat (A7). Los usa SocketHandler. ---
+    private final int busquedaTimeoutMinutos;
+    private final int negociacionDesconexionSegundos;
+    private final int pollingIntervaloSegundos;
+    private final int pollingMaxIntentos;
+    private final int chatHistorialLimite;
+
     // --- Sesión JWT ---
     private final String jwtSecret;
     private final long jwtExpirationSeconds;
@@ -68,7 +80,25 @@ public class AppConfig {
         this.wompiIntegritySecret = getEnv("WOMPI_INTEGRITY_SECRET", "");
         this.wompiUserPrincipalId = getEnv("WOMPI_USER_PRINCIPAL_ID", "");
         this.wompiXApiKey = getEnv("WOMPI_X_API_KEY", "");
-        this.dbAdminSecret = getEnv("DB_ADMIN_SECRET", "torneos2024");
+        // A7: sin valor por defecto. Antes caía a una clave escrita en el código ("torneos2024"); RutasDbAdmin
+        // ya deshabilita el panel si la clave está vacía, así que el comportamiento no cambia, solo desaparece el literal.
+        this.dbAdminSecret = getEnv("DB_ADMIN_SECRET", "");
+
+        // A7: URL pública del sitio (icono y enlace de las push). Antes estaba escrita en Main.
+        this.appBaseUrl = normalizarUrlBase(getEnv("APP_BASE_URL", DEFAULT_APP_BASE_URL));
+        // Interfaz en la que escucha el servidor. 0.0.0.0 = todas (necesario en Docker/Render).
+        String hostEnv = getEnv("BIND_HOST", "0.0.0.0").trim();
+        this.bindHost = hostEnv.isEmpty() ? "0.0.0.0" : hostEnv;
+        // Tamaño máximo de un mensaje WebSocket (el chat envía imágenes en base64). Default 50 MB.
+        this.wsMaxMessageBytes = getEnvEntero("WS_MAX_MESSAGE_BYTES", 50_000_000, 1024);
+
+        this.busquedaTimeoutMinutos = getEnvEntero("BUSQUEDA_TIMEOUT_MINUTOS", 10, 1, 1440);
+        this.negociacionDesconexionSegundos = getEnvEntero("NEGOCIACION_DESCONEXION_SEGUNDOS", 90, 1, 3600);
+        // Cada cuántos segundos se consulta la API de Clash Royale para saber el resultado, y cuántas veces como máximo.
+        // Tiempo máximo de espera = intervalo x intentos (default 5 s x 120 = 10 min) y luego se crea la disputa.
+        this.pollingIntervaloSegundos = getEnvEntero("POLLING_INTERVALO_SEGUNDOS", 5, 2, 60);
+        this.pollingMaxIntentos = getEnvEntero("POLLING_MAX_INTENTOS", 120, 1, 10_000);
+        this.chatHistorialLimite = getEnvEntero("CHAT_HISTORIAL_LIMITE", 50, 1, 500);
 
         this.jwtSecret = resolverJwtSecret(getEnv("JWT_SECRET", ""));
         this.jwtExpirationSeconds = Long.parseLong(getEnv("JWT_EXPIRATION_DAYS", "30")) * 24L * 3600L;
@@ -111,6 +141,17 @@ public class AppConfig {
         return java.util.Base64.getEncoder().encodeToString(bytes);
     }
 
+    private static final String DEFAULT_APP_BASE_URL = "https://torneos-beta.onrender.com";
+
+    /** Debe ser http(s) y se quita la barra final (el código concatena "/icon-192.png"). Si es inválida, usa el default. */
+    private static String normalizarUrlBase(String valor) {
+        String url = valor.trim();
+        while (url.endsWith("/")) url = url.substring(0, url.length() - 1);
+        if (url.startsWith("https://") || url.startsWith("http://")) return url;
+        logger.error("⚠️ APP_BASE_URL='{}' no es una URL http(s) válida. Se usa {}.", valor, DEFAULT_APP_BASE_URL);
+        return DEFAULT_APP_BASE_URL;
+    }
+
     private static String normalizarSameSite(String value) {
         switch (value.trim().toLowerCase()) {
             case "strict": return "Strict";
@@ -142,14 +183,19 @@ public class AppConfig {
      * que {@code minimo}, se usa el valor por defecto.
      */
     private int getEnvEntero(String key, int defaultValue, int minimo) {
+        return getEnvEntero(key, defaultValue, minimo, Integer.MAX_VALUE);
+    }
+
+    /** Igual que el anterior pero además con un máximo (inclusive). Fuera de [minimo, maximo] se usa el default. */
+    private int getEnvEntero(String key, int defaultValue, int minimo, int maximo) {
         String raw = getEnv(key, String.valueOf(defaultValue)).trim();
         try {
             int valor = Integer.parseInt(raw);
-            if (valor >= minimo) return valor;
+            if (valor >= minimo && valor <= maximo) return valor;
         } catch (NumberFormatException ignored) {
             // cae al log de abajo
         }
-        logger.error("⚠️ {}='{}' no es válido (entero >= {}). Se usa {}.", key, raw, minimo, defaultValue);
+        logger.error("⚠️ {}='{}' no es válido (entero entre {} y {}). Se usa {}.", key, raw, minimo, maximo, defaultValue);
         return defaultValue;
     }
 
@@ -173,6 +219,14 @@ public class AppConfig {
     public String getWompiUserPrincipalId() { return wompiUserPrincipalId; }
     public String getWompiXApiKey() { return wompiXApiKey; }
     public String getDbAdminSecret() { return dbAdminSecret; }
+    public String getAppBaseUrl() { return appBaseUrl; }
+    public String getBindHost() { return bindHost; }
+    public int getWsMaxMessageBytes() { return wsMaxMessageBytes; }
+    public int getBusquedaTimeoutMinutos() { return busquedaTimeoutMinutos; }
+    public int getNegociacionDesconexionSegundos() { return negociacionDesconexionSegundos; }
+    public int getPollingIntervaloSegundos() { return pollingIntervaloSegundos; }
+    public int getPollingMaxIntentos() { return pollingMaxIntentos; }
+    public int getChatHistorialLimite() { return chatHistorialLimite; }
     public String getJwtSecret() { return jwtSecret; }
     public long getJwtExpirationSeconds() { return jwtExpirationSeconds; }
     public boolean isCookieSecure() { return cookieSecure; }

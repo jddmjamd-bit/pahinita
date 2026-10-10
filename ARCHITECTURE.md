@@ -275,3 +275,24 @@ Middleware global (`servidor/RateLimitMiddleware`, registrado en `Main` antes de
 
 - La rotación de la contraseña de la BD se hace en Render (no desde el código).
 - `verify-full` no se ha probado contra el certificado de Render; si la conexión falla con ese modo, quitar `DB_SSLMODE`.
+
+---
+
+## 12. Configuración por variables de entorno (A7)
+
+Toda configuración de despliegue se lee en `config/AppConfig` (nada de números ni URLs escritos en `Main` o en los handlers). Todas las variables de esta tabla son **opcionales**: sin definirlas queda el default, que es el valor que antes estaba escrito en el código. Un valor inválido (no numérico o fuera de rango) cae al default y deja un `logger.error` al arrancar. Las demás variables viven en sus secciones: montos (8), rate limiting (10) y BD (11).
+
+| Variable | Default | Rango | Qué controla |
+|---|---|---|---|
+| `APP_BASE_URL` | `https://torneos-beta.onrender.com` | http(s) | URL del sitio en las push (enlace e icono `/icon-192.png`). Se quita la `/` final |
+| `BIND_HOST` | `0.0.0.0` | | Interfaz en la que escucha Javalin. No se usa `HOST` para no chocar con esa variable de sistema |
+| `WS_MAX_MESSAGE_BYTES` | `50000000` | >= 1024 | Tamaño máximo de un mensaje WebSocket (el chat manda imágenes en base64) |
+| `BUSQUEDA_TIMEOUT_MINUTOS` | `10` | 1 - 1440 | Minutos de búsqueda de rival antes de cancelarla (`SocketHandler`) |
+| `NEGOCIACION_DESCONEXION_SEGUNDOS` | `90` | 1 - 3600 | Segundos que se espera a un jugador desconectado durante la negociación antes de cancelar el match |
+| `POLLING_INTERVALO_SEGUNDOS` | `5` | 2 - 60 | Cada cuánto se consulta la API de Clash Royale por el resultado de una partida |
+| `POLLING_MAX_INTENTOS` | `120` | 1 - 10000 | Intentos máximos; espera total = intervalo x intentos (default 10 min) y luego se crea la disputa |
+| `CHAT_HISTORIAL_LIMITE` | `50` | 1 - 500 | Mensajes de historial que recibe cada canal al conectarse |
+
+- Los mensajes que ven los jugadores ("...nadie respondió en 10 minutos", "No se encontró el resultado en 10 minutos") y el campo `tiempo` de `rival_desconectado` se calculan con estos valores.
+- `DB_ADMIN_SECRET` ya no tiene valor por defecto: sin ella el panel `/admin-db` queda deshabilitado (ver docstring de `RutasDbAdmin`).
+- Siguen fijos en el código y fuera de A7: los pools de hilos (tarea A8), CORS `anyHost()` y la zona horaria del reset del leaderboard (usa la de la JVM, UTC en Render).
