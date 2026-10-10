@@ -1,124 +1,51 @@
 package com.torneosflash.servidor;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import com.google.gson.*;
-import com.torneosflash.config.AppConfig;
-import com.torneosflash.config.Ejecutores;
-import com.torneosflash.dao.GenericDAO;
-import com.torneosflash.dao.UsuarioDAO;
-import com.torneosflash.servicio.ChatSanitizer;
+import com.torneosflash.servicio.AuthService;
 import io.javalin.Javalin;
 import io.javalin.http.Context;
-import org.mindrot.jbcrypt.BCrypt;
 import jakarta.servlet.http.Cookie;
 
 /**
  * Rutas de autenticación: registro, login, sesión, logout.
- * Equivalente a las rutas /api/register, /api/login, etc. en index.js
+ *
+ * A3: aquí solo se parsea el request, se maneja la cookie y se llama a {@link AuthService}.
+ * Las reglas (validaciones, duplicados, bcrypt, Clash API) viven en el servicio.
  */
 public class RutasAuth {
-    private static final Logger logger = LoggerFactory.getLogger(RutasAuth.class);
 
+    private static final int COOKIE_SEGUNDOS = 365 * 24 * 3600;
 
-    public static void register(Javalin app, UsuarioDAO usuarioDAO, GenericDAO db, AppConfig config,
-                                 com.torneosflash.servicio.ClashApiServicio clashApi, Ejecutores ejecutores) {
+    public static void register(Javalin app, AuthService auth) {
 
         // POST /api/register
         app.post("/api/register", ctx -> {
             JsonObject body = parseBody(ctx);
-            String username = body.get("username").getAsString().trim();
-            String email = body.get("email").getAsString().trim().toLowerCase();
-            String password = body.get("password").getAsString();
-            String playerTag = body.has("playerTag") ? body.get("playerTag").getAsString().trim().toUpperCase() : "";
-            String telefono = body.has("telefono") ? body.get("telefono").getAsString().trim() : "";
+            int newId = auth.registrar(
+                    Peticion.texto(body, "username"),
+                    Peticion.texto(body, "email"),
+                    Peticion.texto(body, "password"),
+                    Peticion.textoOpcional(body, "playerTag", ""),
+                    Peticion.textoOpcional(body, "telefono", ""));
 
-            // Validaciones
-            if (username.isEmpty() || email.isEmpty() || password.isEmpty()) {
-                ctx.status(400).json(errorJson("Campos obligatorios vacíos"));
-                return;
-            }
-            if (password.length() < 6) {
-                ctx.status(400).json(errorJson("La contraseña debe tener al menos 6 caracteres"));
-                return;
-            }
-            // S5 (XSS): el username se muestra en chat, rankings y paneles de admin
-            if (!ChatSanitizer.esNombreUsuarioSeguro(username)) {
-                ctx.status(400).json(errorJson("El nombre de usuario debe tener entre 3 y 30 caracteres y no puede incluir < > \" ' & ` ni caracteres de control"));
-                return;
-            }
-
-            // Verificar duplicados
-            if (usuarioDAO.buscarPorUsername(username) != null) {
-                ctx.status(400).json(errorJson("Este nombre de usuario ya está registrado"));
-                return;
-            }
-            if (usuarioDAO.buscarPorEmailLower(email) != null) {
-                ctx.status(400).json(errorJson("Este correo ya está registrado"));
-                return;
-            }
-            if (!playerTag.isEmpty() && usuarioDAO.buscarPorPlayerTag(playerTag) != null) {
-                ctx.status(400).json(errorJson("Este Player Tag ya está registrado"));
-                return;
-            }
-
-            // Hash password (A8: BCrypt gasta CPU; corre en el pool de CPU, no en el hilo HTTP)
-            String hash = ejecutores.enCpu(() -> BCrypt.hashpw(password, BCrypt.gensalt(10)));
-
-            // Insertar
-            int newId = usuarioDAO.registrar(username, email, hash, playerTag, telefono);
-            if (newId < 0) {
-                ctx.status(400).json(errorJson("Error al registrar"));
-                return;
-            }
-
-            // Setear cookie de sesión (directo por servlet, evita bug Javalin 6 + Java 17)
-            setCookieDirect(ctx, "userId", String.valueOf(newId), 365 * 24 * 3600);
+            // Cookie de sesión (directo por servlet, evita bug Javalin 6 + Java 17)
+            setCookieDirect(ctx, "userId", String.valueOf(newId), COOKIE_SEGUNDOS);
             ctx.result(successJson("Registrado exitosamente", newId).toString()).contentType("application/json");
         });
 
         // POST /api/login
         app.post("/api/login", ctx -> {
-            try {
-                JsonObject body = parseBody(ctx);
-                String email = body.get("email").getAsString().trim().toLowerCase();
-                String password = body.get("password").getAsString();
+            JsonObject body = parseBody(ctx);
+            AuthService.SesionIniciada sesion = auth.login(
+                    Peticion.texto(body, "email"),
+                    Peticion.texto(body, "password"));
 
-                // S6: el hash vive solo en este objeto de credenciales (nunca se envía al cliente)
-                JsonObject credenciales = usuarioDAO.buscarCredencialesPorEmail(email);
-                if (credenciales == null) {
-                    ctx.status(400).result(errorJson("Usuario no encontrado").toString()).contentType("application/json");
-                    return;
-                }
+            setCookieDirect(ctx, "userId", String.valueOf(sesion.userId()), COOKIE_SEGUNDOS);
 
-                String storedHash = credenciales.get("password").getAsString();
-                if (!ejecutores.enCpu(() -> BCrypt.checkpw(password, storedHash))) { // A8: pool de CPU
-                    ctx.status(400).result(errorJson("Contraseña incorrecta").toString()).contentType("application/json");
-                    return;
-                }
-
-                int userId = credenciales.get("id").getAsNumber().intValue();
-                setCookieDirect(ctx, "userId", String.valueOf(userId), 365 * 24 * 3600);
-
-                // S6: los datos que van al frontend salen de una lista blanca de columnas (sin password)
-                JsonObject user = usuarioDAO.buscarPorId(userId);
-                if (user == null) {
-                    ctx.status(400).result(errorJson("Usuario no encontrado").toString()).contentType("application/json");
-                    return;
-                }
-                JsonObject response = new JsonObject();
-                response.addProperty("success", true);
-                response.add("user", user);
-                String jsonStr = response.toString();
-                logger.info("📤 LOGIN RESPONSE (" + jsonStr.length() + " chars): " + jsonStr.substring(0, Math.min(200, jsonStr.length())));
-                ctx.status(200);
-                ctx.contentType("application/json");
-                ctx.result(jsonStr);
-            } catch (Exception e) {
-                logger.info("❌ ERROR EN LOGIN: " + e.getClass().getName() + ": " + e.getMessage());
-                e.printStackTrace();
-                ctx.status(500).result(errorJson("Error interno: " + e.getMessage()).toString()).contentType("application/json");
-            }
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            response.add("user", sesion.user());
+            ctx.status(200).contentType("application/json").result(response.toString());
         });
 
         // GET /api/session
@@ -129,20 +56,16 @@ public class RutasAuth {
                 return;
             }
             int userId;
-            try { userId = Integer.parseInt(cookieVal); } catch (Exception e) {
+            try {
+                userId = Integer.parseInt(cookieVal);
+            } catch (Exception e) {
                 ctx.status(400).json(errorJson("Sesión inválida"));
                 return;
             }
 
-            JsonObject user = usuarioDAO.buscarPorId(userId);
-            if (user == null) {
-                ctx.status(400).result(errorJson("Usuario no encontrado").toString()).contentType("application/json");
-                return;
-            }
-            // S6: buscarPorId ya devuelve solo columnas de sesión (sin password)
             JsonObject response = new JsonObject();
             response.addProperty("success", true);
-            response.add("user", user);
+            response.add("user", auth.obtenerSesion(userId));
             ctx.result(response.toString()).contentType("application/json");
         });
 
@@ -153,61 +76,16 @@ public class RutasAuth {
         });
 
         // GET /api/check-username/:username
-        app.get("/api/check-username/{username}", ctx -> {
-            String username = ctx.pathParam("username");
-            JsonObject existing = usuarioDAO.buscarPorUsername(username);
-            JsonObject res = new JsonObject();
-            boolean available = (existing == null);
-            res.addProperty("available", available);
-            res.addProperty("message", available ? "✅ Usuario disponible" : "❌ El usuario ya está en uso");
-            ctx.json(res);
-        });
+        app.get("/api/check-username/{username}", ctx ->
+                ctx.json(auth.usernameDisponible(ctx.pathParam("username"))));
 
         // GET /api/check-email/:email
-        app.get("/api/check-email/{email}", ctx -> {
-            String email = ctx.pathParam("email");
-            JsonObject existing = usuarioDAO.buscarPorEmailLower(email);
-            JsonObject res = new JsonObject();
-            boolean available = (existing == null);
-            res.addProperty("available", available);
-            res.addProperty("message", available ? "✅ Correo disponible" : "❌ El correo ya está registrado");
-            ctx.json(res);
-        });
+        app.get("/api/check-email/{email}", ctx ->
+                ctx.json(auth.emailDisponible(ctx.pathParam("email"))));
 
         // GET /api/verify-tag/:tag
-        app.get("/api/verify-tag/{tag}", ctx -> {
-            String tag = ctx.pathParam("tag");
-
-            // Verificar si ya está registrado
-            JsonObject existing = usuarioDAO.buscarPorPlayerTag(tag);
-            if (existing != null) {
-                JsonObject res = new JsonObject();
-                res.addProperty("found", false);
-                res.addProperty("message", "Este Player Tag ya está registrado");
-                ctx.json(res);
-                return;
-            }
-
-            // Verificar en API de Clash
-            logger.info("🔍 Buscando Player Tag en la API: " + tag);
-            try {
-                JsonObject apiResult = clashApi.verificarTag(tag);
-                JsonObject res = new JsonObject();
-                res.addProperty("found", true);
-                String name = apiResult.has("name") ? apiResult.get("name").getAsString() : "";
-                int trophies = apiResult.has("trophies") ? apiResult.get("trophies").getAsInt() : 0;
-                res.addProperty("name", name);
-                res.addProperty("trophies", trophies);
-                logger.info("✅ Player Tag encontrado. Usuario: " + name + " (Trophies: " + trophies + ")");
-                ctx.json(res);
-            } catch (Exception e) {
-                logger.info("❌ Fallo al buscar Player Tag: " + e.getMessage());
-                JsonObject res = new JsonObject();
-                res.addProperty("found", false);
-                res.addProperty("message", e.getMessage());
-                ctx.json(res);
-            }
-        });
+        app.get("/api/verify-tag/{tag}", ctx ->
+                ctx.json(auth.verificarTag(ctx.pathParam("tag"))));
 
         // POST /api/register-token (FCM push tokens)
         app.post("/api/register-token", ctx -> {
@@ -216,16 +94,12 @@ public class RutasAuth {
                 ctx.status(400).json(errorJson("Faltan datos"));
                 return;
             }
-            int userId = body.get("userId").getAsInt();
-            String token = body.get("token").getAsString();
-
-            db.update("INSERT INTO user_tokens (user_id, fcm_token) VALUES (?, ?) " +
-                    "ON CONFLICT (user_id, fcm_token) DO NOTHING", userId, token);
+            auth.registrarTokenPush(Peticion.entero(body, "userId"), Peticion.texto(body, "token"));
             ctx.json(successJson("Token registrado", 0));
         });
     }
 
-    // --- Helpers ---
+    // --- Helpers HTTP (los usan también las demás rutas) ---
     static JsonObject parseBody(Context ctx) {
         try {
             return JsonParser.parseString(ctx.body()).getAsJsonObject();

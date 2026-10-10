@@ -3,231 +3,77 @@ package com.torneosflash.servidor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.google.gson.*;
-import com.torneosflash.config.AppConfig;
-import com.torneosflash.dao.GenericDAO;
-import com.torneosflash.servicio.NotificacionPushServicio;
-import com.torneosflash.servicio.ValidadorMonto;
-import com.torneosflash.servicio.WalletService;
-import com.torneosflash.servicio.WalletService.WalletResult;
-import com.torneosflash.socketio.SocketIOServer;
-import com.torneosflash.socketio.SocketIOClient;
+import com.torneosflash.servicio.FinanzasService;
 import io.javalin.Javalin;
-import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 
 import static com.torneosflash.servidor.RutasAuth.*;
 
 /**
  * Rutas de finanzas: depósitos, retiros, Wompi webhooks.
+ *
+ * A3: solo parsean el request y llaman a {@link FinanzasService}. La validación de montos, los
+ * movimientos de dinero, las notificaciones y la firma de Wompi viven en el servicio.
  */
 public class RutasFinanzas {
     private static final Logger logger = LoggerFactory.getLogger(RutasFinanzas.class);
 
-
-    private static NotificacionPushServicio pushService;
-    private static WalletService wallet;
-
-    public static void register(Javalin app, GenericDAO db, AppConfig config, SocketIOServer io, NotificacionPushServicio push, WalletService walletService, ValidadorMonto validador) {
-        pushService = push;
-        wallet = walletService;
+    public static void register(Javalin app, FinanzasService finanzas) {
 
         // POST /api/deposit (depósito manual por admin)
         app.post("/api/deposit", ctx -> {
             JsonObject body = parseBody(ctx);
-            int userId = body.get("userId").getAsInt();
-
-            // D5: el monto se valida en el servidor (número, positivo, entero, dentro de rango)
-            ValidadorMonto.Resultado montoValido = validador.deposito(body.get("monto"));
-            if (!montoValido.isValido()) {
-                ctx.status(400).json(errorJson(montoValido.getError()));
-                return;
-            }
-            BigDecimal monto = montoValido.getMonto(); // REVIEW-MONEY
-
-            WalletResult result = wallet.depositar(userId, monto, "Depósito manual admin"); // REVIEW-MONEY
-            if (!result.isSuccess()) {
-                ctx.json(errorJson(result.getError()));
-                return;
-            }
-
-            // Notificar via socket
-            notificarUsuario(io, db, userId, "✅ Recarga acreditada.", result.getNuevoSaldoDouble());
+            finanzas.depositoManual(Peticion.entero(body, "userId"), body.get("monto"));
             ctx.json(successJson("Depósito realizado", 0));
         });
 
         // POST /api/transaction/create (crear solicitud de recarga)
         app.post("/api/transaction/create", ctx -> {
             JsonObject body = parseBody(ctx);
-            int userId = body.get("userId").getAsInt();
-            String username = body.get("username").getAsString();
-            String metodo = body.get("metodo").getAsString();
-            String referencia = body.has("referencia") ? body.get("referencia").getAsString() : "";
-
-            // D5: nunca se guarda una solicitud con un monto que el servidor no haya validado
-            ValidadorMonto.Resultado montoValido = validador.deposito(body.get("monto"));
-            if (!montoValido.isValido()) {
-                ctx.status(400).json(errorJson(montoValido.getError()));
-                return;
-            }
-            BigDecimal monto = montoValido.getMonto(); // REVIEW-MONEY
-
-            db.update("INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia) " +
-                    "VALUES (?, ?, 'deposito', ?, ?, ?)", userId, username, metodo, monto, referencia);
+            finanzas.crearSolicitudRecarga(
+                    Peticion.entero(body, "userId"),
+                    Peticion.texto(body, "username"),
+                    Peticion.texto(body, "metodo"),
+                    Peticion.textoOpcional(body, "referencia", ""),
+                    body.get("monto"));
             ctx.json(successJson("Solicitud creada", 0));
         });
 
         // POST /api/transaction/withdraw (solicitar retiro)
         app.post("/api/transaction/withdraw", ctx -> {
             JsonObject body = parseBody(ctx);
-            int userId = body.get("userId").getAsInt();
-            String username = body.get("username").getAsString();
-            String metodo = body.has("metodo") ? body.get("metodo").getAsString() : "nequi_retiro";
-            String referencia = body.has("referencia") ? body.get("referencia").getAsString() : "";
+            double nuevoSaldo = finanzas.solicitarRetiro(
+                    Peticion.entero(body, "userId"),
+                    Peticion.texto(body, "username"),
+                    Peticion.textoOpcional(body, "metodo", "nequi_retiro"),
+                    Peticion.textoOpcional(body, "referencia", ""),
+                    body.get("monto"));
 
-            // D5: monto validado en el servidor (número, positivo, entero, dentro del rango de retiro)
-            ValidadorMonto.Resultado montoValido = validador.retiro(body.get("monto"));
-            if (!montoValido.isValido()) {
-                ctx.status(400).json(errorJson(montoValido.getError()));
-                return;
-            }
-            BigDecimal monto = montoValido.getMonto(); // REVIEW-MONEY
-
-            // Descontar saldo atómicamente con verificación // REVIEW-MONEY
-            WalletResult result = wallet.retirar(userId, monto, "Retiro " + metodo);
-            if (!result.isSuccess()) {
-                ctx.json(errorJson(result.getError()));
-                return;
-            }
-
-            // Crear transacción
-            db.update("INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia) " +
-                    "VALUES (?, ?, 'retiro', ?, ?, ?)", userId, username, metodo, monto, referencia);
-
-            // Notificar saldo actualizado
-            notificarUsuario(io, db, userId, "⏳ Retiro en proceso...", result.getNuevoSaldoDouble());
-
-            // Incluir newBalance en la respuesta HTTP para que el frontend actualice inmediatamente
+            // newBalance en la respuesta para que el frontend actualice el saldo de inmediato
             JsonObject response = new JsonObject();
             response.addProperty("success", true);
             response.addProperty("message", "Retiro solicitado");
-            response.addProperty("newBalance", result.getNuevoSaldoDouble());
+            response.addProperty("newBalance", nuevoSaldo);
             ctx.json(response);
         });
 
         // POST /api/wompi/init (iniciar pago Wompi)
         app.post("/api/wompi/init", ctx -> {
             JsonObject body = parseBody(ctx);
-            // D5: monto validado en el servidor (número, positivo, entero, dentro del rango de recarga)
-            ValidadorMonto.Resultado montoValido = validador.deposito(body.get("monto"));
-            if (!montoValido.isValido()) {
-                ctx.status(400).json(errorJson(montoValido.getError()));
-                return;
-            }
-            BigDecimal monto = montoValido.getMonto(); // REVIEW-MONEY
-
-            // Calcular el total con comisiones (el cálculo con double queda para D1; el monto ya está acotado y es entero)
-            double baseCara = monto.doubleValue() + 840;
-            double totalCobrado = Math.ceil(baseCara / 0.964);
-            long montoCentavos = (long) (totalCobrado * 100);
-
-            // Generar referencia
-            String reference = "TF-" + System.currentTimeMillis();
-
-            // Registrar transacción pendiente en la base de datos
-            int userId = body.get("userId").getAsInt();
-            String username = body.get("username").getAsString();
-            db.update("INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado) " +
-                    "VALUES (?, ?, 'deposito', 'wompi', ?, ?, 'pendiente')",
-                    userId, username, monto, reference);
-
-            // Firma de integridad
-            String integritySecret = config.getWompiIntegritySecret();
-            String toSign = reference + montoCentavos + "COP" + integritySecret;
-            String signature = sha256(toSign);
-
-            JsonObject res = new JsonObject();
-            res.addProperty("publicKey", config.getWompiPublicKey());
-            res.addProperty("reference", reference);
-            res.addProperty("amountInCents", montoCentavos);
-            res.addProperty("signature", signature);
-            res.addProperty("montoReal", monto);
-            ctx.json(res);
+            ctx.json(finanzas.iniciarWompi(
+                    Peticion.entero(body, "userId"),
+                    Peticion.texto(body, "username"),
+                    body.get("monto")));
         });
 
-        // POST /api/wompi/webhook (webhook de Wompi)
+        // POST /api/wompi/webhook (lo llama Wompi: respuesta en texto plano)
         app.post("/api/wompi/webhook", ctx -> {
             try {
-                JsonObject body = parseBody(ctx);
-                JsonObject data = body.getAsJsonObject("data");
-                JsonObject transaction = data.getAsJsonObject("transaction");
-
-                String status = transaction.get("status").getAsString();
-                String reference = transaction.get("reference").getAsString();
-
-                if ("APPROVED".equals(status)) {
-                    // Buscar transacción pendiente con esta referencia
-                    JsonObject trans = db.queryOne(
-                            "SELECT * FROM transactions WHERE referencia = ? AND estado = 'pendiente'", reference);
-
-                    if (trans != null) {
-                        int userId = trans.get("usuario_id").getAsNumber().intValue();
-                        BigDecimal monto = BigDecimal.valueOf(trans.get("monto").getAsDouble()); // REVIEW-MONEY
-
-                        // Acreditar saldo atómicamente // REVIEW-MONEY
-                        WalletResult result = wallet.depositar(userId, monto, "Pago Wompi ref:" + reference);
-                        db.update("UPDATE transactions SET estado = 'completado' WHERE referencia = ?", reference);
-
-                        if (result.isSuccess()) {
-                            notificarUsuario(io, db, userId, "✅ Pago Wompi aprobado. Saldo acreditado.", result.getNuevoSaldoDouble());
-                        }
-                    }
-                }
+                finanzas.procesarWebhookWompi(parseBody(ctx));
                 ctx.result("OK");
             } catch (Exception e) {
                 logger.error("Error webhook Wompi: " + e.getMessage());
                 ctx.status(500).result("Error");
             }
         });
-    }
-
-    // --- Helpers ---
-    static void notificarUsuario(SocketIOServer io, GenericDAO db, int userId, String mensaje, double saldo) {
-        logger.info("Intentando notificar al usuario ID: " + userId + " - Mensaje: " + mensaje);
-        logger.info("-> Total sockets conectados actualmente: " + io.getSockets().size());
-        boolean found = false;
-        for (SocketIOClient client : io.getSockets().values()) {
-            logger.info("-> Revisando socket SID: " + client.getSid() + " | Tiene UserData? " + (client.getUserData() != null));
-            if (client.getUserData() != null &&
-                client.getUserData().has("id") &&
-                client.getUserData().get("id").getAsInt() == userId) {
-                
-                logger.info("-> Socket encontrado para usuario " + userId + "! Emitiendo eventos...");
-                found = true;
-                JsonObject notifData = new JsonObject();
-                notifData.addProperty("mensaje", mensaje);
-                notifData.addProperty("saldo", saldo);
-                client.emit("notificacion", notifData);
-                client.emit("actualizar_saldo", new JsonPrimitive(saldo));
-            }
-        }
-        if (!found) {
-            logger.info("-> ADVERTENCIA: No se encontró ningún socket conectado para el usuario ID " + userId);
-        }
-
-        // Enviar push notification (llega incluso con navegador cerrado)
-        if (pushService != null) {
-            pushService.enviarPush(db, userId, "Torneos Flash", mensaje);
-        }
-    }
-
-    static String sha256(String input) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder();
-            for (byte b : hash) sb.append(String.format("%02x", b));
-            return sb.toString();
-        } catch (Exception e) { return ""; }
     }
 }

@@ -6,6 +6,8 @@ import com.google.gson.*;
 import com.torneosflash.config.AppConfig;
 import com.torneosflash.config.Ejecutores;
 import com.torneosflash.dao.GenericDAO;
+import com.torneosflash.eventos.EventBus;
+import com.torneosflash.eventos.Eventos;
 import com.torneosflash.servicio.ChatSanitizer;
 import com.torneosflash.servicio.ClashApiServicio;
 import com.torneosflash.servicio.NotificacionPushServicio;
@@ -43,18 +45,20 @@ public class SocketHandler {
     private final NotificacionPushServicio pushService;
     private final WalletService wallet;
     private final ValidadorMonto validador;
+    private final EventBus eventos; // A4: avisa "match.finished"; tickets y notificaciones del resultado son listeners (antes iban aquí)
     private final AppConfig config; // A7: timeouts y límites configurables por variable de entorno
     private final ScheduledExecutorService scheduler; // A8: temporizadores cortos (Ejecutores.timers()), nunca HTTP externo
     private final Ejecutores ejecutores; // A8: pool de IO para el sondeo de la API de Clash
     private final Gson gson = new Gson();
 
-    public SocketHandler(GenericDAO db, SocketIOServer io, ClashApiServicio clashApi, NotificacionPushServicio pushService, WalletService wallet, ValidadorMonto validador, AppConfig config, Ejecutores ejecutores) {
+    public SocketHandler(GenericDAO db, SocketIOServer io, ClashApiServicio clashApi, NotificacionPushServicio pushService, WalletService wallet, ValidadorMonto validador, EventBus eventos, AppConfig config, Ejecutores ejecutores) {
         this.db = db;
         this.io = io;
         this.clashApi = clashApi;
         this.pushService = pushService;
         this.wallet = wallet;
         this.validador = validador;
+        this.eventos = eventos;
         this.config = config;
         this.ejecutores = ejecutores;
         this.scheduler = ejecutores.timers();
@@ -754,46 +758,16 @@ public class SocketHandler {
                         return;
                     }
 
-                    // Acumular tickets (cada jugador recibe su mitad de la comisión de sorteos)
-                    // El desglose de ComisionService ya trae la mitad de sorteos que le toca a cada jugador (D4)
-                    for (SocketIOClient p : match.players) {
-                        if (p.getUserData() == null) continue;
-                        int[] resultadoTickets = RutasSorteos.acumularTicketsPorPartida(db, p.getUserData().get("id").getAsInt(), liq.desglose);
-                        int ticketsGanados = resultadoTickets[0];
-                        int nuevoAcumulado = resultadoTickets[1];
-                        
-                        JsonObject ticketData = new JsonObject();
-                        ticketData.addProperty("cantidad", ticketsGanados);
-                        ticketData.addProperty("acumulado", nuevoAcumulado);
-                        p.emit("tickets_ganados", ticketData);
-                    }
-
-                    // Actualizar saldo del ganador
-                    if (winnerSocket != null) {
-                        winnerSocket.emit("actualizar_saldo", new JsonPrimitive(liq.nuevoSaldoGanador.doubleValue()));
-                    }
-
                     String winnerName = winnerSocket != null ? winnerSocket.getUserData().get("username").getAsString() : "Ganador";
                     db.update("UPDATE matches SET estado = 'finalizada', ganador = ? WHERE id = ?", winnerName, match.dbId);
                     logClash("🏆 GANADOR API #" + match.dbId + ": " + winnerName);
 
-                    double premioDouble = liq.premio.doubleValue();
-                    // Notificar resultado
-                    for (SocketIOClient p : match.players) {
-                        if (p.getUserData() == null) continue;
-                        boolean esGanador = p.getUserData().get("id").getAsInt() == idGanador;
-                        JsonObject resultData = new JsonObject();
-                        resultData.addProperty("ganador", winnerName);
-                        resultData.addProperty("premio", premioDouble);
-                        resultData.addProperty("esGanador", esGanador);
-                        String mensajeResult = esGanador ? "🏆 ¡GANASTE! Recibiste $" + (int) premioDouble : "💀 Perdiste. " + winnerName + " ganó la partida.";
-                        resultData.addProperty("mensaje", mensajeResult);
-                        p.emit("resultado_api", resultData);
-
-                        // Push: notificar resultado
-                        String tituloResult = esGanador ? "🏆 ¡Ganaste!" : "💀 Resultado";
-                        pushService.enviarPush(db, p.getUserData().get("id").getAsInt(), tituloResult, mensajeResult);
-                    }
+                    // A4: la liquidación y el match ya están confirmados en la BD; se avisa al bus y los listeners hacen el resto
+                    // (tickets de sorteo + `tickets_ganados`, saldo nuevo del ganador, `resultado_api` y push a ambos jugadores).
+                    // emit() no lanza: un listener roto no impide liberar a los jugadores. // REVIEW-MONEY
+                    eventos.emit(Eventos.MATCH_FINISHED, new Eventos.PartidaFinalizada(
+                            match.dbId, Eventos.Origen.API, ids, idGanador, winnerName,
+                            BigDecimal.valueOf(match.monto), liq.premio, liq.nuevoSaldoGanador, liq.desglose));
                     liberarJugadores(salaId, match);
 
                 } else if (match.pollCount >= MAX_POLLS) {

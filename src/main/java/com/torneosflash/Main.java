@@ -7,13 +7,24 @@ import com.torneosflash.config.Ejecutores;
 import com.torneosflash.dao.ConexionDB;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.dao.UsuarioDAO;
+import com.torneosflash.eventos.EventBus;
 import com.torneosflash.servicio.WalletService;
 import com.torneosflash.servicio.ComisionService;
 import com.torneosflash.servicio.ClashApiServicio;
 import com.torneosflash.servicio.CorreoServicio;
 import com.torneosflash.servicio.NotificacionPushServicio;
 import com.torneosflash.servicio.RateLimiter;
+import com.torneosflash.servicio.ResultadoPartidaListener;
+import com.torneosflash.servicio.TicketsPartidaListener;
 import com.torneosflash.servicio.ValidadorMonto;
+import com.torneosflash.servicio.AdminService;
+import com.torneosflash.servicio.AuthService;
+import com.torneosflash.servicio.DbAdminService;
+import com.torneosflash.servicio.FinanzasService;
+import com.torneosflash.servicio.LeaderboardService;
+import com.torneosflash.servicio.MediaService;
+import com.torneosflash.servicio.NotificadorUsuarios;
+import com.torneosflash.servicio.SorteoService;
 import com.torneosflash.servidor.*;
 import com.torneosflash.socketio.SocketIOServer;
 import io.javalin.Javalin;
@@ -168,19 +179,39 @@ public class Main {
         // ============================================
         // 7. REGISTRAR RUTAS HTTP
         // ============================================
-        RutasAuth.register(app, usuarioDAO, db, config, clashApi, ejecutores);
-        RutasFinanzas.register(app, db, config, socketServer, pushService, wallet, validadorMonto);
-        RutasAdmin.register(app, usuarioDAO, db, socketServer, pushService, wallet);
-        RutasSorteos.register(app, db, socketServer, correo, pushService, validadorMonto);
-        RutasLeaderboard.register(app, db, socketServer, wallet);
+        // Errores de negocio de la capa de servicio (A3): ServicioException -> {"error": "..."} con su código HTTP
+        ManejadorErrores.registrar(app);
+
+        // Capa de servicio (A3): las rutas solo parsean el request y llaman a estos servicios
+        NotificadorUsuarios notificador = new NotificadorUsuarios(socketServer, db, pushService);
+        AuthService authService = new AuthService(usuarioDAO, db, clashApi, ejecutores);
+        FinanzasService finanzasService = new FinanzasService(db, config, wallet, validadorMonto, notificador);
+        SorteoService sorteoService = new SorteoService(db, socketServer, correo, pushService, validadorMonto);
+
+        // Bus de eventos (A4): quien termina una acción de negocio emite el evento y estos listeners reaccionan.
+        // Se registran ANTES de aceptar tráfico; el orden de registro es el orden en que corren (tickets, luego resultado).
+        EventBus eventBus = new EventBus();
+        new TicketsPartidaListener(sorteoService, notificador).registrar(eventBus);
+        new ResultadoPartidaListener(notificador).registrar(eventBus);
+
+        AdminService adminService = new AdminService(db, usuarioDAO, wallet, eventBus, notificador, socketServer);
+        LeaderboardService leaderboardService = new LeaderboardService(db, socketServer, wallet);
+        MediaService mediaService = new MediaService(db);
+        DbAdminService dbAdminService = new DbAdminService(db);
+
+        RutasAuth.register(app, authService);
+        RutasFinanzas.register(app, finanzasService);
+        RutasAdmin.register(app, adminService);
+        RutasSorteos.register(app, sorteoService);
+        RutasLeaderboard.register(app, leaderboardService);
         RutasComisiones.register(app, comisiones, validadorMonto);
-        RutasDbAdmin.register(app, db, config);
-        RutasMedia.register(app, db);
+        RutasDbAdmin.register(app, dbAdminService, config);
+        RutasMedia.register(app, mediaService);
 
         // ============================================
         // 8. REGISTRAR SOCKET HANDLERS
         // ============================================
-        SocketHandler socketHandler = new SocketHandler(db, socketServer, clashApi, pushService, wallet, validadorMonto, config, ejecutores);
+        SocketHandler socketHandler = new SocketHandler(db, socketServer, clashApi, pushService, wallet, validadorMonto, eventBus, config, ejecutores);
         socketHandler.registrar();
 
         // ============================================
@@ -192,17 +223,8 @@ public class Main {
         // Verificar sorteos expirados cada minuto
         scheduler.scheduleAtFixedRate(() -> {
             try {
-                ArrayList<com.google.gson.JsonObject> expirados = db.query(
-                        "SELECT * FROM raffles WHERE estado = 'activo' AND fecha_limite < NOW()");
-
-                for (com.google.gson.JsonObject raffle : expirados) {
-                    int raffleId = raffle.get("id").getAsNumber().intValue();
-                    String nombre = raffle.get("nombre").getAsString();
-                    logger.info("⏰ Sorteo #" + raffleId + " (" + nombre + ") expirado");
-
-                    // Ejecutar el sorteo (se completará con espacios vacíos según la nueva lógica)
-                    RutasSorteos.ejecutarSorteo(db, socketServer, correo, raffleId);
-                }
+                // Ejecuta el sorteo de los que ya vencieron (se completa con espacios vacíos si no se llenaron)
+                sorteoService.ejecutarSorteosExpirados();
             } catch (Exception e) {
                 logger.error("Error verificando sorteos expirados: " + e.getMessage());
             }
@@ -221,19 +243,19 @@ public class Main {
 
             if (hora == 0 && minuto == 0 && !hoy.equals(ultimoReset[0])) {
                 ultimoReset[0] = hoy;
-                RutasLeaderboard.premiarYResetear(db, socketServer, "dia", "victorias_dia");
+                leaderboardService.premiarYResetear("dia", "victorias_dia");
             }
             if (hora == 0 && minuto == 0 && diaSemana == Calendar.MONDAY && !hoy.equals(ultimoReset[1])) {
                 ultimoReset[1] = hoy;
-                RutasLeaderboard.premiarYResetear(db, socketServer, "semana", "victorias_semana");
+                leaderboardService.premiarYResetear("semana", "victorias_semana");
             }
             if (hora == 0 && minuto == 0 && diaDelMes == 1 && !hoy.equals(ultimoReset[2])) {
                 ultimoReset[2] = hoy;
-                RutasLeaderboard.premiarYResetear(db, socketServer, "mes", "victorias_mes");
+                leaderboardService.premiarYResetear("mes", "victorias_mes");
             }
             if (hora == 0 && minuto == 0 && diaDelMes == 1 && mes == Calendar.JANUARY && !hoy.equals(ultimoReset[3])) {
                 ultimoReset[3] = hoy;
-                RutasLeaderboard.premiarYResetear(db, socketServer, "ano", "victorias_ano");
+                leaderboardService.premiarYResetear("ano", "victorias_ano");
             }
         }, 1, 1, TimeUnit.MINUTES);
 

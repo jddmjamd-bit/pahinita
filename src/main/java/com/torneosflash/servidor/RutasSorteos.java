@@ -1,416 +1,75 @@
 package com.torneosflash.servidor;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import com.google.gson.*;
-import com.torneosflash.dao.GenericDAO;
-import com.torneosflash.servicio.NotificacionPushServicio;
-import com.torneosflash.servicio.ComisionService;
-import com.torneosflash.servicio.ValidadorMonto;
-import com.torneosflash.socketio.SocketIOServer;
-import com.torneosflash.servicio.CorreoServicio;
+import com.torneosflash.servicio.SorteoService;
 import io.javalin.Javalin;
-import java.math.BigDecimal;
-import java.util.*;
 
 import static com.torneosflash.servidor.RutasAuth.*;
 
 /**
  * Rutas de sorteos: tickets, participación, admin CRUD.
+ *
+ * A3: solo parsean el request y llaman a {@link SorteoService}.
  */
 public class RutasSorteos {
-    private static final Logger logger = LoggerFactory.getLogger(RutasSorteos.class);
 
-    /** D5: tope de minutos de duración de un sorteo (1 año). */
-    private static final int DURACION_MAX_MINUTOS = 60 * 24 * 365;
-    /** D5: tope de tickets que se pueden sumar o quitar en una sola participación. */
-    private static final long TICKETS_DELTA_MAX = 1_000_000L;
-
-
-    private static NotificacionPushServicio pushService;
-
-    public static void register(Javalin app, GenericDAO db, SocketIOServer io, CorreoServicio correo, NotificacionPushServicio push, ValidadorMonto validador) {
-        pushService = push;
+    public static void register(Javalin app, SorteoService sorteos) {
 
         // GET /api/raffle/tickets/:userId
-        app.get("/api/raffle/tickets/{userId}", ctx -> {
-            int userId = Integer.parseInt(ctx.pathParam("userId"));
-            JsonObject result = db.queryOne("SELECT cantidad, acumulado FROM user_tickets WHERE user_id = ?", userId);
-            JsonObject res = new JsonObject();
-            res.addProperty("tickets", result != null ? result.get("cantidad").getAsLong() : 0);
-            res.addProperty("acumulado", result != null ? result.get("acumulado").getAsLong() : 0);
-            ctx.json(res);
-        });
+        app.get("/api/raffle/tickets/{userId}", ctx ->
+                ctx.json(sorteos.ticketsDeUsuario(Peticion.pathEntero(ctx, "userId"))));
 
         // GET /api/raffle/pool
-        app.get("/api/raffle/pool", ctx -> {
-            JsonObject poolRes = db.queryOne("SELECT COALESCE(SUM(gen_sorteos), 0) as total FROM users");
-            JsonObject res = new JsonObject();
-            res.addProperty("pool", poolRes != null ? poolRes.get("total").getAsDouble() : 0);
-            ctx.json(res);
-        });
+        app.get("/api/raffle/pool", ctx -> ctx.json(sorteos.pozo()));
 
         // GET /api/raffle/poll
-        app.get("/api/raffle/poll", ctx -> {
-            String cookieVal = ctx.cookie("userId");
-            int userId = 0;
-            try { userId = Integer.parseInt(cookieVal); } catch (Exception ignored) {}
-
-            // Contar votos por categoría
-            ArrayList<JsonObject> counts = db.query("SELECT categoria, COUNT(*) as votos FROM raffle_votes GROUP BY categoria");
-            
-            // Ver voto del usuario actual
-            JsonObject miVoto = null;
-            if (userId > 0) {
-                miVoto = db.queryOne("SELECT categoria FROM raffle_votes WHERE user_id = ?", userId);
-            }
-
-            JsonObject res = new JsonObject();
-            JsonArray categorias = new JsonArray();
-            for (JsonObject count : counts) {
-                categorias.add(count);
-            }
-            res.add("resultados", categorias);
-            res.addProperty("miVoto", miVoto != null ? miVoto.get("categoria").getAsString() : null);
-
-            ctx.json(res);
-        });
+        app.get("/api/raffle/poll", ctx -> ctx.json(sorteos.encuesta(Peticion.userIdDeCookie(ctx))));
 
         // POST /api/raffle/vote
         app.post("/api/raffle/vote", ctx -> {
             JsonObject body = parseBody(ctx);
-            int userId = body.get("userId").getAsInt();
-            String categoria = body.get("categoria").getAsString();
-
-            db.update("INSERT INTO raffle_votes (user_id, categoria) VALUES (?, ?) " +
-                    "ON CONFLICT (user_id) DO UPDATE SET categoria = ?", userId, categoria, categoria);
-            
-            io.emit("poll_updated", new JsonObject());
+            sorteos.votar(Peticion.entero(body, "userId"), Peticion.texto(body, "categoria"));
             ctx.json(successJson("Voto registrado", 0));
         });
 
         // DELETE /api/admin/raffle/poll
         app.delete("/api/admin/raffle/poll", ctx -> {
-            db.update("DELETE FROM raffle_votes");
-            io.emit("poll_reset", new JsonObject());
-            if (pushService != null) {
-                pushService.enviarPushATodos(db, java.util.Set.of(), "📊 ¡Nueva Encuesta de Sorteos!", "La encuesta se ha reiniciado. ¡Entra y vota por tu premio favorito!");
-            }
+            sorteos.reiniciarEncuesta();
             ctx.json(successJson("Encuesta reiniciada", 0));
         });
 
         // GET /api/raffle/offers
-        app.get("/api/raffle/offers", ctx -> {
-            String cookieVal = ctx.cookie("userId");
-            int userId = 0;
-            try { userId = Integer.parseInt(cookieVal); } catch (Exception ignored) {}
-
-            boolean esAdmin = false;
-            if (userId > 0) {
-                JsonObject user = db.queryOne("SELECT tipo_suscripcion FROM users WHERE id = ?", userId);
-                esAdmin = user != null && "admin".equals(user.get("tipo_suscripcion").getAsString());
-            }
-
-            ArrayList<JsonObject> raffles;
-            if (esAdmin) {
-                raffles = db.query("SELECT r.*, COALESCE(e.tickets_asignados, 0) as mis_tickets " +
-                        "FROM raffles r LEFT JOIN raffle_entries e ON r.id = e.raffle_id AND e.user_id = ? " +
-                        "WHERE r.estado IN ('activo', 'completado') ORDER BY r.estado ASC, r.fecha_limite ASC", userId);
-            } else {
-                raffles = db.query("SELECT r.*, COALESCE(e.tickets_asignados, 0) as mis_tickets " +
-                        "FROM raffles r LEFT JOIN raffle_entries e ON r.id = e.raffle_id AND e.user_id = ? " +
-                        "WHERE r.estado = 'activo' OR (r.estado = 'completado' AND r.fecha_completado > NOW() - INTERVAL '1 hour') " +
-                        "ORDER BY r.estado ASC, r.fecha_limite ASC", userId);
-            }
-            ctx.json(raffles);
-        });
+        app.get("/api/raffle/offers", ctx -> ctx.json(sorteos.ofertas(Peticion.userIdDeCookie(ctx))));
 
         // GET /api/raffle/all
-        app.get("/api/raffle/all", ctx -> {
-            String cookieVal = ctx.cookie("userId");
-            int userId = 0;
-            try { userId = Integer.parseInt(cookieVal); } catch (Exception ignored) {}
-            ctx.json(db.query("SELECT r.*, COALESCE(e.tickets_asignados, 0) as mis_tickets " +
-                    "FROM raffles r LEFT JOIN raffle_entries e ON r.id = e.raffle_id AND e.user_id = ? " +
-                    "ORDER BY r.fecha_creacion DESC LIMIT 50", userId));
-        });
+        app.get("/api/raffle/all", ctx -> ctx.json(sorteos.todos(Peticion.userIdDeCookie(ctx))));
 
         // POST /api/raffle/participate
         app.post("/api/raffle/participate", ctx -> {
             JsonObject body = parseBody(ctx);
-            int userId = body.get("userId").getAsInt();
-            int raffleId = body.get("raffleId").getAsInt();
-            int delta = body.get("ticketsDelta").getAsInt();
-
-            // D5: la cantidad de tickets la valida el servidor (no puede ser 0 ni absurda)
-            if (delta == 0 || Math.abs((long) delta) > TICKETS_DELTA_MAX) {
-                ctx.status(400).json(errorJson("La cantidad de tickets no es válida"));
-                return;
-            }
-
-            // Verificar sorteo activo
-            JsonObject raffle = db.queryOne("SELECT * FROM raffles WHERE id = ? AND estado = 'activo'", raffleId);
-            if (raffle == null) { ctx.status(400).json(errorJson("Sorteo no disponible")); return; }
-
-            // Tickets disponibles
-            JsonObject ticketsRes = db.queryOne("SELECT cantidad FROM user_tickets WHERE user_id = ?", userId);
-            int ticketsDisponibles = ticketsRes != null ? (int) ticketsRes.get("cantidad").getAsLong() : 0;
-
-            // Participación actual
-            JsonObject entryRes = db.queryOne("SELECT tickets_asignados FROM raffle_entries WHERE raffle_id = ? AND user_id = ?", raffleId, userId);
-            int ticketsActuales = entryRes != null ? (int) entryRes.get("tickets_asignados").getAsLong() : 0;
-
-            int nuevoTotal = ticketsActuales + delta;
-
-            if (nuevoTotal < 0) { ctx.status(400).json(errorJson("No puedes quitar más tickets de los que tienes asignados")); return; }
-            if (delta > 0 && ticketsDisponibles < delta) { ctx.status(400).json(errorJson("No tienes suficientes tickets disponibles")); return; }
-
-            int ticketsRestantes = (int) raffle.get("tickets_necesarios").getAsLong() - (int) raffle.get("tickets_actuales").getAsLong();
-            if (delta > ticketsRestantes) { ctx.status(400).json(errorJson("Solo quedan " + ticketsRestantes + " espacios")); return; }
-
-            // Actualizar tickets del usuario
-            if (delta > 0) {
-                db.update("UPDATE user_tickets SET cantidad = cantidad - ? WHERE user_id = ?", delta, userId);
-            } else if (delta < 0) {
-                db.update("INSERT INTO user_tickets (user_id, cantidad) VALUES (?, ?) " +
-                        "ON CONFLICT (user_id) DO UPDATE SET cantidad = user_tickets.cantidad + ?",
-                        userId, Math.abs(delta), Math.abs(delta));
-            }
-
-            // Actualizar participación
-            if (nuevoTotal == 0) {
-                db.update("DELETE FROM raffle_entries WHERE raffle_id = ? AND user_id = ?", raffleId, userId);
-            } else {
-                db.update("INSERT INTO raffle_entries (raffle_id, user_id, tickets_asignados) VALUES (?, ?, ?) " +
-                        "ON CONFLICT (raffle_id, user_id) DO UPDATE SET tickets_asignados = ?",
-                        raffleId, userId, nuevoTotal, nuevoTotal);
-            }
-
-            db.update("UPDATE raffles SET tickets_actuales = tickets_actuales + ? WHERE id = ?", delta, raffleId);
-
-            // Verificar si se completó
-            JsonObject updated = db.queryOne("SELECT tickets_actuales, tickets_necesarios FROM raffles WHERE id = ?", raffleId);
-            int tActuales = (int) updated.get("tickets_actuales").getAsLong();
-            int tNecesarios = (int) updated.get("tickets_necesarios").getAsLong();
-            if (tActuales >= tNecesarios) {
-                ejecutarSorteo(db, io, correo, raffleId);
-            } else {
-                JsonObject updateData = new JsonObject();
-                updateData.addProperty("raffleId", raffleId);
-                updateData.addProperty("tickets_actuales", tActuales);
-                io.emit("sorteo_actualizado", updateData);
-            }
-
-            JsonObject newTickets = db.queryOne("SELECT cantidad FROM user_tickets WHERE user_id = ?", userId);
-            JsonObject res = new JsonObject();
-            res.addProperty("success", true);
-            res.addProperty("ticketsUsuario", newTickets != null ? newTickets.get("cantidad").getAsLong() : 0);
-            res.addProperty("misTicketsEnSorteo", nuevoTotal);
-            res.addProperty("ticketsEnSorteo", tActuales);
-            ctx.json(res);
+            ctx.json(sorteos.participar(
+                    Peticion.entero(body, "userId"),
+                    Peticion.entero(body, "raffleId"),
+                    Peticion.entero(body, "ticketsDelta")));
         });
 
         // POST /api/admin/raffle/create
         app.post("/api/admin/raffle/create", ctx -> {
             JsonObject body = parseBody(ctx);
-            String nombre = body.get("nombre").getAsString();
-            String categoria = body.get("categoria").getAsString();
-
-            // D5: precio validado en el servidor (número, positivo, entero, dentro de rango)
-            ValidadorMonto.Resultado precioValido = validador.sorteo(body.get("precio"));
-            if (!precioValido.isValido()) {
-                ctx.status(400).json(errorJson(precioValido.getError()));
-                return;
-            }
-            int precio = precioValido.getMonto().intValueExact(); // REVIEW-MONEY (el validador acota a Integer.MAX_VALUE)
-
-            int duracionMinutos;
-            try {
-                duracionMinutos = body.get("duracionMinutos").getAsInt();
-            } catch (Exception e) {
-                ctx.status(400).json(errorJson("La duración no es válida"));
-                return;
-            }
-            if (duracionMinutos < 1 || duracionMinutos > DURACION_MAX_MINUTOS) {
-                ctx.status(400).json(errorJson("La duración debe estar entre 1 minuto y " + DURACION_MAX_MINUTOS + " minutos"));
-                return;
-            }
-            int ticketsNecesarios = (int) Math.ceil(precio / 1000.0);
-
-            int newId = db.insertReturningId("INSERT INTO raffles (nombre, categoria, precio, tickets_necesarios, fecha_limite) " +
-                    "VALUES (?, ?, ?, ?, NOW() + make_interval(mins => ?)) RETURNING id",
-                    nombre, categoria, precio, ticketsNecesarios, duracionMinutos);
-
-            JsonObject nuevoSorteo = db.queryOne("SELECT * FROM raffles WHERE id = ?", newId);
-            io.emit("nuevo_sorteo", nuevoSorteo);
-
-            // Push: notificar a todos sobre nuevo sorteo
-            if (pushService != null) {
-                pushService.enviarPushATodos(db, java.util.Set.of(), "🎁 ¡Nuevo sorteo!", "Sorteo \"" + nombre + "\" disponible");
-            }
-
-            JsonObject res = new JsonObject();
-            res.addProperty("success", true);
-            res.add("sorteo", nuevoSorteo);
-            ctx.json(res);
+            ctx.json(sorteos.crear(
+                    Peticion.texto(body, "nombre"),
+                    Peticion.texto(body, "categoria"),
+                    body.get("precio"),
+                    body.get("duracionMinutos")));
         });
 
         // DELETE /api/admin/raffle/:id
         app.delete("/api/admin/raffle/{id}", ctx -> {
-            int raffleId = Integer.parseInt(ctx.pathParam("id"));
-            JsonObject sorteo = db.queryOne("SELECT estado FROM raffles WHERE id = ?", raffleId);
-            if (sorteo == null) { ctx.status(404).json(errorJson("Sorteo no encontrado")); return; }
-
-            String estado = sorteo.get("estado").getAsString();
-            if (!"completado".equals(estado)) {
-                // Devolver tickets
-                ArrayList<JsonObject> entries = db.query("SELECT * FROM raffle_entries WHERE raffle_id = ?", raffleId);
-                for (JsonObject entry : entries) {
-                    db.update("INSERT INTO user_tickets (user_id, cantidad) VALUES (?, ?) " +
-                            "ON CONFLICT (user_id) DO UPDATE SET cantidad = user_tickets.cantidad + ?",
-                            (int) entry.get("user_id").getAsLong(),
-                            (int) entry.get("tickets_asignados").getAsLong(),
-                            (int) entry.get("tickets_asignados").getAsLong());
-                }
-            }
-            db.update("DELETE FROM raffles WHERE id = ?", raffleId);
-
-            JsonObject deleteData = new JsonObject();
-            deleteData.addProperty("raffleId", raffleId);
-            io.emit("sorteo_eliminado", deleteData);
-
-            ctx.json(successJson("completado".equals(estado) ? "Sorteo completado eliminado" : "Sorteo eliminado, tickets devueltos", 0));
+            String mensaje = sorteos.eliminar(Peticion.pathEntero(ctx, "id"));
+            ctx.json(successJson(mensaje, 0));
         });
 
         // GET /api/admin/raffles
-        app.get("/api/admin/raffles", ctx -> {
-            ctx.json(db.query("SELECT * FROM raffles ORDER BY fecha_creacion DESC"));
-        });
-    }
-
-    /**
-     * Ejecutar el sorteo cuando se completan los tickets.
-     */
-    public static void ejecutarSorteo(GenericDAO db, SocketIOServer io, CorreoServicio correo, int raffleId) {
-        try {
-            JsonObject raffle = db.queryOne("SELECT * FROM raffles WHERE id = ? AND estado = 'activo'", raffleId);
-            if (raffle == null) return;
-
-            ArrayList<JsonObject> entries = db.query("SELECT * FROM raffle_entries WHERE raffle_id = ?", raffleId);
-
-            // Pool ponderado
-            ArrayList<Integer> pool = new ArrayList<>();
-            for (JsonObject entry : entries) {
-                int uid = (int) entry.get("user_id").getAsLong();
-                int tickets = (int) entry.get("tickets_asignados").getAsLong();
-                for (int i = 0; i < tickets; i++) pool.add(uid);
-            }
-
-            int tNecesarios = (int) raffle.get("tickets_necesarios").getAsLong();
-            int tActuales = (int) raffle.get("tickets_actuales").getAsLong();
-            int ticketsFaltantes = tNecesarios - tActuales;
-            for (int i = 0; i < ticketsFaltantes; i++) {
-                pool.add(-1);
-            }
-
-            if (pool.isEmpty()) return;
-
-            // Elegir ganador
-            int ganadorId = pool.get(new Random().nextInt(pool.size()));
-            
-            String ganadorNombre = "Admin (Vacío)";
-            String emailGanador = "N/A";
-            
-            if (ganadorId != -1) {
-                JsonObject ganador = db.queryOne("SELECT username, email, telefono, player_tag FROM users WHERE id = ?", ganadorId);
-                if (ganador != null) {
-                    ganadorNombre = ganador.get("username").getAsString();
-                    emailGanador = ganador.get("email").getAsString();
-                }
-            }
-
-            // Actualizar sorteo
-            if (ganadorId == -1) {
-                db.update("UPDATE raffles SET estado = 'completado', ganador_id = NULL, ganador_nombre = ?, fecha_completado = NOW() WHERE id = ?",
-                        ganadorNombre, raffleId);
-            } else {
-                db.update("UPDATE raffles SET estado = 'completado', ganador_id = ?, ganador_nombre = ?, fecha_completado = NOW() WHERE id = ?",
-                        ganadorId, ganadorNombre, raffleId);
-            }
-
-            // Notificar admin por correo
-            String nombre = raffle.get("nombre").getAsString();
-            correo.notificarAdmin("SORTEO COMPLETADO: " + nombre,
-                    "Ganador: " + ganadorNombre + " | Email: " + emailGanador);
-
-            // Notificar por socket
-            JsonObject ganadorData = new JsonObject();
-            ganadorData.addProperty("raffleId", raffleId);
-            ganadorData.addProperty("nombre", nombre);
-            ganadorData.addProperty("ganadorNombre", ganadorNombre);
-            ganadorData.addProperty("ganadorId", ganadorId);
-            io.emit("sorteo_ganador", ganadorData);
-
-            // Push: notificar al ganador del sorteo
-            if (pushService != null && ganadorId != -1) {
-                pushService.enviarPush(db, ganadorId, "🏆 ¡Ganaste el sorteo!", "¡Felicidades! Ganaste \"" + nombre + "\"");
-            }
-
-            logger.info("🏆 Sorteo #" + raffleId + " completado. Ganador: " + ganadorNombre);
-        } catch (Exception e) {
-            logger.error("Error ejecutando sorteo: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Acumula los tickets de sorteo que le corresponden a un jugador al terminar una partida (D4).
-     * Toma del desglose la mitad de la comisión de sorteos, así los llamadores no repiten la cuenta.
-     *
-     * @return {ticketsNuevos, acumuladoResidual}
-     */
-    public static int[] acumularTicketsPorPartida(GenericDAO db, int userId, ComisionService.Desglose desglose) {
-        return acumularTickets(db, userId, desglose.porJugador(ComisionService.Categoria.SORTEOS));
-    }
-
-    /**
-     * @deprecated El dinero no se maneja con double. Usar {@link #acumularTicketsPorPartida} o la versión BigDecimal.
-     */
-    @Deprecated
-    public static int[] acumularTickets(GenericDAO db, int userId, double montoComisionSorteo) {
-        return acumularTickets(db, userId, BigDecimal.valueOf(montoComisionSorteo));
-    }
-
-    /**
-     * Acumular tickets cuando termina una partida.
-     * Recibe la porción de comisión de sorteos que le corresponde a este jugador (comSorteos / 2).
-     * Se genera 1 ticket cada 1000 pesos acumulados.
-     */
-    public static int[] acumularTickets(GenericDAO db, int userId, BigDecimal montoComisionSorteo) {
-        try {
-            JsonObject ticketRes = db.queryOne("SELECT * FROM user_tickets WHERE user_id = ?", userId);
-            if (ticketRes == null) {
-                db.update("INSERT INTO user_tickets (user_id, cantidad, acumulado) VALUES (?, 0, 0)", userId);
-                ticketRes = db.queryOne("SELECT * FROM user_tickets WHERE user_id = ?", userId);
-            }
-
-            int acumuladoAnterior = (int) ticketRes.get("acumulado").getAsLong();
-            int nuevoAcumulado = acumuladoAnterior + montoComisionSorteo.intValue(); // REVIEW-MONEY (trunca a pesos enteros, igual que antes)
-            int ticketsAnteriores = acumuladoAnterior / 1000;
-            int ticketsGanados = nuevoAcumulado / 1000;
-            int residuo = nuevoAcumulado % 1000;
-            int ticketsNuevos = ticketsGanados - ticketsAnteriores;
-
-            if (ticketsNuevos > 0) {
-                db.update("UPDATE user_tickets SET cantidad = cantidad + ?, acumulado = ? WHERE user_id = ?",
-                        ticketsNuevos, residuo, userId);
-                return new int[]{ticketsNuevos, residuo};
-            } else {
-                db.update("UPDATE user_tickets SET acumulado = ? WHERE user_id = ?", nuevoAcumulado, userId);
-                return new int[]{0, nuevoAcumulado};
-            }
-        } catch (Exception e) {
-            logger.error("Error acumulando tickets: " + e.getMessage());
-            return new int[]{0, 0};
-        }
+        app.get("/api/admin/raffles", ctx -> ctx.json(sorteos.listarAdmin()));
     }
 }

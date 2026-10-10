@@ -1,158 +1,55 @@
 package com.torneosflash.servidor;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import com.google.gson.JsonObject;
-import com.torneosflash.dao.GenericDAO;
+import com.torneosflash.servicio.MediaService;
+import com.torneosflash.servicio.ServicioException;
 import io.javalin.Javalin;
 import io.javalin.http.UploadedFile;
 
-import java.sql.*;
-import java.util.UUID;
-
 /**
  * Rutas para subir y servir archivos multimedia (videos).
- * Los videos se guardan directamente en PostgreSQL (tabla media_files)
- * para que sean persistentes en Render (sin depender del filesystem efímero).
  *
- * POST /api/upload  → Sube un video, lo guarda en la BD, devuelve URL
- * GET  /api/media/{id} → Sirve el archivo desde la BD
+ * A3: aquí solo se leen el archivo y los headers del request y se escriben los headers de la respuesta;
+ * validación, guardado en BD y resolución del header Range viven en {@link MediaService}.
+ *
+ * POST /api/upload     → sube un video y devuelve su URL
+ * GET  /api/media/{id} → sirve el archivo desde la BD
  */
 public class RutasMedia {
-    private static final Logger logger = LoggerFactory.getLogger(RutasMedia.class);
 
+    public static void register(Javalin app, MediaService media) {
 
-    public static void register(Javalin app, GenericDAO db) {
-
-        // =============================================
         // POST /api/upload - Subir video
-        // =============================================
         app.post("/api/upload", ctx -> {
-            try {
-                UploadedFile uploadedFile = ctx.uploadedFile("file");
-                if (uploadedFile == null) {
-                    ctx.status(400).json(errorJson("No se recibió ningún archivo"));
-                    return;
-                }
-
-                String contentType = uploadedFile.contentType();
-                if (contentType == null || !contentType.startsWith("video/")) {
-                    ctx.status(400).json(errorJson("Solo se permiten archivos de video"));
-                    return;
-                }
-
-                // Leer bytes del archivo
-                byte[] fileBytes = uploadedFile.content().readAllBytes();
-
-                // Limitar tamaño (50MB máximo)
-                if (fileBytes.length > 50 * 1024 * 1024) {
-                    ctx.status(413).json(errorJson("El video excede el límite de 50MB"));
-                    return;
-                }
-
-                // Generar nombre único
-                String extension = "";
-                String originalName = uploadedFile.filename();
-                int dotIdx = originalName.lastIndexOf('.');
-                if (dotIdx > 0) extension = originalName.substring(dotIdx);
-                String filename = UUID.randomUUID().toString() + extension;
-
-                // Guardar en PostgreSQL (tabla media_files)
-                int mediaId = db.insertReturningId(
-                    "INSERT INTO media_files (filename, content_type, data) VALUES (?, ?, ?) RETURNING id",
-                    filename, contentType, fileBytes
-                );
-
-                if (mediaId < 0) {
-                    ctx.status(500).json(errorJson("Error al guardar el archivo en la base de datos"));
-                    return;
-                }
-
-                // Devolver la URL pública
-                String url = "/api/media/" + mediaId;
-                JsonObject response = new JsonObject();
-                response.addProperty("url", url);
-                response.addProperty("tipo", "video");
-                response.addProperty("id", mediaId);
-                ctx.json(response);
-
-                logger.info("📹 Video subido: " + filename + " (" + fileBytes.length / 1024 + "KB) → ID: " + mediaId);
-
-            } catch (Exception e) {
-                logger.error("❌ Error en /api/upload: " + e.getMessage());
-                e.printStackTrace();
-                ctx.status(500).json(errorJson("Error interno al subir archivo"));
+            UploadedFile archivo = ctx.uploadedFile("file");
+            if (archivo == null) {
+                throw ServicioException.solicitudInvalida("No se recibió ningún archivo");
             }
+            ctx.json(media.subirVideo(archivo.contentType(), archivo.filename(), archivo.content()));
         });
 
-        // =============================================
-        // GET /api/media/{id} - Servir archivo desde BD
-        // =============================================
+        // GET /api/media/{id} - Servir archivo desde BD (con soporte Range para seek en videos)
         app.get("/api/media/{id}", ctx -> {
-            try {
-                int mediaId = Integer.parseInt(ctx.pathParam("id"));
-
-                // Buscar en la BD
-                try (Connection conn = db.getConnection();
-                     PreparedStatement ps = conn.prepareStatement(
-                         "SELECT filename, content_type, data FROM media_files WHERE id = ?")) {
-                    ps.setInt(1, mediaId);
-                    ResultSet rs = ps.executeQuery();
-
-                    if (!rs.next()) {
-                        ctx.status(404).result("Archivo no encontrado");
-                        return;
-                    }
-
-                    String contentType = rs.getString("content_type");
-                    byte[] data = rs.getBytes("data");
-
-                    // Headers para streaming de video
-                    ctx.contentType(contentType);
-                    ctx.header("X-Content-Type-Options", "nosniff"); // S5: el navegador no debe "adivinar" otro tipo (p.ej. HTML)
-                    ctx.header("Accept-Ranges", "bytes");
-                    ctx.header("Cache-Control", "public, max-age=86400"); // Cache 24h
-
-                    // Soporte Range requests para seek en videos
-                    String rangeHeader = ctx.header("Range");
-                    if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
-                        String[] rangeParts = rangeHeader.substring(6).split("-");
-                        int start = Integer.parseInt(rangeParts[0]);
-                        int end = rangeParts.length > 1 && !rangeParts[1].isEmpty()
-                                ? Integer.parseInt(rangeParts[1])
-                                : data.length - 1;
-
-                        if (start >= data.length) {
-                            ctx.status(416).header("Content-Range", "bytes */" + data.length);
-                            return;
-                        }
-                        if (end >= data.length) end = data.length - 1;
-
-                        int length = end - start + 1;
-                        byte[] rangeData = new byte[length];
-                        System.arraycopy(data, start, rangeData, 0, length);
-
-                        ctx.status(206);
-                        ctx.header("Content-Range", "bytes " + start + "-" + end + "/" + data.length);
-                        ctx.header("Content-Length", String.valueOf(length));
-                        ctx.result(rangeData);
-                    } else {
-                        ctx.header("Content-Length", String.valueOf(data.length));
-                        ctx.result(data);
-                    }
-                }
-            } catch (NumberFormatException e) {
-                ctx.status(400).result("ID inválido");
-            } catch (Exception e) {
-                logger.error("❌ Error en /api/media: " + e.getMessage());
-                ctx.status(500).result("Error interno");
+            MediaService.Descarga descarga = media.descargar(Peticion.pathEntero(ctx, "id"), ctx.header("Range"));
+            if (descarga == null) {
+                ctx.status(404).result("Archivo no encontrado");
+                return;
             }
-        });
-    }
 
-    private static JsonObject errorJson(String message) {
-        JsonObject obj = new JsonObject();
-        obj.addProperty("error", message);
-        return obj;
+            ctx.contentType(descarga.contentType());
+            ctx.header("X-Content-Type-Options", "nosniff"); // S5: el navegador no debe "adivinar" otro tipo (p.ej. HTML)
+            ctx.header("Accept-Ranges", "bytes");
+            ctx.header("Cache-Control", "public, max-age=86400"); // Cache 24h
+
+            if (descarga.status() == 416) {
+                ctx.status(416).header("Content-Range", descarga.contentRange());
+                return;
+            }
+            if (descarga.status() == 206) {
+                ctx.status(206);
+                ctx.header("Content-Range", descarga.contentRange());
+            }
+            ctx.header("Content-Length", String.valueOf(descarga.datos().length));
+            ctx.result(descarga.datos());
+        });
     }
 }

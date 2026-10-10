@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — UltimateClash (TorneosFlash)
 
 > Documento de referencia para que cualquier modelo o desarrollador entienda el sistema.
-> Última actualización: 2026-10-09
+> Última actualización: 2026-10-10
 
 ---
 
@@ -48,6 +48,9 @@ TorneosFlash/
 │   │   ├── ConexionDB.java          # Singleton HikariCP + inicializarTablas()
 │   │   ├── GenericDAO.java          # CRUD genérico (select, insert, update, delete)
 │   │   └── UsuarioDAO.java          # Queries específicas de usuarios
+│   ├── eventos/
+│   │   ├── EventBus.java            # Bus de eventos en memoria: `emit()` / `on()`, síncrono y aislado por listener. Ver sección 13
+│   │   └── Eventos.java             # Catálogo: nombres de eventos (`match.finished`) y sus datos (`PartidaFinalizada`)
 │   ├── servicio/
 │   │   ├── ClashApiServicio.java    # Integración con API de Clash Royale
 │   │   ├── ChatSanitizer.java       # Validación/limpieza de mensajes de chat y usernames (anti-XSS)
@@ -57,7 +60,9 @@ TorneosFlash/
 │   │   ├── WalletService.java       # Todo movimiento de dinero (transacciones atómicas, BigDecimal)
 │   │   ├── ComisionService.java     # Política de comisiones: % escalonado + reparto por categoría. Ver sección 9
 │   │   ├── UsuarioVista.java        # Lista blanca de columnas de `users` que pueden salir al cliente (sesión vs. rival). Nunca `SELECT *` sobre users hacia el frontend
-│   │   └── ValidadorMonto.java      # Valida montos del cliente (número, > 0, entero, rango por tipo). Ver sección 8
+│   │   ├── ValidadorMonto.java      # Valida montos del cliente (número, > 0, entero, rango por tipo). Ver sección 8
+│   │   ├── TicketsPartidaListener.java   # Listener de `match.finished`: tickets de sorteo + `tickets_ganados` a cada jugador (A4)
+│   │   └── ResultadoPartidaListener.java # Listener de `match.finished`: saldo del ganador + `resultado_api` + push (A4)
 │   ├── servidor/                    # Handlers HTTP (rutas REST)
 │   │   ├── RateLimitMiddleware.java # Rate limiting por IP (S8): clasifica cada request y responde 429. Ver sección 10
 │   │   ├── RutasAuth.java           # Login, registro, sesión
@@ -329,3 +334,40 @@ Todos los pools se crean en `config/Ejecutores` (con tamaños de `AppConfig`) y 
 - **Pools con nombre:** hilos daemon `io-N`, `cpu-N`, `timer-N`, Jetty `http-N`, Hikari `torneos-db ...`; un volcado de hilos (`jstack`) los distingue.
 - **Ajuste:** los hilos HTTP bloquean esperando BD; con `HTTP_MAX_THREADS` muy por encima de `DB_POOL_MAX_SIZE` solo se acumulan esperas de hasta 5 s. Si hay latencia por cola de Jetty, sube `HTTP_MAX_THREADS`; si `PostgreSQL` rechaza conexiones, baja `DB_POOL_MAX_SIZE`.
 - **Fuera de A8 (pendiente):** `enviarPushATodos` envía los FCM uno por uno (con muchos tokens ocupa un hilo de `io` mucho rato); `GET /api/verify-tag` llama a Clash en el hilo HTTP; `GET /api/media/{id}` carga el archivo completo en RAM por petición; el ping de Socket.IO envía de forma secuencial (un cliente lento retrasa a los demás).
+
+---
+
+## 13. Bus de eventos (A4)
+
+`eventos/EventBus` es un publicar/suscribir en memoria. Quien termina una acción de negocio llama `emit(nombre, datos)` y **no sabe quién escucha**; cada funcionalidad nueva (notificaciones, misiones, logros...) se suscribe con `on(nombre, idListener, listener)` sin tocar al emisor. Es lo que pide la convención "cada funcionalidad nueva lanza un evento y no notifica directamente". El catálogo de nombres y sus datos está en `eventos/Eventos`. Se crea una sola vez en `Main` y se reparte por constructor (`AdminService`, `SocketHandler`); no hay singleton estático.
+
+| Evento | Datos | Lo emiten | Listeners (en orden) |
+|---|---|---|---|
+| `match.finished` | `Eventos.PartidaFinalizada`: `matchId`, `origen` (`API` / `DISPUTA`), `participantes` (ids de los 2 jugadores), `ganadorId`, `ganadorNombre`, `monto`, `premio`, `nuevoSaldoGanador`, `desglose` (`ComisionService.Desglose`) | `SocketHandler` (sondeo de la API de Clash, `API`) y `AdminService.resolverDisputa` (`DISPUTA`) | 1. `tickets-sorteo` (`TicketsPartidaListener`) · 2. `notificacion-resultado` (`ResultadoPartidaListener`) |
+
+```
+SocketHandler (sondeo) ── WalletService.liquidar()  ← transacción SQL: saldo, comisiones, gen_*, victorias_*, pozos del leaderboard
+        │
+        ├── UPDATE matches SET estado='finalizada'
+        ├── EventBus.emit("match.finished", PartidaFinalizada)
+        │       1. tickets-sorteo         → SorteoService.acumularTicketsPorPartida + socket `tickets_ganados` a cada jugador
+        │       2. notificacion-resultado → (solo origen API) `actualizar_saldo` al ganador + `resultado_api` y push a ambos
+        └── liberarJugadores()  (estado normal + `flujo_completado`)
+```
+
+**Reglas del bus**
+- **Síncrono:** los listeners corren en el hilo que emite, en el orden de registro (`Main`). No hay cola que se llene ni eventos perdidos, y el orden de lo que reciben los clientes es el de siempre (`tickets_ganados` → `actualizar_saldo` → `resultado_api` → `flujo_completado`). Un listener NO debe bloquearse con HTTP externo: para red usa `Ejecutores.ejecutarIO` (el push ya lo hace por dentro).
+- **Aislado:** si un listener lanza una excepción queda en el log (`❌ Listener '<id>' falló con el evento '<nombre>'`) y los demás siguen; `emit()` nunca lanza, así un listener roto no puede dejar una liquidación a medias ni a los jugadores sin liberar.
+- **Se emite después de confirmar:** el evento cuenta algo que ya pasó (el dinero ya se movió y el match ya está `finalizada`); los listeners no revierten nada.
+- **Sin persistencia:** si el servidor se reinicia a mitad de un evento, no se repite. Por eso lo que debe ser atómico con el dinero (saldo, comisiones, `gen_*`, `victorias_*`, pozos del leaderboard) sigue dentro de la transacción de `WalletService.liquidar()` y NO es un listener. Mismo criterio para D2/D3 (ledger).
+- **Registrar dos veces no duplica:** `on()` ignora un listener con el mismo `id` ya suscrito al mismo evento (evita dar los tickets dos veces).
+- **Anti-bucle:** un listener puede emitir otro evento; más de 8 niveles anidados se descartan con un `error` en el log.
+
+**Cómo añadir algo**
+1. Evento nuevo: constante en `Eventos` + `record` con sus datos, y en el emisor `eventBus.emit(Eventos.NOMBRE, new Datos(...))` *después* de confirmar el cambio. Nombres `entidad.accion` en pasado.
+2. Listener nuevo: clase en `servicio/` con un método `registrar(EventBus)` que hace `bus.on(Eventos.X, "id-unico", this::metodo)`, y una línea en `Main` (el orden de las líneas es el orden de ejecución). No hay que tocar `SocketHandler` ni `AdminService`.
+
+**Pendiente / fuera de A4**
+- Misiones y logros (aún no existen; la comisión ya les reserva `misiones` 10% y `logros` 5%) y el ranking en vivo del leaderboard serán listeners de `match.finished` cuando se construyan. Los contadores `victorias_*` del leaderboard no se movieron a un listener porque deben ser atómicos con la liquidación.
+- Todavía no emiten evento: la disputa creada (`disputa_creada` / `disputa_timeout` en el sondeo), la partida cancelada, los movimientos de dinero de `WalletService` (depósito, retiro, premio; D2/D3 y "Notificaciones de dinero" del roadmap), el rate limiting (S8) ni los sorteos.
+- La notificación de `DISPUTA` sigue en `AdminService.resolverDisputa` (`actualizar_saldo` + `flujo_completado`, sin `resultado_api` ni push): no se cambió lo que ve el jugador.
