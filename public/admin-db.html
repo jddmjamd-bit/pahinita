@@ -125,14 +125,44 @@
             .sidebar { width: 100%; height: auto; max-height: 150px; }
             .layout { flex-direction: column; }
         }
+
+        /* Pantalla de acceso (S10): la clave ya no va en la URL */
+        .login-bg {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #1a1a2e; z-index: 1000; display: flex; align-items: center; justify-content: center;
+        }
+        .login-bg.hidden { display: none; }
+        .login-box {
+            background: #16213e; padding: 30px; border-radius: 10px; width: 90%;
+            max-width: 380px; border: 1px solid #0f3460; text-align: center;
+        }
+        .login-box h2 { color: #e94560; margin-bottom: 8px; }
+        .login-box p { color: #888; font-size: 0.85rem; margin-bottom: 16px; }
+        .login-box input {
+            width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #0f3460;
+            background: #202540; color: #fff; font-size: 0.95rem; margin-bottom: 12px;
+        }
+        .login-box .login-error { color: #ed4245; font-size: 0.85rem; min-height: 1.2em; margin-bottom: 10px; }
     </style>
 </head>
 <body>
+    <!-- Pantalla de acceso -->
+    <div class="login-bg" id="login-bg">
+        <div class="login-box">
+            <h2>🔒 Panel DB</h2>
+            <p>Introduce la clave de administración</p>
+            <input type="password" id="login-clave" placeholder="Clave" autocomplete="off" autofocus>
+            <div class="login-error" id="login-error"></div>
+            <button class="btn btn-primary" id="login-btn" onclick="entrar()">Entrar</button>
+        </div>
+    </div>
+
     <div class="top-bar">
         <h1>🗄️ Panel DB</h1>
         <div class="actions">
             <button class="btn btn-export" onclick="exportarDB()">📥 Exportar JSON</button>
             <button class="btn btn-import" onclick="abrirImport()">📤 Importar JSON</button>
+            <button class="btn btn-danger" onclick="cerrarSesion('')">🔒 Salir</button>
         </div>
     </div>
 
@@ -170,10 +200,59 @@
     </div>
 
     <script>
-        // Extraer secret de la URL actual
-        const pathParts = window.location.pathname.split('/');
-        const SECRET = pathParts[pathParts.length - 1] || pathParts[pathParts.length - 2];
-        const API = `/api/db-admin/${SECRET}`;
+        // S10: la clave NO va en la URL. Se escribe en la pantalla de acceso, vive solo en esta pestaña
+        // (sessionStorage) y se envía en el header X-DB-Admin-Key.
+        const API = '/api/db-admin';
+        const CLAVE_KEY = 'dbAdminKey';
+        let claveActual = sessionStorage.getItem(CLAVE_KEY) || '';
+
+        // Escapa texto de la BD antes de meterlo en innerHTML (evita XSS desde datos de usuarios)
+        function esc(s) {
+            return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        async function apiFetch(ruta, opciones = {}) {
+            const headers = Object.assign({}, opciones.headers, { 'X-DB-Admin-Key': claveActual });
+            const res = await fetch(API + ruta, Object.assign({}, opciones, { headers }));
+            if (res.status === 401) { cerrarSesion(''); throw new Error('No autorizado'); }
+            if (res.status === 403) { cerrarSesion('Clave incorrecta'); throw new Error('No autorizado'); }
+            if (res.status === 404) { cerrarSesion('Panel no disponible (revisa DB_ADMIN_SECRET en el servidor)'); throw new Error('No disponible'); }
+            if (res.status === 429) {
+                let msg = 'Demasiados intentos. Espera unos minutos.';
+                try { msg = (await res.json()).error || msg; } catch (e) {}
+                cerrarSesion(msg);
+                throw new Error(msg);
+            }
+            return res;
+        }
+
+        function mostrarLogin(msg) {
+            document.getElementById('login-error').textContent = msg || '';
+            document.getElementById('login-bg').classList.remove('hidden');
+            const input = document.getElementById('login-clave');
+            input.value = '';
+            input.focus();
+        }
+        function ocultarLogin() { document.getElementById('login-bg').classList.add('hidden'); }
+        function cerrarSesion(msg) {
+            claveActual = '';
+            sessionStorage.removeItem(CLAVE_KEY);
+            mostrarLogin(msg);
+        }
+        async function entrar() {
+            const valor = document.getElementById('login-clave').value;
+            if (!valor) return;
+            claveActual = valor;
+            const ok = await cargarTablas();
+            if (ok) {
+                sessionStorage.setItem(CLAVE_KEY, claveActual);
+                ocultarLogin();
+            }
+        }
+        document.getElementById('login-clave').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') entrar();
+        });
 
         let tablaActual = null;
         let datosImport = null;
@@ -181,20 +260,21 @@
         // --- CARGAR TABLAS ---
         async function cargarTablas() {
             try {
-                const res = await fetch(`${API}/tables`);
+                const res = await apiFetch('/tables');
                 const data = await res.json();
                 const container = document.getElementById('tables-list');
                 container.innerHTML = '';
                 for (const t of data) {
                     const btn = document.createElement('button');
                     btn.className = 'table-btn';
-                    btn.innerHTML = `📋 ${t.name} <span class="count">${t.count}</span>`;
+                    btn.innerHTML = `📋 ${esc(t.name)} <span class="count">${esc(t.count)}</span>`;
                     btn.onclick = () => cargarTabla(t.name, btn);
                     container.appendChild(btn);
                 }
+                return true;
             } catch (e) {
                 console.error(e);
-                document.getElementById('tables-list').innerHTML = '<p style="color:#ed4245;">Error cargando tablas</p>';
+                return false;
             }
         }
 
@@ -208,12 +288,12 @@
             main.innerHTML = '<p style="color:#888;">Cargando...</p>';
 
             try {
-                const res = await fetch(`${API}/table/${nombre}`);
+                const res = await apiFetch(`/table/${encodeURIComponent(nombre)}`);
                 const data = await res.json();
                 renderTabla(nombre, data.columns, data.rows);
             } catch (e) {
                 console.error(e);
-                main.innerHTML = `<p style="color:#ed4245;">Error: ${e.message}</p>`;
+                main.innerHTML = `<p style="color:#ed4245;">Error: ${esc(e.message)}</p>`;
             }
         }
 
@@ -224,7 +304,7 @@
 
             let html = `
                 <div class="table-title">
-                    <h2>${nombre}</h2>
+                    <h2>${esc(nombre)}</h2>
                     <span>${rows.length} filas · ${colNames.length} columnas</span>
                     <button class="btn btn-primary btn-sm" onclick="cargarTabla('${nombre}')">🔄</button>
                 </div>
@@ -232,7 +312,7 @@
                 <table>
                     <thead><tr>
                         <th>Acciones</th>
-                        ${colNames.map(c => `<th>${c}</th>`).join('')}
+                        ${colNames.map(c => `<th>${esc(c)}</th>`).join('')}
                     </tr></thead>
                     <tbody>
                     <!-- Fila de inserción -->
@@ -240,7 +320,7 @@
                         <td><button class="btn btn-primary btn-sm" onclick="insertarFila('${nombre}')">➕</button></td>
                         ${colNames.map(c => {
                             if (c === 'id') return '<td><input disabled placeholder="auto" style="opacity:0.4"></td>';
-                            return `<td><input id="new-${c}" placeholder="${c}"></td>`;
+                            return `<td><input id="new-${esc(c)}" placeholder="${esc(c)}"></td>`;
                         }).join('')}
                     </tr>
             `;
@@ -252,10 +332,10 @@
                 </td>`;
                 for (const col of colNames) {
                     const val = row[col] === null ? '' : row[col];
-                    const display = String(val).length > 60 ? String(val).substring(0, 60) + '...' : val;
+                    const display = esc(String(val).length > 60 ? String(val).substring(0, 60) + '...' : val);
                     const isId = col === 'id';
                     html += `<td class="${isId ? '' : 'editable'}" 
-                                 title="${String(val).replace(/"/g, '&quot;')}"
+                                 title="${esc(val)}"
                                  ${isId ? '' : `onclick="editarCelda(this, '${nombre}', ${row.id}, '${col}')"`}
                              >${display}</td>`;
                 }
@@ -271,11 +351,24 @@
             if (td.classList.contains('editing')) return;
             const valorOriginal = td.getAttribute('title') || td.textContent;
             td.classList.add('editing');
-            td.innerHTML = `<input value="${valorOriginal.replace(/"/g, '&quot;')}" 
-                onblur="guardarCelda(this, '${tabla}', ${rowId}, '${columna}')"
-                onkeydown="if(event.key==='Enter')this.blur(); if(event.key==='Escape'){this.parentElement.classList.remove('editing');this.parentElement.textContent='${valorOriginal.replace(/'/g, "\\'")}';}">`;
-            td.querySelector('input').focus();
-            td.querySelector('input').select();
+            td.textContent = '';
+            const input = document.createElement('input');
+            input.value = valorOriginal;
+            let cancelado = false;
+            input.addEventListener('blur', () => {
+                if (!cancelado) guardarCelda(input, tabla, rowId, columna);
+            });
+            input.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter') input.blur();
+                if (ev.key === 'Escape') {
+                    cancelado = true;
+                    td.classList.remove('editing');
+                    td.textContent = valorOriginal.length > 60 ? valorOriginal.substring(0, 60) + '...' : valorOriginal;
+                }
+            });
+            td.appendChild(input);
+            input.focus();
+            input.select();
         }
 
         async function guardarCelda(input, tabla, rowId, columna) {
@@ -286,7 +379,7 @@
             td.setAttribute('title', nuevoValor);
 
             try {
-                const res = await fetch(`${API}/table/${tabla}/update`, {
+                const res = await apiFetch(`/table/${tabla}/update`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ id: rowId, column: columna, value: nuevoValor })
@@ -307,7 +400,7 @@
         async function eliminarFila(tabla, rowId) {
             if (!confirm(`¿Eliminar fila #${rowId} de ${tabla}?`)) return;
             try {
-                const res = await fetch(`${API}/table/${tabla}/delete`, {
+                const res = await apiFetch(`/table/${tabla}/delete`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ id: rowId })
@@ -340,7 +433,7 @@
             if (!hasData) return toast('Escribe al menos un valor', true);
 
             try {
-                const res = await fetch(`${API}/table/${tabla}/insert`, {
+                const res = await apiFetch(`/table/${tabla}/insert`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
@@ -364,7 +457,7 @@
         async function exportarDB() {
             toast('📥 Exportando...');
             try {
-                const res = await fetch(`${API}/export`);
+                const res = await apiFetch('/export');
                 const data = await res.json();
                 const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
@@ -402,7 +495,7 @@
                         `📋 ${tablas.length} tablas, ${totalRows} filas totales: ${tablas.join(', ')}`;
                     document.getElementById('import-preview').style.display = 'block';
                     document.getElementById('btn-confirmar-import').disabled = false;
-                    document.getElementById('file-drop').innerHTML = `✅ ${file.name}`;
+                    document.getElementById('file-drop').textContent = `✅ ${file.name}`;
                 } catch (err) {
                     console.error(err);
                     toast('❌ Archivo JSON inválido', true);
@@ -436,7 +529,7 @@
             document.getElementById('btn-confirmar-import').textContent = 'Importando...';
 
             try {
-                const res = await fetch(`${API}/import`, {
+                const res = await apiFetch('/import', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(datosImport)
@@ -467,8 +560,12 @@
             setTimeout(() => t.remove(), 3000);
         }
 
-        // Init
-        cargarTablas();
+        // Init: si hay clave en esta pestaña se intenta entrar directo; si no, queda la pantalla de acceso
+        if (claveActual) {
+            cargarTablas().then(ok => { if (ok) ocultarLogin(); });
+        } else {
+            mostrarLogin('');
+        }
     </script>
 </body>
 </html>

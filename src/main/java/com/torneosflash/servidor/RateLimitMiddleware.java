@@ -51,7 +51,7 @@ public class RateLimitMiddleware {
 
     /** Solo se limita lo que es API o panel admin; el frontend estático no (cada carga pide decenas de archivos). */
     private static final String[] PREFIJOS_PROTEGIDOS = {
-            "/api/", "/admin-db/", "/secret-admin/", "/admin-fix-status/", "/check-ip"
+            "/api/", "/admin-db", "/secret-admin/", "/admin-fix-status/", "/check-ip"
     };
 
     private static final String RUTA_WEBHOOK_WOMPI = "/api/wompi/webhook";

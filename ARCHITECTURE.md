@@ -276,6 +276,18 @@ Middleware global (`servidor/RateLimitMiddleware`, registrado en `Main` antes de
 - La rotación de la contraseña de la BD se hace en Render (no desde el código).
 - `verify-full` no se ha probado contra el certificado de Render; si la conexión falla con ese modo, quitar `DB_SSLMODE`.
 
+### Panel de la BD en el navegador (`/admin-db`)
+
+| Aspecto | Comportamiento |
+|---|---|
+| URL | `/admin-db` (sin clave). `/admin-db/<algo>` redirige a `/admin-db` |
+| Clave | `DB_ADMIN_SECRET`. Se escribe en la pantalla de acceso de `public/admin-db.html`, queda en `sessionStorage` (solo esa pestaña) y viaja en el header `X-DB-Admin-Key` |
+| API | `/api/db-admin/tables`, `/table/{name}[/update\|/delete\|/insert]`, `/export`, `/import` (antes llevaban la clave en la ruta) |
+| Sin clave configurada | Si está vacía o es la antigua `torneos2024`, el panel y su API responden 404 y se loguea un error |
+| Fuerza bruta | Comparación SHA-256 en tiempo constante; 5 fallos desde una IP → 429 durante 15 min (en memoria). Sin header = 401, no cuenta |
+| Cabeceras | `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `X-Robots-Tag: noindex`, CSP `frame-ancestors 'none'` |
+| SQL | Todo nombre de tabla/columna se valida contra `information_schema` y se cita con comillas dobles; los valores van siempre por `PreparedStatement` |
+
 ---
 
 ## 12. Configuración por variables de entorno (A7)
