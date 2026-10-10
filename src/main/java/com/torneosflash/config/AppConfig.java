@@ -65,6 +65,17 @@ public class AppConfig {
     private final int rateLimitMediaPorMin;
     private final int rateLimitProxyHops;
 
+    // --- Hilos y pools (A8). Ver Ejecutores. ---
+    private final int httpMaxThreads;
+    private final int httpMinThreads;
+    private final int httpIdleTimeoutMs;
+    private final int ioPoolThreads;
+    private final int ioPoolQueue;
+    private final int cpuPoolThreads;
+    private final int cpuPoolQueue;
+    private final int timerPoolThreads;
+    private final int dbPoolMax;
+
     // --- Constructor (CONSTRUCTOR con parámetros desde env) ---
     public AppConfig() {
         this.port = Integer.parseInt(getEnv("PORT", "5000"));
@@ -122,6 +133,18 @@ public class AppConfig {
         this.rateLimitMediaPorMin = getEnvEntero("RATE_LIMIT_MEDIA_PER_MIN", 300, 1);
         // Cuántos proxies de confianza hay delante del servidor (Render = 1). 0 = ignorar X-Forwarded-For.
         this.rateLimitProxyHops = getEnvEntero("RATE_LIMIT_PROXY_HOPS", 1, 0);
+
+        // Hilos y pools (A8). Defaults pensados para Render free (poca CPU y 512 MB de RAM).
+        int httpMax = getEnvEntero("HTTP_MAX_THREADS", 64, 16);
+        this.httpMaxThreads = httpMax;
+        this.httpMinThreads = Math.min(getEnvEntero("HTTP_MIN_THREADS", 8, 1), httpMax);
+        this.httpIdleTimeoutMs = getEnvEntero("HTTP_IDLE_TIMEOUT_MS", 60_000, 1_000);
+        this.ioPoolThreads = getEnvEntero("IO_POOL_THREADS", 16, 1);
+        this.ioPoolQueue = getEnvEntero("IO_POOL_QUEUE", 500, 1);
+        this.cpuPoolThreads = getEnvEntero("CPU_POOL_THREADS", Math.max(1, Runtime.getRuntime().availableProcessors()), 1);
+        this.cpuPoolQueue = getEnvEntero("CPU_POOL_QUEUE", 100, 1);
+        this.timerPoolThreads = getEnvEntero("TIMER_POOL_THREADS", 4, 1);
+        this.dbPoolMax = getEnvEntero("DB_POOL_MAX_SIZE", 20, 2);
     }
 
     /**
@@ -244,6 +267,15 @@ public class AppConfig {
     public int getRateLimitFinancieroPorMin() { return rateLimitFinancieroPorMin; }
     public int getRateLimitMediaPorMin() { return rateLimitMediaPorMin; }
     public int getRateLimitProxyHops() { return rateLimitProxyHops; }
+    public int getHttpMaxThreads() { return httpMaxThreads; }
+    public int getHttpMinThreads() { return httpMinThreads; }
+    public int getHttpIdleTimeoutMs() { return httpIdleTimeoutMs; }
+    public int getIoPoolThreads() { return ioPoolThreads; }
+    public int getIoPoolQueue() { return ioPoolQueue; }
+    public int getCpuPoolThreads() { return cpuPoolThreads; }
+    public int getCpuPoolQueue() { return cpuPoolQueue; }
+    public int getTimerPoolThreads() { return timerPoolThreads; }
+    public int getDbPoolMax() { return dbPoolMax; }
 
     public boolean hasClashApi() { return !clashApiToken.isEmpty(); }
     public boolean hasFirebase() { return !firebaseServiceAccount.isEmpty(); }

@@ -32,7 +32,12 @@ public class SocketIOServer {
     private static final int PING_INTERVAL = 25000;
     private static final int PING_TIMEOUT = 5000;
     private final Gson gson = new Gson();
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    // A8: temporizador compartido (Ejecutores.timers()); antes este servidor creaba su propio pool de 2 hilos.
+    private final ScheduledExecutorService scheduler;
+
+    public SocketIOServer(ScheduledExecutorService scheduler) {
+        this.scheduler = scheduler;
+    }
 
     // Polling sessions: sid -> pending messages queue
     private final ConcurrentHashMap<String, ConcurrentLinkedQueue<String>> pollingQueues = new ConcurrentHashMap<>();

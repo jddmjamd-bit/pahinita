@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.google.gson.*;
 import com.torneosflash.config.AppConfig;
+import com.torneosflash.config.Ejecutores;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.dao.UsuarioDAO;
 import com.torneosflash.servicio.ChatSanitizer;
@@ -21,7 +22,7 @@ public class RutasAuth {
 
 
     public static void register(Javalin app, UsuarioDAO usuarioDAO, GenericDAO db, AppConfig config,
-                                 com.torneosflash.servicio.ClashApiServicio clashApi) {
+                                 com.torneosflash.servicio.ClashApiServicio clashApi, Ejecutores ejecutores) {
 
         // POST /api/register
         app.post("/api/register", ctx -> {
@@ -61,8 +62,8 @@ public class RutasAuth {
                 return;
             }
 
-            // Hash password
-            String hash = BCrypt.hashpw(password, BCrypt.gensalt(10));
+            // Hash password (A8: BCrypt gasta CPU; corre en el pool de CPU, no en el hilo HTTP)
+            String hash = ejecutores.enCpu(() -> BCrypt.hashpw(password, BCrypt.gensalt(10)));
 
             // Insertar
             int newId = usuarioDAO.registrar(username, email, hash, playerTag, telefono);
@@ -91,7 +92,7 @@ public class RutasAuth {
                 }
 
                 String storedHash = credenciales.get("password").getAsString();
-                if (!BCrypt.checkpw(password, storedHash)) {
+                if (!ejecutores.enCpu(() -> BCrypt.checkpw(password, storedHash))) { // A8: pool de CPU
                     ctx.status(400).result(errorJson("Contraseña incorrecta").toString()).contentType("application/json");
                     return;
                 }

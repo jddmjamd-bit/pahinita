@@ -3,6 +3,7 @@ package com.torneosflash;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.torneosflash.config.AppConfig;
+import com.torneosflash.config.Ejecutores;
 import com.torneosflash.dao.ConexionDB;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.dao.UsuarioDAO;
@@ -49,10 +50,13 @@ public class Main {
         AppConfig config = new AppConfig();
         logger.info("📋 Puerto: " + config.getPort());
 
+        // Pools de hilos (A8): HTTP, IO, CPU y temporizadores. Se crean antes que todo lo que los usa.
+        Ejecutores ejecutores = new Ejecutores(config);
+
         // ============================================
         // 2. BASE DE DATOS (PostgreSQL)
         // ============================================
-        ConexionDB conexion = ConexionDB.getInstancia(config.getDatabaseUrl(), config.getDbSslMode());
+        ConexionDB conexion = ConexionDB.getInstancia(config.getDatabaseUrl(), config.getDbSslMode(), config.getDbPoolMax()); // A8: DB_POOL_MAX_SIZE
         conexion.inicializarTablas();
 
         // DAOs
@@ -78,22 +82,25 @@ public class Main {
             logger.info("❌ Fallo al conectar a la API de Clash Royale. Revisa el log de errores.");
         }
 
-        CorreoServicio correo = new CorreoServicio(config.getBrevoApiKey(), config.getBrevoSenderEmail());
+        CorreoServicio correo = new CorreoServicio(config.getBrevoApiKey(), config.getBrevoSenderEmail(), ejecutores);
 
         // Servicio de Push Notifications (FCM)
         NotificacionPushServicio pushService = new NotificacionPushServicio(
                 config.getFirebaseServiceAccount(),
-                config.getAppBaseUrl()); // A7: antes la URL estaba escrita aquí
+                config.getAppBaseUrl(), // A7: antes la URL estaba escrita aquí
+                ejecutores);
 
         // ============================================
         // 4. SOCKET.IO
         // ============================================
-        SocketIOServer socketServer = new SocketIOServer();
+        SocketIOServer socketServer = new SocketIOServer(ejecutores.timers());
 
         // ============================================
         // 5. SERVIDOR HTTP (Javalin)
         // ============================================
         Javalin app = Javalin.create(javalinConfig -> {
+            // Pool de hilos de Jetty acotado y con nombre (A8; antes: el default de Javalin, hasta 250 hilos)
+            javalinConfig.jetty.threadPool = ejecutores.crearPoolHttp();
             // Límite de tamaño de mensajes WebSocket (WS_MAX_MESSAGE_BYTES, default 50 MB) // A7
             javalinConfig.jetty.modifyWebSocketServletFactory(wsFactory -> {
                 wsFactory.setMaxTextMessageSize(config.getWsMaxMessageBytes());
@@ -161,7 +168,7 @@ public class Main {
         // ============================================
         // 7. REGISTRAR RUTAS HTTP
         // ============================================
-        RutasAuth.register(app, usuarioDAO, db, config, clashApi);
+        RutasAuth.register(app, usuarioDAO, db, config, clashApi, ejecutores);
         RutasFinanzas.register(app, db, config, socketServer, pushService, wallet, validadorMonto);
         RutasAdmin.register(app, usuarioDAO, db, socketServer, pushService, wallet);
         RutasSorteos.register(app, db, socketServer, correo, pushService, validadorMonto);
@@ -173,13 +180,14 @@ public class Main {
         // ============================================
         // 8. REGISTRAR SOCKET HANDLERS
         // ============================================
-        SocketHandler socketHandler = new SocketHandler(db, socketServer, clashApi, pushService, wallet, validadorMonto, config);
+        SocketHandler socketHandler = new SocketHandler(db, socketServer, clashApi, pushService, wallet, validadorMonto, config, ejecutores);
         socketHandler.registrar();
 
         // ============================================
         // 9. TAREAS PROGRAMADAS
         // ============================================
-        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+        // Temporizadores cortos compartidos (A8). Nada de HTTP externo aquí: eso va al pool de IO.
+        ScheduledExecutorService scheduler = ejecutores.timers();
 
         // Verificar sorteos expirados cada minuto
         scheduler.scheduleAtFixedRate(() -> {
@@ -254,5 +262,14 @@ public class Main {
         logger.info("═══════════════════════════════════════════════");
         logger.info("  ✅ Servidor listo en puerto " + config.getPort());
         logger.info("═══════════════════════════════════════════════");
+
+        // Apagado ordenado (A8; Render envía SIGTERM en cada deploy): primero se deja de aceptar tráfico,
+        // luego se terminan los pools (push/correos pendientes) y al final se cierra la BD.
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            logger.info("🛑 Apagando servidor...");
+            try { app.stop(); } catch (Exception e) { logger.warn("Error deteniendo Javalin: " + e.getMessage()); }
+            ejecutores.cerrar();
+            conexion.cerrar();
+        }, "shutdown-hook"));
     }
 }

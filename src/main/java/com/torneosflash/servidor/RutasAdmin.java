@@ -240,8 +240,11 @@ public class RutasAdmin {
             
             String serverIp = "Desconocida";
             try {
-                java.net.URL url = new URI("https://api.ipify.org").toURL();
-                java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(url.openStream()));
+                // A8: con timeouts; sin ellos un ipify caído dejaría este hilo de Jetty colgado para siempre
+                java.net.URLConnection conn = new URI("https://api.ipify.org").toURL().openConnection();
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(5000);
+                java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(conn.getInputStream()));
                 serverIp = in.readLine();
                 in.close();
             } catch (Exception e) {

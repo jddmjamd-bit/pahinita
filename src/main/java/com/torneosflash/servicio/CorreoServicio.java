@@ -4,32 +4,41 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.torneosflash.config.Ejecutores;
 
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 
 /**
  * Servicio de envío de correos electrónicos via Brevo HTTP API.
  * Usa HTTPS (puerto 443) en vez de SMTP (puerto 587),
  * lo cual funciona en Render y otros hostings que bloquean SMTP.
+ *
+ * A8: el envío corre en el pool de IO ({@link Ejecutores}); antes se creaba un hilo nuevo por cada correo
+ * (sin límite) y la petición no tenía timeout, así que un Brevo caído acumulaba hilos colgados.
  */
 public class CorreoServicio {
     private static final Logger logger = LoggerFactory.getLogger(CorreoServicio.class);
 
+    /** Tiempo máximo de una llamada a Brevo (A8: sin tope, un hilo del pool de IO quedaría ocupado para siempre). */
+    private static final Duration TIMEOUT_PETICION = Duration.ofSeconds(15);
 
     private final HttpClient httpClient;
+    private final Ejecutores ejecutores;
     private final String apiKey;
     private final String senderEmail;
     private final String senderName;
     private boolean habilitado;
 
-    public CorreoServicio(String brevoApiKey, String senderEmail) {
+    public CorreoServicio(String brevoApiKey, String senderEmail, Ejecutores ejecutores) {
         this.apiKey = brevoApiKey;
         this.senderEmail = senderEmail;
         this.senderName = "Torneos Flash Bot";
-        this.httpClient = HttpClient.newHttpClient();
+        this.ejecutores = ejecutores;
+        this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
         this.habilitado = brevoApiKey != null && !brevoApiKey.isEmpty() &&
                           senderEmail != null && !senderEmail.isEmpty();
 
@@ -41,12 +50,12 @@ public class CorreoServicio {
     }
 
     /**
-     * Envía un correo electrónico via Brevo HTTP API.
+     * Envía un correo electrónico via Brevo HTTP API (en segundo plano, no bloquea al que llama).
      */
     public void enviar(String to, String subject, String body) {
         if (!habilitado) return;
 
-        new Thread(() -> {
+        ejecutores.ejecutarIO("correo a " + to, () -> {
             try {
                 JsonObject payload = new JsonObject();
 
@@ -69,6 +78,7 @@ public class CorreoServicio {
 
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create("https://api.brevo.com/v3/smtp/email"))
+                        .timeout(TIMEOUT_PETICION)
                         .header("api-key", apiKey)
                         .header("Content-Type", "application/json")
                         .header("Accept", "application/json")
@@ -85,7 +95,7 @@ public class CorreoServicio {
             } catch (Exception e) {
                 logger.error("Error enviando correo: " + e.getMessage());
             }
-        }).start();
+        });
     }
 
     /**

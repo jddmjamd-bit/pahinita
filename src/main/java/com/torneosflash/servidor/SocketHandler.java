@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.google.gson.*;
 import com.torneosflash.config.AppConfig;
+import com.torneosflash.config.Ejecutores;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.servicio.ChatSanitizer;
 import com.torneosflash.servicio.ClashApiServicio;
@@ -18,6 +19,7 @@ import com.torneosflash.socketio.SocketIOServer;
 import java.math.BigDecimal;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Maneja todos los eventos Socket.IO en tiempo real.
@@ -42,10 +44,11 @@ public class SocketHandler {
     private final WalletService wallet;
     private final ValidadorMonto validador;
     private final AppConfig config; // A7: timeouts y límites configurables por variable de entorno
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
+    private final ScheduledExecutorService scheduler; // A8: temporizadores cortos (Ejecutores.timers()), nunca HTTP externo
+    private final Ejecutores ejecutores; // A8: pool de IO para el sondeo de la API de Clash
     private final Gson gson = new Gson();
 
-    public SocketHandler(GenericDAO db, SocketIOServer io, ClashApiServicio clashApi, NotificacionPushServicio pushService, WalletService wallet, ValidadorMonto validador, AppConfig config) {
+    public SocketHandler(GenericDAO db, SocketIOServer io, ClashApiServicio clashApi, NotificacionPushServicio pushService, WalletService wallet, ValidadorMonto validador, AppConfig config, Ejecutores ejecutores) {
         this.db = db;
         this.io = io;
         this.clashApi = clashApi;
@@ -53,6 +56,8 @@ public class SocketHandler {
         this.wallet = wallet;
         this.validador = validador;
         this.config = config;
+        this.ejecutores = ejecutores;
+        this.scheduler = ejecutores.timers();
     }
 
     /**
@@ -691,7 +696,12 @@ public class SocketHandler {
         // A7: POLLING_MAX_INTENTOS x POLLING_INTERVALO_SEGUNDOS (default 120 x 5 s = 10 min) antes de crear la disputa
         final int MAX_POLLS = config.getPollingMaxIntentos();
         final int intervaloSegundos = config.getPollingIntervaloSegundos();
-        match.pollFuture = scheduler.scheduleAtFixedRate(() -> {
+
+        // A8: el sondeo llama a la API de Clash (HTTP bloqueante, hasta 10 s). Por eso NO corre en el hilo del
+        // temporizador: cada tick solo lo encola en el pool de IO, y `enCurso` impide que dos sondeos de la
+        // misma partida se solapen (un solape podría liquidar la partida dos veces). // REVIEW-MONEY
+        final AtomicBoolean enCurso = new AtomicBoolean(false);
+        final Runnable sondeo = () -> {
             try {
                 if (!activeMatches.containsKey(salaId)) { match.pollFuture.cancel(false); return; }
                 match.pollCount++;
@@ -796,6 +806,14 @@ public class SocketHandler {
                     liberarJugadores(salaId, match);
                 }
             } catch (Exception e) { logger.error("Error en polling: " + e.getMessage()); }
+        };
+
+        match.pollFuture = scheduler.scheduleAtFixedRate(() -> {
+            if (!enCurso.compareAndSet(false, true)) return; // el sondeo anterior sigue en curso: se salta este tick
+            boolean encolado = ejecutores.ejecutarIO("sondeo Clash #" + match.dbId, () -> {
+                try { sondeo.run(); } finally { enCurso.set(false); }
+            });
+            if (!encolado) enCurso.set(false); // pool de IO lleno: se reintenta en el próximo tick
         }, intervaloSegundos, intervaloSegundos, TimeUnit.SECONDS);
     }
 

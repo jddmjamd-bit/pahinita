@@ -295,4 +295,25 @@ Toda configuración de despliegue se lee en `config/AppConfig` (nada de números
 
 - Los mensajes que ven los jugadores ("...nadie respondió en 10 minutos", "No se encontró el resultado en 10 minutos") y el campo `tiempo` de `rival_desconectado` se calculan con estos valores.
 - `DB_ADMIN_SECRET` ya no tiene valor por defecto: sin ella el panel `/admin-db` queda deshabilitado (ver docstring de `RutasDbAdmin`).
-- Siguen fijos en el código y fuera de A7: los pools de hilos (tarea A8), CORS `anyHost()` y la zona horaria del reset del leaderboard (usa la de la JVM, UTC en Render).
+- Siguen fijos en el código y fuera de A7: CORS `anyHost()` y la zona horaria del reset del leaderboard (usa la de la JVM, UTC en Render). Los pools de hilos pasaron a variables de entorno en A8 (siguiente sección).
+
+---
+
+## Hilos y pools (A8)
+
+Todos los pools se crean en `config/Ejecutores` (con tamaños de `AppConfig`) y se reparten por constructor; ninguna clase crea sus propios `Executors`/`new Thread`. Cada pool tiene un solo trabajo, así el trabajo lento no deja sin hilos a los usuarios.
+
+| Pool | Hilos (env, default) | Para qué | Si se llena |
+|------|----------------------|----------|-------------|
+| `http` (Jetty `QueuedThreadPool`, `config.jetty.threadPool`) | `HTTP_MAX_THREADS`=64 (min 16), `HTTP_MIN_THREADS`=8, `HTTP_IDLE_TIMEOUT_MS`=60000 | Peticiones HTTP y handlers de Socket.IO. Antes: el default de Javalin (250 hilos) | Las peticiones esperan en la cola de Jetty |
+| `io` | `IO_POOL_THREADS`=16, `IO_POOL_QUEUE`=500 | Espera de red sin usuario esperando: push FCM, correos Brevo, sondeo de la API de Clash (`Ejecutores.ejecutarIO`) | La tarea se descarta con un `warn` (push/correo son "mejor esfuerzo"; el sondeo reintenta en el siguiente tick) |
+| `cpu` | `CPU_POOL_THREADS`=nº de núcleos, `CPU_POOL_QUEUE`=100 | Hash/verificación BCrypt en login y registro (`Ejecutores.enCpu`) | Lo ejecuta el hilo que lo pidió (contrapresión; nunca se pierde) |
+| `timers` | `TIMER_POOL_THREADS`=4 | Solo temporizadores cortos: ping de Socket.IO, timeouts de búsqueda y abandono, revisión de sorteos/leaderboard. Reemplaza 3 pools sueltos (2 + 4 + 2 hilos) | - |
+| BD (HikariCP, `torneos-db`) | `DB_POOL_MAX_SIZE`=20 | Conexiones a PostgreSQL | Esperan hasta 5 s por una conexión |
+
+- **Sondeo de la API de Clash:** el `scheduleAtFixedRate` de `SocketHandler.iniciarPollingApi` ya no ejecuta la llamada HTTP (hasta 10 s) en el hilo del temporizador; cada tick la encola en `io`. Un `AtomicBoolean` por partida (`enCurso`) evita que dos sondeos de la misma partida se solapen (un solape podría liquidar dos veces; antes lo impedía el propio `scheduleAtFixedRate`).
+- **Timeouts:** el pool de IO es acotado, así que toda llamada que corre ahí debe tener tope de tiempo: Brevo y FCM ahora usan `connectTimeout` 10 s y `timeout` 15 s por petición; `/check-ip` usa 5 s. El `HttpClient` NO usa el pool `io` como executor (con `send()` síncrono y pool acotado podría bloquearse a sí mismo).
+- **Apagado:** `Main` registra un shutdown hook: `app.stop()` → `Ejecutores.cerrar()` (cancela timers, deja terminar IO 5 s y CPU 2 s) → `ConexionDB.cerrar()`.
+- **Pools con nombre:** hilos daemon `io-N`, `cpu-N`, `timer-N`, Jetty `http-N`, Hikari `torneos-db ...`; un volcado de hilos (`jstack`) los distingue.
+- **Ajuste:** los hilos HTTP bloquean esperando BD; con `HTTP_MAX_THREADS` muy por encima de `DB_POOL_MAX_SIZE` solo se acumulan esperas de hasta 5 s. Si hay latencia por cola de Jetty, sube `HTTP_MAX_THREADS`; si `PostgreSQL` rechaza conexiones, baja `DB_POOL_MAX_SIZE`.
+- **Fuera de A8 (pendiente):** `enviarPushATodos` envía los FCM uno por uno (con muchos tokens ocupa un hilo de `io` mucho rato); `GET /api/verify-tag` llama a Clash en el hilo HTTP; `GET /api/media/{id}` carga el archivo completo en RAM por petición; el ping de Socket.IO envía de forma secuencial (un cliente lento retrasa a los demás).

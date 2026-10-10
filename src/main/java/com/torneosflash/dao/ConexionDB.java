@@ -26,17 +26,20 @@ public class ConexionDB {
 
     // --- Singleton (ENCAPSULAMIENTO) ---
     private static ConexionDB instancia;
+    /** Tamano del pool si no se indica otro (A8: Main lo toma de DB_POOL_MAX_SIZE). */
+    private static final int POOL_MAX_POR_DEFECTO = 20;
     private HikariDataSource dataSource;
 
     // --- Constructor privado (ENCAPSULAMIENTO) ---
-    private ConexionDB(String databaseUrl, String sslMode) {
+    private ConexionDB(String databaseUrl, String sslMode, int maxPoolSize) {
         try {
             EnlaceBD enlace = EnlaceBD.desde(databaseUrl, sslMode);
             HikariConfig config = new HikariConfig();
+            config.setPoolName("torneos-db"); // A8: los hilos internos de Hikari se ven con este nombre
             config.setJdbcUrl(enlace.jdbcUrl);
             if (enlace.usuario != null) config.setUsername(enlace.usuario);
             if (enlace.password != null) config.setPassword(enlace.password);
-            config.setMaximumPoolSize(20);
+            config.setMaximumPoolSize(maxPoolSize); // A8: DB_POOL_MAX_SIZE
             config.setMinimumIdle(2);
             config.setIdleTimeout(30000);
             config.setConnectionTimeout(5000);
@@ -157,8 +160,12 @@ public class ConexionDB {
 
     // --- Singleton getter ---
     public static synchronized ConexionDB getInstancia(String databaseUrl, String sslMode) {
+        return getInstancia(databaseUrl, sslMode, POOL_MAX_POR_DEFECTO);
+    }
+
+    public static synchronized ConexionDB getInstancia(String databaseUrl, String sslMode, int maxPoolSize) {
         if (instancia == null) {
-            instancia = new ConexionDB(databaseUrl, sslMode);
+            instancia = new ConexionDB(databaseUrl, sslMode, maxPoolSize);
         }
         return instancia;
     }

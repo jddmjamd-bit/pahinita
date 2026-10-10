@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import com.torneosflash.config.Ejecutores;
 import com.torneosflash.dao.GenericDAO;
 
 import java.io.ByteArrayInputStream;
@@ -13,9 +14,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * Servicio para enviar notificaciones push via FCM HTTP v1 API.
@@ -29,15 +29,18 @@ public class NotificacionPushServicio {
     private GoogleCredentials credentials;
     private final String projectId;
     private final HttpClient httpClient;
-    private final ExecutorService executor;
+    private final Ejecutores ejecutores;
     private final Gson gson = new Gson();
     private final String siteUrl;
     private boolean disponible = false;
 
-    public NotificacionPushServicio(String serviceAccountJson, String siteUrl) {
+    /** Tiempo máximo de una llamada a FCM (A8: sin tope, un hilo del pool de IO quedaría ocupado para siempre). */
+    private static final Duration TIMEOUT_PETICION = Duration.ofSeconds(15);
+
+    public NotificacionPushServicio(String serviceAccountJson, String siteUrl, Ejecutores ejecutores) {
         this.siteUrl = siteUrl;
-        this.httpClient = HttpClient.newHttpClient();
-        this.executor = Executors.newFixedThreadPool(4);
+        this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+        this.ejecutores = ejecutores; // A8: pool de IO compartido (antes: un pool propio de 4 hilos sin apagar)
 
         if (serviceAccountJson == null || serviceAccountJson.isEmpty()) {
             logger.info("⚠️ FIREBASE_SERVICE_ACCOUNT no configurado. Push notifications deshabilitadas.");
@@ -80,7 +83,7 @@ public class NotificacionPushServicio {
      */
     public void enviarPush(GenericDAO db, int userId, String titulo, String body) {
         if (!disponible) return;
-        executor.submit(() -> {
+        ejecutores.ejecutarIO("push a usuario " + userId, () -> {
             try {
                 ArrayList<JsonObject> tokens = db.query(
                         "SELECT fcm_token FROM user_tokens WHERE user_id = ?", userId);
@@ -103,7 +106,7 @@ public class NotificacionPushServicio {
      */
     public void enviarPushATodos(GenericDAO db, Set<Integer> excluirUserIds, String titulo, String body) {
         if (!disponible) return;
-        executor.submit(() -> {
+        ejecutores.ejecutarIO("push broadcast", () -> {
             try {
                 ArrayList<JsonObject> tokens = db.query("SELECT user_id, fcm_token FROM user_tokens");
                 if (tokens.isEmpty()) return;
@@ -153,6 +156,7 @@ public class NotificacionPushServicio {
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create("https://fcm.googleapis.com/v1/projects/" + projectId + "/messages:send"))
+                    .timeout(TIMEOUT_PETICION)
                     .header("Authorization", "Bearer " + accessToken)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(message)))
