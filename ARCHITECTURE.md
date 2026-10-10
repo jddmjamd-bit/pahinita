@@ -63,9 +63,20 @@ TorneosFlash/
 │   │   ├── UsuarioVista.java        # Lista blanca de columnas de `users` que pueden salir al cliente (sesión vs. rival). Nunca `SELECT *` sobre users hacia el frontend
 │   │   ├── ValidadorMonto.java      # Valida montos del cliente (número, > 0, entero, rango por tipo). Ver sección 8
 │   │   ├── TicketsPartidaListener.java   # Listener de `match.finished`: tickets de sorteo + `tickets_ganados` a cada jugador (A4)
-│   │   └── ResultadoPartidaListener.java # Listener de `match.finished`: saldo del ganador + `resultado_api` + push (A4)
-│   ├── servidor/                    # Handlers HTTP (rutas REST)
+│   │   ├── ResultadoPartidaListener.java # Listener de `match.finished`: saldo del ganador + `resultado_api` + push (A4)
+│   │   ├── ServicioException.java   # Error de negocio con código HTTP + mensaje; lo convierte `ManejadorErrores` en `{error}` (A3)
+│   │   ├── NotificadorUsuarios.java # Aviso a un usuario por socket (si está conectado) + push FCM (A3)
+│   │   ├── AuthService.java         # Registro, login (BCrypt en el pool CPU), sesión, disponibilidad, tag de Clash, token push (A3)
+│   │   ├── FinanzasService.java     # Depósito, recarga, retiro y Wompi (init + webhook) (A3)
+│   │   ├── AdminService.java        # Transacciones pendientes, disputas, estadísticas, utilidades admin (A3)
+│   │   ├── SorteoService.java       # Tickets, encuesta, participar, crear/eliminar y ejecutar sorteos, tickets por partida (A3)
+│   │   ├── LeaderboardService.java  # Rankings, historial y premiar/resetear por periodo (A3)
+│   │   ├── MediaService.java        # Subida de videos y descarga con soporte Range (A3)
+│   │   └── DbAdminService.java      # Todo el SQL del panel `/admin-db` (tablas, celdas, import/export) (A3)
+│   ├── servidor/                    # Capa HTTP (A3): parsea el request, llama a un servicio y responde. Sin lógica de negocio ni SQL
 │   │   ├── RateLimitMiddleware.java # Rate limiting por IP (S8): clasifica cada request y responde 429. Ver sección 10
+│   │   ├── ManejadorErrores.java    # Único handler de `ServicioException` → `{error}` con su código HTTP (A3)
+│   │   ├── Peticion.java            # Lee campos del body, parámetros de ruta y cookie; campo faltante/inválido → 400 (A3)
 │   │   ├── RutasAuth.java           # Login, registro, sesión
 │   │   ├── RutasAdmin.java          # Operaciones admin (aprobar retiros, etc.)
 │   │   ├── RutasDbAdmin.java        # CRUD admin sobre BD
@@ -151,7 +162,7 @@ sequenceDiagram
 
 ```
 Depósito:
-  Wompi (tarjeta) → webhook → RutasFinanzas → UPDATE users SET saldo += monto
+  Wompi (tarjeta) → webhook → RutasFinanzas → FinanzasService → UPDATE users SET saldo += monto
   Nequi (manual)  → admin aprueba → UPDATE users SET saldo += monto
 
 Torneo (monto):
@@ -238,7 +249,7 @@ Una sola clase decide cuánto se cobra y cómo se reparte. Es lógica pura (no t
 | `referidos` | 10% |
 | `ganancia` | residuo (= 25%): lo que sobra, así la suma siempre cuadra al peso |
 
-Cada jugador se atribuye la mitad de cada categoría (`Desglose.porJugador()`, columnas `users.gen_*` y `ganancia_generada`); de ahí salen también los tickets de sorteo (`RutasSorteos.acumularTicketsPorPartida`).
+Cada jugador se atribuye la mitad de cada categoría (`Desglose.porJugador()`, columnas `users.gen_*` y `ganancia_generada`); de ahí salen también los tickets de sorteo (`SorteoService.acumularTicketsPorPartida`).
 
 | Endpoint | Respuesta |
 |---|---|
@@ -246,7 +257,7 @@ Cada jugador se atribuye la mitad de cada categoría (`Desglose.porJugador()`, c
 | `GET /api/comisiones/distribucion` | `{ success, distribucion: { sorteos: 20, misiones: 10, ... } }`. Lo usa `Admin.jsx` para los títulos del desglose. |
 
 - Para cambiar la política se edita **solo** `ComisionService` (constantes y enum). El panel admin y `Match.jsx` se actualizan solos.
-- Pendiente: el frontend legacy de `public/` (`app.js`, `public/js/*`) no se tocó en D4 y podría conservar su propia copia de la fórmula (no verificado); muere con la migración a React. La tarifa de pasarela Wompi (`RutasFinanzas`, `/ 0.964 + 840`) es otro cobro y sigue con `double` (D1).
+- Pendiente: el frontend legacy de `public/` (`app.js`, `public/js/*`) no se tocó en D4 y podría conservar su propia copia de la fórmula (no verificado); muere con la migración a React. La tarifa de pasarela Wompi (`FinanzasService.iniciarWompi`, `/ 0.964 + 840`) es otro cobro y sigue con `double` (D1).
 
 ---
 
@@ -402,3 +413,41 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 - El panel `/admin-db` (`DbAdminService`) oculta y rechaza la tabla `flyway_schema_history`.
 - La conexión de Flyway es la misma de Hikari (mismo usuario y SSL, sección 11): el usuario de la BD debe poder crear tablas y la tabla de historial.
 - Para ver qué está aplicado: `SELECT installed_rank, version, description, success FROM flyway_schema_history ORDER BY installed_rank;`.
+
+---
+
+## 15. Capa de servicio: rutas delgadas (A3)
+
+Una ruta HTTP hace solo tres cosas: **leer el request, llamar a un servicio y escribir la respuesta**. Las reglas de negocio, el SQL, las notificaciones y las firmas viven en `servicio/`. Los servicios no conocen Javalin (`Context`): reciben tipos simples (`int userId`, `String`, `JsonElement` para montos sin validar) y devuelven datos o lanzan `ServicioException`.
+
+```
+RutasX (servidor/)                        XService (servicio/)
+  Peticion.entero/texto(body, ...)   →      valida reglas, ValidadorMonto, WalletService, SQL
+  servicio.metodo(userId, datos...)  →      lanza ServicioException(código, mensaje) si algo falla
+  ctx.json(resultado)                ←      devuelve JsonObject / lista / String de mensaje
+                 ManejadorErrores: ServicioException → { "error": "..." } con ese código
+```
+
+| Ruta | Servicio | Qué quedó en la ruta |
+|---|---|---|
+| `RutasAuth` | `AuthService` | Cookie `userId` (leer/escribir), formato de la respuesta |
+| `RutasFinanzas` | `FinanzasService` | Responder `OK`/`Error` en texto plano al webhook de Wompi |
+| `RutasAdmin` | `AdminService` | Calcular la IP del cliente en `/check-ip` |
+| `RutasSorteos` | `SorteoService` | Leer la cookie `userId` en las rutas de consulta |
+| `RutasLeaderboard` | `LeaderboardService` | Nada más que parsear `periodo` / `userId` |
+| `RutasMedia` | `MediaService` | Headers de la respuesta (`Content-Range`, `nosniff`, caché) |
+| `RutasDbAdmin` | `DbAdminService` | Acceso al panel: clave `X-DB-Admin-Key`, bloqueo por IP, cabeceras de seguridad (S10) |
+| `RutasComisiones` | `ComisionService` + `ValidadorMonto` | Ya era delgada (D4); no se tocó |
+
+**Reglas**
+- **Códigos de error:** `solicitudInvalida` (400), `noEncontrado` (404), `interno` (500). `respuestaConError` responde **HTTP 200** con `{error}`: es el contrato heredado de depósito manual y panel admin, el frontend actual lo espera; no usarlo en endpoints nuevos.
+- **El servicio recibe `userId` como parámetro.** Hoy la ruta lo saca del body/cookie; cuando entre el JWT (S1/S2) solo cambia la ruta, no el servicio.
+- **Un servicio nuevo** = clase en `servicio/` con sus dependencias por constructor, instanciada en `Main` (sección 7) y pasada a `RutasX.register(app, servicio)`. Nada de campos `static` con estado ni de `register(app, db, io, push, ...)`.
+- **Notificar al usuario** (socket + push): `NotificadorUsuarios.notificarSaldo` / `emitirA`. Reacciones a algo que ya ocurrió (tickets, resultado de partida) van por el bus de eventos (sección 13).
+- **Pools:** BCrypt va por `Ejecutores.enCpu` (dentro de `AuthService`); un servicio que llame a HTTP externo no debe hacerlo en un hilo de temporizador (sección de A8).
+- Los jobs de `Main` (sorteos vencidos cada minuto, premios del leaderboard a las 00:00) llaman a `SorteoService.ejecutarSorteosExpirados()` y `LeaderboardService.premiarYResetear()`.
+
+**Pendiente / fuera de A3**
+- `SocketHandler` (~50 KB) sigue mezclando protocolo de sockets con lógica de negocio (matchmaking, negociación, chat); es candidato a su propia tarea.
+- La lógica de decisión del scheduler de `Main` (qué día se premia) sigue en `Main`.
+- `/secret-admin/{username}` (S3), webhook sin firma (S7) y `userId` desde el body (S1/S2) siguen abiertos; no son parte de A3.
