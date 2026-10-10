@@ -3,10 +3,12 @@ package com.torneosflash.servicio;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.torneosflash.dao.ConexionDB;
+import com.torneosflash.servicio.ComisionService.Categoria;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.*;
+import java.util.Map;
 
 /**
  * WalletService — Servicio centralizado para todo movimiento de dinero.
@@ -23,9 +25,16 @@ public class WalletService {
     private static final Logger logger = LoggerFactory.getLogger(WalletService.class);
 
     private final ConexionDB db;
+    private final ComisionService comisiones;
 
-    public WalletService(ConexionDB db) {
+    public WalletService(ConexionDB db, ComisionService comisiones) {
         this.db = db;
+        this.comisiones = comisiones;
+    }
+
+    /** Compatibilidad: usa la política de comisiones por defecto. */
+    public WalletService(ConexionDB db) {
+        this(db, new ComisionService());
     }
 
     // ═══════════════════════════════════════════
@@ -243,13 +252,15 @@ public class WalletService {
         public final BigDecimal comGanancia;
         public final BigDecimal utilidadPorJugador;
         public final BigDecimal nuevoSaldoGanador;
+        /** Desglose completo de la comisión (D4). Null si la liquidación falló. */
+        public final ComisionService.Desglose desglose;
         public final String error;
 
         private LiquidacionResult(boolean success, BigDecimal premio, BigDecimal comisionTotal,
                                   BigDecimal comSorteos, BigDecimal comMisiones, BigDecimal comLogros,
                                   BigDecimal comLeaderboard, BigDecimal comDevolucion, BigDecimal comReferidos,
                                   BigDecimal comGanancia, BigDecimal utilidadPorJugador,
-                                  BigDecimal nuevoSaldoGanador, String error) {
+                                  BigDecimal nuevoSaldoGanador, ComisionService.Desglose desglose, String error) {
             this.success = success;
             this.premio = premio;
             this.comisionTotal = comisionTotal;
@@ -262,11 +273,12 @@ public class WalletService {
             this.comGanancia = comGanancia;
             this.utilidadPorJugador = utilidadPorJugador;
             this.nuevoSaldoGanador = nuevoSaldoGanador;
+            this.desglose = desglose;
             this.error = error;
         }
 
         public static LiquidacionResult fail(String error) {
-            return new LiquidacionResult(false, null, null, null, null, null, null, null, null, null, null, null, error);
+            return new LiquidacionResult(false, null, null, null, null, null, null, null, null, null, null, null, null, error);
         }
     }
 
@@ -293,24 +305,19 @@ public class WalletService {
             conn = db.getConnection();
             conn.setAutoCommit(false);
 
-            // --- Cálculo de comisiones con BigDecimal ---
-            BigDecimal pozo = monto.multiply(BigDecimal.valueOf(2));
-            // Porcentaje de comisión escalonado: 25% para pozo=2000, baja a 10% para pozo=20000
-            BigDecimal porcentajeComision = calcularPorcentajeComision(pozo);
-            BigDecimal comisionTeorica = pozo.multiply(porcentajeComision).setScale(0, RoundingMode.FLOOR);
-            BigDecimal premio = pozo.subtract(comisionTeorica);
-            BigDecimal comisionReal = pozo.subtract(premio);
+            // --- Cálculo de comisiones: única fuente de verdad en ComisionService (D4) ---
+            ComisionService.Desglose desglose = comisiones.calcular(monto);
+            BigDecimal premio = desglose.getPremio();
+            BigDecimal comisionReal = desglose.getComisionTotal();
 
-            // Distribución de comisiones
-            BigDecimal comSorteos     = comisionTeorica.multiply(BigDecimal.valueOf(0.20)).setScale(0, RoundingMode.FLOOR);
-            BigDecimal comMisiones    = comisionTeorica.multiply(BigDecimal.valueOf(0.10)).setScale(0, RoundingMode.FLOOR);
-            BigDecimal comLogros      = comisionTeorica.multiply(BigDecimal.valueOf(0.05)).setScale(0, RoundingMode.FLOOR);
-            BigDecimal comLeaderboard = comisionTeorica.multiply(BigDecimal.valueOf(0.15)).setScale(0, RoundingMode.FLOOR);
-            BigDecimal comDevolucion  = comisionTeorica.multiply(BigDecimal.valueOf(0.15)).setScale(0, RoundingMode.FLOOR);
-            BigDecimal comReferidos   = comisionTeorica.multiply(BigDecimal.valueOf(0.10)).setScale(0, RoundingMode.FLOOR);
-            BigDecimal comGanancia    = comisionReal.subtract(comSorteos).subtract(comMisiones)
-                    .subtract(comLogros).subtract(comLeaderboard).subtract(comDevolucion).subtract(comReferidos);
-            BigDecimal utilidadPorJugador = comGanancia.divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP);
+            BigDecimal comSorteos     = desglose.getMonto(Categoria.SORTEOS);
+            BigDecimal comMisiones    = desglose.getMonto(Categoria.MISIONES);
+            BigDecimal comLogros      = desglose.getMonto(Categoria.LOGROS);
+            BigDecimal comLeaderboard = desglose.getMonto(Categoria.LEADERBOARD);
+            BigDecimal comDevolucion  = desglose.getMonto(Categoria.DEVOLUCION);
+            BigDecimal comReferidos   = desglose.getMonto(Categoria.REFERIDOS);
+            BigDecimal comGanancia    = desglose.getMonto(Categoria.GANANCIA);
+            BigDecimal utilidadPorJugador = desglose.utilidadPorJugador();
 
             String detalle = "Match #" + matchDbId;
 
@@ -331,12 +338,12 @@ public class WalletService {
                     "gen_devolucion = gen_devolucion + ?, gen_referidos = gen_referidos + ? " +
                     "WHERE id IN (?, ?)")) {
                 ps.setBigDecimal(1, utilidadPorJugador);
-                ps.setBigDecimal(2, comSorteos.divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP));
-                ps.setBigDecimal(3, comMisiones.divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP));
-                ps.setBigDecimal(4, comLogros.divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP));
-                ps.setBigDecimal(5, comLeaderboard.divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP));
-                ps.setBigDecimal(6, comDevolucion.divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP));
-                ps.setBigDecimal(7, comReferidos.divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP));
+                ps.setBigDecimal(2, desglose.porJugador(Categoria.SORTEOS));
+                ps.setBigDecimal(3, desglose.porJugador(Categoria.MISIONES));
+                ps.setBigDecimal(4, desglose.porJugador(Categoria.LOGROS));
+                ps.setBigDecimal(5, desglose.porJugador(Categoria.LEADERBOARD));
+                ps.setBigDecimal(6, desglose.porJugador(Categoria.DEVOLUCION));
+                ps.setBigDecimal(7, desglose.porJugador(Categoria.REFERIDOS));
                 ps.setInt(8, idGanador);
                 ps.setInt(9, idPerdedor);
                 ps.executeUpdate();
@@ -358,14 +365,10 @@ public class WalletService {
                 ps.executeUpdate();
             }
 
-            // 4. Registrar comisiones en admin_wallet
-            insertarComisionAdmin(conn, comSorteos, razonComision, detalle, "sorteos");
-            insertarComisionAdmin(conn, comMisiones, razonComision, detalle, "misiones");
-            insertarComisionAdmin(conn, comLogros, razonComision, detalle, "logros");
-            insertarComisionAdmin(conn, comLeaderboard, razonComision, detalle, "leaderboard");
-            insertarComisionAdmin(conn, comDevolucion, razonComision, detalle, "devolucion");
-            insertarComisionAdmin(conn, comReferidos, razonComision, detalle, "referidos");
-            insertarComisionAdmin(conn, comGanancia, razonComision, detalle, "ganancia");
+            // 4. Registrar comisiones en admin_wallet (una fila por categoría del desglose)
+            for (Map.Entry<Categoria, BigDecimal> entrada : desglose.getMontos().entrySet()) {
+                insertarComisionAdmin(conn, entrada.getValue(), razonComision, detalle, entrada.getKey().getClave());
+            }
 
             // 5. Repartir comisión de leaderboard en los 4 pozos
             BigDecimal parteLeaderboard = comLeaderboard.divide(BigDecimal.valueOf(4), 2, RoundingMode.HALF_UP);
@@ -389,7 +392,7 @@ public class WalletService {
             return new LiquidacionResult(true, premio, comisionReal,
                     comSorteos, comMisiones, comLogros, comLeaderboard,
                     comDevolucion, comReferidos, comGanancia, utilidadPorJugador,
-                    nuevoSaldoGanador, null);
+                    nuevoSaldoGanador, desglose, null);
 
         } catch (SQLException e) {
             rollbackSilencioso(conn);
@@ -512,28 +515,12 @@ public class WalletService {
     // ═══════════════════════════════════════════
 
     /**
-     * Calcula el porcentaje de comisión escalonado según el pozo.
-     * 25% para pozo=2000, baja linealmente a 10% para pozo=20000+.
-     *
-     * @param pozo Monto total del pozo (monto * 2)
-     * @return Porcentaje como BigDecimal (0.10 a 0.25)
+     * @deprecated La política de comisiones vive en {@link ComisionService#calcularPorcentaje(BigDecimal)} (D4).
+     *             Se mantiene como delegado para no romper código existente.
      */
-    // REVIEW-MONEY
+    @Deprecated
     public static BigDecimal calcularPorcentajeComision(BigDecimal pozo) {
-        // porcentaje = 0.25 - ((pozo - 2000) / 18000) * 0.15
-        BigDecimal diff = pozo.subtract(BigDecimal.valueOf(2000));
-        BigDecimal factor = diff.divide(BigDecimal.valueOf(18000), 10, RoundingMode.HALF_UP);
-        BigDecimal descuento = factor.multiply(BigDecimal.valueOf(0.15));
-        BigDecimal porcentaje = BigDecimal.valueOf(0.25).subtract(descuento);
-
-        // Clamp entre 0.10 y 0.25
-        if (porcentaje.compareTo(BigDecimal.valueOf(0.25)) > 0) {
-            porcentaje = BigDecimal.valueOf(0.25);
-        }
-        if (porcentaje.compareTo(BigDecimal.valueOf(0.10)) < 0) {
-            porcentaje = BigDecimal.valueOf(0.10);
-        }
-        return porcentaje;
+        return ComisionService.calcularPorcentaje(pozo);
     }
 
     // ═══════════════════════════════════════════

@@ -3,6 +3,7 @@ package com.torneosflash.servidor;
 import com.google.gson.*;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.dao.UsuarioDAO;
+import com.torneosflash.servicio.ComisionService;
 import com.torneosflash.servicio.NotificacionPushServicio;
 import com.torneosflash.servicio.WalletService;
 import com.torneosflash.servicio.WalletService.WalletResult;
@@ -22,6 +23,23 @@ import static com.torneosflash.servidor.RutasFinanzas.notificarUsuario;
 public class RutasAdmin {
 
     private static WalletService wallet;
+
+    /**
+     * Acumula los tickets de sorteo de un jugador tras una partida y le avisa por socket (D4).
+     * Antes este bloque estaba copiado una vez por jugador.
+     */
+    private static void acreditarTickets(GenericDAO db, SocketIOServer io, int jugadorId,
+                                         ComisionService.Desglose desglose) {
+        int[] resultado = RutasSorteos.acumularTicketsPorPartida(db, jugadorId, desglose);
+        for (SocketIOClient s : io.getSockets().values()) {
+            if (s.getUserData() != null && s.getUserData().get("id").getAsNumber().intValue() == jugadorId) {
+                JsonObject ticketData = new JsonObject();
+                ticketData.addProperty("cantidad", resultado[0]);
+                ticketData.addProperty("acumulado", resultado[1]);
+                s.emit("tickets_ganados", ticketData);
+            }
+        }
+    }
 
     public static void register(Javalin app, UsuarioDAO usuarioDAO, GenericDAO db,
                                  SocketIOServer io, NotificacionPushServicio pushService,
@@ -51,9 +69,9 @@ public class RutasAdmin {
             stats.addProperty("totalGanancias", walletSum != null ? walletSum.get("total").getAsDouble() : 0);
 
             // Desglose por categorías (Actual e Histórico - por ahora es lo mismo)
-            String[] categorias = {"sorteos", "misiones", "logros", "leaderboard", "devolucion", "ganancia", "referidos"};
             JsonObject desglose = new JsonObject();
-            for (String cat : categorias) {
+            for (ComisionService.Categoria categoria : ComisionService.Categoria.values()) {
+                String cat = categoria.getClave();
                 JsonObject catSum = db.queryOne("SELECT COALESCE(SUM(monto),0) as total FROM admin_wallet WHERE categoria = ?", cat);
                 desglose.addProperty(cat, catSum != null ? catSum.get("total").getAsDouble() : 0);
             }
@@ -163,34 +181,11 @@ public class RutasAdmin {
                 db.update("UPDATE users SET faltas = faltas + 1 WHERE username = ?", culpableNombre);
             }
 
-            // Acumular tickets para ambos jugadores (cada uno recibe su mitad de la comisión de sorteos)
+            // Acumular tickets para ambos jugadores (cada uno recibe su mitad de la comisión de sorteos, D4)
             JsonObject j1Data = db.queryOne("SELECT id FROM users WHERE username = ?", j1);
             JsonObject j2Data = db.queryOne("SELECT id FROM users WHERE username = ?", j2);
-            double comSorteosHalf = liq.comSorteos.doubleValue() / 2.0;
-            if (j1Data != null) {
-                int j1Id = j1Data.get("id").getAsNumber().intValue();
-                int[] resultadoJ1 = RutasSorteos.acumularTickets(db, j1Id, comSorteosHalf);
-                for (SocketIOClient s : io.getSockets().values()) {
-                    if (s.getUserData() != null && s.getUserData().get("id").getAsNumber().intValue() == j1Id) {
-                        JsonObject ticketData = new JsonObject();
-                        ticketData.addProperty("cantidad", resultadoJ1[0]);
-                        ticketData.addProperty("acumulado", resultadoJ1[1]);
-                        s.emit("tickets_ganados", ticketData);
-                    }
-                }
-            }
-            if (j2Data != null) {
-                int j2Id = j2Data.get("id").getAsNumber().intValue();
-                int[] resultadoJ2 = RutasSorteos.acumularTickets(db, j2Id, comSorteosHalf);
-                for (SocketIOClient s : io.getSockets().values()) {
-                    if (s.getUserData() != null && s.getUserData().get("id").getAsNumber().intValue() == j2Id) {
-                        JsonObject ticketData = new JsonObject();
-                        ticketData.addProperty("cantidad", resultadoJ2[0]);
-                        ticketData.addProperty("acumulado", resultadoJ2[1]);
-                        s.emit("tickets_ganados", ticketData);
-                    }
-                }
-            }
+            if (j1Data != null) acreditarTickets(db, io, j1Data.get("id").getAsNumber().intValue(), liq.desglose);
+            if (j2Data != null) acreditarTickets(db, io, j2Data.get("id").getAsNumber().intValue(), liq.desglose);
 
             // Cerrar match y liberar jugadores
             db.update("UPDATE matches SET estado = 'finalizada', ganador = ? WHERE id = ?", ganadorNombre, matchId);

@@ -15,6 +15,8 @@ export default function Admin() {
     // Stats
     const [stats, setStats] = useState(null);
     const [loadingStats, setLoadingStats] = useState(false);
+    // D4: porcentaje de la comisión por categoría, tal como lo define el servidor (ComisionService)
+    const [distribucion, setDistribucion] = useState({});
 
     // Form inputs for disputes
     const [disputeResolutions, setDisputeResolutions] = useState({});
@@ -114,12 +116,23 @@ export default function Admin() {
         }));
     };
 
+    const cargarDistribucionComisiones = async () => {
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/comisiones/distribucion`);
+            const data = await res.json();
+            if (data.success) setDistribucion(data.distribucion || {});
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
     const cargarEstadisticasAdmin = async () => {
         setLoadingStats(true);
         try {
             const res = await fetch(`${API_BASE_URL}/api/admin/stats`);
             const data = await res.json();
             setStats(data);
+            cargarDistribucionComisiones();
         } catch (e) {
             console.error(e);
         } finally {
@@ -231,11 +244,11 @@ export default function Admin() {
                             <div className="admin-category-breakdown">
                                 {Object.entries(stats.desglose || {}).map(([cat, monto]) => {
                                     const iconos = { sorteos: '🎰', misiones: '📋', logros: '🏅', leaderboard: '🏆', devolucion: '🔄', ganancia: '💰', referidos: '👥' };
-                                    const nombres = { sorteos: 'Sorteos (20%)', misiones: 'Misiones (10%)', logros: 'Logros (5%)', leaderboard: 'Leaderboard (15%)', devolucion: 'Devolución (15%)', ganancia: 'Ganancia (25%)', referidos: 'Referidos (10%)' };
+                                    const nombres = { sorteos: 'Sorteos', misiones: 'Misiones', logros: 'Logros', leaderboard: 'Leaderboard', devolucion: 'Devolución', ganancia: 'Ganancia', referidos: 'Referidos' };
                                     return (
                                         <div key={cat} className="breakdown-box">
                                             <div className="bd-icon">{iconos[cat] || '📌'}</div>
-                                            <div className="bd-title">{nombres[cat] || cat}</div>
+                                            <div className="bd-title">{(nombres[cat] || cat) + (distribucion[cat] !== undefined ? ` (${distribucion[cat]}%)` : '')}</div>
                                             <div className="bd-actual">Actual: ${monto.toLocaleString()}</div>
                                             <div className="bd-hist">Histórico: ${monto.toLocaleString()}</div>
                                         </div>

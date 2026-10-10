@@ -5,10 +5,12 @@ import org.slf4j.LoggerFactory;
 import com.google.gson.*;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.servicio.NotificacionPushServicio;
+import com.torneosflash.servicio.ComisionService;
 import com.torneosflash.servicio.ValidadorMonto;
 import com.torneosflash.socketio.SocketIOServer;
 import com.torneosflash.servicio.CorreoServicio;
 import io.javalin.Javalin;
+import java.math.BigDecimal;
 import java.util.*;
 
 import static com.torneosflash.servidor.RutasAuth.*;
@@ -361,11 +363,29 @@ public class RutasSorteos {
     }
 
     /**
+     * Acumula los tickets de sorteo que le corresponden a un jugador al terminar una partida (D4).
+     * Toma del desglose la mitad de la comisión de sorteos, así los llamadores no repiten la cuenta.
+     *
+     * @return {ticketsNuevos, acumuladoResidual}
+     */
+    public static int[] acumularTicketsPorPartida(GenericDAO db, int userId, ComisionService.Desglose desglose) {
+        return acumularTickets(db, userId, desglose.porJugador(ComisionService.Categoria.SORTEOS));
+    }
+
+    /**
+     * @deprecated El dinero no se maneja con double. Usar {@link #acumularTicketsPorPartida} o la versión BigDecimal.
+     */
+    @Deprecated
+    public static int[] acumularTickets(GenericDAO db, int userId, double montoComisionSorteo) {
+        return acumularTickets(db, userId, BigDecimal.valueOf(montoComisionSorteo));
+    }
+
+    /**
      * Acumular tickets cuando termina una partida.
      * Recibe la porción de comisión de sorteos que le corresponde a este jugador (comSorteos / 2).
      * Se genera 1 ticket cada 1000 pesos acumulados.
      */
-    public static int[] acumularTickets(GenericDAO db, int userId, double montoComisionSorteo) {
+    public static int[] acumularTickets(GenericDAO db, int userId, BigDecimal montoComisionSorteo) {
         try {
             JsonObject ticketRes = db.queryOne("SELECT * FROM user_tickets WHERE user_id = ?", userId);
             if (ticketRes == null) {
@@ -374,7 +394,7 @@ public class RutasSorteos {
             }
 
             int acumuladoAnterior = (int) ticketRes.get("acumulado").getAsLong();
-            int nuevoAcumulado = acumuladoAnterior + (int) montoComisionSorteo;
+            int nuevoAcumulado = acumuladoAnterior + montoComisionSorteo.intValue(); // REVIEW-MONEY (trunca a pesos enteros, igual que antes)
             int ticketsAnteriores = acumuladoAnterior / 1000;
             int ticketsGanados = nuevoAcumulado / 1000;
             int residuo = nuevoAcumulado % 1000;

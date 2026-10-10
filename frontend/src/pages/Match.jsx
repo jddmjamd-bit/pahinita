@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import './Match.css';
 
+const API_BASE_URL = 'https://torneos-beta.onrender.com';
+
 export default function Match() {
     const [view, setView] = useState('private'); // 'private' or 'game_result'
     const [rivalData, setRivalData] = useState(null);
@@ -28,6 +30,7 @@ export default function Match() {
     const currentUser = useAppStore(state => state.user);
     const socket = useAppStore(state => state.socket);
     const chatEndRef = useRef(null);
+    const simulacionRef = useRef(0); // id de la última consulta de ganancia (descarta respuestas viejas)
 
     useEffect(() => {
         // Auto-scroll chat
@@ -38,6 +41,19 @@ export default function Match() {
         // TODO: F3 conectar a socket.io global
         // Escuchar 'partida_encontrada', 'juego_iniciado', 'resultado_api', etc.
     }, []);
+
+    // D4: la comisión la calcula el servidor (ComisionService). El frontend ya no replica la fórmula.
+    const actualizarGanancia = async (dinero) => {
+        const id = ++simulacionRef.current;
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/comisiones/simular?monto=${dinero}`);
+            const data = await res.json();
+            if (id !== simulacionRef.current) return; // llegó una consulta más nueva
+            setWinText(data.success ? `Si ganas recibes: $${data.premio}` : "Ganancia: $0");
+        } catch (e) {
+            if (id === simulacionRef.current) setWinText("Ganancia: $0");
+        }
+    };
 
     const validarNegociacion = (modo, dineroRaw) => {
         const dinero = parseInt(dineroRaw);
@@ -53,13 +69,9 @@ export default function Match() {
         setValidationMsg(error);
 
         if (!isNaN(dinero) && dinero >= 1000) {
-            const totalMesa = dinero * 2;
-            let pct = 0.25 - ((totalMesa - 2000) / 18000) * 0.15;
-            if (pct > 0.25) pct = 0.25;
-            if (pct < 0.10) pct = 0.10;
-            const ganancia = Math.floor(totalMesa - (totalMesa * pct));
-            setWinText(`Si ganas recibes: $${ganancia}`);
+            actualizarGanancia(dinero);
         } else {
+            simulacionRef.current++;
             setWinText("Ganancia: $0");
         }
 

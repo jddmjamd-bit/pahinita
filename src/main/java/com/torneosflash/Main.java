@@ -7,6 +7,7 @@ import com.torneosflash.dao.ConexionDB;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.dao.UsuarioDAO;
 import com.torneosflash.servicio.WalletService;
+import com.torneosflash.servicio.ComisionService;
 import com.torneosflash.servicio.ClashApiServicio;
 import com.torneosflash.servicio.CorreoServicio;
 import com.torneosflash.servicio.NotificacionPushServicio;
@@ -57,8 +58,11 @@ public class Main {
         UsuarioDAO usuarioDAO = new UsuarioDAO(conexion);
         GenericDAO db = new GenericDAO(conexion);
 
+        // ComisionService — única fuente de verdad de la política de comisiones (D4)
+        ComisionService comisiones = new ComisionService();
+
         // WalletService — centraliza todo movimiento de dinero
-        WalletService wallet = new WalletService(conexion);
+        WalletService wallet = new WalletService(conexion, comisiones);
 
         // ValidadorMonto — valida en el servidor todo monto que llega del cliente (D5)
         ValidadorMonto validadorMonto = new ValidadorMonto(config);
@@ -151,6 +155,7 @@ public class Main {
         RutasAdmin.register(app, usuarioDAO, db, socketServer, pushService, wallet);
         RutasSorteos.register(app, db, socketServer, correo, pushService, validadorMonto);
         RutasLeaderboard.register(app, db, socketServer, wallet);
+        RutasComisiones.register(app, comisiones, validadorMonto);
         RutasDbAdmin.register(app, db, config);
         RutasMedia.register(app, db);
 

@@ -53,6 +53,8 @@ TorneosFlash/
 │   │   ├── ChatSanitizer.java       # Validación/limpieza de mensajes de chat y usernames (anti-XSS)
 │   │   ├── CorreoServicio.java      # Envío de emails vía Brevo
 │   │   ├── NotificacionPushServicio.java # Push FCM
+│   │   ├── WalletService.java       # Todo movimiento de dinero (transacciones atómicas, BigDecimal)
+│   │   ├── ComisionService.java     # Política de comisiones: % escalonado + reparto por categoría. Ver sección 9
 │   │   ├── UsuarioVista.java        # Lista blanca de columnas de `users` que pueden salir al cliente (sesión vs. rival). Nunca `SELECT *` sobre users hacia el frontend
 │   │   └── ValidadorMonto.java      # Valida montos del cliente (número, > 0, entero, rango por tipo). Ver sección 8
 │   ├── servidor/                    # Handlers HTTP (rutas REST)
@@ -61,6 +63,7 @@ TorneosFlash/
 │   │   ├── RutasDbAdmin.java        # CRUD admin sobre BD
 │   │   ├── RutasFinanzas.java       # Depósitos, retiros, Wompi webhook
 │   │   ├── RutasLeaderboard.java    # Rankings diario/semanal/mensual/anual
+│   │   ├── RutasComisiones.java     # GET /api/comisiones/simular y /distribucion (solo lectura). Ver sección 9
 │   │   ├── RutasMedia.java          # Upload/descarga de videos
 │   │   └── RutasSorteos.java        # CRUD sorteos y participaciones
 │   └── socketio/                    # Adaptador custom Socket.IO
@@ -144,7 +147,7 @@ Depósito:
 Torneo (monto):
   1. Se descuenta al buscar partida: UPDATE users SET saldo -= monto WHERE saldo >= monto (WalletService.realizarTorneo)
   2. Al liquidar: ganador recibe (monto * 2 - comisión)
-  3. Comisión se distribuye en admin_wallet por categoría (25% ganancia, 20% sorteos, 15% leaderboard, 15% devolución, 10% misiones, 10% referidos, 5% logros)
+  3. Comisión se distribuye en admin_wallet por categoría (25% ganancia, 20% sorteos, 15% leaderboard, 15% devolución, 10% misiones, 10% referidos, 5% logros). Esos % son sobre la comisión y viven solo en `ComisionService` (sección 9)
 
 Retiro:
   Usuario solicita → admin aprueba manualmente → UPDATE users SET saldo -= monto
@@ -204,3 +207,33 @@ Todo monto que llega del cliente pasa por `servicio/ValidadorMonto` **antes** de
 - Los errores de validación HTTP responden **400** con `{ "error": "..." }`; en el socket se emite `error_negociacion` solo al jugador que envió el monto.
 - Negociación de torneo: el voto de cada jugador se guarda ya validado y normalizado; un voto nuevo invalida confirmaciones previas; al cobrar se exige que ambos votos existan y coincidan y que ambos tengan saldo.
 - Fuera de alcance de D5 (siguen pendientes): `double` en la comisión de Wompi y en `match.monto` (D1), reembolso atómico si falla el cobro del segundo jugador (D2), `/api/deposit` sin chequeo de admin (S3).
+
+---
+
+## 9. Comisiones: `ComisionService` (D4)
+
+Una sola clase decide cuánto se cobra y cómo se reparte. Es lógica pura (no toca BD ni mueve dinero); `WalletService.liquidar()` la usa dentro de su transacción y el frontend la consulta por HTTP en vez de replicar la fórmula.
+
+**Porcentaje sobre el pozo** (pozo = monto x 2): 25% con pozo 2.000, baja linealmente hasta 10% con pozo >= 20.000. `comisión = floor(pozo x %)`, `premio = pozo - comisión`.
+
+**Reparto de la comisión** (enum `ComisionService.Categoria`, cada una redondeada hacia abajo a pesos enteros):
+
+| Categoría (`admin_wallet.categoria`) | % de la comisión |
+|---|---|
+| `sorteos` | 20% |
+| `misiones` | 10% |
+| `logros` | 5% |
+| `leaderboard` | 15% (se reparte en 4 pozos: día/semana/mes/año) |
+| `devolucion` | 15% |
+| `referidos` | 10% |
+| `ganancia` | residuo (= 25%): lo que sobra, así la suma siempre cuadra al peso |
+
+Cada jugador se atribuye la mitad de cada categoría (`Desglose.porJugador()`, columnas `users.gen_*` y `ganancia_generada`); de ahí salen también los tickets de sorteo (`RutasSorteos.acumularTicketsPorPartida`).
+
+| Endpoint | Respuesta |
+|---|---|
+| `GET /api/comisiones/simular?monto=5000` | `{ success, monto, pozo, porcentajeComision, comision, premio }`. El monto se valida con `ValidadorMonto.torneo()` (400 si es inválido). Lo usa `Match.jsx` para "Si ganas recibes". |
+| `GET /api/comisiones/distribucion` | `{ success, distribucion: { sorteos: 20, misiones: 10, ... } }`. Lo usa `Admin.jsx` para los títulos del desglose. |
+
+- Para cambiar la política se edita **solo** `ComisionService` (constantes y enum). El panel admin y `Match.jsx` se actualizan solos.
+- Pendiente: el frontend legacy de `public/` (`app.js`, `public/js/*`) no se tocó en D4 y podría conservar su propia copia de la fórmula (no verificado); muere con la migración a React. La tarifa de pasarela Wompi (`RutasFinanzas`, `/ 0.964 + 840`) es otro cobro y sigue con `double` (D1).

@@ -728,10 +728,10 @@ public class SocketHandler {
                     }
 
                     // Acumular tickets (cada jugador recibe su mitad de la comisión de sorteos)
-                    double comSorteosHalf = liq.comSorteos.doubleValue() / 2.0;
+                    // El desglose de ComisionService ya trae la mitad de sorteos que le toca a cada jugador (D4)
                     for (SocketIOClient p : match.players) {
                         if (p.getUserData() == null) continue;
-                        int[] resultadoTickets = RutasSorteos.acumularTickets(db, p.getUserData().get("id").getAsInt(), comSorteosHalf);
+                        int[] resultadoTickets = RutasSorteos.acumularTicketsPorPartida(db, p.getUserData().get("id").getAsInt(), liq.desglose);
                         int ticketsGanados = resultadoTickets[0];
                         int nuevoAcumulado = resultadoTickets[1];
                         
