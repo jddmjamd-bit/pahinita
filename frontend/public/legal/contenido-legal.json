@@ -1,0 +1,337 @@
+{
+  "terminos": {
+    "titulo": "Términos de Servicio",
+    "version": "1.0",
+    "vigenteDesde": "12 de octubre de 2026",
+    "intro": "Estos Términos de Servicio regulan el uso de UltimateClash. Léelos con calma: al crear tu cuenta aceptas que te obligan.",
+    "secciones": [
+      {
+        "titulo": "Quiénes somos y aceptación",
+        "parrafos": [
+          "UltimateClash (la «Plataforma») es operada por Juan David Delgado Millan, identificado con cédula de ciudadanía 1097189204, con domicilio en Bogotá D.C., Colombia (el «Operador», «nosotros»). Contacto: jddmjamd@gmail.com · +57 312 665 5995.",
+          "Al marcar la casilla de aceptación y crear tu cuenta declaras que leíste y aceptas estos Términos y la Política de Privacidad. Si no estás de acuerdo, no uses la Plataforma. Guardamos constancia de la versión que aceptaste y de la fecha en que lo hiciste.",
+          "Estos datos de identificación y contacto pueden cambiar cuando el proyecto se constituya formalmente. Si ocurre, te avisaremos como se explica en la sección «Cambios a estos Términos»."
+        ]
+      },
+      {
+        "titulo": "Qué es UltimateClash",
+        "parrafos": [
+          "UltimateClash es una plataforma de competencias de habilidad entre jugadores de Clash Royale. Cada evento incluye un torneo (un enfrentamiento entre jugadores) cuyo resultado depende de la destreza de los participantes y no del azar. El ganador del torneo recibe un premio.",
+          "La Plataforma no ofrece juegos de suerte y azar.",
+          "UltimateClash es un servicio independiente. No está afiliado, respaldado ni patrocinado por Supercell Oy, y Supercell no es responsable de la Plataforma. Clash Royale y sus marcas pertenecen a Supercell."
+        ]
+      },
+      {
+        "titulo": "Tu cuenta",
+        "parrafos": [
+          "Para participar debes crear una cuenta. Al hacerlo te comprometes a:",
+          {
+            "lista": [
+              "Dar información veraz y mantenerla actualizada (correo, WhatsApp y Player Tag).",
+              "Tener una sola cuenta, que sea tuya. El Player Tag de Clash Royale que registres debe corresponder a tu propio perfil de juego.",
+              "Guardar tu contraseña en secreto. Eres responsable de lo que ocurra desde tu cuenta, y debes avisarnos de inmediato si sospechas que alguien más entró.",
+              "No elegir nombres de usuario ofensivos ni que suplanten a otra persona."
+            ]
+          }
+        ]
+      },
+      {
+        "titulo": "Edad, menores de edad y verificación de identidad (KYC)",
+        "parrafos": [
+          "No exigimos una edad mínima para registrarte.",
+          "Menores de edad (menores de 18 años): para participar se requiere la autorización de un adulto responsable (padre, madre o representante legal), que se verifica mediante el proceso de verificación de identidad (KYC) de la Plataforma. El adulto responsable responde por el uso que el menor haga de la cuenta.",
+          "Mayores de edad: te pediremos verificación de identidad (KYC) únicamente cuando solicites un retiro.",
+          "La verificación puede incluir una foto de tu documento de identidad y una selfie y, en el caso de menores, los datos y el documento del adulto responsable. Estos datos se tratan según la Política de Privacidad. Podemos rechazar o revocar una verificación si la información es falsa, está incompleta o no coincide.",
+          "Estas verificaciones se aplicarán a medida que el sistema de KYC esté habilitado en la Plataforma. Mientras tanto, podemos pedirte una verificación manual cuando lo consideremos necesario para proteger a los usuarios."
+        ]
+      },
+      {
+        "titulo": "Eventos, inscripciones y premios",
+        "parrafos": [
+          "La inscripción es el valor que pagas, con tu saldo, para participar en un evento. Incluye el torneo. Antes de confirmar siempre verás cuánto pagas y cuánto recibirías si ganas.",
+          "El premio del ganador es el total de las inscripciones del enfrentamiento (el «pozo») menos la comisión de la Plataforma (sección 6).",
+          "El resultado se obtiene de la API oficial de Clash Royale. Si no es posible obtenerlo, o los participantes no están de acuerdo, se abre una disputa (sección 9).",
+          "Abandonar, no presentarte o desconectarte de forma deliberada de un enfrentamiento confirmado puede considerarse una falta (sección 10).",
+          "Podemos emparejar a los jugadores según el monto, el modo de juego y, más adelante, criterios adicionales como trofeos o nivel, para mantener la competencia justa."
+        ]
+      },
+      {
+        "titulo": "Comisión de la Plataforma",
+        "parrafos": [
+          "Por cada enfrentamiento cobramos una comisión sobre el pozo. Es escalonada: va del 10% al 25% del pozo según el monto (a mayor monto, menor porcentaje). Siempre se te muestra antes de confirmar.",
+          "Los niveles VIP, cuando estén disponibles, reducen la comisión: en el nivel máximo queda entre el 5% y el 12,5%.",
+          "Una parte de la comisión financia sorteos, rankings y otros beneficios para los usuarios."
+        ]
+      },
+      {
+        "titulo": "Saldo, recargas y pagos",
+        "parrafos": [
+          {
+            "lista": [
+              "Tu saldo está en pesos colombianos (COP). No es un depósito bancario ni genera intereses.",
+              "Puedes recargar con los medios habilitados en la Plataforma (por ejemplo, tarjeta mediante la pasarela Wompi, o transferencia a Nequi con aprobación manual). Los montos mínimos y máximos vigentes se muestran en la app.",
+              "Wompi procesa los pagos con tarjeta; nosotros no almacenamos los datos de tu tarjeta. Usa solo medios de pago de tu titularidad.",
+              "La tarifa de la pasarela de pago la asumes tú: se compone de un porcentaje, un valor fijo e IVA, y ves el total a pagar antes de confirmar. Con un nivel VIP, cuando esté disponible, se te descuentan el IVA y el porcentaje de esa tarifa; el valor fijo lo sigues pagando tú.",
+              "Las recargas no generan derecho a reembolso. Tu saldo disponible puede salir de la Plataforma mediante una solicitud de retiro (sección 8). Esto no limita los derechos que la ley te reconozca como consumidor.",
+              "Si crees que hubo un error en un pago, escríbenos con la referencia de la transacción."
+            ]
+          }
+        ]
+      },
+      {
+        "titulo": "Retiros",
+        "parrafos": [
+          "Puedes solicitar el retiro de tu saldo disponible desde la Plataforma, indicando la cuenta de destino (por ejemplo, Nequi o Daviplata) y el nombre del titular, que debe ser tuyo.",
+          "Cada retiro se revisa y se aprueba manualmente. Una vez la solicitud esté completa, el retiro se procesa en un plazo de hasta 24 horas hábiles.",
+          "Para retirar, si eres mayor de edad, debes haber completado la verificación de identidad (KYC). Si eres menor, se requiere además la autorización del adulto responsable (sección 4).",
+          "Podemos rechazar o retener un retiro si los datos no coinciden, si la verificación falla o si hay indicios de fraude, y te informaremos el motivo.",
+          "El monto mínimo de retiro vigente se muestra en la app."
+        ]
+      },
+      {
+        "titulo": "Resultados y disputas",
+        "parrafos": [
+          "El resultado de cada enfrentamiento lo determina la API de Clash Royale. Si la API no muestra el resultado a tiempo o los jugadores no están de acuerdo, se abre una disputa.",
+          "En una disputa puedes aportar evidencia (capturas de pantalla o videos). Podemos contactarte por el chat de la Plataforma o por WhatsApp. Revisamos la evidencia y decidimos quién gana; luego se liquida el premio.",
+          "Presentar evidencia falsa o alterada es una falta grave (sección 10).",
+          "Nuestra decisión es definitiva dentro de la Plataforma, sin perjuicio de tu derecho de acudir a las autoridades competentes."
+        ]
+      },
+      {
+        "titulo": "Juego limpio y conductas prohibidas",
+        "parrafos": [
+          "Está prohibido:",
+          {
+            "lista": [
+              "Tener más de una cuenta, o prestar, vender o transferir tu cuenta.",
+              "Hacer «smurfing»: crear cuentas nuevas, o usar cuentas de bajo nivel, siendo un jugador experto para enfrentar a jugadores de menor nivel y ganarles con ventaja.",
+              "Ponerte de acuerdo con tu rival para manipular un resultado, o jugar contra ti mismo con otra cuenta.",
+              "Usar bots, programas de trampa o explotar errores del juego o de la Plataforma.",
+              "No presentarte, abandonar o desconectarte de forma deliberada de partidas confirmadas.",
+              "Presentar evidencia falsa, suplantar a otra persona, usar medios de pago ajenos o hacer reclamos de pago de mala fe.",
+              "Insultar, acosar, enviar spam, o publicar contenido ilegal, sexual, violento o que revele datos personales de otras personas.",
+              "Intentar vulnerar la seguridad de la Plataforma o saltarte sus límites técnicos."
+            ]
+          }
+        ]
+      },
+      {
+        "titulo": "Sanciones",
+        "parrafos": [
+          "Según la gravedad, podemos aplicar una advertencia, la restricción de funciones (por ejemplo, el chat o los eventos), la suspensión temporal o la cancelación de la cuenta.",
+          "Si se comprueba trampa o fraude, podemos anular los resultados y premios obtenidos de forma irregular y devolver las inscripciones a los jugadores afectados.",
+          "Mientras investigamos un posible fraude, podemos suspender la cuenta y los retiros, y retener de forma temporal los fondos involucrados, por el tiempo estrictamente necesario.",
+          "Te informaremos el motivo y podrás responder o apelar escribiendo a jddmjamd@gmail.com. Si cancelamos tu cuenta por una causa distinta al fraude, podrás retirar tu saldo disponible."
+        ]
+      },
+      {
+        "titulo": "Chat y contenido que publicas",
+        "parrafos": [
+          "Eres responsable de lo que escribes, subes o envías (mensajes, imágenes, videos). No puede infringir la ley ni los derechos de terceros.",
+          "Nos concedes una licencia limitada, no exclusiva y gratuita para almacenar y mostrar ese contenido dentro de la Plataforma. Podemos moderarlo o eliminarlo, y conservar los mensajes para moderación y como evidencia en disputas.",
+          "Los mensajes y archivos de los canales públicos pueden ser vistos por otros usuarios."
+        ]
+      },
+      {
+        "titulo": "Sorteos, tickets y rankings",
+        "parrafos": [
+          "Podemos ofrecer sorteos, tickets y rankings con premios. Cada uno tiene reglas que se informan en la Plataforma, y participar implica aceptarlas.",
+          "Contactamos a los ganadores por el número de WhatsApp que registraste, por lo que debes mantenerlo actualizado."
+        ]
+      },
+      {
+        "titulo": "Propiedad intelectual",
+        "parrafos": [
+          "El nombre UltimateClash, el logo, el diseño y el software de la Plataforma pertenecen al Operador. No puedes copiarlos ni usarlos sin autorización.",
+          "Clash Royale y Supercell son marcas de Supercell Oy. UltimateClash no está afiliado, respaldado ni patrocinado por ellos."
+        ]
+      },
+      {
+        "titulo": "Disponibilidad del servicio y terceros",
+        "parrafos": [
+          "Hacemos un esfuerzo razonable para que la Plataforma esté disponible, pero no garantizamos que funcione sin interrupciones. Podemos hacer mantenimientos y modificar o suspender funciones.",
+          "Dependemos de terceros (la API de Clash Royale, Wompi, Firebase, Brevo y el proveedor de alojamiento). Si una falla de ellos afecta un enfrentamiento o un pago, revisaremos el caso y buscaremos una solución justa, por ejemplo mediante una disputa."
+        ]
+      },
+      {
+        "titulo": "Riesgos y limitación de responsabilidad",
+        "parrafos": [
+          "Participar en un evento implica que puedes perder tu inscripción. Participa solo con dinero que puedas permitirte perder. Si sientes que pierdes el control, escríbenos y suspenderemos tu cuenta si así lo pides.",
+          "La Plataforma se ofrece «tal cual»: no garantizamos que ganes ni un resultado determinado. En la medida en que la ley lo permita, no respondemos por pérdidas indirectas ni por fallas de terceros fuera de nuestro control. Nada en estos Términos excluye una responsabilidad que la ley no permita excluir."
+        ]
+      },
+      {
+        "titulo": "Cambios a estos Términos",
+        "parrafos": [
+          "Podemos actualizar estos Términos. Publicaremos la nueva versión con su fecha de vigencia. Si el cambio es importante, te avisaremos por correo o en la app y te pediremos aceptarlo de nuevo.",
+          "Si no estás de acuerdo con una nueva versión, puedes dejar de usar la Plataforma y retirar tu saldo disponible.",
+          "Conservamos el registro de las versiones que aceptaste."
+        ]
+      },
+      {
+        "titulo": "Ley aplicable y solución de conflictos",
+        "parrafos": [
+          "Por ahora la Plataforma opera en Colombia y estos Términos se rigen por las leyes de la República de Colombia.",
+          "Ante cualquier inconveniente, escríbenos primero: buscaremos resolverlo directamente. Si no es posible, puedes acudir a las autoridades colombianas competentes, como la Superintendencia de Industria y Comercio en temas de consumo, o a los jueces de la República.",
+          "Si la Plataforma se ofrece en otros países, estos Términos se aplicarán junto con las normas imperativas de protección al consumidor de cada país que no puedan excluirse por contrato."
+        ]
+      },
+      {
+        "titulo": "Contacto",
+        "parrafos": [
+          "Para soporte, disputas, reclamos o consultas sobre estos Términos: jddmjamd@gmail.com · +57 312 665 5995."
+        ]
+      }
+    ]
+  },
+  "privacidad": {
+    "titulo": "Política de Privacidad y Tratamiento de Datos Personales",
+    "version": "1.0",
+    "vigenteDesde": "12 de octubre de 2026",
+    "intro": "Esta Política explica cómo UltimateClash recolecta, usa y protege tus datos personales, conforme a la Ley 1581 de 2012, el Decreto 1377 de 2013 (compilado en el Decreto 1074 de 2015) y demás normas colombianas de protección de datos personales.",
+    "secciones": [
+      {
+        "titulo": "Responsable del tratamiento",
+        "parrafos": [
+          "El responsable del tratamiento de tus datos es Juan David Delgado Millan, identificado con cédula de ciudadanía 1097189204, con domicilio en Bogotá D.C., Colombia, operador de UltimateClash.",
+          "Correo: jddmjamd@gmail.com · Teléfono: +57 312 665 5995. Este es también el canal para ejercer tus derechos (sección 10).",
+          "Estos datos pueden cambiar cuando el proyecto se constituya formalmente; te avisaremos como se explica en la sección «Cambios a esta Política»."
+        ]
+      },
+      {
+        "titulo": "Datos que recolectamos",
+        "parrafos": [
+          {
+            "lista": [
+              "Cuenta y contacto: nombre de usuario, correo electrónico, número de WhatsApp (lo usamos para disputas y para contactar a los ganadores de sorteos) y contraseña, que guardamos solo como un hash y nunca en texto legible.",
+              "Juego: tu Player Tag de Clash Royale, el perfil público que devuelve la API de Clash Royale (nombre y trofeos) para verificar tu cuenta y los resultados de tus partidas, el historial de partidas, estadísticas, faltas, disputas, tickets y participaciones en sorteos.",
+              "Financieros: tu saldo, recargas, retiros y movimientos, las referencias de pago y, para los retiros, el número de la cuenta de destino y el nombre del titular. Los datos de tu tarjeta los procesa directamente Wompi; nosotros no los almacenamos.",
+              "Contenido: los mensajes de chat y las imágenes y videos que publiques o envíes como evidencia.",
+              "Técnicos: tu dirección IP (seguridad y límite de solicitudes), el token de notificaciones push de tu dispositivo y la cookie de sesión.",
+              "Verificación de identidad (KYC), cuando esté habilitada: foto de tu documento de identidad y una selfie; para menores de edad, además los datos y el documento del adulto responsable."
+            ]
+          }
+        ]
+      },
+      {
+        "titulo": "Para qué usamos tus datos",
+        "parrafos": [
+          {
+            "lista": [
+              "Crear y administrar tu cuenta y autenticarte.",
+              "Emparejarte con rivales, verificar resultados, liquidar premios y resolver disputas.",
+              "Procesar recargas y retiros y llevar el registro contable de los movimientos.",
+              "Prevenir fraude, cuentas múltiples, trampas y abusos, y proteger la seguridad de la Plataforma.",
+              "Enviarte notificaciones del servicio por correo, notificaciones push y WhatsApp (disputas y sorteos).",
+              "Verificar tu identidad y la autorización del adulto responsable en el caso de menores (KYC).",
+              "Mostrar rankings, estadísticas y sorteos a otros usuarios.",
+              "Atender consultas, reclamos y soporte.",
+              "Cumplir obligaciones legales y requerimientos de autoridades.",
+              "Mejorar la Plataforma con información agregada."
+            ]
+          },
+          "No vendemos tus datos ni los usamos para publicidad de terceros."
+        ]
+      },
+      {
+        "titulo": "Autorización",
+        "parrafos": [
+          "Al marcar la casilla de aceptación al registrarte, autorizas de forma previa, expresa e informada el tratamiento de tus datos conforme a esta Política. Guardamos constancia de la versión que aceptaste y de la fecha.",
+          "Datos sensibles: la foto del documento y la selfie pueden contener datos sensibles (biométricos). Entregarlos es facultativo: no estás obligado a hacerlo, pero sin verificación no podrás retirar saldo y, si eres menor de edad, no podrás participar.",
+          "Menores de edad: tratamos datos de menores solo con la autorización de su representante legal, respetando el interés superior del menor y la prevalencia de sus derechos. El adulto responsable puede ejercer los derechos del menor.",
+          "Puedes revocar tu autorización en cualquier momento (sección 9), salvo cuando exista un deber legal o contractual de conservar los datos."
+        ]
+      },
+      {
+        "titulo": "Con quién compartimos tus datos",
+        "parrafos": [
+          "Otros usuarios: ven tu nombre de usuario, tus estadísticas de juego, tu posición en los rankings y tus mensajes en los canales. Tu rival ve tu nombre de usuario y tus estadísticas; nunca tu correo, tu teléfono ni tu saldo.",
+          "Proveedores que tratan datos por encargo nuestro, solo para la finalidad indicada:",
+          {
+            "lista": [
+              "Wompi: procesamiento de pagos.",
+              "Brevo: envío de correos.",
+              "Google Firebase: notificaciones push.",
+              "Render: alojamiento de la aplicación y la base de datos.",
+              "Supercell (API de Clash Royale): consulta de tu perfil público y de los resultados de tus partidas a partir de tu Player Tag."
+            ]
+          },
+          "Autoridades, cuando una norma o una orden legítima lo exija.",
+          "Si el proyecto se constituye como empresa o se transfiere, tus datos pasarán al nuevo responsable con las mismas garantías de esta Política."
+        ]
+      },
+      {
+        "titulo": "Transmisión y transferencia internacional",
+        "parrafos": [
+          "Algunos de nuestros proveedores (por ejemplo, el alojamiento de Render, Google Firebase y Brevo) tienen servidores fuera de Colombia, por lo que tus datos pueden almacenarse o tratarse en otros países.",
+          "Al aceptar esta Política autorizas esa transmisión y transferencia internacional. Exigimos a los proveedores medidas razonables de seguridad y confidencialidad."
+        ]
+      },
+      {
+        "titulo": "Cookies y almacenamiento local",
+        "parrafos": [
+          "Usamos una cookie de sesión, necesaria para mantenerte conectado, y el almacenamiento local de tu dispositivo para preferencias como el tema claro u oscuro.",
+          "Por ahora no usamos cookies de analítica ni de publicidad. Si esto cambia, actualizaremos esta Política y te pediremos tu autorización."
+        ]
+      },
+      {
+        "titulo": "Cuánto tiempo conservamos tus datos",
+        "parrafos": [
+          {
+            "lista": [
+              "Datos de la cuenta: mientras tu cuenta exista.",
+              "Registros financieros y contables (recargas, retiros, movimientos y premios): hasta 5 años después de cerrada tu cuenta.",
+              "Datos de verificación de identidad (KYC): el tiempo necesario para cumplir su finalidad y las obligaciones legales.",
+              "Constancias de aceptación de Términos y Política: el tiempo necesario para acreditar tu autorización."
+            ]
+          },
+          "Cumplidos esos plazos, suprimimos tus datos o los anonimizamos."
+        ]
+      },
+      {
+        "titulo": "Tus derechos",
+        "parrafos": [
+          "Como titular de los datos tienes derecho a:",
+          {
+            "lista": [
+              "Conocer, actualizar y rectificar tus datos personales.",
+              "Acceder de forma gratuita a tus datos.",
+              "Solicitar prueba de la autorización que nos diste.",
+              "Ser informado sobre el uso que damos a tus datos.",
+              "Revocar la autorización y solicitar la supresión de tus datos, cuando no exista un deber legal o contractual de conservarlos.",
+              "Presentar quejas ante la Superintendencia de Industria y Comercio (SIC) por infracciones a la ley, una vez hayas agotado la consulta o el reclamo ante nosotros."
+            ]
+          }
+        ]
+      },
+      {
+        "titulo": "Cómo ejercer tus derechos",
+        "parrafos": [
+          "Escribe a jddmjamd@gmail.com indicando tu nombre, tu nombre de usuario, una descripción clara de tu consulta o reclamo, el medio donde quieres la respuesta y, si aplica, los documentos que lo respaldan. Si actúas como adulto responsable de un menor, indícalo.",
+          "Consultas: las respondemos en un máximo de 10 días hábiles. Si no podemos, te avisamos el motivo y la nueva fecha, que no excederá 5 días hábiles adicionales.",
+          "Reclamos (corrección, actualización o supresión): los resolvemos en un máximo de 15 días hábiles. Si no podemos, te avisamos el motivo y la nueva fecha, que no excederá 8 días hábiles adicionales."
+        ]
+      },
+      {
+        "titulo": "Seguridad",
+        "parrafos": [
+          "Aplicamos medidas técnicas razonables para proteger tus datos: guardamos las contraseñas con un hash irreversible, usamos conexiones cifradas, limitamos el número de solicitudes por IP y restringimos el acceso a la información a quien lo necesita.",
+          "Ningún sistema es completamente seguro. Si ocurre un incidente que afecte tus datos, actuaremos para contenerlo y lo reportaremos a las autoridades y a los afectados cuando corresponda."
+        ]
+      },
+      {
+        "titulo": "Cambios a esta Política",
+        "parrafos": [
+          "Podemos actualizar esta Política. Publicaremos la nueva versión con su fecha de vigencia. Si el cambio es sustancial, te avisaremos por correo o en la app y te pediremos una nueva autorización.",
+          "Conservamos el registro de las versiones que aceptaste."
+        ]
+      },
+      {
+        "titulo": "Contacto",
+        "parrafos": [
+          "Para cualquier duda sobre esta Política: jddmjamd@gmail.com · +57 312 665 5995."
+        ]
+      }
+    ]
+  }
+}

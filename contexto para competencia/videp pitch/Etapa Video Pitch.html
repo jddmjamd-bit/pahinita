@@ -1,0 +1,205 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Etapa Video Pitch</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: single reading column, timeline strip for the 3-min structure, two-column cards for production tips. Single light theme (white) with Execute Blue accent. */
+:root{
+  --bg:#FFFFFF; --surface:#F7F6F1; --line:#E3E0D6; --fg:#15140F; --muted:#5F5B50;
+  --accent:#2F5FE8; --accent-soft:rgba(47,95,232,.10);
+  --display:"Instrument Serif",Georgia,"Times New Roman",serif;
+  --body:"DM Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:17px;line-height:1.6;margin:0;padding-block:0 64px;padding-inline:20px}
+.wrap{max-width:760px;margin:0 auto}
+header{padding-block:56px 40px;border-bottom:1px solid var(--line)}
+.eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600;margin:0 0 14px}
+h1{font-family:var(--display);font-weight:400;font-size:clamp(40px,7vw,64px);line-height:1.02;margin:0 0 18px;text-wrap:balance;letter-spacing:-.01em}
+h1 em{font-style:italic;color:var(--accent)}
+.lead{font-size:19px;color:var(--muted);margin:0;max-width:60ch}
+.meta{display:flex;flex-wrap:wrap;gap:10px;margin-top:28px}
+.chip{border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:14px;color:var(--fg);background:var(--surface)}
+.chip b{color:var(--accent);font-weight:600}
+section{padding-block:40px;border-bottom:1px solid var(--line)}
+section:last-of-type{border-bottom:0}
+h2{font-family:var(--display);font-weight:400;font-size:34px;line-height:1.1;margin:0 0 6px;text-wrap:balance}
+.sub{color:var(--muted);margin:0 0 24px;font-size:16px}
+h3{font-size:14px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;color:var(--muted);margin:28px 0 10px}
+p{margin:0 0 14px;max-width:66ch}
+ul{margin:0 0 14px;padding-left:20px;max-width:66ch}
+li{margin-bottom:6px}
+li::marker{color:var(--accent)}
+a{color:var(--accent)}
+.deliv{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:8px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px;min-width:0}
+.card .n{font-family:var(--display);font-size:44px;line-height:1;color:var(--accent);margin:0 0 6px}
+.card h4{margin:0 0 4px;font-size:19px;font-weight:600}
+.card .t{color:var(--muted);font-size:15px;margin:0 0 12px}
+.card ul{padding-left:18px;margin:0;font-size:15px}
+.timeline{display:grid;grid-template-columns:76px 1fr;gap:0 18px;margin-top:10px}
+.timeline .tm{font-variant-numeric:tabular-nums;font-weight:600;color:var(--accent);font-size:14px;padding-top:4px;white-space:nowrap}
+.timeline .tx{border-left:2px solid var(--line);padding:0 0 22px 18px;position:relative;min-width:0}
+.timeline .tx::before{content:"";position:absolute;left:-6px;top:8px;width:10px;height:10px;border-radius:50%;background:var(--accent)}
+.timeline .tx:last-child{padding-bottom:0}
+.timeline .tx b{display:block;font-weight:600;margin-bottom:2px}
+.timeline .tx span{color:var(--muted);font-size:15px}
+.tips{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.tip{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;min-width:0}
+.tip h4{margin:0 0 6px;font-size:17px;font-weight:600}
+.tip p{font-size:15px;color:var(--muted);margin:0}
+table{width:100%;border-collapse:collapse;font-size:15px;margin-top:8px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600}
+td.w{font-variant-numeric:tabular-nums;color:var(--accent);font-weight:600;white-space:nowrap}
+.tbl{overflow-x:auto}
+.callout{background:var(--accent-soft);border-left:3px solid var(--accent);border-radius:0 10px 10px 0;padding:16px 20px;margin:20px 0}
+.callout p{margin:0;font-size:15px}
+.check{list-style:none;padding:0;max-width:none}
+.check li{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)}
+.check li::before{content:"";flex:0 0 18px;height:18px;margin-top:4px;border:1.5px solid var(--accent);border-radius:5px}
+.quote{font-family:var(--display);font-size:26px;line-height:1.25;font-style:italic;margin:28px 0;max-width:30ch;color:var(--fg)}
+footer{padding-top:40px;color:var(--muted);font-size:14px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;background:var(--surface);border:1px solid var(--line);padding:2px 6px;border-radius:5px}
+@media (max-width:640px){.deliv,.tips{grid-template-columns:1fr}.timeline{grid-template-columns:64px 1fr;gap:0 12px}}
+</style>
+
+<div class="wrap">
+<header>
+  <p class="eyebrow">Execute the Idea · Edición 2026</p>
+  <h1>Etapa Video Pitch: <em>instrucciones de entrega</em></h1>
+  <p class="lead">Felicitaciones por clasificar. En esta etapa tu idea sale del salón y llega a inversionistas, mentores y aliados. Aquí está todo lo que necesitas para entregar bien.</p>
+  <div class="meta">
+    <span class="chip"><b>2</b> entregables</span>
+    <span class="chip">Pitch <b>máx. 3:00</b></span>
+    <span class="chip">Teaser <b>máx. 0:30</b></span>
+    <span class="chip">Fecha límite: <b>18 de octubre, 11:59 p. m.</b></span>
+  </div>
+</header>
+
+<section>
+  <h2>Qué debes entregar</h2>
+  <p class="sub">Dos videos distintos, con propósitos distintos. Ambos se difundirán con inversionistas, así que el estándar es profesional.</p>
+  <div class="deliv">
+    <div class="card">
+      <p class="n">1</p>
+      <h4>Video Pitch</h4>
+      <p class="t">Hasta 3:00 minutos · Horizontal 16:9</p>
+      <ul>
+        <li>Es tu presentación completa ante un inversionista.</li>
+        <li>Debe cubrir problema, solución, mercado, modelo, avances, equipo y ask.</li>
+        <li>Lo verán jurados e inversionistas para decidir quién avanza.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <p class="n">2</p>
+      <h4>Video de presentación de la idea</h4>
+      <p class="t">Hasta 30 segundos · Vertical 9:16 (también aceptamos 16:9)</p>
+      <ul>
+        <li>Un teaser: qué hacen, para quién y por qué importa.</li>
+        <li>Se usará en redes de Execute y en el envío a inversionistas como primera impresión.</li>
+        <li>Que deje claro qué problema resuelven y qué mejora su solución.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Estructura sugerida del pitch de 3 minutos</h2>
+  <p class="sub">No es obligatoria, pero cada bloque responde una pregunta que el inversionista se va a hacer.</p>
+  <div class="timeline">
+    <div class="tm">0:00–0:20</div><div class="tx"><b>El gancho</b><span>Abre con el problema, un dato o una historia, nunca con tus credenciales. En 20 segundos deben entender por qué esto importa.</span></div>
+    <div class="tm">0:20–0:50</div><div class="tx"><b>Problema y solución</b><span>Sé específico con el problema (evidencia, no suposiciones) y explica tu producto en lenguaje simple, sin jerga técnica.</span></div>
+    <div class="tm">0:50–1:20</div><div class="tx"><b>Mercado y oportunidad</b><span>Tamaño del mercado con fuente, señales de momentum y quién es tu cliente ideal. Muestra las cifras en pantalla; no obligues al espectador a hacer cuentas.</span></div>
+    <div class="tm">1:20–1:55</div><div class="tx"><b>Modelo de negocio y avances</b><span>Cómo ganan dinero y qué han logrado hasta hoy: prototipo, pilotos, usuarios, ventas, validaciones de la etapa anterior de Execute. Aquí es donde se diferencian de una idea en papel.</span></div>
+    <div class="tm">1:55–2:25</div><div class="tx"><b>Equipo</b><span>Quiénes son y por qué este equipo puede ejecutar esta idea. No es una hoja de vida, es una prueba de credibilidad. Mencionen qué perfil les falta.</span></div>
+    <div class="tm">2:25–3:00</div><div class="tx"><b>El ask y cierre</b><span>Qué buscan (capital, mentores, aliados, clientes) y para qué lo usarían. Cierren con una visión clara de a dónde van y una invitación concreta a seguir la conversación.</span></div>
+  </div>
+  <p class="quote">"Las ideas más valiosas son aquellas que se ejecutan." Que el video lo demuestre.</p>
+</section>
+
+<section>
+  <h2>Recomendaciones de producción</h2>
+  <p class="sub">Un inversionista decide en los primeros 30 segundos si sigue viendo. La calidad del video habla de la calidad del equipo.</p>
+  <div class="tips">
+    <div class="tip"><h4>Luz</h4><p>Luz frontal y uniforme, idealmente natural (frente a una ventana) o un aro de luz. Nunca con la ventana a la espalda: el contraluz oscurece la cara.</p></div>
+    <div class="tip"><h4>Fondo</h4><p>Limpio, ordenado y, si es posible, que diga algo del proyecto (su taller, su producto, su oficina). Evita fondos virtuales y paredes con mucho ruido visual.</p></div>
+    <div class="tip"><h4>Audio</h4><p>Es más importante que la imagen. Usa micrófono de solapa o audífonos con micrófono, en un lugar sin eco ni ruido. Música de fondo baja o ninguna.</p></div>
+    <div class="tip"><h4>Cámara y encuadre</h4><p>Cámara a la altura de los ojos, estable (trípode o apoyo), mínimo 1080p. Miren al lente, no a la pantalla. Plano medio: cabeza y hombros con aire arriba.</p></div>
+    <div class="tip"><h4>Storytelling</h4><p>Una historia con un cliente real o una situación concreta vale más que diez adjetivos. Cuenten el porqué antes del qué, y cierren el círculo al final.</p></div>
+    <div class="tip"><h4>Proyección</h4><p>Energía, pausas y ritmo. Hablen como si estuvieran frente al inversionista, no leyendo. Ensayen hasta que el guion se sienta natural. Máximo dos personas en cámara.</p></div>
+    <div class="tip"><h4>Avances y evidencia</h4><p>Muestren el producto funcionando, capturas, cifras, testimonios o fotos de pilotos. Todo lo que demuestre tracción debe verse en pantalla, no solo decirse.</p></div>
+    <div class="tip"><h4>Apoyo visual</h4><p>Usen sobreimpresos o gráficos sencillos para las cifras clave. Nada de diapositivas llenas de texto leídas en voz alta. El protagonista es el equipo.</p></div>
+  </div>
+  <h3>Evita</h3>
+  <ul>
+    <li>Pasarte del tiempo. Los límites de 3:00 y 0:30 son estrictos.</li>
+    <li>Abrir con "Hola, somos el equipo X de la universidad Y". Abre con el problema.</li>
+    <li>Jerga técnica o siglas sin explicar.</li>
+    <li>Leer un guion con la mirada en la pantalla.</li>
+    <li>Grabar en vertical el pitch de 3 minutos, o en horizontal el teaser si va a redes.</li>
+    <li>Incluir información confidencial que no quieran ver circulando (patentes en trámite, cifras sensibles, contratos).</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Requisitos técnicos y de entrega</h2>
+  <p class="sub">Los videos que no cumplan estos requisitos pueden no ser evaluados.</p>
+  <div class="tbl">
+  <table>
+    <tr><th>Requisito</th><th>Video Pitch</th><th>Video de 30 s</th></tr>
+    <tr><td>Duración máxima</td><td>3:00 min</td><td>0:30 s</td></tr>
+    <tr><td>Formato</td><td>MP4 (H.264), 1080p</td><td>MP4 (H.264), 1080p</td></tr>
+    <tr><td>Orientación</td><td>Horizontal 16:9</td><td>Vertical 9:16 (o 16:9)</td></tr>
+    <tr><td>Idioma</td><td colspan="2">Español. Subtítulos recomendados (facilitan la difusión en redes sin audio).</td></tr>
+    <tr><td>Canal de entrega</td><td colspan="2">Doble entrega: (1) envíen el enlace a Google Drive (acceso público de lectura) o YouTube no listado al <b>correo oficial de executetheidea.com</b>, y (2) suban los videos a la plataforma siguiendo las indicaciones que encontrarán allí.</td></tr>
+    <tr><td>Fecha límite</td><td colspan="2"><b>Sábado 18 de octubre de 2026, 11:59 p. m. (hora Colombia)</b>. No se reciben entregas tardías.</td></tr>
+  </table>
+  </div>
+  <div class="callout">
+    <p><b>Difusión.</b> Al entregar sus videos, el equipo autoriza a Execute the Idea a compartirlos con inversionistas, mentores, sponsors y aliados, y a publicarlos en sus canales digitales. Graben pensando en que cualquiera podría verlos.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Cómo se evalúa</h2>
+  <p class="sub">Los jurados e inversionistas calificarán el Video Pitch con estos criterios. El video de 30 segundos no se califica por separado, pero es la primera impresión que recibirán de ustedes.</p>
+  <div class="tbl">
+  <table>
+    <tr><th>Criterio</th><th>Qué se mira</th></tr>
+    <tr><td>Problema y solución</td><td>Claridad del problema, evidencia de que existe y qué tan bien la solución lo resuelve.</td></tr>
+    <tr><td>Mercado y oportunidad</td><td>Tamaño, momentum y definición del cliente. Cifras con fuente.</td></tr>
+    <tr><td>Modelo de negocio y avances</td><td>Cómo genera ingresos y qué tracción real han logrado hasta hoy.</td></tr>
+    <tr><td>Equipo</td><td>Capacidad de ejecutar y complementariedad de los perfiles.</td></tr>
+    <tr><td>Comunicación y producción</td><td>Storytelling, proyección, uso del tiempo, calidad de imagen y audio.</td></tr>
+  </table>
+  </div>
+</section>
+
+<section>
+  <h2>Checklist antes de enviar</h2>
+  <ul class="check">
+    <li>El pitch dura 3:00 o menos y el teaser 0:30 o menos (verificado en el archivo final).</li>
+    <li>Se escucha con claridad de principio a fin, sin ruido ni eco.</li>
+    <li>La cara se ve bien iluminada y el fondo está limpio.</li>
+    <li>El video abre con el problema o un gancho, no con la presentación del equipo.</li>
+    <li>Queda claro cuál es el problema identificado y qué se está mejorando con la solución.</li>
+    <li>Si el producto necesita verse para entenderse, incluyeron una demo corta (recomendado).</li>
+    <li>Se describe el mercado objetivo y los pasos claros para atacarlo y conquistarlo.</li>
+    <li>Los avances y cifras aparecen en pantalla, no solo se mencionan.</li>
+    <li>Queda claro qué están pidiendo y para qué.</li>
+    <li>Se ve confianza y lucidez en el founder al hablar.</li>
+    <li>El enlace abre sin pedir acceso.</li>
+    <li>Alguien externo al equipo lo vio y entendió la idea sin explicaciones adicionales.</li>
+  </ul>
+  <h3>Dudas</h3>
+  <p>Escríbannos al correo oficial de executetheidea.com o por el canal oficial de la competencia.</p>
+</section>
+
+<footer>
+  <span>Execute the Idea</span>
+  <span>Colombia · 2026</span>
+</footer>
+</div>
+
+</body></html>

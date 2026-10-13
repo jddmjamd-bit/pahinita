@@ -19,7 +19,10 @@ public final class ManejadorErrores {
 
     public static void registrar(Javalin app) {
         app.exception(ServicioException.class, (e, ctx) -> {
-            if (e.getStatus() >= 500) {
+            if (e.getStatus() == 503) {
+                // Servicio externo caído (p. ej. la IA del chatbot): no es un bug nuestro, basta un aviso sin traza
+                logger.warn("Servicio no disponible en {} {}: {}", ctx.method(), ctx.path(), e.getMessage());
+            } else if (e.getStatus() >= 500) {
                 logger.error("Error interno en {} {}: {}", ctx.method(), ctx.path(), e.getMessage(), e);
             }
             ctx.status(e.getStatus()).json(errorJson(e.getMessage()));

@@ -3,6 +3,8 @@ package com.torneosflash.config;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.math.BigDecimal;
+import java.util.Locale;
+import java.util.regex.Pattern;
 /**
  * Configuración de la aplicación.
  * Lee las variables de entorno necesarias para conectar a PostgreSQL,
@@ -76,6 +78,20 @@ public class AppConfig {
     private final int timerPoolThreads;
     private final int dbPoolMax;
 
+    // --- Chatbot IA (roadmap parte 20). Ver ChatbotIaCliente y ChatbotService. ---
+    private final String chatbotProveedor;
+    private final String chatbotApiKey;
+    private final String chatbotModelo;
+    private final String chatbotAdminEmail;
+    private final int chatbotMaxMensajesPorMin;
+    private final int chatbotMaxMensajesDia;
+    private final int chatbotMaxConcurrentes;
+    private final int chatbotMaxCorreosHora;
+    private final int chatbotTimeoutSegundos;
+    private final int chatbotContextoMensajes;
+    private final int chatbotMaxTokens;
+    private final int rateLimitChatbotPorMin;
+
     // --- Constructor (CONSTRUCTOR con parámetros desde env) ---
     public AppConfig() {
         this.port = Integer.parseInt(getEnv("PORT", "5000"));
@@ -145,6 +161,33 @@ public class AppConfig {
         this.cpuPoolQueue = getEnvEntero("CPU_POOL_QUEUE", 100, 1);
         this.timerPoolThreads = getEnvEntero("TIMER_POOL_THREADS", 4, 1);
         this.dbPoolMax = getEnvEntero("DB_POOL_MAX_SIZE", 20, 2);
+
+        // Chatbot IA (roadmap parte 20). Sin CHATBOT_API_KEY el asistente queda desactivado y el resto de la app no cambia.
+        String proveedor = getEnv("CHATBOT_PROVIDER", "gemini").trim().toLowerCase(Locale.ROOT);
+        if (!proveedor.equals("gemini") && !proveedor.equals("openai")) {
+            logger.error("⚠️ CHATBOT_PROVIDER='{}' no es válido (gemini | openai). Se usa gemini.", proveedor);
+            proveedor = "gemini";
+        }
+        this.chatbotProveedor = proveedor;
+        this.chatbotApiKey = getEnv("CHATBOT_API_KEY", "").trim();
+        // Los nombres de modelo cambian y se retiran seguido: para Gemini el default es el alias oficial
+        // "gemini-flash-latest" (apunta siempre al Flash vigente); para OpenAI no se asume ninguno y hay que definir CHATBOT_MODEL.
+        String modelo = getEnv("CHATBOT_MODEL", "").trim();
+        if (modelo.isEmpty() && proveedor.equals("gemini")) modelo = "gemini-flash-latest";
+        if (!modelo.isEmpty() && !MODELO_IA_VALIDO.matcher(modelo).matches()) {
+            logger.error("⚠️ CHATBOT_MODEL='{}' no es un nombre de modelo válido. El chatbot queda desactivado.", modelo);
+            modelo = "";
+        }
+        this.chatbotModelo = modelo;
+        this.chatbotAdminEmail = normalizarCorreo(getEnv("CHATBOT_ADMIN_EMAIL", ""));
+        this.chatbotMaxMensajesPorMin = getEnvEntero("CHATBOT_MAX_MENSAJES_POR_MIN", 6, 1, 120);
+        this.chatbotMaxMensajesDia = getEnvEntero("CHATBOT_MAX_MENSAJES_DIA", 100, 1, 10_000);
+        this.chatbotMaxConcurrentes = getEnvEntero("CHATBOT_MAX_CONCURRENTES", 8, 1, 100);
+        this.chatbotMaxCorreosHora = getEnvEntero("CHATBOT_MAX_CORREOS_HORA", 10, 1, 1000);
+        this.chatbotTimeoutSegundos = getEnvEntero("CHATBOT_TIMEOUT_SEGUNDOS", 25, 5, 120);
+        this.chatbotContextoMensajes = getEnvEntero("CHATBOT_CONTEXTO_MENSAJES", 8, 0, 30);
+        this.chatbotMaxTokens = getEnvEntero("CHATBOT_MAX_TOKENS", 1024, 64, 8192);
+        this.rateLimitChatbotPorMin = getEnvEntero("RATE_LIMIT_CHATBOT_PER_MIN", 10, 1);
     }
 
     /**
@@ -276,8 +319,35 @@ public class AppConfig {
     public int getCpuPoolQueue() { return cpuPoolQueue; }
     public int getTimerPoolThreads() { return timerPoolThreads; }
     public int getDbPoolMax() { return dbPoolMax; }
+    public String getChatbotProveedor() { return chatbotProveedor; }
+    public String getChatbotApiKey() { return chatbotApiKey; }
+    public String getChatbotModelo() { return chatbotModelo; }
+    public String getChatbotAdminEmail() { return chatbotAdminEmail; }
+    public int getChatbotMaxMensajesPorMin() { return chatbotMaxMensajesPorMin; }
+    public int getChatbotMaxMensajesDia() { return chatbotMaxMensajesDia; }
+    public int getChatbotMaxConcurrentes() { return chatbotMaxConcurrentes; }
+    public int getChatbotMaxCorreosHora() { return chatbotMaxCorreosHora; }
+    public int getChatbotTimeoutSegundos() { return chatbotTimeoutSegundos; }
+    public int getChatbotContextoMensajes() { return chatbotContextoMensajes; }
+    public int getChatbotMaxTokens() { return chatbotMaxTokens; }
+    public int getRateLimitChatbotPorMin() { return rateLimitChatbotPorMin; }
 
     public boolean hasClashApi() { return !clashApiToken.isEmpty(); }
     public boolean hasFirebase() { return !firebaseServiceAccount.isEmpty(); }
     public boolean hasBrevo() { return !brevoApiKey.isEmpty() && !brevoSenderEmail.isEmpty(); }
+    /** El chatbot IA necesita clave y modelo; sin alguno de los dos queda desactivado. */
+    public boolean hasChatbot() { return !chatbotApiKey.isEmpty() && !chatbotModelo.isEmpty(); }
+
+    /** Nombre de modelo permitido: letras, números, punto, guion, guion bajo y dos puntos (se concatena a la URL del proveedor). */
+    private static final Pattern MODELO_IA_VALIDO = Pattern.compile("^[A-Za-z0-9._:-]{1,100}$");
+    private static final Pattern CORREO_VALIDO = Pattern.compile("^[^\\s@<>\",;]+@[^\\s@<>\",;]+\\.[^\\s@<>\",;]+$");
+
+    /** Un solo correo, sin espacios ni separadores (evita mandar a varios destinatarios por error). Si es inválido, vacío. */
+    private static String normalizarCorreo(String valor) {
+        String correo = valor.trim();
+        if (correo.isEmpty()) return "";
+        if (CORREO_VALIDO.matcher(correo).matches()) return correo;
+        logger.error("⚠️ CHATBOT_ADMIN_EMAIL no es un correo válido. Se avisará al correo remitente de Brevo.");
+        return "";
+    }
 }

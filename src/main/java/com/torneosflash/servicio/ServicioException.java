@@ -47,4 +47,24 @@ public class ServicioException extends RuntimeException {
     public static ServicioException interno(String mensaje, Throwable causa) {
         return new ServicioException(500, mensaje, causa);
     }
+
+    /** 401: no hay sesión iniciada. */
+    public static ServicioException noAutenticado(String mensaje) {
+        return new ServicioException(401, mensaje);
+    }
+
+    /** 403: hay sesión pero no tiene permiso (p. ej. no es admin). */
+    public static ServicioException prohibido(String mensaje) {
+        return new ServicioException(403, mensaje);
+    }
+
+    /** 429: el usuario superó un límite de uso. */
+    public static ServicioException demasiadasSolicitudes(String mensaje) {
+        return new ServicioException(429, mensaje);
+    }
+
+    /** 503: un servicio externo (p. ej. la IA) no está disponible ahora. {@code ManejadorErrores} lo registra como aviso, sin traza. */
+    public static ServicioException noDisponible(String mensaje) {
+        return new ServicioException(503, mensaje);
+    }
 }

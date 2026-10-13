@@ -20,6 +20,7 @@
 - No enviar `password`, `email` ni `telefono` al rival ni en broadcasts. Hacer `SELECT` solo de los campos necesarios.
 
 ## Arquitectura
+- Hay diferentes agentes trabajando en diferentes funcionalidades, por lo que es posible que hayan trabajos incompletos, por lo que es importante que si el archivo a modificar le faltan partes no editarlos y en vez de eso continuar con la funcionalidad pedida ignorando lo incompleto a no ser que sea necesario para continua con la funcionalidad trabajada, asi que siempre haras unicamente lo que se te pide sin prestar atencion a las demas siempre y cuando no afecten lo que vayas a realizar.
 - Cada funcionalidad nueva lanza un evento en el bus de eventos y no notifica directamente.
 - Las tablas nuevas se crean con una migración de Flyway, no en `ConexionDB.inicializarTablas()`.
 - Toda configuración va en variables de entorno, nunca hardcodeada.
@@ -32,4 +33,4 @@
 - Compilar y verificar si no hay ningun error en el codigo
 - Notificar al usuario verificaciones manuales.
 - Ejecutar `git diff --stat` para verificar qué archivos se tocaron.
-- Seguir la regla de auto-push (add, commit con mensaje descriptivo en español, push a main).
+- Seguir la regla de auto-push (add, commit con mensaje descriptivo en español, push a main) a no ser que se indique lo contrario.
