@@ -50,12 +50,13 @@ final class Peticion {
         }
     }
 
-    /** Id de usuario de la cookie {@code userId}, o 0 si no hay sesión. (S1/S2 lo reemplazarán por el JWT.) */
-    static int userIdDeCookie(Context ctx) {
-        try {
-            return Integer.parseInt(ctx.cookie("userId"));
-        } catch (Exception e) {
-            return 0;
-        }
+    /**
+     * Id de usuario de la sesión JWT (S1), o 0 si no hay sesión válida.
+     * Lo inyecta {@link AuthMiddleware} tras verificar firma y expiración; la cookie antigua {@code userId}
+     * en texto plano ya no se lee (cualquiera podía escribir ahí el id de otro usuario).
+     */
+    static int userIdDeSesion(Context ctx) {
+        Integer userId = AuthMiddleware.getUserId(ctx);
+        return userId != null ? userId : 0;
     }
 }

@@ -17,6 +17,7 @@ import com.torneosflash.servicio.RateLimiter;
 import com.torneosflash.servicio.ResultadoPartidaListener;
 import com.torneosflash.servicio.TicketsPartidaListener;
 import com.torneosflash.servicio.ValidadorMonto;
+import com.torneosflash.servicio.JwtServicio;
 import com.torneosflash.servicio.AdminService;
 import com.torneosflash.servicio.AuthService;
 import com.torneosflash.servicio.DbAdminService;
@@ -179,6 +180,16 @@ public class Main {
         } else {
             logger.warn("⚠️ Rate limiting DESACTIVADO (RATE_LIMIT_ENABLED=false). No usar así en producción.");
         }
+
+        // ============================================
+        // 5.6. SESIÓN JWT (S1)
+        // Verifica la cookie httpOnly "session" en cada request e inyecta ctx.attribute("userId") y ("rol").
+        // No rechaza nada: cada ruta decide si exige sesión. La cookie antigua "userId" en texto plano ya no se acepta.
+        // ============================================
+        JwtServicio jwtServicio = new JwtServicio(config.getJwtSecret(), config.getJwtExpirationSeconds());
+        AuthMiddleware.register(app, jwtServicio, config);
+        logger.info("🔐 Sesión JWT activa (cookie httpOnly, SameSite={}, Secure={}, expira en {} días)",
+                config.getCookieSameSite(), config.isCookieSecure(), config.getJwtExpirationSeconds() / 86400);
 
         // ============================================
         // 6. REGISTRAR SOCKET.IO

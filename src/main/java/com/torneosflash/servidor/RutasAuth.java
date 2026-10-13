@@ -2,19 +2,23 @@ package com.torneosflash.servidor;
 
 import com.google.gson.*;
 import com.torneosflash.servicio.AuthService;
+import com.torneosflash.servicio.ServicioException;
 import io.javalin.Javalin;
 import io.javalin.http.Context;
-import jakarta.servlet.http.Cookie;
 
 /**
  * Rutas de autenticación: registro, login, sesión, logout.
  *
  * A3: aquí solo se parsea el request, se maneja la cookie y se llama a {@link AuthService}.
  * Las reglas (validaciones, duplicados, bcrypt, Clash API) viven en el servicio.
+ *
+ * S1: la sesión es un JWT firmado en la cookie httpOnly {@code session} (ver {@link AuthMiddleware}).
+ * La cookie antigua {@code userId} en texto plano ya NO se acepta: solo se borra.
  */
 public class RutasAuth {
 
-    private static final int COOKIE_SEGUNDOS = 365 * 24 * 3600;
+    /** Rol por defecto de una cuenta nueva (columna {@code users.tipo_suscripcion}). */
+    private static final String ROL_POR_DEFECTO = "free";
 
     public static void register(Javalin app, AuthService auth) {
 
@@ -28,8 +32,8 @@ public class RutasAuth {
                     Peticion.textoOpcional(body, "playerTag", ""),
                     Peticion.textoOpcional(body, "telefono", ""));
 
-            // Cookie de sesión (directo por servlet, evita bug Javalin 6 + Java 17)
-            setCookieDirect(ctx, "userId", String.valueOf(newId), COOKIE_SEGUNDOS);
+            // S1: sesión JWT en cookie httpOnly + SameSite (+ Secure). Una cuenta nueva siempre es "free".
+            AuthMiddleware.iniciarSesion(ctx, newId, ROL_POR_DEFECTO);
             ctx.result(successJson("Registrado exitosamente", newId).toString()).contentType("application/json");
         });
 
@@ -40,7 +44,7 @@ public class RutasAuth {
                     Peticion.texto(body, "email"),
                     Peticion.texto(body, "password"));
 
-            setCookieDirect(ctx, "userId", String.valueOf(sesion.userId()), COOKIE_SEGUNDOS);
+            AuthMiddleware.iniciarSesion(ctx, sesion.userId(), rolDe(sesion.user()));
 
             JsonObject response = new JsonObject();
             response.addProperty("success", true);
@@ -50,28 +54,38 @@ public class RutasAuth {
 
         // GET /api/session
         app.get("/api/session", ctx -> {
-            String cookieVal = getCookieDirect(ctx, "userId");
-            if (cookieVal == null || cookieVal.isEmpty()) {
-                ctx.status(400).json(errorJson("No hay sesión"));
-                return;
-            }
-            int userId;
-            try {
-                userId = Integer.parseInt(cookieVal);
-            } catch (Exception e) {
-                ctx.status(400).json(errorJson("Sesión inválida"));
+            // S1: el userId sale del JWT ya verificado por AuthMiddleware (firma + expiración), nunca de una cookie en claro
+            Integer userId = AuthMiddleware.getUserId(ctx);
+            if (userId == null) {
+                AuthMiddleware.cerrarSesion(ctx); // borra un token vencido/manipulado y la cookie legacy "userId"
+                ctx.status(401).json(errorJson("No hay sesión"));
                 return;
             }
 
+            JsonObject user;
+            try {
+                user = auth.obtenerSesion(userId);
+            } catch (ServicioException e) {
+                if (e.getStatus() >= 500) throw e; // fallo de BD: no se desloguea al usuario por un error temporal
+                // Token válido pero la cuenta ya no existe: se cierra la sesión
+                AuthMiddleware.cerrarSesion(ctx);
+                ctx.status(401).json(errorJson("Sesión inválida"));
+                return;
+            }
+
+            // Sesión deslizante: se re-emite el token con el rol ACTUAL de la BD (si lo hicieron admin o le quitaron
+            // el rol, el JWT se corrige aquí) y con la expiración renovada para quien sigue usando la app.
+            AuthMiddleware.iniciarSesion(ctx, userId, rolDe(user));
+
             JsonObject response = new JsonObject();
             response.addProperty("success", true);
-            response.add("user", auth.obtenerSesion(userId));
+            response.add("user", user);
             ctx.result(response.toString()).contentType("application/json");
         });
 
         // POST /api/logout
         app.post("/api/logout", ctx -> {
-            setCookieDirect(ctx, "userId", "", 0);
+            AuthMiddleware.cerrarSesion(ctx);
             ctx.json(successJson("Sesión cerrada", 0));
         });
 
@@ -122,21 +136,12 @@ public class RutasAuth {
         return obj;
     }
 
-    // --- Cookie helpers (bypass Javalin 6 bug con Java 17) ---
-    private static void setCookieDirect(Context ctx, String name, String value, int maxAge) {
-        Cookie c = new Cookie(name, value);
-        c.setPath("/");
-        c.setMaxAge(maxAge);
-        ctx.res().addCookie(c);
-    }
-
-    private static String getCookieDirect(Context ctx, String name) {
-        Cookie[] cookies = ctx.req().getCookies();
-        if (cookies != null) {
-            for (Cookie c : cookies) {
-                if (name.equals(c.getName())) return c.getValue();
-            }
+    /** Rol para el JWT: la columna {@code tipo_suscripcion} de la vista de sesión ("free" si falta). */
+    private static String rolDe(JsonObject user) {
+        if (user == null || !user.has("tipo_suscripcion") || user.get("tipo_suscripcion").isJsonNull()) {
+            return ROL_POR_DEFECTO;
         }
-        return null;
+        String rol = user.get("tipo_suscripcion").getAsString().trim();
+        return rol.isEmpty() ? ROL_POR_DEFECTO : rol;
     }
 }

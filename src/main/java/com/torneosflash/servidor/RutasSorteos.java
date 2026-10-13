@@ -23,7 +23,7 @@ public class RutasSorteos {
         app.get("/api/raffle/pool", ctx -> ctx.json(sorteos.pozo()));
 
         // GET /api/raffle/poll
-        app.get("/api/raffle/poll", ctx -> ctx.json(sorteos.encuesta(Peticion.userIdDeCookie(ctx))));
+        app.get("/api/raffle/poll", ctx -> ctx.json(sorteos.encuesta(Peticion.userIdDeSesion(ctx))));
 
         // POST /api/raffle/vote
         app.post("/api/raffle/vote", ctx -> {
@@ -39,10 +39,10 @@ public class RutasSorteos {
         });
 
         // GET /api/raffle/offers
-        app.get("/api/raffle/offers", ctx -> ctx.json(sorteos.ofertas(Peticion.userIdDeCookie(ctx))));
+        app.get("/api/raffle/offers", ctx -> ctx.json(sorteos.ofertas(Peticion.userIdDeSesion(ctx))));
 
         // GET /api/raffle/all
-        app.get("/api/raffle/all", ctx -> ctx.json(sorteos.todos(Peticion.userIdDeCookie(ctx))));
+        app.get("/api/raffle/all", ctx -> ctx.json(sorteos.todos(Peticion.userIdDeSesion(ctx))));
 
         // POST /api/raffle/participate
         app.post("/api/raffle/participate", ctx -> {

@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — UltimateClash (TorneosFlash)
 
 > Documento de referencia para que cualquier modelo o desarrollador entienda el sistema.
-> Última actualización: 2026-10-10
+> Última actualización: 2026-10-12
 
 ---
 
@@ -14,7 +14,7 @@
 | **BD** | PostgreSQL (Render) | Pool: HikariCP, max 20 conexiones. Enlace de acceso endurecido (sección 11) |
 | **ORM** | Ninguno | SQL directo con `PreparedStatement` vía `GenericDAO` |
 | **Migraciones BD** | Flyway 10 | Scripts versionados en `src/main/resources/db/migration/`; se aplican al arrancar (`ConexionDB.migrar()`). Ver sección 14 |
-| **Auth** | Cookie `userId` en texto plano | ⚠️ **Inseguro**. Migrar a JWT httpOnly (pendiente) |
+| **Auth** | JWT HS256 en cookie httpOnly `session` (S1) | `AuthMiddleware` verifica e inyecta `ctx.attribute("userId")`/`("rol")`. Pendiente: S2 (userId del body y socket), S3 (rol admin). Ver sección 16 |
 | **Frontend** | Vanilla JS (`app.js`, 120 KB) | SPA monolítica sin framework. **Migrar a React + Vite** (pendiente, en progreso bajo `frontend/`) |
 | **Mobile App** | Capacitor | Genera builds nativos para Android e iOS encapsulando la app React. Gestiona Splash Screen y permisos |
 | **Pagos** | Wompi (tarjeta), Nequi (manual) | Webhook Wompi no verifica firma |
@@ -67,6 +67,7 @@ TorneosFlash/
 │   │   ├── ServicioException.java   # Error de negocio con código HTTP + mensaje; lo convierte `ManejadorErrores` en `{error}` (A3)
 │   │   ├── NotificadorUsuarios.java # Aviso a un usuario por socket (si está conectado) + push FCM (A3)
 │   │   ├── AuthService.java         # Registro, login (BCrypt en el pool CPU), sesión, disponibilidad, tag de Clash, token push (A3)
+│   │   ├── JwtServicio.java         # Emite y verifica el JWT de sesión (HS256, issuer `ultimateclash`, claims `sub`=userId y `rol`) (S1)
 │   │   ├── FinanzasService.java     # Depósito, recarga, retiro y Wompi (init + webhook) (A3)
 │   │   ├── AdminService.java        # Transacciones pendientes, disputas, estadísticas, utilidades admin (A3)
 │   │   ├── SorteoService.java       # Tickets, encuesta, participar, crear/eliminar y ejecutar sorteos, tickets por partida (A3)
@@ -75,8 +76,9 @@ TorneosFlash/
 │   │   └── DbAdminService.java      # Todo el SQL del panel `/admin-db` (tablas, celdas, import/export) (A3)
 │   ├── servidor/                    # Capa HTTP (A3): parsea el request, llama a un servicio y responde. Sin lógica de negocio ni SQL
 │   │   ├── RateLimitMiddleware.java # Rate limiting por IP (S8): clasifica cada request y responde 429. Ver sección 10
+│   │   ├── AuthMiddleware.java      # Sesión JWT (S1): lee la cookie httpOnly `session`, inyecta `userId`/`rol`, emite y borra la cookie. Ver sección 16
 │   │   ├── ManejadorErrores.java    # Único handler de `ServicioException` → `{error}` con su código HTTP (A3)
-│   │   ├── Peticion.java            # Lee campos del body, parámetros de ruta y cookie; campo faltante/inválido → 400 (A3)
+│   │   ├── Peticion.java            # Lee campos del body, parámetros de ruta y el userId de la sesión JWT; campo faltante/inválido → 400 (A3)
 │   │   ├── RutasAuth.java           # Login, registro, sesión
 │   │   ├── RutasAdmin.java          # Operaciones admin (aprobar retiros, etc.)
 │   │   ├── RutasDbAdmin.java        # CRUD admin sobre BD
@@ -430,10 +432,10 @@ RutasX (servidor/)                        XService (servicio/)
 
 | Ruta | Servicio | Qué quedó en la ruta |
 |---|---|---|
-| `RutasAuth` | `AuthService` | Cookie `userId` (leer/escribir), formato de la respuesta |
+| `RutasAuth` | `AuthService` | Emitir/borrar la cookie de sesión JWT (`AuthMiddleware`, S1), formato de la respuesta |
 | `RutasFinanzas` | `FinanzasService` | Responder `OK`/`Error` en texto plano al webhook de Wompi |
 | `RutasAdmin` | `AdminService` | Calcular la IP del cliente en `/check-ip` |
-| `RutasSorteos` | `SorteoService` | Leer la cookie `userId` en las rutas de consulta |
+| `RutasSorteos` | `SorteoService` | Leer el userId de la sesión JWT (`Peticion.userIdDeSesion`) en las rutas de consulta |
 | `RutasLeaderboard` | `LeaderboardService` | Nada más que parsear `periodo` / `userId` |
 | `RutasMedia` | `MediaService` | Headers de la respuesta (`Content-Range`, `nosniff`, caché) |
 | `RutasDbAdmin` | `DbAdminService` | Acceso al panel: clave `X-DB-Admin-Key`, bloqueo por IP, cabeceras de seguridad (S10) |
@@ -450,4 +452,42 @@ RutasX (servidor/)                        XService (servicio/)
 **Pendiente / fuera de A3**
 - `SocketHandler` (~50 KB) sigue mezclando protocolo de sockets con lógica de negocio (matchmaking, negociación, chat); es candidato a su propia tarea.
 - La lógica de decisión del scheduler de `Main` (qué día se premia) sigue en `Main`.
-- `/secret-admin/{username}` (S3), webhook sin firma (S7) y `userId` desde el body (S1/S2) siguen abiertos; no son parte de A3.
+- `/secret-admin/{username}` (S3), webhook sin firma (S7) y `userId` desde el body (S2) siguen abiertos; no son parte de A3.
+
+---
+
+## 16. Sesión con JWT en cookie httpOnly (S1)
+
+La sesión ya no es la cookie `userId` en texto plano (cualquiera podía escribir ahí el id de otro usuario). Ahora es un JWT firmado que solo el servidor puede emitir.
+
+```
+login / registro ── AuthMiddleware.iniciarSesion(ctx, userId, rol)
+                      └─ Set-Cookie: session=<JWT>; Path=/; Max-Age=...; HttpOnly; SameSite=Lax; Secure
+                      └─ Set-Cookie: userId=; Max-Age=0   (borra la cookie legacy)
+
+cada request ── AuthMiddleware (app.before) ── JwtServicio.verificar(cookie session)
+                      ├─ válido   → ctx.attribute("userId"), ctx.attribute("rol")
+                      └─ inválido → sin atributos (no se rechaza: cada ruta decide)
+
+ruta ── AuthMiddleware.getUserId(ctx) / Peticion.userIdDeSesion(ctx) (0 si no hay sesión)
+```
+
+| Pieza | Detalle |
+|---|---|
+| Token | HS256, `iss=ultimateclash`, `sub`=userId, claim `rol` (= `users.tipo_suscripcion`), `iat`, `exp`. Se verifican firma, emisor y expiración |
+| Cookie | `session`, `HttpOnly` (el JS del navegador no la puede leer), `SameSite` = `COOKIE_SAMESITE` (default `Lax`), `Secure` = `COOKIE_SECURE` (default `true`; forzado si SameSite=None). Se arma a mano porque `jakarta.servlet.http.Cookie` no soporta SameSite |
+| `GET /api/session` | 401 si no hay JWT válido (y borra la cookie). Si es válido, re-emite el token con el rol actual de la BD y la expiración renovada (sesión deslizante). Si la cuenta ya no existe, 401 y borra la cookie |
+| `POST /api/logout` | Borra `session` y la cookie legacy `userId` |
+| Cookie legacy `userId` | **No se acepta nunca** (sería volver al agujero). Tras el deploy todos deben iniciar sesión una vez |
+
+| Variable | Default | Qué controla |
+|---|---|---|
+| `JWT_SECRET` | aleatorio en memoria | Clave HMAC (mínimo 32 caracteres). **Obligatoria en producción**: sin ella cada reinicio/deploy cierra todas las sesiones |
+| `JWT_EXPIRATION_DAYS` | `30` | Vida del token. Con la renovación de `/api/session`, solo expira si el usuario no abre la app en ese tiempo |
+| `COOKIE_SAMESITE` | `Lax` | `Lax` / `Strict` / `None` |
+| `COOKIE_SECURE` | `true` | Poner `false` solo para probar por `http://` en una IP de red local (en `localhost` los navegadores aceptan `Secure`) |
+
+**Límites conocidos / pendientes**
+- **S2:** muchas rutas siguen leyendo `userId` del body (finanzas, sorteos, `register-token`) y el socket no se autentica en el handshake. Para eso ya existen `AuthMiddleware.getUserId(ctx)` y `AuthMiddleware.userIdDesdeCookieHeader(cookieHeader)`.
+- **S3:** el claim `rol` puede quedar viejo hasta el siguiente `/api/session` o login; para rutas admin, validar el rol contra la BD o confiar solo en tokens recién renovados.
+- **App nativa / React en otro origen:** con `SameSite=Lax` el navegador no envía la cookie en `fetch` entre sitios (igual que antes con la cookie sin SameSite). Si la app Capacitor necesita la sesión, usar `COOKIE_SAMESITE=None` **y** cambiar CORS `anyHost()` + `allowCredentials` por una lista de orígenes permitidos; con `None` y `anyHost()` cualquier web podría hacer peticiones autenticadas.
