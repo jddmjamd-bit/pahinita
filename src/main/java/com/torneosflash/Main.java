@@ -37,6 +37,9 @@ import com.google.gson.GsonBuilder;
 import java.lang.reflect.Type;
 import java.util.*;
 import java.util.concurrent.*;
+import com.torneosflash.servicio.ChatbotIaCliente;
+import com.torneosflash.servicio.ChatbotListener;
+import com.torneosflash.servicio.ChatbotService;
 
 /**
  * Punto de entrada principal de Torneos Flash.
@@ -50,7 +53,6 @@ import java.util.concurrent.*;
 public class Main {
     private static final Logger logger = LoggerFactory.getLogger(Main.class);
 
-
     public static void main(String[] args) {
         logger.info("═══════════════════════════════════════════════");
         logger.info("     🎮 TORNEOS FLASH - Backend Java         ");
@@ -62,15 +64,19 @@ public class Main {
         AppConfig config = new AppConfig();
         logger.info("📋 Puerto: " + config.getPort());
 
-        // Pools de hilos (A8): HTTP, IO, CPU y temporizadores. Se crean antes que todo lo que los usa.
+        // Pools de hilos (A8): HTTP, IO, CPU y temporizadores. Se crean antes que todo
+        // lo que los usa.
         Ejecutores ejecutores = new Ejecutores(config);
 
         // ============================================
         // 2. BASE DE DATOS (PostgreSQL)
         // ============================================
-        ConexionDB conexion = ConexionDB.getInstancia(config.getDatabaseUrl(), config.getDbSslMode(), config.getDbPoolMax()); // A8: DB_POOL_MAX_SIZE
-        // A5: el esquema lo versiona Flyway (src/main/resources/db/migration). Si una migración falla NO se arranca:
-        // un esquema a medias es peor que un deploy caído (Render conserva la versión anterior sirviendo).
+        ConexionDB conexion = ConexionDB.getInstancia(config.getDatabaseUrl(), config.getDbSslMode(),
+                config.getDbPoolMax()); // A8: DB_POOL_MAX_SIZE
+        // A5: el esquema lo versiona Flyway (src/main/resources/db/migration). Si una
+        // migración falla NO se arranca:
+        // un esquema a medias es peor que un deploy caído (Render conserva la versión
+        // anterior sirviendo).
         try {
             conexion.migrar();
         } catch (Exception e) {
@@ -120,9 +126,11 @@ public class Main {
         // 5. SERVIDOR HTTP (Javalin)
         // ============================================
         Javalin app = Javalin.create(javalinConfig -> {
-            // Pool de hilos de Jetty acotado y con nombre (A8; antes: el default de Javalin, hasta 250 hilos)
+            // Pool de hilos de Jetty acotado y con nombre (A8; antes: el default de
+            // Javalin, hasta 250 hilos)
             javalinConfig.jetty.threadPool = ejecutores.crearPoolHttp();
-            // Límite de tamaño de mensajes WebSocket (WS_MAX_MESSAGE_BYTES, default 50 MB) // A7
+            // Límite de tamaño de mensajes WebSocket (WS_MAX_MESSAGE_BYTES, default 50 MB)
+            // // A7
             javalinConfig.jetty.modifyWebSocketServletFactory(wsFactory -> {
                 wsFactory.setMaxTextMessageSize(config.getWsMaxMessageBytes());
                 wsFactory.setMaxBinaryMessageSize(config.getWsMaxMessageBytes());
@@ -173,7 +181,8 @@ public class Main {
 
         // ============================================
         // 5.5. RATE LIMITING (S8)
-        // Va antes de registrar rutas y sockets para que sea lo primero que corre en cada request.
+        // Va antes de registrar rutas y sockets para que sea lo primero que corre en
+        // cada request.
         // ============================================
         if (config.isRateLimitEnabled()) {
             RateLimitMiddleware.register(app, config, new RateLimiter());
@@ -183,8 +192,10 @@ public class Main {
 
         // ============================================
         // 5.6. SESIÓN JWT (S1)
-        // Verifica la cookie httpOnly "session" en cada request e inyecta ctx.attribute("userId") y ("rol").
-        // No rechaza nada: cada ruta decide si exige sesión. La cookie antigua "userId" en texto plano ya no se acepta.
+        // Verifica la cookie httpOnly "session" en cada request e inyecta
+        // ctx.attribute("userId") y ("rol").
+        // No rechaza nada: cada ruta decide si exige sesión. La cookie antigua "userId"
+        // en texto plano ya no se acepta.
         // ============================================
         JwtServicio jwtServicio = new JwtServicio(config.getJwtSecret(), config.getJwtExpirationSeconds());
         AuthMiddleware.register(app, jwtServicio, config);
@@ -199,21 +210,28 @@ public class Main {
         // ============================================
         // 7. REGISTRAR RUTAS HTTP
         // ============================================
-        // Errores de negocio de la capa de servicio (A3): ServicioException -> {"error": "..."} con su código HTTP
+        // Errores de negocio de la capa de servicio (A3): ServicioException ->
+        // {"error": "..."} con su código HTTP
         ManejadorErrores.registrar(app);
 
-        // Capa de servicio (A3): las rutas solo parsean el request y llaman a estos servicios
+        // Capa de servicio (A3): las rutas solo parsean el request y llaman a estos
+        // servicios
         NotificadorUsuarios notificador = new NotificadorUsuarios(socketServer, db, pushService);
         AuthService authService = new AuthService(usuarioDAO, db, clashApi, ejecutores);
         FinanzasService finanzasService = new FinanzasService(db, config, wallet, validadorMonto, notificador);
         SorteoService sorteoService = new SorteoService(db, socketServer, correo, pushService, validadorMonto);
 
-        // Bus de eventos (A4): quien termina una acción de negocio emite el evento y estos listeners reaccionan.
-        // Se registran ANTES de aceptar tráfico; el orden de registro es el orden en que corren (tickets, luego resultado).
+        // Bus de eventos (A4): quien termina una acción de negocio emite el evento y
+        // estos listeners reaccionan.
+        // Se registran ANTES de aceptar tráfico; el orden de registro es el orden en
+        // que corren (tickets, luego resultado).
         EventBus eventBus = new EventBus();
         new TicketsPartidaListener(sorteoService, notificador).registrar(eventBus);
         new ResultadoPartidaListener(notificador).registrar(eventBus);
-
+        ChatbotIaCliente chatbotIa = new ChatbotIaCliente(config);
+        RateLimiter limitadorChatbot = new RateLimiter();
+        ChatbotService chatbotService = new ChatbotService(db, chatbotIa, eventBus, config, limitadorChatbot);
+        new ChatbotListener(correo, notificador, chatbotService, config).registrar(eventBus);
         AdminService adminService = new AdminService(db, usuarioDAO, wallet, eventBus, notificador, socketServer);
         LeaderboardService leaderboardService = new LeaderboardService(db, socketServer, wallet);
         MediaService mediaService = new MediaService(db);
@@ -227,23 +245,27 @@ public class Main {
         RutasComisiones.register(app, comisiones, validadorMonto);
         RutasDbAdmin.register(app, dbAdminService, config);
         RutasMedia.register(app, mediaService);
+        RutasChatbot.register(app, chatbotService, config, limitadorChatbot);
 
         // ============================================
         // 8. REGISTRAR SOCKET HANDLERS
         // ============================================
-        SocketHandler socketHandler = new SocketHandler(db, socketServer, clashApi, pushService, wallet, validadorMonto, eventBus, config, ejecutores);
+        SocketHandler socketHandler = new SocketHandler(db, socketServer, clashApi, pushService, wallet, validadorMonto,
+                eventBus, config, ejecutores);
         socketHandler.registrar();
 
         // ============================================
         // 9. TAREAS PROGRAMADAS
         // ============================================
-        // Temporizadores cortos compartidos (A8). Nada de HTTP externo aquí: eso va al pool de IO.
+        // Temporizadores cortos compartidos (A8). Nada de HTTP externo aquí: eso va al
+        // pool de IO.
         ScheduledExecutorService scheduler = ejecutores.timers();
 
         // Verificar sorteos expirados cada minuto
         scheduler.scheduleAtFixedRate(() -> {
             try {
-                // Ejecuta el sorteo de los que ya vencieron (se completa con espacios vacíos si no se llenaron)
+                // Ejecuta el sorteo de los que ya vencieron (se completa con espacios vacíos si
+                // no se llenaron)
                 sorteoService.ejecutarSorteosExpirados();
             } catch (Exception e) {
                 logger.error("Error verificando sorteos expirados: " + e.getMessage());
@@ -285,7 +307,8 @@ public class Main {
         app.error(404, ctx -> {
             if (!ctx.path().startsWith("/api/")) {
                 try {
-                    String[] possiblePaths = { "public/index.html", "../public/index.html", "src/main/resources/public/index.html" };
+                    String[] possiblePaths = { "public/index.html", "../public/index.html",
+                            "src/main/resources/public/index.html" };
                     for (String path : possiblePaths) {
                         File indexFile = new File(path);
                         if (indexFile.exists()) {
@@ -293,7 +316,8 @@ public class Main {
                             return;
                         }
                     }
-                } catch (Exception e) {}
+                } catch (Exception e) {
+                }
             }
         });
 
@@ -305,11 +329,17 @@ public class Main {
         logger.info("  ✅ Servidor listo en puerto " + config.getPort());
         logger.info("═══════════════════════════════════════════════");
 
-        // Apagado ordenado (A8; Render envía SIGTERM en cada deploy): primero se deja de aceptar tráfico,
-        // luego se terminan los pools (push/correos pendientes) y al final se cierra la BD.
+        // Apagado ordenado (A8; Render envía SIGTERM en cada deploy): primero se deja
+        // de aceptar tráfico,
+        // luego se terminan los pools (push/correos pendientes) y al final se cierra la
+        // BD.
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             logger.info("🛑 Apagando servidor...");
-            try { app.stop(); } catch (Exception e) { logger.warn("Error deteniendo Javalin: " + e.getMessage()); }
+            try {
+                app.stop();
+            } catch (Exception e) {
+                logger.warn("Error deteniendo Javalin: " + e.getMessage());
+            }
             ejecutores.cerrar();
             conexion.cerrar();
         }, "shutdown-hook"));
