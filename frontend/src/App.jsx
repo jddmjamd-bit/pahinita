@@ -9,13 +9,14 @@ import Chat from './pages/Chat'
 import Finance from './pages/Finance'
 import Leaderboard from './pages/Leaderboard'
 import Sorteos from './pages/Sorteos'
+import Legal from './pages/Legal'      // ← NUEVO
 
 import { useCapacitor } from './hooks/useCapacitor'
 
 function App() {
   const theme = useAppStore(state => state.theme);
   const toggleTheme = useAppStore(state => state.toggleTheme);
-  
+
   useCapacitor();
 
   useEffect(() => {
@@ -24,15 +25,15 @@ function App() {
 
   return (
     <>
-      <button 
-        onClick={toggleTheme} 
+      <button
+        onClick={toggleTheme}
         style={{
-          position: 'fixed', 
-          bottom: '20px', 
-          right: '20px', 
-          zIndex: 9999, 
-          width: '50px', 
-          height: '50px', 
+          position: 'fixed',
+          bottom: '20px',
+          right: '20px',
+          zIndex: 9999,
+          width: '50px',
+          height: '50px',
           borderRadius: '50%',
           padding: 0,
           display: 'flex',
@@ -49,6 +50,8 @@ function App() {
       </button>
       <Routes>
         <Route path="/auth" element={<Auth />} />
+        <Route path="/terminos" element={<Legal tipo="terminos" />} />        {/* ← NUEVO */}
+        <Route path="/privacidad" element={<Legal tipo="privacidad" />} />   {/* ← NUEVO */}
         <Route path="/" element={<Lobby />}>
           <Route index element={<Navigate to="/chat" replace />} />
           <Route path="chat" element={<Chat />} />

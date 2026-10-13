@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
+import AceptacionLegal from '../components/AceptacionLegal';    // ← NUEVO
 import './Auth.css';
 
 const API_BASE_URL = 'https://torneos-beta.onrender.com'; // TODO: use env variables later
@@ -16,6 +17,7 @@ export default function Auth() {
     const [password, setPassword] = useState('');
     const [playerTag, setPlayerTag] = useState('');
     const [telefono, setTelefono] = useState('');
+    const [acepta, setAcepta] = useState(false);     // ← NUEVO
 
     // Estados de validación
     const [usernameStatus, setUsernameStatus] = useState({ text: '', className: 'tag-status' });
@@ -138,12 +140,13 @@ export default function Auth() {
         if (!usernameValid) return alert('❌ El nombre de usuario no es válido o ya está en uso');
         if (!emailValid) return alert('❌ El correo no es válido o ya está registrado');
         if (!playerTagValid) return alert('❌ El Player Tag no es válido. Debe mostrar tu nombre de Clash Royale');
+        if (!acepta) return alert('❌ Debes aceptar los Términos de Servicio y la Política de Privacidad');   // ← NUEVO
 
         try {
             const res = await fetch(API_BASE_URL + '/api/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, email, password, playerTag, telefono })
+                body: JSON.stringify({ username, email, password, playerTag, telefono, aceptaTerminos: true })   // ← CAMBIA (antes sin `aceptaTerminos: true`)
             });
             const data = await res.json();
             if (res.ok) {
@@ -186,25 +189,26 @@ export default function Auth() {
                     <h2>Crear Cuenta</h2>
                     <form id="registro-form" onSubmit={handleRegister}>
                         <input type="text" placeholder="Usuario" required minLength="3"
-                               value={username} onChange={e => setUsername(e.target.value)} />
+                            value={username} onChange={e => setUsername(e.target.value)} />
                         <div className={usernameStatus.className}>{usernameStatus.text}</div>
-                        
+
                         <input type="email" placeholder="Email" required
-                               value={email} onChange={e => setEmail(e.target.value)} />
+                            value={email} onChange={e => setEmail(e.target.value)} />
                         <div className={emailStatus.className}>{emailStatus.text}</div>
-                        
+
                         <input type="password" placeholder="Contraseña" required
-                               value={password} onChange={e => setPassword(e.target.value)} />
-                        
+                            value={password} onChange={e => setPassword(e.target.value)} />
+
                         <input type="text" placeholder="Player Tag Clash Royale (#XXXXXXX)" required
-                               pattern="#[0289PYLQGRJCUV]{3,}" title="Debe empezar con # seguido de 3+ caracteres válidos"
-                               value={playerTag} onChange={e => setPlayerTag(e.target.value)} />
+                            pattern="#[0289PYLQGRJCUV]{3,}" title="Debe empezar con # seguido de 3+ caracteres válidos"
+                            value={playerTag} onChange={e => setPlayerTag(e.target.value)} />
                         <div className={playerTagStatus.className}>{playerTagStatus.text}</div>
-                        
+
                         <input type="tel" placeholder="Teléfono (WhatsApp)" required minLength="7"
-                               title="Ingresa tu número para contactarte si ganas un sorteo"
-                               value={telefono} onChange={e => setTelefono(e.target.value)} />
-                        
+                            title="Ingresa tu número para contactarte si ganas un sorteo"
+                            value={telefono} onChange={e => setTelefono(e.target.value)} />
+
+                        <AceptacionLegal acepta={acepta} onChange={setAcepta} />     {/* ← NUEVO */}
                         <button type="submit">Registrarse</button>
                     </form>
                     <p className="switch-text">¿Ya tienes cuenta? <a href="#" onClick={(e) => { e.preventDefault(); setIsLogin(true); }}>Entrar</a></p>
@@ -214,9 +218,9 @@ export default function Auth() {
                     <h2>Entrar</h2>
                     <form id="login-form" onSubmit={handleLogin}>
                         <input type="email" placeholder="Email" required
-                               value={email} onChange={e => setEmail(e.target.value)} />
+                            value={email} onChange={e => setEmail(e.target.value)} />
                         <input type="password" placeholder="Contraseña" required
-                               value={password} onChange={e => setPassword(e.target.value)} />
+                            value={password} onChange={e => setPassword(e.target.value)} />
                         <button type="submit">Entrar</button>
                     </form>
                     <p className="switch-text">¿Nuevo? <a href="#" onClick={(e) => { e.preventDefault(); setIsLogin(false); }}>Crear cuenta</a></p>

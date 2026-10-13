@@ -9,14 +9,19 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Lógica de autenticación y cuentas: registro, login, sesión, disponibilidad de datos y tokens push (A3).
+ * Lógica de autenticación y cuentas: registro, login, sesión, disponibilidad de
+ * datos y tokens push (A3).
  * No conoce HTTP: las cookies y las respuestas las maneja {@code RutasAuth}.
  */
 public class AuthService {
     private static final Logger logger = LoggerFactory.getLogger(AuthService.class);
 
-    /** Resultado de un login correcto: el id (para la cookie) y los datos públicos del usuario (sin password). */
-    public record SesionIniciada(int userId, JsonObject user) {}
+    /**
+     * Resultado de un login correcto: el id (para la cookie) y los datos públicos
+     * del usuario (sin password).
+     */
+    public record SesionIniciada(int userId, JsonObject user) {
+    }
 
     private final UsuarioDAO usuarioDAO;
     private final GenericDAO db;
@@ -30,7 +35,10 @@ public class AuthService {
         this.ejecutores = ejecutores;
     }
 
-    /** A8: el hash BCrypt gasta CPU, así que corre en el pool de CPU (un hilo por núcleo), no en el hilo HTTP. */
+    /**
+     * A8: el hash BCrypt gasta CPU, así que corre en el pool de CPU (un hilo por
+     * núcleo), no en el hilo HTTP.
+     */
     private String hashear(String password) {
         try {
             return ejecutores.enCpu(() -> BCrypt.hashpw(password, BCrypt.gensalt(10)));
@@ -48,7 +56,14 @@ public class AuthService {
     }
 
     /** Registra un usuario nuevo y devuelve su id. */
-    public int registrar(String username, String email, String password, String playerTag, String telefono) {
+    public int registrar(String username, String email, String password, String playerTag, String telefono,
+            boolean aceptaTerminos) { // ← CAMBIA: parámetro nuevo al final
+        // ↓↓↓ NUEVO (roadmap 1.6) ↓↓↓
+        if (!aceptaTerminos) {
+            throw ServicioException.solicitudInvalida(
+                    "Debes aceptar los Términos de Servicio y la Política de Privacidad para crear tu cuenta");
+        }
+        // ↑↑↑ NUEVO ↑↑↑
         username = username.trim();
         email = email.trim().toLowerCase();
         playerTag = playerTag == null ? "" : playerTag.trim().toUpperCase();
@@ -78,18 +93,25 @@ public class AuthService {
         }
 
         String hash = hashear(password);
-        int newId = usuarioDAO.registrar(username, email, hash, playerTag, telefono);
+        // ← CAMBIA la línea de abajo (antes: usuarioDAO.registrar(username, email,
+        // hash, playerTag, telefono))
+        int newId = usuarioDAO.registrarConAceptacionLegal(username, email, hash, playerTag, telefono,
+                DocumentosLegales.TERMINOS_VERSION, DocumentosLegales.PRIVACIDAD_VERSION);
         if (newId < 0) {
             throw ServicioException.solicitudInvalida("Error al registrar");
         }
         return newId;
     }
 
-    /** Verifica credenciales. Los datos que salen hacia el cliente pasan por la lista blanca de columnas (S6). */
+    /**
+     * Verifica credenciales. Los datos que salen hacia el cliente pasan por la
+     * lista blanca de columnas (S6).
+     */
     public SesionIniciada login(String emailCrudo, String password) {
         String email = emailCrudo.trim().toLowerCase();
 
-        // S6: el hash vive solo en este objeto de credenciales (nunca se envía al cliente)
+        // S6: el hash vive solo en este objeto de credenciales (nunca se envía al
+        // cliente)
         JsonObject credenciales = usuarioDAO.buscarCredencialesPorEmail(email);
         if (credenciales == null) {
             throw ServicioException.solicitudInvalida("Usuario no encontrado");
@@ -106,7 +128,10 @@ public class AuthService {
         return new SesionIniciada(userId, user);
     }
 
-    /** Datos públicos del usuario de la sesión (lista blanca de columnas, sin password). */
+    /**
+     * Datos públicos del usuario de la sesión (lista blanca de columnas, sin
+     * password).
+     */
     public JsonObject obtenerSesion(int userId) {
         JsonObject user = usuarioDAO.buscarPorId(userId);
         if (user == null) {
@@ -132,7 +157,10 @@ public class AuthService {
         return res;
     }
 
-    /** Verifica que el Player Tag no esté registrado y que exista en la API de Clash Royale. */
+    /**
+     * Verifica que el Player Tag no esté registrado y que exista en la API de Clash
+     * Royale.
+     */
     public JsonObject verificarTag(String tag) {
         JsonObject res = new JsonObject();
 

@@ -9,15 +9,21 @@ import io.javalin.http.Context;
 /**
  * Rutas de autenticación: registro, login, sesión, logout.
  *
- * A3: aquí solo se parsea el request, se maneja la cookie y se llama a {@link AuthService}.
- * Las reglas (validaciones, duplicados, bcrypt, Clash API) viven en el servicio.
+ * A3: aquí solo se parsea el request, se maneja la cookie y se llama a
+ * {@link AuthService}.
+ * Las reglas (validaciones, duplicados, bcrypt, Clash API) viven en el
+ * servicio.
  *
- * S1: la sesión es un JWT firmado en la cookie httpOnly {@code session} (ver {@link AuthMiddleware}).
- * La cookie antigua {@code userId} en texto plano ya NO se acepta: solo se borra.
+ * S1: la sesión es un JWT firmado en la cookie httpOnly {@code session} (ver
+ * {@link AuthMiddleware}).
+ * La cookie antigua {@code userId} en texto plano ya NO se acepta: solo se
+ * borra.
  */
 public class RutasAuth {
 
-    /** Rol por defecto de una cuenta nueva (columna {@code users.tipo_suscripcion}). */
+    /**
+     * Rol por defecto de una cuenta nueva (columna {@code users.tipo_suscripcion}).
+     */
     private static final String ROL_POR_DEFECTO = "free";
 
     public static void register(Javalin app, AuthService auth) {
@@ -30,9 +36,11 @@ public class RutasAuth {
                     Peticion.texto(body, "email"),
                     Peticion.texto(body, "password"),
                     Peticion.textoOpcional(body, "playerTag", ""),
-                    Peticion.textoOpcional(body, "telefono", ""));
+                    Peticion.textoOpcional(body, "telefono", ""), // ← CAMBIA: ahora termina en coma (antes: `""));`)
+                    Peticion.booleanoOpcional(body, "aceptaTerminos", false)); // ← NUEVO
 
-            // S1: sesión JWT en cookie httpOnly + SameSite (+ Secure). Una cuenta nueva siempre es "free".
+            // S1: sesión JWT en cookie httpOnly + SameSite (+ Secure). Una cuenta nueva
+            // siempre es "free".
             AuthMiddleware.iniciarSesion(ctx, newId, ROL_POR_DEFECTO);
             ctx.result(successJson("Registrado exitosamente", newId).toString()).contentType("application/json");
         });
@@ -54,7 +62,8 @@ public class RutasAuth {
 
         // GET /api/session
         app.get("/api/session", ctx -> {
-            // S1: el userId sale del JWT ya verificado por AuthMiddleware (firma + expiración), nunca de una cookie en claro
+            // S1: el userId sale del JWT ya verificado por AuthMiddleware (firma +
+            // expiración), nunca de una cookie en claro
             Integer userId = AuthMiddleware.getUserId(ctx);
             if (userId == null) {
                 AuthMiddleware.cerrarSesion(ctx); // borra un token vencido/manipulado y la cookie legacy "userId"
@@ -66,15 +75,18 @@ public class RutasAuth {
             try {
                 user = auth.obtenerSesion(userId);
             } catch (ServicioException e) {
-                if (e.getStatus() >= 500) throw e; // fallo de BD: no se desloguea al usuario por un error temporal
+                if (e.getStatus() >= 500)
+                    throw e; // fallo de BD: no se desloguea al usuario por un error temporal
                 // Token válido pero la cuenta ya no existe: se cierra la sesión
                 AuthMiddleware.cerrarSesion(ctx);
                 ctx.status(401).json(errorJson("Sesión inválida"));
                 return;
             }
 
-            // Sesión deslizante: se re-emite el token con el rol ACTUAL de la BD (si lo hicieron admin o le quitaron
-            // el rol, el JWT se corrige aquí) y con la expiración renovada para quien sigue usando la app.
+            // Sesión deslizante: se re-emite el token con el rol ACTUAL de la BD (si lo
+            // hicieron admin o le quitaron
+            // el rol, el JWT se corrige aquí) y con la expiración renovada para quien sigue
+            // usando la app.
             AuthMiddleware.iniciarSesion(ctx, userId, rolDe(user));
 
             JsonObject response = new JsonObject();
@@ -90,16 +102,13 @@ public class RutasAuth {
         });
 
         // GET /api/check-username/:username
-        app.get("/api/check-username/{username}", ctx ->
-                ctx.json(auth.usernameDisponible(ctx.pathParam("username"))));
+        app.get("/api/check-username/{username}", ctx -> ctx.json(auth.usernameDisponible(ctx.pathParam("username"))));
 
         // GET /api/check-email/:email
-        app.get("/api/check-email/{email}", ctx ->
-                ctx.json(auth.emailDisponible(ctx.pathParam("email"))));
+        app.get("/api/check-email/{email}", ctx -> ctx.json(auth.emailDisponible(ctx.pathParam("email"))));
 
         // GET /api/verify-tag/:tag
-        app.get("/api/verify-tag/{tag}", ctx ->
-                ctx.json(auth.verificarTag(ctx.pathParam("tag"))));
+        app.get("/api/verify-tag/{tag}", ctx -> ctx.json(auth.verificarTag(ctx.pathParam("tag"))));
 
         // POST /api/register-token (FCM push tokens)
         app.post("/api/register-token", ctx -> {
@@ -132,11 +141,15 @@ public class RutasAuth {
         JsonObject obj = new JsonObject();
         obj.addProperty("success", true);
         obj.addProperty("message", message);
-        if (id > 0) obj.addProperty("userId", id);
+        if (id > 0)
+            obj.addProperty("userId", id);
         return obj;
     }
 
-    /** Rol para el JWT: la columna {@code tipo_suscripcion} de la vista de sesión ("free" si falta). */
+    /**
+     * Rol para el JWT: la columna {@code tipo_suscripcion} de la vista de sesión
+     * ("free" si falta).
+     */
     private static String rolDe(JsonObject user) {
         if (user == null || !user.has("tipo_suscripcion") || user.get("tipo_suscripcion").isJsonNull()) {
             return ROL_POR_DEFECTO;

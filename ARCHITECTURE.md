@@ -491,3 +491,12 @@ ruta ── AuthMiddleware.getUserId(ctx) / Peticion.userIdDeSesion(ctx) (0 si n
 - **S2:** muchas rutas siguen leyendo `userId` del body (finanzas, sorteos, `register-token`) y el socket no se autentica en el handshake. Para eso ya existen `AuthMiddleware.getUserId(ctx)` y `AuthMiddleware.userIdDesdeCookieHeader(cookieHeader)`.
 - **S3:** el claim `rol` puede quedar viejo hasta el siguiente `/api/session` o login; para rutas admin, validar el rol contra la BD o confiar solo en tokens recién renovados.
 - **App nativa / React en otro origen:** con `SameSite=Lax` el navegador no envía la cookie en `fetch` entre sitios (igual que antes con la cookie sin SameSite). Si la app Capacitor necesita la sesión, usar `COOKIE_SAMESITE=None` **y** cambiar CORS `anyHost()` + `allowCredentials` por una lista de orígenes permitidos; con `None` y `anyHost()` cualquier web podría hacer peticiones autenticadas.
+
+## Términos de Servicio y Política de Privacidad (roadmap 1.6)
+
+- **Texto:** `frontend/public/legal/contenido-legal.json` (claves `terminos` y `privacidad`, cada una con `titulo`, `version`, `vigenteDesde`, `intro` y `secciones[{titulo, parrafos[]}]`; un párrafo es un texto o `{ "lista": [...] }`). Es la única fuente: el responsable, los contactos y las reglas de dinero se cambian ahí.
+- **Frontend:** `DocumentoLegal` (renderiza un documento; sin `innerHTML`), `pages/Legal.jsx` (rutas públicas `/terminos` y `/privacidad`) y `AceptacionLegal` (checkbox del registro + visor en portal). La URL del JSON es relativa (`/legal/contenido-legal.json`): mismo origen en la web y dentro del paquete en Capacitor.
+- **Backend:** `POST /api/register` exige `aceptaTerminos` (`Peticion.booleanoOpcional`; 400 si falta). `AuthService.registrar` guarda la constancia con `UsuarioDAO.registrarConAceptacionLegal` en una sola transacción.
+- **BD:** `legal_acceptances (id, user_id → users ON DELETE CASCADE, documento 'terminos'|'privacidad', version, aceptado_en)`, única por `(user_id, documento, version)` (migración `V4`).
+- **Versiones:** constantes en `DocumentosLegales`. Al cambiar un texto hay que subir la versión en el JSON y en esa clase.
+- **Legacy:** `public/index.html` tiene el checkbox (`name="aceptaTerminos"`); sus enlaces apuntan a los documentos del despliegue de producción.

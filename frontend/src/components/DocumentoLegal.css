@@ -1,0 +1,49 @@
+.documento-legal {
+  color: var(--text-primary);
+  line-height: 1.65;
+  font-size: 0.95rem;
+  text-align: left;
+}
+
+.documento-legal h1 {
+  font-size: 1.6rem;
+  margin: 0 0 4px;
+}
+
+.documento-legal h2 {
+  font-size: 1.1rem;
+  margin: 28px 0 8px;
+  color: var(--accent-secondary);
+}
+
+.documento-legal p {
+  margin: 0 0 12px;
+}
+
+.documento-legal ul {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+
+.documento-legal li {
+  margin-bottom: 6px;
+}
+
+.documento-legal .doc-meta {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  margin-bottom: 20px;
+}
+
+.documento-legal .doc-intro {
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+}
+
+.documento-legal.doc-estado {
+  color: var(--text-secondary);
+}
+
+.documento-legal.doc-error {
+  color: var(--accent-danger);
+}

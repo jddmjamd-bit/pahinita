@@ -34,6 +34,17 @@
                 <div id="playerTag-status" class="tag-status"></div>
                 <input type="tel" name="telefono" placeholder="Teléfono (WhatsApp)" required minlength="7"
                     title="Ingresa tu número para contactarte si ganas un sorteo">
+                <!-- ↓↓↓ NUEVO ↓↓↓ -->
+                <label
+                    style="display:flex; gap:8px; align-items:flex-start; text-align:left; font-size:0.85rem; color:#b9bbbe; margin:10px 0; cursor:pointer;">
+                    <input type="checkbox" name="aceptaTerminos" value="true" required
+                        style="width:auto; margin:3px 0 0; flex-shrink:0;">
+                    <span>He leído y acepto los <a href="https://torneos-beta.onrender.com/terminos" target="_blank"
+                            rel="noopener noreferrer" style="color:#00b0f4;">Términos de Servicio</a> y la <a
+                            href="https://torneos-beta.onrender.com/privacidad" target="_blank"
+                            rel="noopener noreferrer" style="color:#00b0f4;">Política de Privacidad</a>.</span>
+                </label>
+                <!-- ↑↑↑ NUEVO ↑↑↑ -->
                 <button type="submit">Registrarse</button>
             </form>
             <p class="switch-text">¿Ya tienes cuenta? <a href="#" id="ir-a-login">Entrar</a></p>
@@ -135,14 +146,16 @@
                 <small>Dinero en Circulación (Usuarios)</small>
                 <h2 id="stat-users-money" style="color:#faa61a;">$0</h2>
             </div>
-            <div style="flex:1; background:#202225; padding:10px; border-radius:5px; text-align:center; border: 1px solid #43b581;">
+            <div
+                style="flex:1; background:#202225; padding:10px; border-radius:5px; text-align:center; border: 1px solid #43b581;">
                 <small>TOTAL HISTÓRICO (Comisiones)</small>
                 <h2 id="stat-admin-money" style="color:#43b581;">$0</h2>
             </div>
         </div>
 
         <h4 style="margin-bottom: 10px; color: #bbb;">Desglose de Comisiones</h4>
-        <div id="admin-category-breakdown" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 20px;">
+        <div id="admin-category-breakdown"
+            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 20px;">
             <p style="color:#bbb; font-size:0.8rem;">Cargando categorías...</p>
         </div>
 
@@ -250,15 +263,19 @@
                         <div class="ticket-progress" style="width: 150px; margin-top: 5px;">
                             <div class="ticket-progress-bar" style="height: 14px;">
                                 <div id="next-ticket-fill" class="ticket-progress-fill" style="width: 0%"></div>
-                                <span id="next-ticket-text" class="ticket-progress-text" style="font-size: 0.65rem;">$0 / $1000</span>
+                                <span id="next-ticket-text" class="ticket-progress-text" style="font-size: 0.65rem;">$0
+                                    / $1000</span>
                             </div>
                         </div>
                     </div>
                 </header>
 
                 <!-- Pozo de Premios -->
-                <div style="text-align: center; margin: 10px 20px; padding: 15px; background: rgba(88, 101, 242, 0.1); border: 1px solid #5865f2; border-radius: 8px;">
-                    <span style="color: #ffffff; font-size: 1.1rem;">💰 Hay <strong style="color: #43b581; font-size: 1.3rem;" id="raffle-pool-amount">$0</strong> acumulados en premios</span>
+                <div
+                    style="text-align: center; margin: 10px 20px; padding: 15px; background: rgba(88, 101, 242, 0.1); border: 1px solid #5865f2; border-radius: 8px;">
+                    <span style="color: #ffffff; font-size: 1.1rem;">💰 Hay <strong
+                            style="color: #43b581; font-size: 1.3rem;" id="raffle-pool-amount">$0</strong> acumulados en
+                        premios</span>
                 </div>
 
                 <!-- Encuesta de Premios -->
@@ -266,7 +283,8 @@
                     <div class="poll-header">
                         <h4>📊 ¿Qué premio quieres en el próximo sorteo?</h4>
                         <!-- Botón Admin para resetear -->
-                        <button id="btn-reset-poll" class="btn-reset-poll hidden" onclick="reiniciarEncuesta()">🔄 Reiniciar</button>
+                        <button id="btn-reset-poll" class="btn-reset-poll hidden" onclick="reiniciarEncuesta()">🔄
+                            Reiniciar</button>
                     </div>
                     <div id="poll-list">
                         <p style="text-align:center; color:#bbb;">Cargando encuesta...</p>
@@ -322,14 +340,19 @@
                         <h3 style="margin: 0 auto;">⚠️ Confirmar Partida</h3>
                     </header>
                     <div class="deposit-section">
-                        <p style="color: #bbb; margin-bottom: 15px;">¿Estás seguro de iniciar con esta configuración?</p>
+                        <p style="color: #bbb; margin-bottom: 15px;">¿Estás seguro de iniciar con esta configuración?
+                        </p>
                         <div style="background: #202225; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-                            <p style="font-size: 1.1rem;">Modo: <strong id="confirm-modo" style="color: #fff;"></strong></p>
-                            <p style="font-size: 1.1rem; margin-top: 5px;">Monto: $<strong id="confirm-monto" style="color: #faa61a;"></strong></p>
+                            <p style="font-size: 1.1rem;">Modo: <strong id="confirm-modo" style="color: #fff;"></strong>
+                            </p>
+                            <p style="font-size: 1.1rem; margin-top: 5px;">Monto: $<strong id="confirm-monto"
+                                    style="color: #faa61a;"></strong></p>
                         </div>
                         <div style="display: flex; gap: 10px; justify-content: center;">
-                            <button id="btn-reject-match" class="deposit-action-btn" style="background: #ed4245; flex: 1; margin-top: 0;">Rechazar</button>
-                            <button id="btn-accept-match" class="deposit-action-btn" style="background: #43b581; flex: 1; margin-top: 0;">Aceptar</button>
+                            <button id="btn-reject-match" class="deposit-action-btn"
+                                style="background: #ed4245; flex: 1; margin-top: 0;">Rechazar</button>
+                            <button id="btn-accept-match" class="deposit-action-btn"
+                                style="background: #43b581; flex: 1; margin-top: 0;">Aceptar</button>
                         </div>
                     </div>
                 </div>
