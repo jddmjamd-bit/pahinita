@@ -80,6 +80,7 @@ export default function Lobby() {
                     </div>
                     
                     <div className={`channel ${isActive('/leaderboard')}`} onClick={() => handleNavigation('/leaderboard')}>🏆 Rankings</div>
+                    <div className={`channel ${isActive('/chatbot')}`} onClick={() => handleNavigation('/chatbot')}>🤖 Asistente</div>
                 </div>
                 
                 <button className="logout-btn" onClick={handleLogout}>Salir</button>

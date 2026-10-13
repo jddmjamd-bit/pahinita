@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — UltimateClash (TorneosFlash)
 
 > Documento de referencia para que cualquier modelo o desarrollador entienda el sistema.
-> Última actualización: 2026-10-12
+> Última actualización: 2026-10-13
 
 ---
 
@@ -51,7 +51,7 @@ TorneosFlash/
 │   │   └── UsuarioDAO.java          # Queries específicas de usuarios
 │   ├── eventos/
 │   │   ├── EventBus.java            # Bus de eventos en memoria: `emit()` / `on()`, síncrono y aislado por listener. Ver sección 13
-│   │   └── Eventos.java             # Catálogo: nombres de eventos (`match.finished`) y sus datos (`PartidaFinalizada`)
+│   │   └── Eventos.java             # Catálogo: nombres de eventos (`match.finished`, `chatbot.duda_sin_respuesta`, `chatbot.duda_respondida`) y sus datos (`PartidaFinalizada`, `DudaSinRespuesta`, `DudaRespondida`)
 │   ├── servicio/
 │   │   ├── ClashApiServicio.java    # Integración con API de Clash Royale
 │   │   ├── ChatSanitizer.java       # Validación/limpieza de mensajes de chat y usernames (anti-XSS)
@@ -73,7 +73,11 @@ TorneosFlash/
 │   │   ├── SorteoService.java       # Tickets, encuesta, participar, crear/eliminar y ejecutar sorteos, tickets por partida (A3)
 │   │   ├── LeaderboardService.java  # Rankings, historial y premiar/resetear por periodo (A3)
 │   │   ├── MediaService.java        # Subida de videos y descarga con soporte Range (A3)
-│   │   └── DbAdminService.java      # Todo el SQL del panel `/admin-db` (tablas, celdas, import/export) (A3)
+│   │   ├── DbAdminService.java      # Todo el SQL del panel `/admin-db` (tablas, celdas, import/export) (A3)
+│   │   ├── ChatbotService.java      # Chatbot IA: conversación, base de conocimiento, entrenamiento (la IA le pregunta al admin), dudas sin respuesta y tono. Ver sección 17
+│   │   ├── ChatbotIaCliente.java    # Cliente HTTP de la IA (Gemini u OpenAI) con timeout y tope de llamadas simultáneas
+│   │   ├── ChatbotConocimiento.java # Lógica pura: normaliza preguntas y elige qué entradas de la base ve la IA
+│   │   └── ChatbotListener.java     # Listeners de `chatbot.*`: correo al admin y entrega de la respuesta al usuario
 │   ├── servidor/                    # Capa HTTP (A3): parsea el request, llama a un servicio y responde. Sin lógica de negocio ni SQL
 │   │   ├── RateLimitMiddleware.java # Rate limiting por IP (S8): clasifica cada request y responde 429. Ver sección 10
 │   │   ├── AuthMiddleware.java      # Sesión JWT (S1): lee la cookie httpOnly `session`, inyecta `userId`/`rol`, emite y borra la cookie. Ver sección 16
@@ -86,12 +90,13 @@ TorneosFlash/
 │   │   ├── RutasLeaderboard.java    # Rankings diario/semanal/mensual/anual
 │   │   ├── RutasComisiones.java     # GET /api/comisiones/simular y /distribucion (solo lectura). Ver sección 9
 │   │   ├── RutasMedia.java          # Upload/descarga de videos
+│   │   ├── RutasChatbot.java        # `/api/chatbot/*` (usuario) y `/api/admin/chatbot/*` (admin). Ver sección 17
 │   │   └── RutasSorteos.java        # CRUD sorteos y participaciones
 │   └── socketio/                    # Adaptador custom Socket.IO
 │       ├── SocketIOServer.java      # Parseo de paquetes Engine.IO/Socket.IO
 │       └── SocketIOClient.java      # Wrapper del cliente WS
 ├── src/main/resources/
-│   └── db/migration/                # Migraciones Flyway: V1__esquema_base.sql, V2__migrar_datos_antiguos.sql (A5)
+│   └── db/migration/                # Migraciones Flyway: V1 esquema base, V2 datos antiguos, V4 aceptación legal, V5 chatbot IA (V3 quedó sin usar)
 ├── agent/rules/                     # Reglas para modelos IA
 │   ├── auto-push.md
 │   └── project-conventions.md       # ← NUEVO
@@ -120,6 +125,11 @@ TorneosFlash/
 | `leaderboard_history` | Historial de rankings | `user_id`, `periodo`, `victorias`, `posicion`, `premio` |
 | `leaderboard_pools` | Acumulado de premios del ranking | `dia`, `semana`, `mes`, `ano` |
 | `media_files` | Videos subidos (como BYTEA) | `filename`, `content_type`, `data` |
+| `chatbot_conocimiento` | Base de conocimiento del chatbot y dudas pendientes | `pregunta`, `pregunta_normalizada`, `respuesta`, `origen` (ia/usuario/admin), `estado` (pendiente/respondida/descartada), `veces` |
+| `chatbot_duda_usuarios` | Quiénes hicieron cada duda pendiente (para avisarles) | `duda_id`, `user_id` |
+| `chatbot_mensajes` | Historial del chat de cada usuario con el bot | `user_id`, `rol` (usuario/bot), `texto`, `fecha` |
+| `chatbot_preferencias` | Tono elegido por cada usuario | `user_id`, `tono` |
+| `chatbot_config` | Ajustes globales del bot | `clave`, `valor` (`tono_defecto`) |
 
 > [!WARNING]
 > No hay tabla de ledger (auditoría de movimientos de dinero). Los saldos se modifican con `UPDATE users SET saldo` directo. Crear tabla `wallet_ledger` es prioridad.
@@ -279,6 +289,7 @@ Middleware global (`servidor/RateLimitMiddleware`, registrado en `Main` antes de
 - **CORS en la 429:** el middleware corre antes que el plugin CORS de Javalin y al rechazar se saltan los handlers restantes, así que `RateLimitMiddleware` añade a mano `Access-Control-Allow-Origin` (refleja el `Origin`), `Allow-Credentials` y `Expose-Headers: Retry-After, X-RateLimit-*`. Sin eso la app React/Capacitor (otro origen que el backend) no podría leer el mensaje de la 429.
 - **Clientes (frontend):** `Auth.jsx` muestra "Demasiadas solicitudes" en las validaciones de usuario/correo/tag en vez de marcarlos como ocupados; `Match.jsx` consulta la ganancia con debounce de 400 ms; `Sorteos.jsx` recarga solo `/api/raffle/offers` tras participar (2 peticiones por clic en +/−, antes 5). Finance, Leaderboard y Chat ya muestran `data.error` o ignoran respuestas no OK. No auditados: `Admin.jsx` y el frontend legacy de `public/`.
 - **Memoria:** una clave guarda como máximo `limite` marcas de tiempo; se limpian las inactivas cada minuto y hay tope de 100.000 claves.
+- **Chatbot (roadmap 20):** `POST /api/chatbot/mensaje` cuenta en el cubo general y, además, en un límite propio por IP (`RATE_LIMIT_CHATBOT_PER_MIN` = 10) que aplica `RutasChatbot.limitarPorIp` (no `RateLimitMiddleware`) con la misma regla de IP real. Cada mensaje es una llamada de pago a la IA; el límite por usuario está en la sección 17.
 - **Límites conocidos:** (1) es por IP, no por usuario: varios jugadores detrás de la misma red/CGNAT comparten cupo (por eso todo es configurable); cuando el JWT (S1) esté conectado se puede añadir un cubo por `userId`. (2) No cubre mensajes de Socket.IO (spam de chat por socket): requiere un limitador propio en `SocketHandler`. (3) Login/registro entran en el cubo general (60/min); un cubo más estricto para fuerza bruta de contraseñas no estaba en S8.
 
 ---
@@ -360,6 +371,8 @@ Todos los pools se crean en `config/Ejecutores` (con tamaños de `AppConfig`) y 
 | Evento | Datos | Lo emiten | Listeners (en orden) |
 |---|---|---|---|
 | `match.finished` | `Eventos.PartidaFinalizada`: `matchId`, `origen` (`API` / `DISPUTA`), `participantes` (ids de los 2 jugadores), `ganadorId`, `ganadorNombre`, `monto`, `premio`, `nuevoSaldoGanador`, `desglose` (`ComisionService.Desglose`) | `SocketHandler` (sondeo de la API de Clash, `API`) y `AdminService.resolverDisputa` (`DISPUTA`) | 1. `tickets-sorteo` (`TicketsPartidaListener`) · 2. `notificacion-resultado` (`ResultadoPartidaListener`) |
+| `chatbot.duda_sin_respuesta` | `Eventos.DudaSinRespuesta`: `dudaId`, `userId`, `username`, `pregunta`, `nueva`, `veces` | `ChatbotService.responder` (la IA dijo `[SIN_RESPUESTA]`, ya guardada la duda) | `chatbot-correo-admin` (`ChatbotListener`): correo al admin solo si `nueva` y con tope por hora |
+| `chatbot.duda_respondida` | `Eventos.DudaRespondida`: `dudaId`, `pregunta`, `respuesta`, `usuarios` | `ChatbotService.responderDuda` (solo si estaba pendiente) | `chatbot-aviso-usuarios` (`ChatbotListener`): historial del chat + socket `chatbot_respuesta` + push |
 
 ```
 SocketHandler (sondeo) ── WalletService.liquidar()  ← transacción SQL: saldo, comisiones, gen_*, victorias_*, pozos del leaderboard
@@ -408,7 +421,7 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | Ya migrada | Aplica solo los scripts nuevos; si no hay, no hace nada |
 
 **Reglas**
-- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V3`; el `wallet_ledger` de D3 será `V3`). Nunca se agregan tablas en Java.
+- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V6`). `V3` quedó sin usar a propósito: no crearlo, porque si `V4`/`V5` ya se aplicaron en una BD, Flyway rechazaría una versión menor y el servidor no arrancaría. El `wallet_ledger` de D3 usa el siguiente número libre al final. Nunca se agregan tablas en Java.
 - **Nunca editar un `V*` ya aplicado:** Flyway guarda el checksum y `validateOnMigrate` hace fallar el arranque. Para corregir algo, una migración nueva.
 - **Fail-fast:** si una migración falla, `Main` loguea el error y sale con código 1 (no se sirve tráfico con el esquema a medias). Cada script corre en su propia transacción en PostgreSQL: si falla se revierte entero.
 - `cleanDisabled=true`: la app nunca puede ejecutar `flyway clean`.
@@ -500,3 +513,52 @@ ruta ── AuthMiddleware.getUserId(ctx) / Peticion.userIdDeSesion(ctx) (0 si n
 - **BD:** `legal_acceptances (id, user_id → users ON DELETE CASCADE, documento 'terminos'|'privacidad', version, aceptado_en)`, única por `(user_id, documento, version)` (migración `V4`).
 - **Versiones:** constantes en `DocumentosLegales`. Al cambiar un texto hay que subir la versión en el JSON y en esa clase.
 - **Legacy:** `public/index.html` tiene el checkbox (`name="aceptaTerminos"`); sus enlaces apuntan a los documentos del despliegue de producción.
+
+---
+
+## 17. Chatbot IA (roadmap parte 20)
+
+Asistente que responde dudas de los usuarios sobre la plataforma. **No se entrena con un documento: la IA le hace preguntas al admin** y lo que éste responde es su única fuente. Cuando un usuario pregunta algo que no sabe, avisa al admin por correo y la respuesta del admin vuelve al usuario.
+
+```
+Usuario ── POST /api/chatbot/mensaje ── ChatbotService.responder
+             ├─ límites: IP (RutasChatbot), usuario por minuto y por día (ChatbotService), llamadas simultáneas (ChatbotIaCliente)
+             ├─ contexto: últimos N mensajes + base de conocimiento relevante (ChatbotConocimiento) + tono
+             ├─ IA (Gemini/OpenAI) responde con la etiqueta [RESUELTA] o [SIN_RESPUESTA] al inicio (se quita antes de mostrar)
+             └─ [SIN_RESPUESTA] → guarda la duda → emit chatbot.duda_sin_respuesta → correo al admin (si es nueva)
+
+Admin ── pestaña «🤖 Chatbot» del panel (AdminChatbot.jsx)
+             ├─ Entrenar: POST /api/admin/chatbot/entrenamiento/siguiente → la IA pregunta → el admin responde → base de conocimiento
+             ├─ Dudas de usuarios: responder → emit chatbot.duda_respondida → historial + socket `chatbot_respuesta` + push a quienes preguntaron
+             └─ Base de conocimiento: agregar a mano, editar, borrar; tono por defecto
+```
+
+| Pieza | Detalle |
+|---|---|
+| Conocimiento | `chatbot_conocimiento`: `origen` = `ia` (pregunta de entrenamiento), `usuario` (duda sin resolver) o `admin` (agregada a mano); `estado` = `pendiente` / `respondida` / `descartada`. Solo las `respondida` las ve la IA. Una duda repetida (mismo texto normalizado) suma `veces` y añade al usuario a `chatbot_duda_usuarios`, sin volver a enviar correo |
+| Qué ve la IA | Con hasta 15 respuestas se le pasan todas; con más, las 8 con más palabras clave en común con la pregunta (y la anterior del usuario). Sin coincidencias, ninguna y la IA dirá que no sabe |
+| Entrenamiento | `siguientePregunta`: si ya hay una pregunta de la IA sin responder se devuelve esa; si no, la IA genera una nueva (distinta de las ya hechas). Si la IA no está configurada o falla, se usa una pregunta base de `ChatbotService.PREGUNTAS_SEMILLA` |
+| Tono | `formal`, `informal` o `adaptativo` (imita cómo escribe el usuario). El admin fija el tono por defecto (`chatbot_config.tono_defecto`, inicial `adaptativo`); cada usuario puede elegir el suyo (`chatbot_preferencias`) o volver al del admin con `defecto` |
+| Permisos | La identidad sale de la sesión JWT (`Peticion.userIdDeSesion`), nunca del body. Las rutas de admin exigen `users.tipo_suscripcion = 'admin'` consultado en la BD en cada llamada (401 sin sesión, 403 si no es admin) |
+| Correo | `ChatbotListener` → `CorreoServicio`: a `CHATBOT_ADMIN_EMAIL` o, si está vacía, al remitente de Brevo. Solo duda nueva, máximo `CHATBOT_MAX_CORREOS_HORA` por hora; el correo lleva nombre de usuario e id, nunca email ni teléfono. Lo que pase del tope sigue visible en el panel |
+
+| Variable | Default | Qué controla |
+|---|---|---|
+| `CHATBOT_API_KEY` | vacía | Clave del proveedor. **Sin ella el chatbot queda desactivado** (el resto de la app no cambia; el admin ve «IA sin configurar») |
+| `CHATBOT_PROVIDER` | `gemini` | `gemini` u `openai` |
+| `CHATBOT_MODEL` | `gemini-flash-latest` (Gemini) / obligatorio con OpenAI | Los nombres de modelo se retiran seguido: si la IA falla con 404 en el log, revisar este valor |
+| `CHATBOT_ADMIN_EMAIL` | remitente de Brevo | Correo al que llegan las dudas |
+| `CHATBOT_MAX_MENSAJES_POR_MIN` / `_DIA` | 6 / 100 | Límites por usuario |
+| `RATE_LIMIT_CHATBOT_PER_MIN` | 10 | Límite por IP de `POST /api/chatbot/mensaje` |
+| `CHATBOT_MAX_CONCURRENTES` | 8 | Llamadas a la IA a la vez; las demás esperan 3 s por un cupo y luego se rechazan con 503 |
+| `CHATBOT_MAX_CORREOS_HORA` | 10 | Tope de correos al admin por hora |
+| `CHATBOT_TIMEOUT_SEGUNDOS` | 25 | Tiempo máximo de una llamada a la IA (5 - 120) |
+| `CHATBOT_CONTEXTO_MENSAJES` | 8 | Mensajes previos que se le envían a la IA (0 - 30) |
+| `CHATBOT_MAX_TOKENS` | 1024 | Tope de la respuesta (64 - 8192) |
+
+**Reglas y límites conocidos**
+- La IA solo puede responder con la base de conocimiento; las instrucciones le prohíben inventar datos, pedir contraseñas o hablar de «apuestas» (se dice «monto» y «torneo», F5). La base la escribe solo el admin, así que no hay entrada de usuarios en ese bloque del prompt.
+- La llamada a la IA bloquea el hilo HTTP hasta `CHATBOT_TIMEOUT_SEGUNDOS`; el tope de simultáneas evita agotar el pool de Jetty.
+- La búsqueda en la base es por palabras clave, no semántica: suficiente para decenas o cientos de respuestas cortas. Si crece mucho, sustituir `ChatbotConocimiento.relevantes` (embeddings).
+- El frontend legacy (`public/`) no tiene el chatbot: solo la app React (`/chatbot` y la pestaña del panel admin).
+- `RateLimitMiddleware` no clasifica la ruta del chatbot (ese archivo no se pudo editar en esta tarea); el límite por IP vive en `RutasChatbot`. Si se prefiere centralizarlo, mover `limitarPorIp` al middleware como cubo `IA`.

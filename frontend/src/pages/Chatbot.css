@@ -1,0 +1,50 @@
+/* Chatbot IA (roadmap parte 20). Reutiliza las clases de Chat.css (chat-container, msg, chat-input-area...). */
+
+.chatbot-header {
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+}
+
+.chatbot-tonos {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* El texto del bot puede traer saltos de línea (p. ej. la respuesta del admin): se respetan */
+.chatbot-texto {
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.4;
+}
+
+.chatbot-escribiendo {
+    opacity: 0.7;
+    font-style: italic;
+}
+
+/* Errores del servidor o de conexión (no son mensajes del bot) */
+.msg.chatbot-error {
+    align-self: center;
+    max-width: 90%;
+    background: rgba(237, 66, 69, 0.15);
+    border: 1px solid #ed4245;
+    border-radius: var(--radius-md);
+    text-align: center;
+}
+
+/* Respuesta en la que el bot dijo que no sabía: ya se avisó al admin */
+.msg.chatbot-pendiente {
+    border-left: 3px solid #faa61a;
+}
+
+@media (max-width: 600px) {
+    .chatbot-header {
+        gap: 10px;
+    }
+    .chatbot-tonos .chat-tab {
+        padding: 6px 12px;
+        font-size: 0.85rem;
+    }
+}

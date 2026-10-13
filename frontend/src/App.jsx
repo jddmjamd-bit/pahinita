@@ -9,6 +9,7 @@ import Chat from './pages/Chat'
 import Finance from './pages/Finance'
 import Leaderboard from './pages/Leaderboard'
 import Sorteos from './pages/Sorteos'
+import Chatbot from './pages/Chatbot'
 import Legal from './pages/Legal'      // ← NUEVO
 
 import { useCapacitor } from './hooks/useCapacitor'
@@ -59,6 +60,7 @@ function App() {
           <Route path="finance" element={<Finance />} />
           <Route path="leaderboard" element={<Leaderboard />} />
           <Route path="sorteos" element={<Sorteos />} />
+          <Route path="chatbot" element={<Chatbot />} />
           <Route path="admin" element={<Admin />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

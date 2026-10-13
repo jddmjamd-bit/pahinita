@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import AdminChatbot from './AdminChatbot';
 import './Admin.css';
 
 const API_BASE_URL = 'https://torneos-beta.onrender.com';
 
 export default function Admin() {
-    const [view, setView] = useState('transactions'); // 'transactions' or 'stats'
+    const [view, setView] = useState('transactions'); // 'transactions', 'stats' o 'chatbot'
     
     // Transactions & Disputes
     const [transactions, setTransactions] = useState([]);
@@ -147,6 +148,7 @@ export default function Admin() {
                 <div className="admin-tabs">
                     <button className={`admin-tab ${view === 'transactions' ? 'active' : ''}`} onClick={() => setView('transactions')}>💸 Pagos / Disputas</button>
                     <button className={`admin-tab ${view === 'stats' ? 'active' : ''}`} onClick={() => setView('stats')}>📊 Finanzas</button>
+                    <button className={`admin-tab ${view === 'chatbot' ? 'active' : ''}`} onClick={() => setView('chatbot')}>🤖 Chatbot</button>
                 </div>
             </header>
 
@@ -219,6 +221,8 @@ export default function Admin() {
                     </div>
                 </div>
             )}
+
+            {view === 'chatbot' && <AdminChatbot />}
 
             {view === 'stats' && (
                 <div className="admin-view">

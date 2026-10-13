@@ -1,11 +1,11 @@
 -- ============================================================================
--- V3 — Chatbot IA (roadmap parte 20)
+-- V5 — Chatbot IA (roadmap parte 20)
 --
 -- El chatbot NO se entrena con un documento: la IA le hace preguntas al admin sobre la página y las
 -- respuestas del admin quedan como base de conocimiento. Cuando un usuario pregunta algo que la base
 -- no cubre, la duda queda pendiente aquí, se avisa al admin por correo y su respuesta pasa a la base.
 --
--- NUNCA editar este archivo una vez aplicado (Flyway guarda su checksum). Cambios = un V4__ nuevo.
+-- NUNCA editar este archivo una vez aplicado (Flyway guarda su checksum). Cambios = un V6__ nuevo.
 -- ============================================================================
 
 -- 1. Base de conocimiento y dudas pendientes

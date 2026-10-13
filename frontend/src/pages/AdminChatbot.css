@@ -1,0 +1,67 @@
+/* Panel admin del chatbot IA (roadmap parte 20). Reutiliza las clases de Admin.css (admin-section, admin-tab, btn-approve...). */
+
+.achat .achat-error {
+    background: rgba(237, 66, 69, 0.15);
+    border: 1px solid #ed4245;
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+    margin-bottom: 16px;
+}
+
+.achat .achat-nota {
+    color: var(--text-secondary);
+    margin: 6px 0 10px;
+    font-size: 0.9rem;
+}
+
+.achat .achat-tonos {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.achat .achat-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 14px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.achat .achat-pregunta {
+    font-weight: 600;
+    word-break: break-word;
+}
+
+.achat .achat-veces {
+    color: #faa61a;
+    font-weight: 400;
+    font-size: 0.85rem;
+}
+
+.achat .achat-respuesta {
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text-secondary);
+}
+
+.achat .achat-card textarea,
+.achat .achat-card input[type="text"] {
+    width: 100%;
+    margin: 0;
+    box-sizing: border-box;
+    resize: vertical;
+}
+
+.achat .achat-acciones {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.achat .achat-acciones button {
+    width: auto;
+}
