@@ -11,6 +11,14 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-13 — Chatbot: reintento ante errores transitorios de la IA (Claude Sonnet 5.5)
+- Problema: Gemini respondió `HTTP 503 ... experiencing high demand` y el usuario recibía el error de inmediato. Es un fallo pasajero del lado de Google, no del código.
+- `ChatbotIaCliente.generar` ahora reintenta hasta 3 intentos en total (esperas de 1 s y 2 s) cuando el proveedor responde 500, 502, 503 o 504. El 429 (límite de uso) y los 4xx (clave o modelo mal) NO se reintentan. Cada reintento queda en el log (`La IA respondió HTTP 503 (intento 1/3)`). Mientras reintenta, el hilo sigue ocupando su cupo de `CHATBOT_MAX_CONCURRENTES`.
+- Si después de los 3 intentos sigue caído, el usuario ve el mensaje «El asistente tuvo un problema. Intenta de nuevo en un momento.». Si pasa seguido, cambiar `CHATBOT_MODEL` a otro modelo menos saturado (p. ej. un `...-flash-lite-latest`) o usar otro proveedor.
+- No pude compilar ni ejecutar nada.
+- Pendiente de verificación manual: (1) `mvn -q clean compile`; (2) enviar mensajes al chatbot: si Gemini vuelve a dar 503, en el log deben verse los avisos de reintento y muchas veces la respuesta llega bien al segundo o tercer intento.
+Archivos: `ChatbotIaCliente.java`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-13 — Parte 20 del roadmap: chatbot IA entrenado por el admin, con aviso por correo y tono configurable (Claude Sonnet 5.5)
 - Cómo aprende: no hay documento. En el panel admin (pestaña «🤖 Chatbot») la IA le hace preguntas al admin sobre la página y sus respuestas quedan como base de conocimiento (`chatbot_conocimiento`). La IA solo responde con esa base. El admin también puede agregar, editar y borrar conocimiento a mano. Si la IA no está configurada o falla, las preguntas de entrenamiento salen de una lista base (`ChatbotService.PREGUNTAS_SEMILLA`).
 - Dudas sin respuesta: la IA antepone `[RESUELTA]` o `[SIN_RESPUESTA]` a cada respuesta (la etiqueta se quita antes de mostrarla). Con `[SIN_RESPUESTA]` la duda queda pendiente, se emite `chatbot.duda_sin_respuesta` y `ChatbotListener` manda el correo al admin (Brevo). Solo se avisa de dudas nuevas (la misma duda repetida solo suma `veces`), con tope por hora (`CHATBOT_MAX_CORREOS_HORA`). Cuando el admin responde, se emite `chatbot.duda_respondida`: la respuesta pasa a la base y se entrega a cada usuario que la hizo (historial del chat, socket `chatbot_respuesta` y push). Preguntas fuera de tema no se escalan.

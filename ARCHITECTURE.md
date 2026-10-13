@@ -559,6 +559,7 @@ Admin ── pestaña «🤖 Chatbot» del panel (AdminChatbot.jsx)
 **Reglas y límites conocidos**
 - La IA solo puede responder con la base de conocimiento; las instrucciones le prohíben inventar datos, pedir contraseñas o hablar de «apuestas» (se dice «monto» y «torneo», F5). La base la escribe solo el admin, así que no hay entrada de usuarios en ese bloque del prompt.
 - La llamada a la IA bloquea el hilo HTTP hasta `CHATBOT_TIMEOUT_SEGUNDOS`; el tope de simultáneas evita agotar el pool de Jetty.
+- Ante 500, 502, 503 o 504 del proveedor (p. ej. Gemini «high demand») `ChatbotIaCliente` reintenta hasta 3 intentos en total, con 1 s y 2 s de espera; el 429 y los 4xx no se reintentan.
 - La búsqueda en la base es por palabras clave, no semántica: suficiente para decenas o cientos de respuestas cortas. Si crece mucho, sustituir `ChatbotConocimiento.relevantes` (embeddings).
 - El frontend legacy (`public/`) no tiene el chatbot: solo la app React (`/chatbot` y la pestaña del panel admin).
 - `RateLimitMiddleware` no clasifica la ruta del chatbot (ese archivo no se pudo editar en esta tarea); el límite por IP vive en `RutasChatbot`. Si se prefiere centralizarlo, mover `limitarPorIp` al middleware como cubo `IA`.

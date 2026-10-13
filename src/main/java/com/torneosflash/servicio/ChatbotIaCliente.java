@@ -44,6 +44,10 @@ public class ChatbotIaCliente {
     /** Baja a propósito: se quiere ceñirse a la base de conocimiento, no creatividad. */
     private static final double TEMPERATURA_GEMINI = 0.3;
     private static final long ESPERA_CUPO_SEGUNDOS = 3;
+    /** Intentos totales ante un fallo transitorio del proveedor (503 "alta demanda", 500, 502, 504). */
+    private static final int MAX_INTENTOS = 3;
+    /** Espera antes del reintento n = n x esto (1 s, luego 2 s). */
+    private static final long ESPERA_REINTENTO_MS = 1000;
 
     /** Un mensaje de la conversación; {@code rol} es {@link #ROL_USUARIO} o {@link #ROL_BOT}. */
     public record Mensaje(String rol, String texto) {}
@@ -126,8 +130,16 @@ public class ChatbotIaCliente {
                     ? peticionOpenAi(instrucciones, conversacion)
                     : peticionGemini(instrucciones, conversacion);
 
-            HttpResponse<String> respuesta = http.send(peticion, HttpResponse.BodyHandlers.ofString());
-            int estado = respuesta.statusCode();
+            HttpResponse<String> respuesta = null;
+            int estado = 0;
+            for (int intento = 1; intento <= MAX_INTENTOS; intento++) {
+                respuesta = http.send(peticion, HttpResponse.BodyHandlers.ofString());
+                estado = respuesta.statusCode();
+                if (!esTransitorio(estado) || intento == MAX_INTENTOS) break;
+                long espera = ESPERA_REINTENTO_MS * intento;
+                logger.warn("🤖 La IA respondió HTTP {} (intento {}/{}); reintento en {} ms", estado, intento, MAX_INTENTOS, espera);
+                Thread.sleep(espera);
+            }
             if (estado != 200) {
                 throw fallo(mensajeParaEstado(estado), "HTTP " + estado + ": " + recortar(respuesta.body(), 400));
             }
@@ -282,6 +294,11 @@ public class ChatbotIaCliente {
     private IaException fallo(String mensajeUsuario, String detalle) {
         logger.warn("🤖 Fallo de la IA ({} / {}): {}", proveedor, modelo, detalle);
         return new IaException(mensajeUsuario, detalle);
+    }
+
+    /** Errores del lado del proveedor que suelen pasar solos (p. ej. Gemini 503 por alta demanda). 429 no se reintenta. */
+    private static boolean esTransitorio(int estado) {
+        return estado == 500 || estado == 502 || estado == 503 || estado == 504;
     }
 
     /** 429 = el proveedor nos limita; el resto de 4xx son de configuración (clave o modelo mal) y el admin los ve en el log. */
