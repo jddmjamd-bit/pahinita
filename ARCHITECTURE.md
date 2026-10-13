@@ -96,7 +96,7 @@ TorneosFlash/
 │       ├── SocketIOServer.java      # Parseo de paquetes Engine.IO/Socket.IO
 │       └── SocketIOClient.java      # Wrapper del cliente WS
 ├── src/main/resources/
-│   └── db/migration/                # Migraciones Flyway: V1 esquema base, V2 datos antiguos, V4 aceptación legal, V5 chatbot IA (V3 quedó sin usar)
+│   └── db/migration/                # Migraciones Flyway: V1 esquema base, V2 datos antiguos, V3 chatbot IA, V4 aceptación legal
 ├── agent/rules/                     # Reglas para modelos IA
 │   ├── auto-push.md
 │   └── project-conventions.md       # ← NUEVO
@@ -421,7 +421,7 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | Ya migrada | Aplica solo los scripts nuevos; si no hay, no hace nada |
 
 **Reglas**
-- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V6`). `V3` quedó sin usar a propósito: no crearlo, porque si `V4`/`V5` ya se aplicaron en una BD, Flyway rechazaría una versión menor y el servidor no arrancaría. El `wallet_ledger` de D3 usa el siguiente número libre al final. Nunca se agregan tablas en Java.
+- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V5`). El `wallet_ledger` de D3 usa el siguiente número libre. **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
 - **Nunca editar un `V*` ya aplicado:** Flyway guarda el checksum y `validateOnMigrate` hace fallar el arranque. Para corregir algo, una migración nueva.
 - **Fail-fast:** si una migración falla, `Main` loguea el error y sale con código 1 (no se sirve tráfico con el esquema a medias). Cada script corre en su propia transacción en PostgreSQL: si falla se revierte entero.
 - `cleanDisabled=true`: la app nunca puede ejecutar `flyway clean`.
