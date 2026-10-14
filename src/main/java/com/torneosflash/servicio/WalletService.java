@@ -3,6 +3,8 @@ package com.torneosflash.servicio;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.torneosflash.dao.ConexionDB;
+import com.torneosflash.eventos.EventBus;
+import com.torneosflash.eventos.Eventos;
 import com.torneosflash.servicio.ComisionService.Categoria;
 
 import java.math.BigDecimal;
@@ -11,13 +13,15 @@ import java.sql.*;
 import java.util.Map;
 
 /**
- * WalletService — Servicio centralizado para todo movimiento de dinero.
+ * WalletService — Servicio centralizado para todo movimiento de dinero (D2).
  *
  * Reglas:
  *  - Todo UPDATE de saldo pasa por aquí. Nunca hacer UPDATE users SET saldo directo.
  *  - Usa BigDecimal internamente. Nunca double para cálculos de dinero.
  *  - Las deducciones verifican saldo con WHERE saldo >= ? dentro de la misma transacción.
  *  - Cada operación es atómica (conn.setAutoCommit(false) + commit/rollback).
+ *  - Después de cada commit exitoso se emite un evento al bus (A4) para que
+ *    listeners como notificaciones de dinero (Prio 1) reaccionen sin acoplar.
  *
  * // REVIEW-MONEY — Archivo completo trata con dinero real.
  */
@@ -26,15 +30,24 @@ public class WalletService {
 
     private final ConexionDB db;
     private final ComisionService comisiones;
+    /** Bus de eventos (A4). Puede ser null en tests o constructores legacy. */
+    private final EventBus eventos;
 
-    public WalletService(ConexionDB db, ComisionService comisiones) {
+    /** Constructor principal: con bus de eventos y política de comisiones. */
+    public WalletService(ConexionDB db, ComisionService comisiones, EventBus eventos) {
         this.db = db;
         this.comisiones = comisiones;
+        this.eventos = eventos;
     }
 
-    /** Compatibilidad: usa la política de comisiones por defecto. */
+    /** Compatibilidad: sin bus de eventos (los movimientos no se notifican al bus). */
+    public WalletService(ConexionDB db, ComisionService comisiones) {
+        this(db, comisiones, null);
+    }
+
+    /** Compatibilidad: usa la política de comisiones por defecto, sin bus. */
     public WalletService(ConexionDB db) {
-        this(db, new ComisionService());
+        this(db, new ComisionService(), null);
     }
 
     // ═══════════════════════════════════════════
@@ -113,6 +126,8 @@ public class WalletService {
             conn.commit();
             logger.info("💰 DEPÓSITO userId={} monto={} motivo='{}' nuevoSaldo={}",
                     userId, monto, motivo, nuevoSaldo);
+            emitirEvento(Eventos.WALLET_DEPOSITED, new Eventos.MovimientoWallet(
+                    Eventos.TipoMovimiento.DEPOSITO, userId, monto, nuevoSaldo, motivo));
             return WalletResult.ok(nuevoSaldo);
 
         } catch (SQLException e) {
@@ -167,6 +182,8 @@ public class WalletService {
             conn.commit();
             logger.info("💸 RETIRO userId={} monto={} motivo='{}' nuevoSaldo={}",
                     userId, monto, motivo, nuevoSaldo);
+            emitirEvento(Eventos.WALLET_WITHDRAWN, new Eventos.MovimientoWallet(
+                    Eventos.TipoMovimiento.RETIRO, userId, monto, nuevoSaldo, motivo));
             return WalletResult.ok(nuevoSaldo);
 
         } catch (SQLException e) {
@@ -221,6 +238,8 @@ public class WalletService {
 
             conn.commit();
             logger.info("🎲 TORNEO userId={} monto={} nuevoSaldo={}", userId, monto, nuevoSaldo);
+            emitirEvento(Eventos.WALLET_BET, new Eventos.MovimientoWallet(
+                    Eventos.TipoMovimiento.TORNEO, userId, monto, nuevoSaldo, "Torneo"));
             return WalletResult.ok(nuevoSaldo);
 
         } catch (SQLException e) {
@@ -443,6 +462,8 @@ public class WalletService {
             conn.commit();
             logger.info("🎁 PREMIO userId={} monto={} motivo='{}' nuevoSaldo={}",
                     userId, monto, motivo, nuevoSaldo);
+            emitirEvento(Eventos.WALLET_AWARDED, new Eventos.MovimientoWallet(
+                    Eventos.TipoMovimiento.PREMIO, userId, monto, nuevoSaldo, motivo));
             return WalletResult.ok(nuevoSaldo);
 
         } catch (SQLException e) {
@@ -521,6 +542,20 @@ public class WalletService {
     @Deprecated
     public static BigDecimal calcularPorcentajeComision(BigDecimal pozo) {
         return ComisionService.calcularPorcentaje(pozo);
+    }
+
+    // ═══════════════════════════════════════════
+    // EMISIÓN DE EVENTOS (A4)
+    // ═══════════════════════════════════════════
+
+    /**
+     * Emite un evento al bus si existe. Se llama DESPUÉS del commit SQL.
+     * No lanza: un listener roto no puede tumbar una operación de dinero ya confirmada.
+     */
+    private void emitirEvento(String nombre, Object datos) {
+        if (eventos != null) {
+            eventos.emit(nombre, datos);
+        }
     }
 
     // ═══════════════════════════════════════════

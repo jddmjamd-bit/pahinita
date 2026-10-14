@@ -11,6 +11,17 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-13 — D2: Completar WalletService — eventos al bus, deprecar DAO legacy (Claude Opus 4.6 Thinking)
+- **WalletService ahora emite eventos al bus (A4)**: cada operación exitosa (`depositar`, `retirar`, `realizarTorneo`, `premiar`) emite `wallet.deposited`, `wallet.withdrawn`, `wallet.bet` o `wallet.awarded` con datos de tipo `MovimientoWallet` (userId, monto, nuevoSaldo, motivo). Los eventos se emiten DESPUÉS del commit SQL (no dentro de la transacción). El EventBus es nullable para mantener compatibilidad con tests.
+- **Nuevos eventos en `Eventos.java`**: constantes `WALLET_DEPOSITED`, `WALLET_WITHDRAWN`, `WALLET_BET`, `WALLET_AWARDED`, enum `TipoMovimiento` y record `MovimientoWallet`. Esto permite que features futuras como notificaciones de dinero (Prio 1 del roadmap) se suscriban al bus sin tocar WalletService.
+- **`UsuarioDAO.actualizarSaldo()` y `obtenerSaldo()` marcados como `@Deprecated`**: usan `double` y bypasean WalletService. Todo movimiento de saldo debe pasar por WalletService que usa BigDecimal y transacciones atómicas.
+- **`Main.java` reordenado**: el `EventBus` se crea antes de `WalletService` para poder pasárselo. Los listeners se registran donde estaban.
+- **`ARCHITECTURE.md` actualizado**: sección 5 (flujo de dinero) reescrita para reflejar que todo pasa por WalletService con transacciones atómicas. Warnings desactualizados corregidos.
+- Compilación exitosa (`mvn clean compile`).
+- Pendiente D3: tabla `wallet_ledger` inmutable con cada movimiento individual.
+- Verificación manual: (1) hacer un depósito/retiro y revisar en logs que el evento se emita; (2) verificar que `actualizarSaldo` y `obtenerSaldo` de UsuarioDAO muestren warning de deprecación en el IDE.
+Archivos: `WalletService.java`, `Eventos.java`, `UsuarioDAO.java`, `Main.java`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-13 — Chatbot: reintento ante errores transitorios de la IA (Claude Sonnet 5.5)
 - Problema: Gemini respondió `HTTP 503 ... experiencing high demand` y el usuario recibía el error de inmediato. Es un fallo pasajero del lado de Google, no del código.
 - `ChatbotIaCliente.generar` ahora reintenta hasta 3 intentos en total (esperas de 1 s y 2 s) cuando el proveedor responde 500, 502, 503 o 504. El 429 (límite de uso) y los 4xx (clave o modelo mal) NO se reintentan. Cada reintento queda en el log (`La IA respondió HTTP 503 (intento 1/3)`). Mientras reintenta, el hilo sigue ocupando su cupo de `CHATBOT_MAX_CONCURRENTES`.

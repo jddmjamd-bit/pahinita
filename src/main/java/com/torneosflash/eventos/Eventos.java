@@ -85,6 +85,69 @@ public final class Eventos {
      */
     public record DudaSinRespuesta(int dudaId, int userId, String username, String pregunta, boolean nueva, int veces) {}
 
+    // ═══════════════════════════════════════════
+    // EVENTOS DE WALLET (D2)
+    // ═══════════════════════════════════════════
+
+    /**
+     * Se depositó dinero en la cuenta de un usuario (recarga Wompi, manual, retiro rechazado, etc.).
+     * Datos: {@link MovimientoWallet}. Lo emite {@code WalletService.depositar()} DESPUÉS de confirmar la transacción.
+     */
+    public static final String WALLET_DEPOSITED = "wallet.deposited";
+
+    /**
+     * Se retiró dinero de la cuenta de un usuario (solicitud de retiro aprobada).
+     * Datos: {@link MovimientoWallet}. Lo emite {@code WalletService.retirar()}.
+     */
+    public static final String WALLET_WITHDRAWN = "wallet.withdrawn";
+
+    /**
+     * Se descontó el monto de un torneo al iniciar una partida.
+     * Datos: {@link MovimientoWallet}. Lo emite {@code WalletService.realizarTorneo()}.
+     */
+    public static final String WALLET_BET = "wallet.bet";
+
+    /**
+     * Se premió a un usuario (leaderboard, sorteo, etc.).
+     * Datos: {@link MovimientoWallet}. Lo emite {@code WalletService.premiar()}.
+     */
+    public static final String WALLET_AWARDED = "wallet.awarded";
+
+    /**
+     * Se liquidó una partida: el ganador recibió su premio y las comisiones se distribuyeron.
+     * Datos: {@link PartidaFinalizada}. Nota: este evento NO se emite desde WalletService;
+     * la liquidación ya dispara {@link #MATCH_FINISHED} desde SocketHandler/AdminService.
+     */
+    // (wallet.settled se documenta aquí pero no se agrega como constante: la liquidación
+    //  ya tiene MATCH_FINISHED y duplicar el evento generaría confusión)
+
+    /** Tipo de movimiento de wallet. */
+    public enum TipoMovimiento {
+        DEPOSITO, RETIRO, TORNEO, PREMIO
+    }
+
+    /**
+     * Datos genéricos de un movimiento de wallet (D2). Se emite DESPUÉS de confirmar la transacción SQL.
+     * Los listeners no deben revertir nada: el dinero ya se movió.
+     *
+     * @param tipo         tipo de operación
+     * @param userId       id del usuario afectado
+     * @param monto        monto de la operación (siempre positivo)
+     * @param nuevoSaldo   saldo del usuario después de la operación
+     * @param motivo       descripción legible (ej: "Recarga Wompi", "Retiro Nequi")
+     */
+    // REVIEW-MONEY
+    public record MovimientoWallet(
+            TipoMovimiento tipo,
+            int userId,
+            BigDecimal monto,
+            BigDecimal nuevoSaldo,
+            String motivo) {}
+
+    // ═══════════════════════════════════════════
+    // EVENTOS DE CHATBOT
+    // ═══════════════════════════════════════════
+
     /**
      * Datos de {@link #CHATBOT_DUDA_RESPONDIDA}.
      *

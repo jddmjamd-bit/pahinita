@@ -204,10 +204,22 @@ public class UsuarioDAO {
     }
     // ↑↑↑ NUEVO ↑↑↑
 
+    /**
+     * @deprecated D2: todo movimiento de saldo pasa por {@code WalletService}. Este método usa
+     *             {@code double} y no es atómico. Usar {@code WalletService.depositar()} o
+     *             {@code WalletService.retirar()} en su lugar.
+     */
+    @Deprecated
     public void actualizarSaldo(int userId, double monto) {
         ejecutar("UPDATE users SET saldo = saldo + ? WHERE id = ?", monto, userId);
     }
 
+    /**
+     * @deprecated D2: el saldo se obtiene con {@code WalletService.obtenerSaldo()} que retorna
+     *             {@code BigDecimal}. Este método retorna {@code double} y puede causar errores
+     *             de precisión con dinero real.
+     */
+    @Deprecated
     public double obtenerSaldo(int userId) {
         try (Connection conn = db.getConnection();
                 PreparedStatement ps = conn.prepareStatement("SELECT saldo FROM users WHERE id = ?")) {

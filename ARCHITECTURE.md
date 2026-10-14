@@ -58,7 +58,7 @@ TorneosFlash/
 │   │   ├── CorreoServicio.java      # Envío de emails vía Brevo
 │   │   ├── NotificacionPushServicio.java # Push FCM
 │   │   ├── RateLimiter.java         # Contador de solicitudes por clave, ventana deslizante de 1 min (lógica pura, sin HTTP). Ver sección 10
-│   │   ├── WalletService.java       # Todo movimiento de dinero (transacciones atómicas, BigDecimal)
+│   │   ├── WalletService.java       # Todo movimiento de dinero (D2): transacciones atómicas, BigDecimal, emite eventos al bus (A4). Ver sección 5
 │   │   ├── ComisionService.java     # Política de comisiones: % escalonado + reparto por categoría. Ver sección 9
 │   │   ├── UsuarioVista.java        # Lista blanca de columnas de `users` que pueden salir al cliente (sesión vs. rival). Nunca `SELECT *` sobre users hacia el frontend
 │   │   ├── ValidadorMonto.java      # Valida montos del cliente (número, > 0, entero, rango por tipo). Ver sección 8
@@ -131,8 +131,8 @@ TorneosFlash/
 | `chatbot_preferencias` | Tono elegido por cada usuario | `user_id`, `tono` |
 | `chatbot_config` | Ajustes globales del bot | `clave`, `valor` (`tono_defecto`) |
 
-> [!WARNING]
-> No hay tabla de ledger (auditoría de movimientos de dinero). Los saldos se modifican con `UPDATE users SET saldo` directo. Crear tabla `wallet_ledger` es prioridad.
+> [!NOTE]
+> No hay tabla de ledger (auditoría de movimientos de dinero) todavía (D3 pendiente). Los movimientos quedan en logs y en `admin_wallet` (comisiones), pero no hay tabla `wallet_ledger` inmutable. Crear esa tabla es la siguiente prioridad después de D2.
 
 ---
 
@@ -170,26 +170,37 @@ sequenceDiagram
 
 ---
 
-## 5. Flujo de dinero
+## 5. Flujo de dinero (D2)
+
+Todo movimiento de saldo pasa por `WalletService` (D2). Cada operación es una transacción SQL atómica
+(`conn.setAutoCommit(false)` + commit/rollback) y usa `BigDecimal` internamente. Las deducciones verifican
+saldo con `WHERE saldo >= ?` dentro de la misma transacción. Después de cada commit exitoso se emite un
+evento al bus de eventos (A4): `wallet.deposited`, `wallet.withdrawn`, `wallet.bet`, `wallet.awarded`.
 
 ```
 Depósito:
-  Wompi (tarjeta) → webhook → RutasFinanzas → FinanzasService → UPDATE users SET saldo += monto
-  Nequi (manual)  → admin aprueba → UPDATE users SET saldo += monto
+  Wompi (tarjeta) → webhook → FinanzasService → WalletService.depositar() → evento wallet.deposited
+  Nequi (manual)  → admin aprueba → AdminService → WalletService.depositar() → evento wallet.deposited
 
 Torneo (monto):
-  1. Se descuenta al buscar partida: UPDATE users SET saldo -= monto WHERE saldo >= monto (WalletService.realizarTorneo)
-  2. Al liquidar: ganador recibe (monto * 2 - comisión)
-  3. Comisión se distribuye en admin_wallet por categoría (25% ganancia, 20% sorteos, 15% leaderboard, 15% devolución, 10% misiones, 10% referidos, 5% logros). Esos % son sobre la comisión y viven solo en `ComisionService` (sección 9)
+  1. Se descuenta al iniciar: WalletService.realizarTorneo() (WHERE saldo >= monto) → evento wallet.bet
+  2. Al liquidar: WalletService.liquidar() paga al ganador y distribuye comisiones atómicamente
+  3. Comisión se distribuye en admin_wallet por categoría (ComisionService, sección 9)
+  4. Se emite match.finished al bus → listeners acreditan tickets y notifican
 
 Retiro:
-  Usuario solicita → admin aprueba manualmente → UPDATE users SET saldo -= monto
+  Usuario solicita → WalletService.retirar() descuenta atómicamente → evento wallet.withdrawn
+  Admin aprueba/rechaza la transacción pendiente
+
+Premio (leaderboard, sorteo):
+  WalletService.premiar() → evento wallet.awarded
 ```
 
-> [!WARNING]
-> - No hay transacciones SQL atómicas (si falla a mitad, el saldo queda inconsistente)
-> - `saldo` es `NUMERIC` en BD pero se lee como `double` en Java → errores de precisión
-> - No hay tabla ledger que registre cada movimiento individual
+> [!NOTE]
+> - Las transacciones SQL son atómicas (D2 completado). Si falla a mitad, se hace rollback.
+> - `saldo` es `NUMERIC` en BD y se lee como `BigDecimal` en Java (D1 completado en WalletService).
+> - `UsuarioDAO.actualizarSaldo()` y `obtenerSaldo()` están deprecados (usan `double`). Todo pasa por WalletService.
+> - **Pendiente D3**: tabla `wallet_ledger` inmutable con cada movimiento individual.
 
 ---
 

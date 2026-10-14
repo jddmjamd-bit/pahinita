@@ -93,8 +93,12 @@ public class Main {
         // ComisionService — única fuente de verdad de la política de comisiones (D4)
         ComisionService comisiones = new ComisionService();
 
-        // WalletService — centraliza todo movimiento de dinero
-        WalletService wallet = new WalletService(conexion, comisiones);
+        // Bus de eventos (A4): se crea temprano porque WalletService lo necesita para
+        // emitir wallet.deposited, wallet.withdrawn, etc. (D2)
+        EventBus eventBus = new EventBus();
+
+        // WalletService — centraliza todo movimiento de dinero (D2)
+        WalletService wallet = new WalletService(conexion, comisiones, eventBus);
 
         // ValidadorMonto — valida en el servidor todo monto que llega del cliente (D5)
         ValidadorMonto validadorMonto = new ValidadorMonto(config);
@@ -221,11 +225,8 @@ public class Main {
         FinanzasService finanzasService = new FinanzasService(db, config, wallet, validadorMonto, notificador);
         SorteoService sorteoService = new SorteoService(db, socketServer, correo, pushService, validadorMonto);
 
-        // Bus de eventos (A4): quien termina una acción de negocio emite el evento y
-        // estos listeners reaccionan.
-        // Se registran ANTES de aceptar tráfico; el orden de registro es el orden en
-        // que corren (tickets, luego resultado).
-        EventBus eventBus = new EventBus();
+        // Listeners del bus de eventos (A4): se registran ANTES de aceptar tráfico;
+        // el orden de registro es el orden en que corren (tickets, luego resultado).
         new TicketsPartidaListener(sorteoService, notificador).registrar(eventBus);
         new ResultadoPartidaListener(notificador).registrar(eventBus);
         ChatbotIaCliente chatbotIa = new ChatbotIaCliente(config);
