@@ -546,7 +546,6 @@ public class WalletService {
             conn.setAutoCommit(false);
 
             // D3: leer IDs y saldos de los admins ANTES del pago para registrar en el ledger
-            List<int[]> adminsAntes = new java.util.ArrayList<>(); // [id, saldoAnterior no aplica para int; se lee aparte]
             List<Object[]> adminsInfo = new java.util.ArrayList<>(); // {id, saldoAnterior}
             try (PreparedStatement ps = conn.prepareStatement(
                     "SELECT id, saldo FROM users WHERE tipo_suscripcion = 'admin'")) {

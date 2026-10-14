@@ -11,6 +11,15 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-14 — D3: Auditoría inmutable con tabla wallet_ledger (Gemini 3.8 Flash High / Claude Opus 4.6)
+- **Migración Flyway `V5__wallet_ledger.sql`**: Creación de la tabla `wallet_ledger` para auditoría inmutable de todo movimiento de dinero (`id BIGSERIAL`, `user_id`, `tipo`, `monto`, `saldo_anterior`, `saldo_posterior`, `referencia`, `fecha`). Solo INSERT, nunca UPDATE ni DELETE. Índices en `user_id`, `tipo` y `fecha`.
+- **Integración atómica en `WalletService.java`**: Cada operación (`depositar`, `retirar`, `realizarTorneo`, `liquidar`, `premiar`, `premiarAdmins`) lee el saldo anterior, actualiza el saldo, lee el saldo resultante e inserta en `wallet_ledger` dentro de la misma transacción SQL antes de `conn.commit()`.
+- **Comisiones del sistema**: En `liquidar()`, cada categoría del desglose de comisiones se audita en `wallet_ledger` con `user_id = 0` (cuenta sistema/admin) y tipo `comision`.
+- **Premios a administradores**: `premiarAdmins` captura saldos antes de la actualización y genera una entrada en el ledger por cada admin que recibe su porción del pozo sobrante.
+- **`ARCHITECTURE.md` actualizado**: Se documenta la tabla `wallet_ledger` y su rol en la arquitectura, retirando notas de D3 pendiente y dejando la próxima migración en `V6`.
+- Compilación verificada: `./mvnw.cmd clean compile` (BUILD SUCCESS).
+Archivos: `src/main/resources/db/migration/V5__wallet_ledger.sql`, `src/main/java/com/torneosflash/servicio/WalletService.java`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-13 — Fix: saldo, búsqueda de partida, sala privada y modal de sorteos (Claude Sonnet 5.5)
 - **Saldo**: `App.jsx` llama a `/api/session` al cargar (acción `sincronizarSesion` del store) para no arrancar con el saldo viejo del `localStorage`; un 401 cierra la sesión y lleva a `/auth`. El store también resincroniza al reconectar el socket. `setUser` ya NO emite `registrar_socket` en cada cambio de saldo (solo si cambia el usuario); al conectar el socket ya se registra. `SocketHandler.registrar_socket` calcula `maxMonto` con el saldo de la BD, no con el que manda el cliente.
 - **`Sorteos.jsx`**: la carga inicial depende de `currentUser.id` (antes de todo el objeto: cada cambio de saldo disparaba 4 peticiones contra el límite de 60/min). Estilos del modal (`.modal-overlay`, `.modal-content`, `.modal-header`, `.close-btn`) añadidos en `index.css`.

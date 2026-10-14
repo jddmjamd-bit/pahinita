@@ -96,7 +96,7 @@ TorneosFlash/
 │       ├── SocketIOServer.java      # Parseo de paquetes Engine.IO/Socket.IO
 │       └── SocketIOClient.java      # Wrapper del cliente WS
 ├── src/main/resources/
-│   └── db/migration/                # Migraciones Flyway: V1 esquema base, V2 datos antiguos, V3 chatbot IA, V4 aceptación legal
+│   └── db/migration/                # Migraciones Flyway: V1 esquema base, V2 datos antiguos, V3 chatbot IA, V4 aceptación legal, V5 wallet_ledger (D3)
 ├── agent/rules/                     # Reglas para modelos IA
 │   ├── auto-push.md
 │   └── project-conventions.md       # ← NUEVO
@@ -130,9 +130,8 @@ TorneosFlash/
 | `chatbot_mensajes` | Historial del chat de cada usuario con el bot | `user_id`, `rol` (usuario/bot), `texto`, `fecha` |
 | `chatbot_preferencias` | Tono elegido por cada usuario | `user_id`, `tono` |
 | `chatbot_config` | Ajustes globales del bot | `clave`, `valor` (`tono_defecto`) |
-
-> [!NOTE]
-> No hay tabla de ledger (auditoría de movimientos de dinero) todavía (D3 pendiente). Los movimientos quedan en logs y en `admin_wallet` (comisiones), pero no hay tabla `wallet_ledger` inmutable. Crear esa tabla es la siguiente prioridad después de D2.
+| `wallet_ledger` | Auditoría inmutable de movimientos de dinero (D3) | `id` (BIGSERIAL), `user_id`, `tipo` (deposito/retiro/torneo/premio/comision/liquidacion), `monto`, `saldo_anterior`, `saldo_posterior`, `referencia`, `fecha`. Solo INSERT, nunca UPDATE/DELETE. `user_id=0` para comisiones del sistema |
+| `legal_acceptances` | Registro de aceptación de documentos legales | `user_id`, `documento`, `version`, `aceptado_en` |
 
 ---
 
@@ -200,7 +199,7 @@ Premio (leaderboard, sorteo):
 > - Las transacciones SQL son atómicas (D2 completado). Si falla a mitad, se hace rollback.
 > - `saldo` es `NUMERIC` en BD y se lee como `BigDecimal` en Java (D1 completado en WalletService).
 > - `UsuarioDAO.actualizarSaldo()` y `obtenerSaldo()` están deprecados (usan `double`). Todo pasa por WalletService.
-> - **Pendiente D3**: tabla `wallet_ledger` inmutable con cada movimiento individual.
+> - **D3 completado**: cada operación de `WalletService` inserta una fila en `wallet_ledger` dentro de la misma transacción SQL (atómico). La tabla es inmutable (solo INSERT). Las comisiones de liquidación se registran con `user_id=0`.
 
 ---
 
@@ -432,7 +431,7 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | Ya migrada | Aplica solo los scripts nuevos; si no hay, no hace nada |
 
 **Reglas**
-- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V5`). El `wallet_ledger` de D3 usa el siguiente número libre. **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
+- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V6`). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
 - **Nunca editar un `V*` ya aplicado:** Flyway guarda el checksum y `validateOnMigrate` hace fallar el arranque. Para corregir algo, una migración nueva.
 - **Fail-fast:** si una migración falla, `Main` loguea el error y sale con código 1 (no se sirve tráfico con el esquema a medias). Cada script corre en su propia transacción en PostgreSQL: si falla se revierte entero.
 - `cleanDisabled=true`: la app nunca puede ejecutar `flyway clean`.
