@@ -1,13 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import './Match.css';
 
 const API_BASE_URL = 'https://torneos-beta.onrender.com';
 
 export default function Match() {
-    const [view, setView] = useState('private'); // 'private' or 'game_result'
-    const [rivalData, setRivalData] = useState(null);
-    const [maxMontoPermitido, setMaxMontoPermitido] = useState(10000);
+    // Si el usuario sale de esta pantalla y vuelve a mitad de partida, el estado sale del store (no se pierde la sala)
+    const [view, setView] = useState(() => {
+        const estado = useAppStore.getState().matchState.status;
+        return (estado === 'playing' || estado === 'finished') ? 'game_result' : 'private'; // 'private' or 'game_result'
+    });
+    const [rivalData, setRivalData] = useState(() => useAppStore.getState().matchState.rival || null);
+    const [maxMontoPermitido, setMaxMontoPermitido] = useState(() => useAppStore.getState().matchState.maxMonto || 10000);
     const [chatMessages, setChatMessages] = useState([]);
     const [chatInput, setChatInput] = useState('');
     
@@ -25,7 +29,8 @@ export default function Match() {
 
     // API Result view
     const [apiStatusText, setApiStatusText] = useState('Buscando resultado en Clash Royale...');
-    const [apiResult, setApiResult] = useState(null); // { esGanador, premio, ganador, crowns, mensaje }
+    const [apiResult, setApiResult] = useState(() => useAppStore.getState().matchState.resultado || null); // { esGanador, premio, ganador, mensaje } o { disputa: true, mensaje }
+    const [flujoCompletado, setFlujoCompletado] = useState(() => useAppStore.getState().matchState.status === 'finished');
 
     const currentUser = useAppStore(state => state.user);
     const socket = useAppStore(state => state.socket);
@@ -33,6 +38,22 @@ export default function Match() {
     const matchState = useAppStore(state => state.matchState);
     const setMatchState = useAppStore(state => state.setMatchState);
     const clearMatchState = useAppStore(state => state.clearMatchState);
+
+    // Deja la pantalla lista para una partida nueva (partida cancelada o el usuario cierra el resultado)
+    const resetMatch = useCallback(() => {
+        clearMatchState();
+        setView('private');
+        setChatMessages([]);
+        setRivalData(null);
+        setApiResult(null);
+        setFlujoCompletado(false);
+        setGameMode('');
+        setMonto('');
+        setValidationMsg('');
+        setWinText('Ganancia: $0');
+        setBtnState({ text: '🎮 COMENZAR', disabled: true, cssClass: '' });
+        setShowConfirmModal(false);
+    }, [clearMatchState]);
 
     const chatEndRef = useRef(null);
     const simulacionRef = useRef(0); // id de la última consulta de ganancia (descarta respuestas viejas)
@@ -54,6 +75,16 @@ export default function Match() {
 
         const onPartidaEncontrada = (data) => {
             const rival = data.p1?.id === currentUser?.id ? data.p2 : data.p1;
+            // Partida nueva: se limpia cualquier rastro de la anterior
+            setChatMessages([]);
+            setGameMode('');
+            setMonto('');
+            setValidationMsg('');
+            setWinText('Ganancia: $0');
+            setBtnState({ text: '🎮 COMENZAR', disabled: true, cssClass: '' });
+            setApiResult(null);
+            setFlujoCompletado(false);
+            setShowConfirmModal(false);
             setRivalData(rival);
             setMaxMontoPermitido(data.maxMonto || 10000);
             setView('private');
@@ -62,7 +93,8 @@ export default function Match() {
                 salaId: data.salaId,
                 rival,
                 maxMonto: data.maxMonto || 10000,
-                status: 'negotiating'
+                status: 'negotiating',
+                resultado: null
             });
         };
 
@@ -81,7 +113,8 @@ export default function Match() {
         };
 
         const onConfirmarPartida = (data) => {
-            setConfirmData({ modo: data.modo, monto: data.dinero });
+            // El servidor manda { modo, monto } (no "dinero")
+            setConfirmData({ modo: data.modo, monto: data.monto ?? data.dinero });
             setConfirmBtnText("Aceptar");
             setShowConfirmModal(true);
         };
@@ -111,16 +144,16 @@ export default function Match() {
         };
 
         const onResultadoApi = (data) => {
-            setView('game_result');
-            const esGanador = data.ganadorId === currentUser?.id;
-            setApiResult({
-                esGanador,
+            // El servidor manda { ganador, premio, esGanador, mensaje } (ResultadoPartidaListener); no envía coronas
+            const resultado = {
+                esGanador: data.esGanador === true,
                 premio: data.premio,
-                ganador: data.ganadorNombre,
-                crowns: `${data.teamCrowns ?? 0} - ${data.opponentCrowns ?? 0}`,
+                ganador: data.ganador,
                 mensaje: data.mensaje
-            });
-            setMatchState({ status: 'finished' });
+            };
+            setView('game_result');
+            setApiResult(resultado);
+            setMatchState({ status: 'finished', resultado });
         };
 
         const onMensajePrivado = (data) => {
@@ -135,19 +168,43 @@ export default function Match() {
             if (data.historial && Array.isArray(data.historial)) setChatMessages(data.historial);
             if (data.iniciado) {
                 setView('game_result');
-                setMatchState({ inMatch: true, salaId: data.salaId, status: 'playing' });
+                setApiResult(null);
+                setFlujoCompletado(false);
+                setMatchState({ inMatch: true, salaId: data.salaId, rival: data.rival || null, maxMonto: data.maxMonto || 10000, status: 'playing', resultado: null });
             } else {
                 setView('private');
-                setMatchState({ inMatch: true, salaId: data.salaId, status: 'negotiating' });
+                setMatchState({ inMatch: true, salaId: data.salaId, rival: data.rival || null, maxMonto: data.maxMonto || 10000, status: 'negotiating' });
             }
         };
 
         const onMatchCancelado = (data) => {
             alert("⚠️ " + (data?.motivo || 'Partida cancelada'));
-            clearMatchState();
-            setView('private');
-            setChatMessages([]);
-            setRivalData(null);
+            resetMatch();
+        };
+
+        // Búsqueda de partida
+        const onBuscandoActivo = () => setMatchState({ status: 'searching' }); // reconexión con la búsqueda aún activa
+        const onErrorBusqueda = (msg) => {
+            alert(typeof msg === 'string' ? msg : msg?.mensaje || 'No se pudo iniciar la búsqueda');
+            setMatchState({ status: 'idle' });
+        };
+        const onBusquedaTimeout = (data) => {
+            alert(data?.mensaje || 'Tu búsqueda fue cancelada porque nadie respondió.');
+            setMatchState({ status: 'idle' });
+        };
+
+        // Cierre del flujo: el servidor ya liberó a los jugadores (tras el resultado, una disputa o un timeout)
+        const onFlujoCompletado = () => {
+            if (!useAppStore.getState().matchState.inMatch) return;
+            setShowConfirmModal(false);
+            setFlujoCompletado(true);
+            setMatchState({ status: 'finished' });
+        };
+        const onDisputa = (data) => {
+            const resultado = { disputa: true, mensaje: data?.mensaje || 'Resultado no claro, disputa creada.' };
+            setView('game_result');
+            setApiResult(resultado);
+            setMatchState({ status: 'finished', resultado });
         };
 
         socket.on('partida_encontrada', onPartidaEncontrada);
@@ -163,6 +220,12 @@ export default function Match() {
         socket.on('mensaje_privado', onMensajePrivado);
         socket.on('restaurar_partida', onRestaurarPartida);
         socket.on('match_cancelado', onMatchCancelado);
+        socket.on('buscando_activo', onBuscandoActivo);
+        socket.on('error_busqueda', onErrorBusqueda);
+        socket.on('busqueda_timeout', onBusquedaTimeout);
+        socket.on('flujo_completado', onFlujoCompletado);
+        socket.on('disputa_creada', onDisputa);
+        socket.on('disputa_timeout', onDisputa);
 
         return () => {
             socket.off('partida_encontrada', onPartidaEncontrada);
@@ -178,8 +241,14 @@ export default function Match() {
             socket.off('mensaje_privado', onMensajePrivado);
             socket.off('restaurar_partida', onRestaurarPartida);
             socket.off('match_cancelado', onMatchCancelado);
+            socket.off('buscando_activo', onBuscandoActivo);
+            socket.off('error_busqueda', onErrorBusqueda);
+            socket.off('busqueda_timeout', onBusquedaTimeout);
+            socket.off('flujo_completado', onFlujoCompletado);
+            socket.off('disputa_creada', onDisputa);
+            socket.off('disputa_timeout', onDisputa);
         };
-    }, [socket, currentUser, gameMode, monto, setMatchState, clearMatchState]);
+    }, [socket, currentUser, gameMode, monto, maxMontoPermitido, setMatchState, resetMatch]);
 
     // D4: la comisión la calcula el servidor (ComisionService). El frontend ya no replica la fórmula.
     const actualizarGanancia = async (dinero) => {
@@ -256,13 +325,14 @@ export default function Match() {
     const handleChatSubmit = (e) => {
         e.preventDefault();
         const texto = chatInput.trim();
-        if (texto && currentUser && socket) {
+        if (texto && currentUser && socket && matchState.salaId) {
+            // El servidor exige salaId (sala_<número>) y reenvía el mensaje a TODA la sala, remitente incluido:
+            // por eso no se agrega localmente (saldría duplicado).
             socket.emit('mensaje_privado', {
+                salaId: matchState.salaId,
                 usuario: currentUser.username,
-                texto,
-                fecha: new Date().toISOString()
+                texto
             });
-            setChatMessages(prev => [...prev, { usuario: currentUser.username, texto, fecha: new Date().toISOString() }]);
             setChatInput('');
         }
     };
@@ -277,13 +347,62 @@ export default function Match() {
         setShowConfirmModal(false);
     };
 
+    const handleBuscar = () => {
+        if (!currentUser || !socket) return;
+        socket.emit('buscar_partida', currentUser); // el servidor solo usa el id y relee el saldo de la BD
+        setMatchState({ status: 'searching' });
+    };
+
+    const handleCancelarBusqueda = () => {
+        if (socket) socket.emit('cancelar_busqueda');
+        setMatchState({ status: 'idle' });
+    };
+
+    // Botón ❌ de la sala: el servidor cancela la partida para ambos (match_cancelado) y cuenta como salida
+    const handleSalir = () => {
+        if (!socket) return;
+        if (!window.confirm('¿Salir de la sala? La partida se cancela para los dos y cuenta como una salida tuya.')) return;
+        socket.emit('cancelar_match', { motivo: 'Oprimió X' });
+    };
+
+    // Sin partida en curso: pantalla para buscar rival
+    if (!matchState.inMatch) {
+        const buscando = matchState.status === 'searching';
+        return (
+            <div className="match-container">
+                <header className="match-header">
+                    <h3>⚔️ Buscar partida</h3>
+                </header>
+                <div className="search-view-content">
+                    {buscando ? (
+                        <>
+                            <div className="spinner-container">
+                                <div className="pulse-emoji">🔍</div>
+                            </div>
+                            <h2>Buscando rival...</h2>
+                            <p>Te llevamos a la sala en cuanto alguien acepte.</p>
+                            <button className="search-btn cancel" onClick={handleCancelarBusqueda}>Cancelar búsqueda</button>
+                        </>
+                    ) : (
+                        <>
+                            <div className="pulse-emoji">⚔️</div>
+                            <h2>¿Listo para jugar?</h2>
+                            <p>Te emparejamos con otro jugador y acuerdan modo y monto en una sala privada.</p>
+                            <button className="search-btn" onClick={handleBuscar} disabled={!socket || !currentUser}>🔍 Buscar partida</button>
+                        </>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="match-container">
             {view === 'private' ? (
                 <div className="view-private">
                     <header className="match-header">
                         <h3>🔒 Sala Privada</h3>
-                        <button className="icon-btn-danger">❌</button>
+                        <button className="icon-btn-danger" onClick={handleSalir} title="Salir de la sala">❌</button>
                     </header>
 
                     <div className="private-room-content">
@@ -344,7 +463,7 @@ export default function Match() {
                         <h3>⚔️ Partida en Curso</h3>
                     </header>
                     <div className="game-lobby-content">
-                        {!apiResult ? (
+                        {!apiResult && !flujoCompletado ? (
                             <>
                                 <div className="spinner-container">
                                     <div className="pulse-emoji">⚔️</div>
@@ -355,10 +474,23 @@ export default function Match() {
                             </>
                         ) : (
                             <div className="api-result-display">
-                                <h1 style={{color: apiResult.esGanador ? '#43b581' : '#ed4245'}}>
-                                    {apiResult.esGanador ? `🏆 ¡GANASTE! +$${apiResult.premio?.toLocaleString()}` : `💀 Perdiste. ${apiResult.ganador} ganó.`}
-                                </h1>
-                                <p>Coronas: {apiResult.crowns}</p>
+                                {!apiResult ? (
+                                    <h2>La partida terminó.</h2>
+                                ) : apiResult.disputa ? (
+                                    <>
+                                        <h2 style={{color: '#faa61a'}}>⚖️ Disputa creada</h2>
+                                        <p>{apiResult.mensaje}</p>
+                                        <p style={{color: '#bbb'}}>Un administrador revisará la partida.</p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <h1 style={{color: apiResult.esGanador ? '#43b581' : '#ed4245'}}>
+                                            {apiResult.esGanador ? `🏆 ¡GANASTE! +$${apiResult.premio?.toLocaleString()}` : `💀 Perdiste. ${apiResult.ganador} ganó.`}
+                                        </h1>
+                                        {apiResult.mensaje && <p>{apiResult.mensaje}</p>}
+                                    </>
+                                )}
+                                <button className="result-back-btn" onClick={resetMatch}>Volver</button>
                             </div>
                         )}
                     </div>
@@ -370,7 +502,7 @@ export default function Match() {
                     <div className="modal-content text-center">
                         <h2>⚠️ ¿Aceptas la partida?</h2>
                         <p>Modo: <strong style={{color:'#7289da'}}>{confirmData.modo}</strong></p>
-                        <p>Monto: <strong style={{color:'#43b581'}}>${confirmData.monto}</strong></p>
+                        <p>Monto: <strong style={{color:'#43b581'}}>${Number(confirmData.monto).toLocaleString()}</strong></p>
                         <div style={{marginTop: 20, display: 'flex', gap: 10, justifyContent: 'center'}}>
                             <button style={{background:'#43b581', padding:'10px 20px', border:'none', color:'white', borderRadius:4}} onClick={handleAcceptMatch}>{confirmBtnText}</button>
                             <button style={{background:'#ed4245', padding:'10px 20px', border:'none', color:'white', borderRadius:4}} onClick={handleRejectMatch}>Rechazar</button>

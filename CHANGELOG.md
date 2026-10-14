@@ -11,6 +11,14 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-13 — Fix: saldo, búsqueda de partida, sala privada y modal de sorteos (Claude Sonnet 5.5)
+- **Saldo**: `App.jsx` llama a `/api/session` al cargar (acción `sincronizarSesion` del store) para no arrancar con el saldo viejo del `localStorage`; un 401 cierra la sesión y lleva a `/auth`. El store también resincroniza al reconectar el socket. `setUser` ya NO emite `registrar_socket` en cada cambio de saldo (solo si cambia el usuario); al conectar el socket ya se registra. `SocketHandler.registrar_socket` calcula `maxMonto` con el saldo de la BD, no con el que manda el cliente.
+- **`Sorteos.jsx`**: la carga inicial depende de `currentUser.id` (antes de todo el objeto: cada cambio de saldo disparaba 4 peticiones contra el límite de 60/min). Estilos del modal (`.modal-overlay`, `.modal-content`, `.modal-header`, `.close-btn`) añadidos en `index.css`.
+- **Buscar partida**: `Match.jsx` tiene pantalla de búsqueda (emite `buscar_partida` / `cancelar_busqueda`; escucha `error_busqueda`, `busqueda_timeout`, `buscando_activo`; usa `status: 'searching'`). `Lobby.jsx` lleva a `/match` al encontrar partida. El store guarda `partida_encontrada`, `resultado_api`, disputas y `flujo_completado` para no perderlos si el usuario está en otra pantalla.
+- **Sala privada (`Match.jsx`)**: `confirmar_partida` usa `data.monto`; `resultado_api` usa `esGanador`/`ganador`/`premio`/`mensaje` (el servidor no envía coronas); `mensaje_privado` envía `salaId` y ya no se duplica localmente; el botón ❌ emite `cancelar_match` ("Oprimió X") con confirmación; `flujo_completado`, `disputa_creada` y `disputa_timeout` muestran el resultado con botón "Volver"; CSS de `.start-game-btn.rival-ready`.
+- No pude compilar ni ejecutar nada.
+Archivos: `frontend/src/store/useAppStore.js`, `frontend/src/App.jsx`, `frontend/src/pages/Match.jsx`, `frontend/src/pages/Match.css`, `frontend/src/pages/Sorteos.jsx`, `frontend/src/pages/Lobby.jsx`, `frontend/src/index.css`, `SocketHandler.java`, `CHANGELOG.md`
+
 ## 2026-10-13 — F3: Completar Estado Centralizado y Conexión Socket.IO (Gemini 3.8 Flash High)
 - **Pestaña y canal `clash_logs` en `Chat.jsx`**: Agregada la pestaña «📜 Registro» a la barra `chat-tabs`. Se renderiza con el estilo de logs del sistema (`.log-msg`), con icono `⚔️`, hora y mensaje limpio. Es un canal de solo lectura, por lo que el formulario de entrada se reemplaza por el aviso de canal de registro del sistema.
 - **Estado centralizado de Chat en Zustand (`useAppStore.js`)**: Los mensajes de chat (`general`, `anuncios`, `clash`, `clash_logs`) ahora residen en el store central `useAppStore`. Los eventos `historial_chat` y `mensaje_chat` son escuchados globalmente desde la conexión del socket, evitando pérdida de mensajes al navegar entre rutas.

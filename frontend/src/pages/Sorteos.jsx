@@ -91,9 +91,14 @@ export default function Sorteos() {
         if (currentUser) connectSocket();
     }, [currentUser, connectSocket]);
 
+    // Carga inicial: depende del id, no del objeto usuario. Con [currentUser] cada cambio de saldo volvía a pedir
+    // las 4 consultas (tickets, pozo, encuesta, ofertas) y se comía el límite de 60 peticiones por minuto.
+    const userId = currentUser?.id;
     useEffect(() => {
         cargarSorteos();
-        
+    }, [userId]);
+
+    useEffect(() => {
         if (!socket) return;
 
         const onNuevoSorteo = () => cargarSorteos();
@@ -125,7 +130,7 @@ export default function Sorteos() {
             socket.off('poll_updated', onPollUpdated);
             socket.off('tickets_ganados', onTicketsGanados);
         };
-    }, [socket, currentUser]);
+    }, [socket, userId]);
 
     // Countdown effect
     const [now, setNow] = useState(new Date());

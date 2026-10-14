@@ -136,7 +136,7 @@ public class SocketHandler {
                     }
 
                     // Recuperar sala si existe
-                    JsonObject dbUser = db.queryOne("SELECT sala_actual, estado FROM users WHERE id = ?", userId);
+                    JsonObject dbUser = db.queryOne("SELECT sala_actual, estado, saldo FROM users WHERE id = ?", userId);
                     String salaActual = (dbUser != null && dbUser.has("sala_actual") && !dbUser.get("sala_actual").isJsonNull()) ?
                             dbUser.get("sala_actual").getAsString() : null;
                     if (salaActual != null && activeMatches.containsKey(salaActual)) {
@@ -178,7 +178,9 @@ public class SocketHandler {
                         rivalData = rivalDb;
                         
                         // Calculo de maxMonto (usa el saldo real del rival, que NO se envía al cliente)
-                        double miSaldo = user.get("saldo").getAsDouble();
+                        // Saldo real de la BD (el que manda el cliente viene del localStorage y puede estar desactualizado)
+                        double miSaldo = dbUser != null && dbUser.has("saldo") && !dbUser.get("saldo").isJsonNull()
+                                ? dbUser.get("saldo").getAsDouble() : 0;
                         double rivalSaldo = rivalData != null && rivalData.has("saldo") ? rivalData.get("saldo").getAsDouble() : 0;
                         double maxMonto = Math.min(miSaldo, rivalSaldo);
 
