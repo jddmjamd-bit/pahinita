@@ -16,13 +16,7 @@ const resolverMedia = (src, tipo) => {
 };
 
 export default function Chat() {
-    const [canalActivo, setCanalActivo] = useState('general'); // 'general', 'anuncios', 'clash'
-    const [mensajes, setMensajes] = useState({
-        general: [],
-        anuncios: [],
-        clash: [],
-        clash_logs: []
-    });
+    const [canalActivo, setCanalActivo] = useState('general'); // 'general', 'anuncios', 'clash', 'clash_logs'
     const [inputValues, setInputValues] = useState({
         general: '',
         anuncios: '',
@@ -34,26 +28,27 @@ export default function Chat() {
 
     const currentUser = useAppStore(state => state.user);
     const socket = useAppStore(state => state.socket);
+    const connectSocket = useAppStore(state => state.connectSocket);
+    const chatMessages = useAppStore(state => state.chatMessages);
+    const sendChatMessage = useAppStore(state => state.sendChatMessage);
     const esAdmin = currentUser?.tipo_suscripcion === 'admin';
 
     useEffect(() => {
-        // TODO: En F3 conectar Socket.IO y suscribirse a historial_chat y mensaje_chat
-        // Ejemplo:
-        // socket.emit('join_chat', canalActivo);
-        // socket.on('historial_chat', (data) => setMensajes(prev => ({...prev, [data.canal]: data.mensajes})));
-        // socket.on('mensaje_chat', (data) => setMensajes(prev => ({...prev, [data.canal]: [...prev[data.canal], data]})));
-    }, [canalActivo]);
+        if (currentUser) {
+            connectSocket();
+        }
+    }, [currentUser, connectSocket]);
 
     useEffect(() => {
-        // Auto-scroll
+        // Auto-scroll al recibir mensajes o cambiar de canal
         if (chatEndRef.current) {
             chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
         }
-    }, [mensajes, canalActivo]);
+    }, [chatMessages, canalActivo]);
 
     const convertirLinks = (texto) => {
         const urlRegex = /(https?:\/\/[^\s]+)/g;
-        const parts = texto.split(urlRegex);
+        const parts = String(texto ?? '').split(urlRegex);
         return parts.map((part, i) => {
             if (part.match(urlRegex)) {
                 return <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="chat-link">{part}</a>;
@@ -64,21 +59,16 @@ export default function Chat() {
 
     const handleSendMessage = (e, canal) => {
         e.preventDefault();
-        const texto = inputValues[canal];
+        const texto = inputValues[canal]?.trim();
         if (texto && currentUser) {
-            // TODO: En F3 usar Socket.IO
-            // socket.emit('mensaje_chat', { canal, usuario: currentUser.username, texto, tipo: 'texto' });
-            
-            // Simular mensaje (remover en F3)
-            const nuevoMsg = { canal, usuario: currentUser.username, texto, tipo: 'texto', fecha: new Date().toISOString() };
-            setMensajes(prev => ({ ...prev, [canal]: [...prev[canal], nuevoMsg] }));
+            sendChatMessage({ canal, texto, tipo: 'texto' });
             setInputValues(prev => ({ ...prev, [canal]: '' }));
         }
     };
 
     const handleUploadMedia = async (e) => {
         const file = e.target.files[0];
-        if (!file || !currentUser) return;
+        if (!file || !currentUser || !socket) return;
         
         setIsUploading(true);
         if (file.type.startsWith('video')) {
@@ -91,9 +81,12 @@ export default function Chat() {
                 if (!res.ok) throw new Error('Error al subir video');
                 const data = await res.json();
                 
-                // TODO: F3 socket emit video
-                const nuevoMsg = { canal: 'anuncios', usuario: currentUser.username, texto: data.url, tipo: 'video', fecha: new Date().toISOString() };
-                setMensajes(prev => ({ ...prev, anuncios: [...prev.anuncios, nuevoMsg] }));
+                socket.emit('mensaje_chat', {
+                    canal: 'anuncios',
+                    usuario: currentUser.username,
+                    texto: data.url,
+                    tipo: 'video'
+                });
             } catch (err) {
                 alert('Error subiendo video: ' + err.message);
             } finally {
@@ -102,9 +95,12 @@ export default function Chat() {
         } else {
             const r = new FileReader();
             r.onload = (ev) => {
-                // TODO: F3 socket emit imagen
-                const nuevoMsg = { canal: 'anuncios', usuario: currentUser.username, texto: ev.target.result, tipo: 'imagen', fecha: new Date().toISOString() };
-                setMensajes(prev => ({ ...prev, anuncios: [...prev.anuncios, nuevoMsg] }));
+                socket.emit('mensaje_chat', {
+                    canal: 'anuncios',
+                    usuario: currentUser.username,
+                    texto: ev.target.result,
+                    tipo: 'imagen'
+                });
                 setIsUploading(false);
             };
             r.readAsDataURL(file);
@@ -114,12 +110,14 @@ export default function Chat() {
 
     const renderBurbuja = (msg, index) => {
         const isOwn = currentUser && msg.usuario === currentUser.username;
-        const hora = new Date(msg.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const hora = msg.fecha ? new Date(msg.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
         if (msg.canal === 'clash_logs') {
             return (
                 <div key={index} className="log-msg">
-                    <span>{msg.texto}</span><span className="log-time">{hora}</span>
+                    <span className="log-icon">⚔️</span>
+                    <span className="log-text">{msg.texto}</span>
+                    <span className="log-time">{hora}</span>
                 </div>
             );
         }
@@ -148,41 +146,57 @@ export default function Chat() {
         );
     };
 
+    const mensajesActuales = chatMessages[canalActivo] || [];
+
     return (
         <div className="chat-container">
             <div className="chat-tabs">
                 <button className={`chat-tab ${canalActivo === 'general' ? 'active' : ''}`} onClick={() => setCanalActivo('general')}>💬 General</button>
                 <button className={`chat-tab ${canalActivo === 'anuncios' ? 'active' : ''}`} onClick={() => setCanalActivo('anuncios')}>📢 Anuncios</button>
                 <button className={`chat-tab ${canalActivo === 'clash' ? 'active' : ''}`} onClick={() => setCanalActivo('clash')}>⚔️ Clash</button>
+                <button className={`chat-tab ${canalActivo === 'clash_logs' ? 'active' : ''}`} onClick={() => setCanalActivo('clash_logs')}>📜 Registro</button>
             </div>
 
             <div className="chat-messages">
-                {mensajes[canalActivo]?.map((msg, idx) => renderBurbuja(msg, idx))}
+                {mensajesActuales.length === 0 ? (
+                    <div className="chat-empty">
+                        {canalActivo === 'clash_logs' 
+                            ? 'No hay registros de partidas o eventos aún.' 
+                            : 'No hay mensajes en este canal. ¡Sé el primero en escribir!'}
+                    </div>
+                ) : (
+                    mensajesActuales.map((msg, idx) => renderBurbuja(msg, idx))
+                )}
                 <div ref={chatEndRef} />
             </div>
 
-            <form className="chat-input-area" onSubmit={(e) => handleSendMessage(e, canalActivo)}>
-                {canalActivo === 'anuncios' && esAdmin && (
-                    <div className="upload-btn-wrapper">
-                        <button type="button" className="btn-upload">📎</button>
-                        <input type="file" accept="image/*,video/mp4" onChange={handleUploadMedia} />
+            <div className="chat-bottom-bar">
+                {canalActivo === 'clash_logs' ? (
+                    <div className="chat-read-only">
+                        <span>📜 Canal de registro de eventos y partidas del sistema (solo lectura).</span>
                     </div>
-                )}
-                
-                {((canalActivo === 'anuncios' && esAdmin) || canalActivo !== 'anuncios') ? (
-                    <>
+                ) : canalActivo === 'anuncios' && !esAdmin ? (
+                    <div className="chat-read-only">
+                        <span>📢 Solo los administradores pueden enviar anuncios.</span>
+                    </div>
+                ) : (
+                    <form className="chat-input-area" onSubmit={(e) => handleSendMessage(e, canalActivo)}>
+                        {canalActivo === 'anuncios' && esAdmin && (
+                            <div className="upload-btn-wrapper">
+                                <button type="button" className="btn-upload" title="Subir imagen o video">📎</button>
+                                <input type="file" accept="image/*,video/mp4" onChange={handleUploadMedia} />
+                            </div>
+                        )}
                         <input 
                             type="text" 
                             placeholder="Escribe un mensaje..." 
-                            value={inputValues[canalActivo]}
+                            value={inputValues[canalActivo] || ''}
                             onChange={(e) => setInputValues(prev => ({...prev, [canalActivo]: e.target.value}))}
                         />
                         <button type="submit" disabled={isUploading}>{isUploading ? '⏳' : 'Enviar'}</button>
-                    </>
-                ) : (
-                    <p className="chat-read-only">Solo los administradores pueden enviar anuncios.</p>
+                    </form>
                 )}
-            </form>
+            </div>
         </div>
     );
 }

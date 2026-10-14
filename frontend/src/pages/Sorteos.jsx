@@ -14,6 +14,8 @@ export default function Sorteos() {
     const [loading, setLoading] = useState(true);
 
     const currentUser = useAppStore(state => state.user);
+    const socket = useAppStore(state => state.socket);
+    const connectSocket = useAppStore(state => state.connectSocket);
     const esAdmin = currentUser && currentUser.tipo_suscripcion === 'admin';
 
     // Formulario crear sorteo
@@ -86,17 +88,44 @@ export default function Sorteos() {
     };
 
     useEffect(() => {
+        if (currentUser) connectSocket();
+    }, [currentUser, connectSocket]);
+
+    useEffect(() => {
         cargarSorteos();
         
-        // TODO: En F3, conectar eventos del socket aquí
-        // socket.on('nuevo_sorteo', cargarSorteos)
-        // socket.on('sorteo_actualizado', cargarSorteos)
-        // socket.on('sorteo_ganador', cargarSorteos)
-        // socket.on('sorteo_eliminado', cargarSorteos)
-        // socket.on('poll_reset', cargarEncuesta)
-        // socket.on('poll_updated', cargarEncuesta)
-        // socket.on('tickets_ganados', (data) => setUserTickets(prev => prev + data.cantidad))
-    }, []);
+        if (!socket) return;
+
+        const onNuevoSorteo = () => cargarSorteos();
+        const onSorteoActualizado = () => cargarOfertas();
+        const onSorteoGanador = () => cargarSorteos();
+        const onSorteoEliminado = () => cargarOfertas();
+        const onPollReset = () => cargarEncuesta();
+        const onPollUpdated = () => cargarEncuesta();
+        const onTicketsGanados = (data) => {
+            if (data?.cantidad) {
+                setUserTickets(prev => prev + data.cantidad);
+            }
+        };
+
+        socket.on('nuevo_sorteo', onNuevoSorteo);
+        socket.on('sorteo_actualizado', onSorteoActualizado);
+        socket.on('sorteo_ganador', onSorteoGanador);
+        socket.on('sorteo_eliminado', onSorteoEliminado);
+        socket.on('poll_reset', onPollReset);
+        socket.on('poll_updated', onPollUpdated);
+        socket.on('tickets_ganados', onTicketsGanados);
+
+        return () => {
+            socket.off('nuevo_sorteo', onNuevoSorteo);
+            socket.off('sorteo_actualizado', onSorteoActualizado);
+            socket.off('sorteo_ganador', onSorteoGanador);
+            socket.off('sorteo_eliminado', onSorteoEliminado);
+            socket.off('poll_reset', onPollReset);
+            socket.off('poll_updated', onPollUpdated);
+            socket.off('tickets_ganados', onTicketsGanados);
+        };
+    }, [socket, currentUser]);
 
     // Countdown effect
     const [now, setNow] = useState(new Date());

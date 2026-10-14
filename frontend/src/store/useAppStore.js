@@ -17,6 +17,10 @@ export const useAppStore = create((set, get) => ({
     setUser: (userData) => {
         if (userData) {
             localStorage.setItem('currentUser', JSON.stringify(userData));
+            const socket = get().socket;
+            if (socket && socket.connected) {
+                socket.emit('registrar_socket', userData);
+            }
         } else {
             localStorage.removeItem('currentUser');
         }
@@ -24,8 +28,46 @@ export const useAppStore = create((set, get) => ({
     },
     logout: () => {
         localStorage.removeItem('currentUser');
-        set({ user: null });
         get().disconnectSocket();
+        set({ 
+            user: null,
+            chatMessages: { general: [], anuncios: [], clash: [], clash_logs: [] },
+            matchState: { inMatch: false, salaId: null, rival: null, gameMode: '', monto: 0, maxMonto: 10000, status: 'idle' }
+        });
+    },
+
+    // Estado del Chat centralizado (F3)
+    chatMessages: {
+        general: [],
+        anuncios: [],
+        clash: [],
+        clash_logs: []
+    },
+    setChatHistory: (canal, mensajes) => set(state => ({
+        chatMessages: {
+            ...state.chatMessages,
+            [canal]: Array.isArray(mensajes) ? mensajes : []
+        }
+    })),
+    addChatMessage: (msg) => set(state => {
+        const canal = msg.canal || 'general';
+        const currentList = state.chatMessages[canal] || [];
+        return {
+            chatMessages: {
+                ...state.chatMessages,
+                [canal]: [...currentList, msg]
+            }
+        };
+    }),
+    sendChatMessage: ({ canal, texto, tipo = 'texto' }) => {
+        const { socket, user } = get();
+        if (!socket || !user || !texto) return;
+        socket.emit('mensaje_chat', {
+            canal,
+            usuario: user.username,
+            texto,
+            tipo
+        });
     },
 
     // Estado del Socket
@@ -43,19 +85,50 @@ export const useAppStore = create((set, get) => ({
 
         newSocket.on('connect', () => {
             console.log('Socket conectado:', newSocket.id);
+            const currentUser = get().user;
+            if (currentUser) {
+                newSocket.emit('registrar_socket', currentUser);
+            }
         });
 
         newSocket.on('disconnect', () => {
             console.log('Socket desconectado');
         });
 
+        // Chat: Historial inicial emitido por el servidor en la conexión
+        newSocket.on('historial_chat', (data) => {
+            if (data && data.canal && Array.isArray(data.mensajes)) {
+                get().setChatHistory(data.canal, data.mensajes);
+            }
+        });
+
+        // Chat: Mensajes públicos en tiempo real y logs del sistema (clash_logs)
+        newSocket.on('mensaje_chat', (data) => {
+            if (data && data.canal) {
+                get().addChatMessage(data);
+            }
+        });
+
         // Escuchar actualización de saldos (global)
         newSocket.on('saldo_actualizado', (data) => {
             const currentUser = get().user;
-            if (currentUser) {
-                const updatedUser = { ...currentUser, saldo: data.nuevoSaldo };
-                get().setUser(updatedUser);
+            if (currentUser && data) {
+                const nuevoSaldo = data.nuevoSaldo !== undefined ? data.nuevoSaldo : data;
+                get().setUser({ ...currentUser, saldo: nuevoSaldo });
             }
+        });
+
+        newSocket.on('actualizar_saldo', (nuevoSaldo) => {
+            const currentUser = get().user;
+            if (currentUser && nuevoSaldo !== undefined) {
+                get().setUser({ ...currentUser, saldo: nuevoSaldo });
+            }
+        });
+
+        // Desconexión por duplicidad de sesión
+        newSocket.on('sesion_duplicada', (data) => {
+            alert(data?.mensaje || 'Tu cuenta se conectó desde otro dispositivo');
+            get().logout();
         });
 
         set({ socket: newSocket });
@@ -71,13 +144,15 @@ export const useAppStore = create((set, get) => ({
     // Estado de la partida actual
     matchState: {
         inMatch: false,
+        salaId: null,
         rival: null,
         gameMode: '',
         monto: 0,
-        status: 'idle' // idle, negotiating, waiting, playing, finished
+        maxMonto: 10000,
+        status: 'idle' // idle, searching, negotiating, waiting, playing, finished
     },
     setMatchState: (newState) => set((state) => ({ matchState: { ...state.matchState, ...newState } })),
     clearMatchState: () => set({ 
-        matchState: { inMatch: false, rival: null, gameMode: '', monto: 0, status: 'idle' } 
+        matchState: { inMatch: false, salaId: null, rival: null, gameMode: '', monto: 0, maxMonto: 10000, status: 'idle' } 
     }),
 }));

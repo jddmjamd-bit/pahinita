@@ -11,6 +11,17 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-13 — F3: Completar Estado Centralizado y Conexión Socket.IO (Gemini 3.8 Flash High)
+- **Pestaña y canal `clash_logs` en `Chat.jsx`**: Agregada la pestaña «📜 Registro» a la barra `chat-tabs`. Se renderiza con el estilo de logs del sistema (`.log-msg`), con icono `⚔️`, hora y mensaje limpio. Es un canal de solo lectura, por lo que el formulario de entrada se reemplaza por el aviso de canal de registro del sistema.
+- **Estado centralizado de Chat en Zustand (`useAppStore.js`)**: Los mensajes de chat (`general`, `anuncios`, `clash`, `clash_logs`) ahora residen en el store central `useAppStore`. Los eventos `historial_chat` y `mensaje_chat` son escuchados globalmente desde la conexión del socket, evitando pérdida de mensajes al navegar entre rutas.
+- **Registro de socket y sincronización de sesión**: Al conectarse el socket o al iniciar sesión (`setUser`), se emite automáticamente `registrar_socket` con el usuario actual. También se maneja el listener global de `sesion_duplicada` con cierre de sesión y alerta.
+- **Emisión real de mensajes y multimedia en Chat**: Se eliminó la simulación local de mensajes. Se emiten `mensaje_chat` para texto y media (video subido a `/api/upload` e imágenes en base64 para anuncios de administradores).
+- **Conexión de `Match.jsx` a Socket.IO y `matchState`**: Se conectaron los eventos en vivo (`partida_encontrada`, `actualizar_negociacion`, `esperando_inicio_rival`, `rival_listo_inicio`, `confirmar_partida`, `confirmacion_rechazada`, `rival_cancelo_inicio`, `error_negociacion`, `juego_iniciado`, `resultado_api`, `mensaje_privado`, `restaurar_partida`, `match_cancelado`) y sus emisiones correspondientes (`negociacion_live`, `iniciar_juego`, `cancelar_inicio`, `mensaje_privado`, `confirmar_partida_resp`).
+- **Conexión de `Sorteos.jsx` a Socket.IO**: Escucha eventos en tiempo real (`nuevo_sorteo`, `sorteo_actualizado`, `sorteo_ganador`, `sorteo_eliminado`, `poll_reset`, `poll_updated`, `tickets_ganados`).
+- **Navegación automática a `/match`**: En `Lobby.jsx`, cuando `matchState.inMatch` se activa por encontrar partida, el usuario es redirigido a `/match`.
+- Compilación verificada: `npm run build` (Vite) y `mvnw.cmd compile` completados con éxito sin errores.
+Archivos: `frontend/src/store/useAppStore.js`, `frontend/src/pages/Chat.jsx`, `frontend/src/pages/Chat.css`, `frontend/src/pages/Match.jsx`, `frontend/src/pages/Sorteos.jsx`, `frontend/src/pages/Lobby.jsx`, `CHANGELOG.md`
+
 ## 2026-10-13 — D2: Completar WalletService — eventos al bus, deprecar DAO legacy (Claude Opus 4.6 Thinking)
 - **WalletService ahora emite eventos al bus (A4)**: cada operación exitosa (`depositar`, `retirar`, `realizarTorneo`, `premiar`) emite `wallet.deposited`, `wallet.withdrawn`, `wallet.bet` o `wallet.awarded` con datos de tipo `MovimientoWallet` (userId, monto, nuevoSaldo, motivo). Los eventos se emiten DESPUÉS del commit SQL (no dentro de la transacción). El EventBus es nullable para mantener compatibilidad con tests.
 - **Nuevos eventos en `Eventos.java`**: constantes `WALLET_DEPOSITED`, `WALLET_WITHDRAWN`, `WALLET_BET`, `WALLET_AWARDED`, enum `TipoMovimiento` y record `MovimientoWallet`. Esto permite que features futuras como notificaciones de dinero (Prio 1 del roadmap) se suscriban al bus sin tocar WalletService.

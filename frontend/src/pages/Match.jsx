@@ -29,6 +29,11 @@ export default function Match() {
 
     const currentUser = useAppStore(state => state.user);
     const socket = useAppStore(state => state.socket);
+    const connectSocket = useAppStore(state => state.connectSocket);
+    const matchState = useAppStore(state => state.matchState);
+    const setMatchState = useAppStore(state => state.setMatchState);
+    const clearMatchState = useAppStore(state => state.clearMatchState);
+
     const chatEndRef = useRef(null);
     const simulacionRef = useRef(0); // id de la última consulta de ganancia (descarta respuestas viejas)
     const gananciaTimerRef = useRef(null); // S8: debounce de la consulta de ganancia (antes: una petición por cada tecla/flecha del input)
@@ -36,14 +41,145 @@ export default function Match() {
     useEffect(() => () => clearTimeout(gananciaTimerRef.current), []);
 
     useEffect(() => {
+        if (currentUser) connectSocket();
+    }, [currentUser, connectSocket]);
+
+    useEffect(() => {
         // Auto-scroll chat
         if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }, [chatMessages]);
 
     useEffect(() => {
-        // TODO: F3 conectar a socket.io global
-        // Escuchar 'partida_encontrada', 'juego_iniciado', 'resultado_api', etc.
-    }, []);
+        if (!socket) return;
+
+        const onPartidaEncontrada = (data) => {
+            const rival = data.p1?.id === currentUser?.id ? data.p2 : data.p1;
+            setRivalData(rival);
+            setMaxMontoPermitido(data.maxMonto || 10000);
+            setView('private');
+            setMatchState({
+                inMatch: true,
+                salaId: data.salaId,
+                rival,
+                maxMonto: data.maxMonto || 10000,
+                status: 'negotiating'
+            });
+        };
+
+        const onActualizarNegociacion = (data) => {
+            if (data.modo !== undefined) setGameMode(data.modo);
+            if (data.dinero !== undefined) setMonto(data.dinero);
+            validarNegociacion(data.modo !== undefined ? data.modo : gameMode, data.dinero !== undefined ? data.dinero : monto);
+        };
+
+        const onEsperandoInicioRival = () => {
+            setBtnState({ text: '⏳ ESPERANDO AL RIVAL... (Click cancelar)', disabled: false, cssClass: 'waiting-cancel' });
+        };
+
+        const onRivalListoInicio = () => {
+            setBtnState({ text: '⚡ RIVAL LISTO - ¡DALE COMENZAR!', disabled: false, cssClass: 'rival-ready' });
+        };
+
+        const onConfirmarPartida = (data) => {
+            setConfirmData({ modo: data.modo, monto: data.dinero });
+            setConfirmBtnText("Aceptar");
+            setShowConfirmModal(true);
+        };
+
+        const onConfirmacionRechazada = () => {
+            setShowConfirmModal(false);
+            setBtnState({ text: '🎮 COMENZAR', disabled: false, cssClass: 'enabled' });
+            alert('La confirmación de la partida fue cancelada');
+        };
+
+        const onRivalCanceloInicio = () => {
+            setBtnState({ text: '🎮 COMENZAR', disabled: false, cssClass: 'enabled' });
+        };
+
+        const onErrorNegociacion = (msg) => {
+            const errorMsg = typeof msg === 'string' ? msg : msg?.value || 'Error en la negociación';
+            alert(errorMsg);
+            setShowConfirmModal(false);
+            setBtnState({ text: '🎮 COMENZAR', disabled: false, cssClass: 'enabled' });
+        };
+
+        const onJuegoIniciado = () => {
+            setShowConfirmModal(false);
+            setView('game_result');
+            setApiStatusText('Buscando resultado en Clash Royale...');
+            setMatchState({ inMatch: true, status: 'playing' });
+        };
+
+        const onResultadoApi = (data) => {
+            setView('game_result');
+            const esGanador = data.ganadorId === currentUser?.id;
+            setApiResult({
+                esGanador,
+                premio: data.premio,
+                ganador: data.ganadorNombre,
+                crowns: `${data.teamCrowns ?? 0} - ${data.opponentCrowns ?? 0}`,
+                mensaje: data.mensaje
+            });
+            setMatchState({ status: 'finished' });
+        };
+
+        const onMensajePrivado = (data) => {
+            setChatMessages(prev => [...prev, data]);
+        };
+
+        const onRestaurarPartida = (data) => {
+            if (data.rival) setRivalData(data.rival);
+            if (data.maxMonto) setMaxMontoPermitido(data.maxMonto);
+            if (data.lastModo) setGameMode(data.lastModo);
+            if (data.lastDinero) setMonto(data.lastDinero);
+            if (data.historial && Array.isArray(data.historial)) setChatMessages(data.historial);
+            if (data.iniciado) {
+                setView('game_result');
+                setMatchState({ inMatch: true, salaId: data.salaId, status: 'playing' });
+            } else {
+                setView('private');
+                setMatchState({ inMatch: true, salaId: data.salaId, status: 'negotiating' });
+            }
+        };
+
+        const onMatchCancelado = (data) => {
+            alert("⚠️ " + (data?.motivo || 'Partida cancelada'));
+            clearMatchState();
+            setView('private');
+            setChatMessages([]);
+            setRivalData(null);
+        };
+
+        socket.on('partida_encontrada', onPartidaEncontrada);
+        socket.on('actualizar_negociacion', onActualizarNegociacion);
+        socket.on('esperando_inicio_rival', onEsperandoInicioRival);
+        socket.on('rival_listo_inicio', onRivalListoInicio);
+        socket.on('confirmar_partida', onConfirmarPartida);
+        socket.on('confirmacion_rechazada', onConfirmacionRechazada);
+        socket.on('rival_cancelo_inicio', onRivalCanceloInicio);
+        socket.on('error_negociacion', onErrorNegociacion);
+        socket.on('juego_iniciado', onJuegoIniciado);
+        socket.on('resultado_api', onResultadoApi);
+        socket.on('mensaje_privado', onMensajePrivado);
+        socket.on('restaurar_partida', onRestaurarPartida);
+        socket.on('match_cancelado', onMatchCancelado);
+
+        return () => {
+            socket.off('partida_encontrada', onPartidaEncontrada);
+            socket.off('actualizar_negociacion', onActualizarNegociacion);
+            socket.off('esperando_inicio_rival', onEsperandoInicioRival);
+            socket.off('rival_listo_inicio', onRivalListoInicio);
+            socket.off('confirmar_partida', onConfirmarPartida);
+            socket.off('confirmacion_rechazada', onConfirmacionRechazada);
+            socket.off('rival_cancelo_inicio', onRivalCanceloInicio);
+            socket.off('error_negociacion', onErrorNegociacion);
+            socket.off('juego_iniciado', onJuegoIniciado);
+            socket.off('resultado_api', onResultadoApi);
+            socket.off('mensaje_privado', onMensajePrivado);
+            socket.off('restaurar_partida', onRestaurarPartida);
+            socket.off('match_cancelado', onMatchCancelado);
+        };
+    }, [socket, currentUser, gameMode, monto, setMatchState, clearMatchState]);
 
     // D4: la comisión la calcula el servidor (ComisionService). El frontend ya no replica la fórmula.
     const actualizarGanancia = async (dinero) => {
@@ -91,45 +227,53 @@ export default function Match() {
         const val = e.target.value;
         setGameMode(val);
         validarNegociacion(val, monto);
-        // TODO: socket.emit('negociacion_live', {...})
+        if (socket && matchState?.salaId) {
+            socket.emit('negociacion_live', { salaId: matchState.salaId, modo: val, dinero: monto });
+        }
     };
 
     const handleMontoChange = (e) => {
         const val = e.target.value;
         setMonto(val);
         validarNegociacion(gameMode, val);
-        // TODO: socket.emit('negociacion_live', {...})
+        if (socket && matchState?.salaId) {
+            socket.emit('negociacion_live', { salaId: matchState.salaId, modo: gameMode, dinero: val });
+        }
     };
 
     const handleStartClick = () => {
-        if (!currentUser) return;
+        if (!currentUser || !socket) return;
         if (btnState.text.includes('ESPERANDO')) {
-            // Cancelar
-            // socket.emit('cancelar_inicio');
+            socket.emit('cancelar_inicio');
             setBtnState({ text: '🎮 COMENZAR', disabled: false, cssClass: 'enabled' });
             return;
         }
         
         setBtnState({ text: '⏳ ESPERANDO AL RIVAL... (Click cancelar)', disabled: false, cssClass: 'waiting-cancel' });
-        // socket.emit('iniciar_juego', { dinero: monto, modo: gameMode });
+        socket.emit('iniciar_juego', { dinero: monto, modo: gameMode });
     };
 
     const handleChatSubmit = (e) => {
         e.preventDefault();
-        if (chatInput && currentUser) {
-            // socket.emit('mensaje_privado', { ... })
-            setChatMessages(prev => [...prev, { usuario: currentUser.username, texto: chatInput, fecha: new Date().toISOString() }]);
+        const texto = chatInput.trim();
+        if (texto && currentUser && socket) {
+            socket.emit('mensaje_privado', {
+                usuario: currentUser.username,
+                texto,
+                fecha: new Date().toISOString()
+            });
+            setChatMessages(prev => [...prev, { usuario: currentUser.username, texto, fecha: new Date().toISOString() }]);
             setChatInput('');
         }
     };
 
     const handleAcceptMatch = () => {
-        // socket.emit('confirmar_partida_resp', { acepta: true });
+        if (socket) socket.emit('confirmar_partida_resp', { acepta: true });
         setConfirmBtnText("Esperando...");
     };
 
     const handleRejectMatch = () => {
-        // socket.emit('confirmar_partida_resp', { acepta: false });
+        if (socket) socket.emit('confirmar_partida_resp', { acepta: false });
         setShowConfirmModal(false);
     };
 

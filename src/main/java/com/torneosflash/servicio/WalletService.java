@@ -10,6 +10,7 @@ import com.torneosflash.servicio.ComisionService.Categoria;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.*;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -20,6 +21,8 @@ import java.util.Map;
  *  - Usa BigDecimal internamente. Nunca double para cálculos de dinero.
  *  - Las deducciones verifican saldo con WHERE saldo >= ? dentro de la misma transacción.
  *  - Cada operación es atómica (conn.setAutoCommit(false) + commit/rollback).
+ *  - Cada movimiento se registra en wallet_ledger dentro de la misma transacción (D3).
+ *    El ledger es inmutable: solo INSERT, nunca UPDATE ni DELETE.
  *  - Después de cada commit exitoso se emite un evento al bus (A4) para que
  *    listeners como notificaciones de dinero (Prio 1) reaccionen sin acoplar.
  *
@@ -27,6 +30,14 @@ import java.util.Map;
  */
 public class WalletService {
     private static final Logger logger = LoggerFactory.getLogger(WalletService.class);
+
+    // Tipos de movimiento para wallet_ledger (D3). Coinciden con la columna tipo VARCHAR(20).
+    private static final String TIPO_DEPOSITO     = "deposito";
+    private static final String TIPO_RETIRO       = "retiro";
+    private static final String TIPO_TORNEO       = "torneo";
+    private static final String TIPO_PREMIO        = "premio";
+    private static final String TIPO_COMISION      = "comision";
+    private static final String TIPO_LIQUIDACION   = "liquidacion";
 
     private final ConexionDB db;
     private final ComisionService comisiones;
@@ -108,6 +119,9 @@ public class WalletService {
             conn = db.getConnection();
             conn.setAutoCommit(false);
 
+            // Leer saldo anterior (D3: antes de modificar)
+            BigDecimal saldoAnterior = leerSaldo(conn, userId);
+
             // Acreditar saldo
             try (PreparedStatement ps = conn.prepareStatement(
                     "UPDATE users SET saldo = saldo + ? WHERE id = ?")) {
@@ -122,6 +136,9 @@ public class WalletService {
 
             // Leer nuevo saldo
             BigDecimal nuevoSaldo = leerSaldo(conn, userId);
+
+            // D3: registrar en ledger (inmutable, dentro de la transacción)
+            insertarLedger(conn, userId, TIPO_DEPOSITO, monto, saldoAnterior, nuevoSaldo, motivo);
 
             conn.commit();
             logger.info("💰 DEPÓSITO userId={} monto={} motivo='{}' nuevoSaldo={}",
@@ -163,6 +180,9 @@ public class WalletService {
             conn = db.getConnection();
             conn.setAutoCommit(false);
 
+            // Leer saldo anterior (D3: antes de modificar)
+            BigDecimal saldoAnterior = leerSaldo(conn, userId);
+
             // Descontar con guarda atómica
             try (PreparedStatement ps = conn.prepareStatement(
                     "UPDATE users SET saldo = saldo - ? WHERE id = ? AND saldo >= ?")) {
@@ -178,6 +198,9 @@ public class WalletService {
 
             // Leer nuevo saldo
             BigDecimal nuevoSaldo = leerSaldo(conn, userId);
+
+            // D3: registrar en ledger (inmutable, dentro de la transacción)
+            insertarLedger(conn, userId, TIPO_RETIRO, monto, saldoAnterior, nuevoSaldo, motivo);
 
             conn.commit();
             logger.info("💸 RETIRO userId={} monto={} motivo='{}' nuevoSaldo={}",
@@ -218,6 +241,9 @@ public class WalletService {
             conn = db.getConnection();
             conn.setAutoCommit(false);
 
+            // Leer saldo anterior (D3: antes de modificar)
+            BigDecimal saldoAnterior = leerSaldo(conn, userId);
+
             // Descontar monto y actualizar estado + total_monto_torneos atómicamente
             try (PreparedStatement ps = conn.prepareStatement(
                     "UPDATE users SET saldo = saldo - ?, total_monto_torneos = total_monto_torneos + ?, " +
@@ -235,6 +261,9 @@ public class WalletService {
             }
 
             BigDecimal nuevoSaldo = leerSaldo(conn, userId);
+
+            // D3: registrar en ledger (inmutable, dentro de la transacción)
+            insertarLedger(conn, userId, TIPO_TORNEO, monto, saldoAnterior, nuevoSaldo, "Torneo");
 
             conn.commit();
             logger.info("🎲 TORNEO userId={} monto={} nuevoSaldo={}", userId, monto, nuevoSaldo);
@@ -340,6 +369,9 @@ public class WalletService {
 
             String detalle = "Match #" + matchDbId;
 
+            // D3: leer saldo del ganador ANTES del pago
+            BigDecimal saldoAnteriorGanador = leerSaldo(conn, idGanador);
+
             // 1. Pagar al ganador
             try (PreparedStatement ps = conn.prepareStatement(
                     "UPDATE users SET saldo = saldo + ?, total_ganado = total_ganado + ? WHERE id = ?")) {
@@ -404,6 +436,20 @@ public class WalletService {
             // 6. Leer saldo final del ganador
             BigDecimal nuevoSaldoGanador = leerSaldo(conn, idGanador);
 
+            // D3: registrar en ledger — premio del ganador
+            insertarLedger(conn, idGanador, TIPO_LIQUIDACION, premio,
+                    saldoAnteriorGanador, nuevoSaldoGanador, detalle);
+
+            // D3: registrar en ledger — cada categoría de comisión (user_id=0 = sistema/admin)
+            for (Map.Entry<Categoria, BigDecimal> entrada : desglose.getMontos().entrySet()) {
+                BigDecimal montoCategoria = entrada.getValue();
+                if (montoCategoria.compareTo(BigDecimal.ZERO) > 0) {
+                    insertarLedger(conn, 0, TIPO_COMISION, montoCategoria,
+                            BigDecimal.ZERO, BigDecimal.ZERO,
+                            detalle + " " + entrada.getKey().getClave());
+                }
+            }
+
             conn.commit();
             logger.info("🏆 LIQUIDACIÓN match#{} ganador={} premio={} comisión={} nuevoSaldo={}",
                     matchDbId, idGanador, premio, comisionReal, nuevoSaldoGanador);
@@ -446,6 +492,9 @@ public class WalletService {
             conn = db.getConnection();
             conn.setAutoCommit(false);
 
+            // Leer saldo anterior (D3: antes de modificar)
+            BigDecimal saldoAnterior = leerSaldo(conn, userId);
+
             try (PreparedStatement ps = conn.prepareStatement(
                     "UPDATE users SET saldo = saldo + ? WHERE id = ?")) {
                 ps.setBigDecimal(1, monto);
@@ -458,6 +507,9 @@ public class WalletService {
             }
 
             BigDecimal nuevoSaldo = leerSaldo(conn, userId);
+
+            // D3: registrar en ledger (inmutable, dentro de la transacción)
+            insertarLedger(conn, userId, TIPO_PREMIO, monto, saldoAnterior, nuevoSaldo, motivo);
 
             conn.commit();
             logger.info("🎁 PREMIO userId={} monto={} motivo='{}' nuevoSaldo={}",
@@ -493,14 +545,37 @@ public class WalletService {
             conn = db.getConnection();
             conn.setAutoCommit(false);
 
+            // D3: leer IDs y saldos de los admins ANTES del pago para registrar en el ledger
+            List<int[]> adminsAntes = new java.util.ArrayList<>(); // [id, saldoAnterior no aplica para int; se lee aparte]
+            List<Object[]> adminsInfo = new java.util.ArrayList<>(); // {id, saldoAnterior}
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT id, saldo FROM users WHERE tipo_suscripcion = 'admin'")) {
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        int adminId = rs.getInt("id");
+                        BigDecimal saldoAntes = rs.getBigDecimal("saldo");
+                        if (saldoAntes == null) saldoAntes = BigDecimal.ZERO;
+                        adminsInfo.add(new Object[]{adminId, saldoAntes});
+                    }
+                }
+            }
+
             try (PreparedStatement ps = conn.prepareStatement(
                     "UPDATE users SET saldo = saldo + ? WHERE tipo_suscripcion = 'admin'")) {
                 ps.setBigDecimal(1, montoPorAdmin);
                 ps.executeUpdate();
             }
 
+            // D3: registrar en el ledger una fila por cada admin
+            for (Object[] info : adminsInfo) {
+                int adminId = (int) info[0];
+                BigDecimal saldoAntes = (BigDecimal) info[1];
+                BigDecimal saldoDespues = saldoAntes.add(montoPorAdmin);
+                insertarLedger(conn, adminId, TIPO_PREMIO, montoPorAdmin, saldoAntes, saldoDespues, motivo);
+            }
+
             conn.commit();
-            logger.info("🎁 PREMIO ADMINS monto={} motivo='{}'", montoPorAdmin, motivo);
+            logger.info("🎁 PREMIO ADMINS monto={} motivo='{}' admins={}", montoPorAdmin, motivo, adminsInfo.size());
             return WalletResult.ok(montoPorAdmin); // No hay un saldo específico para "todos los admins"
 
         } catch (SQLException e) {
@@ -589,6 +664,35 @@ public class WalletService {
             ps.setString(2, razon);
             ps.setString(3, detalle);
             ps.setString(4, categoria);
+            ps.executeUpdate();
+        }
+    }
+
+    /**
+     * D3: Inserta una fila inmutable en wallet_ledger dentro de la transacción activa.
+     * Nunca UPDATE ni DELETE sobre esta tabla. // REVIEW-MONEY
+     *
+     * @param conn            conexión con transacción activa
+     * @param userId          usuario afectado (0 para movimientos de sistema/admin como comisiones)
+     * @param tipo            uno de TIPO_DEPOSITO, TIPO_RETIRO, TIPO_TORNEO, TIPO_PREMIO, TIPO_COMISION, TIPO_LIQUIDACION
+     * @param monto           monto del movimiento (siempre positivo)
+     * @param saldoAnterior   saldo del usuario antes del movimiento
+     * @param saldoPosterior  saldo del usuario después del movimiento
+     * @param referencia      contexto legible (motivo, "Match #42", etc.)
+     */
+    private void insertarLedger(Connection conn, int userId, String tipo, BigDecimal monto,
+                                BigDecimal saldoAnterior, BigDecimal saldoPosterior,
+                                String referencia) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO wallet_ledger (user_id, tipo, monto, saldo_anterior, saldo_posterior, referencia) " +
+                "VALUES (?, ?, ?, ?, ?, ?)")) {
+            ps.setInt(1, userId);
+            ps.setString(2, tipo);
+            ps.setBigDecimal(3, monto);
+            ps.setBigDecimal(4, saldoAnterior);
+            ps.setBigDecimal(5, saldoPosterior);
+            ps.setString(6, referencia != null && referencia.length() > 200
+                    ? referencia.substring(0, 200) : referencia);
             ps.executeUpdate();
         }
     }
