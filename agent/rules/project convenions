@@ -34,3 +34,69 @@
 - Notificar al usuario verificaciones manuales.
 - Ejecutar `git diff --stat` para verificar qué archivos se tocaron.
 - Seguir la regla de auto-push (add, commit con mensaje descriptivo en español, push a main) a no ser que se indique lo contrario.
+
+
+# 🚨 Reglas de Transición (Fase 0 → Fase 1) — LECTura OBLIGATORIA PARA AGENTES
+
+> **Estado actual del proyecto:** El proyecto se encuentra en entorno cerrado de pruebas (sin clientes reales en producción) avanzando en funcionalidades de **Fase 1** mientras se terminan de saldar las siguientes tareas de **Fase 0**: `S2`, `S3`, `S4`, `S7`, `D1`, `A1`, `A2`.
+> **Objetivo del agente:** Implementar funcionalidades nuevas con **cero deuda técnica adicional** y **cero retrabajo futuro**.
+
+---
+
+## 1. Seguridad y Autenticación (`S1`–`S6`)
+
+1. **Identidad del usuario (`S2`):**
+   - **OBLIGATORIO:** En todo endpoint nuevo o modificado que actúe en nombre del usuario autenticado, obtén el ID exclusivamente desde la sesión JWT inyectada por el middleware: `ctx.attribute("userId")`.
+   - **PROHIBIDO:** Leer `userId`, `id_usuario` o `username` del usuario emisor desde `ctx.body()`, `ctx.queryParam()` o `ctx.pathParam()` (salvo cuando sea el ID de un tercero, ej. enviar solicitud de amistad a `targetUserId`).
+2. **Rutas de Administración (`S3`):**
+   - **OBLIGATORIO:** Todo endpoint de uso administrativo (aprobación de KYC, revisión de evidencias de pago, gestión de tickets de soporte, configuración de límites, etc.) **DEBE** ubicarse bajo el prefijo `/api/admin/*` para quedar cubierto automáticamente por el middleware de rol admin.
+   - **PROHIBIDO:** Crear rutas administrativas fuera de `/api/admin/*` o usar patrones inseguros como `/secret-admin/*`.
+3. **Prevención de SQL Injection (`S4`):**
+   - **OBLIGATORIO:** Todas las consultas SQL en DAOs o servicios nuevos deben usar exclusivamente `PreparedStatement` con parámetros `?`.
+   - **PROHIBIDO:** Concatenar variables o strings del usuario en consultas SQL o usar `Statement.execute()`.
+4. **Exposición de datos (`S6`):**
+   - **PROHIBIDO:** Usar `SELECT * FROM usuarios` para devolver datos al frontend. Especifica siempre las columnas seguras y jamás serialices `password_hash`, secretos `2FA` ni tokens internos.
+
+---
+
+## 2. Manejo de Dinero y Ledger (`D1`–`D5`)
+
+1. **Uso estricto de `BigDecimal` (`D1`):**
+   - **OBLIGATORIO:** Todo código nuevo que represente dinero, saldos, apuestas/retos, comisiones, límites o porcentajes de devolución **DEBE** usar `java.math.BigDecimal` en Java (`rs.getBigDecimal()`, `ps.setBigDecimal()`) y `NUMERIC`/`DECIMAL` en PostgreSQL.
+   - **PROHIBIDO:** Declarar variables, parámetros o campos de tipo `double` o `float` para valores monetarios en código nuevo.
+   - **Interoperabilidad temporal con código legacy:** Si tu código nuevo debe llamar a un método antiguo que aún usa `double` (mientras se completa la migración `D1`), realiza la conversión únicamente en la línea de llamada y añade el comentario `// TODO(D1): eliminar conversión cuando se migre a BigDecimal`.
+2. **Centralización en `WalletService` y `wallet_ledger` (`D2`, `D3`):**
+   - **OBLIGATORIO:** Cualquier alteración del saldo de un usuario debe ejecutarse a través de `WalletService` dentro de una transacción atómica y dejando registro inmutable (`INSERT`) en `wallet_ledger`.
+   - **PROHIBIDO:** Ejecutar `UPDATE usuarios SET saldo = ...` directamente desde rutas, DAOs externos o handlers de sockets.
+3. **Auditoría:**
+   - Añade el comentario `// REVIEW-MONEY` encima de cualquier método nuevo que calcule premios, comisiones, devoluciones, préstamos/regalos o límites financieros.
+
+---
+
+## 3. Arquitectura, Eventos y Tiempo Real (`A1`–`A4`)
+
+1. **Separación de capas (`A3`):**
+   - Los archivos `Rutas*.java` solo deben validar/parsear la petición HTTP, extraer `ctx.attribute("userId")` y llamar al `*Service.java` correspondiente. **PROHIBIDO** escribir lógica de negocio o consultas SQL dentro de `Rutas*.java`.
+2. **Desacoplamiento por Eventos (`A4`):**
+   - Funciones reactivas como **Notificaciones de dinero (1)**, **Misiones (7)**, **Logros (11)**, **Ligas/Copas (12.2)** y **Puntos VIP (16.7)** deben implementarse como listeners del `EventBus` (ej. escuchando `wallet.movement`, `match.finished`, `user.verified`) en lugar de acoplar llamadas directas dentro del flujo crítico de partidas o pagos.
+3. **Guardia de Bloqueo de WebSockets (`A1` - `netty-socketio`):**
+   - **PROHIBIDO** construir nuevas funcionalidades complejas de tiempo real que dependan de *rooms* o *namespaces* (ej. Chat privado, Chat de clanes, salas 2v2, sincronización de Torneos) sobre el adaptador WebSocket custom antiguo (`socketio/`).
+   - Si el usuario pide avanzar en Clanes (18.4), Amigos (7) o Soporte (24.5) antes de que `A1` esté completado, implementa **toda la capa de Base de Datos, Servicios, API REST y UI estática**, dejando únicamente la emisión de eventos de sala Socket.IO preparada o pendiente de `A1`.
+4. **Guardia de Bloqueo de Estado en Memoria (`A2` - Persistencia en BD):**
+   - **PROHIBIDO** crear nuevas listas o mapas estáticos en memoria (`ConcurrentHashMap`, `ArrayList` en `SocketHandler`) para gestionar colas de emparejamiento, salas 2v2 o brackets de torneos. Todo estado de juego nuevo debe persistirse en base de datos (`active_matches`, `match_queue`, `tournament_matches`).
+
+---
+
+## 4. Semáforo de Ejecución para Agentes (Fase 1)
+
+Antes de implementar una funcionalidad del Roadmap, verifica en qué categoría cae:
+
+* 🟢 **Implementación directa permitida (sin bloqueos):**
+  * Verificación de email + VIP, TOS/Privacidad, 2FA, KYC (usando `/api/admin/*`), Notificaciones de movimientos y su configuración, Referidos, Misiones, Logros, Ligas/Arenas (vía `EventBus`), Sistema VIP, Amigos (CRUD REST), Clanes y Prestigio (CRUD REST), Evidencias de pago, Tickets de soporte, Pasarelas manuales (Llaves/Nu), FAQ, Tutorial, Chatbot IA, Capacitor, Bot de Discord.
+* 🟡 **Requiere verificar/aplicar `D1` (`BigDecimal`) en los archivos afectados antes de codificar:**
+  * Límites de dinero (8), Sistema de devolución (12.5), Regalar/prestar dinero (18.7), Unificación de moneda (23.5), Coach (26.6).
+* 🟠 **Requiere patrón de verificación de firmas (`S7`) + `D1`:**
+  * Pasarelas automatizadas por Webhook: PayPal (22), Nequi API (23), Cripto (24).
+* 🔴 **Bloqueado por `A1` (`netty-socketio`) y/o `A2` (Estado en BD):**
+  * Chat privado en tiempo real (8), Chat de clanes en tiempo real (18.5), Matchmaking justo en cola (15), Partidas 2v2 en vivo (16.2), Motor en vivo de Torneos (17.7, 18, 20) y Guerra de clanes (25.5).
+  * *Acción del agente si se solicita una tarea 🔴 sin estar listos `A1`/`A2`:* Advierte al usuario del retrabajo en la parte de sockets/colas y ofrece construir primero las migraciones SQL (Flyway), modelos, servicios CRUD y vistas de interfaz que no dependan del socket en vivo.
