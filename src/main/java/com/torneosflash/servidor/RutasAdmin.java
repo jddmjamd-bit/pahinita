@@ -7,9 +7,14 @@ import io.javalin.Javalin;
 import static com.torneosflash.servidor.RutasAuth.*;
 
 /**
- * Rutas de administración: transacciones, disputas, stats, secret-admin, fix-status.
+ * Rutas de administración: transacciones, disputas, stats, fix-status.
  *
  * A3: solo parsean el request y llaman a {@link AdminService}.
+ *
+ * S3: el acceso lo controla {@link AdminMiddleware} (sesión JWT + rol admin leído de la BD) para todo
+ * {@code /api/admin/*}, {@code /api/deposit} y {@code /admin-fix-status/*}; las rutas de aquí ya no verifican nada.
+ * La ruta {@code /secret-admin/{username}}, que convertía en admin a cualquiera sin autenticación, fue eliminada:
+ * para hacer admin a alguien se edita {@code users.tipo_suscripcion} desde el panel {@code /admin-db}.
  */
 public class RutasAdmin {
 
@@ -43,22 +48,13 @@ public class RutasAdmin {
             ctx.json(successJson("Disputa resuelta", 0));
         });
 
-        // GET /secret-admin/:username (hacer admin)
-        // ⚠️ Sigue abierta tal como estaba: la elimina la tarea S3 (no es parte de A3).
-        app.get("/secret-admin/{username}", ctx -> {
-            String username = ctx.pathParam("username");
-            admin.hacerAdmin(username);
-            ctx.result("✅ " + username + " ahora es admin");
-        });
-
         // GET /admin-fix-status/:targetUser/:adminUser (resetear estado)
+        // S3: AdminMiddleware exige sesión de admin. El segmento {adminUser} se conserva solo para no romper la URL
+        // que ya usan los clientes: se IGNORA (antes bastaba con escribir el nombre de cualquier admin).
         app.get("/admin-fix-status/{targetUser}/{adminUser}", ctx -> {
             String targetUser = ctx.pathParam("targetUser");
-            if (admin.resetearEstado(targetUser, ctx.pathParam("adminUser"))) {
-                ctx.result("✅ Estado de " + targetUser + " reseteado a normal");
-            } else {
-                ctx.result("⛔ No tienes permisos de admin");
-            }
+            admin.resetearEstado(targetUser);
+            ctx.result("✅ Estado de " + targetUser + " reseteado a normal");
         });
 
         // GET /check-ip (mostrar IP del cliente y del servidor)

@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — UltimateClash (TorneosFlash)
 
 > Documento de referencia para que cualquier modelo o desarrollador entienda el sistema.
-> Última actualización: 2026-10-13
+> Última actualización: 2026-10-14
 
 ---
 
@@ -14,7 +14,7 @@
 | **BD** | PostgreSQL (Render) | Pool: HikariCP, max 20 conexiones. Enlace de acceso endurecido (sección 11) |
 | **ORM** | Ninguno | SQL directo con `PreparedStatement` vía `GenericDAO` |
 | **Migraciones BD** | Flyway 10 | Scripts versionados en `src/main/resources/db/migration/`; se aplican al arrancar (`ConexionDB.migrar()`). Ver sección 14 |
-| **Auth** | JWT HS256 en cookie httpOnly `session` (S1) | `AuthMiddleware` verifica e inyecta `ctx.attribute("userId")`/`("rol")`. Pendiente: S2 (userId del body y socket), S3 (rol admin). Ver sección 16 |
+| **Auth** | JWT HS256 en cookie httpOnly `session` (S1) | `AuthMiddleware` verifica e inyecta `ctx.attribute("userId")`/`("rol")`. Rutas de admin protegidas por `AdminMiddleware` (S3, sección 18). Pendiente: S2 (userId del body y socket). Ver secciones 16 y 18 |
 | **Frontend** | Vanilla JS (`app.js`, 120 KB) | SPA monolítica sin framework. **Migrar a React + Vite** (pendiente, en progreso bajo `frontend/`) |
 | **Mobile App** | Capacitor | Genera builds nativos para Android e iOS encapsulando la app React. Gestiona Splash Screen y permisos |
 | **Pagos** | Wompi (tarjeta), Nequi (manual) | Webhook Wompi no verifica firma |
@@ -81,6 +81,7 @@ TorneosFlash/
 │   ├── servidor/                    # Capa HTTP (A3): parsea el request, llama a un servicio y responde. Sin lógica de negocio ni SQL
 │   │   ├── RateLimitMiddleware.java # Rate limiting por IP (S8): clasifica cada request y responde 429. Ver sección 10
 │   │   ├── AuthMiddleware.java      # Sesión JWT (S1): lee la cookie httpOnly `session`, inyecta `userId`/`rol`, emite y borra la cookie. Ver sección 16
+│   │   ├── AdminMiddleware.java     # Exige sesión + rol admin (leído de la BD) en `/api/admin/*`, `/api/deposit` y `/admin-fix-status/*` (S3). Ver sección 18
 │   │   ├── ManejadorErrores.java    # Único handler de `ServicioException` → `{error}` con su código HTTP (A3)
 │   │   ├── Peticion.java            # Lee campos del body, parámetros de ruta y el userId de la sesión JWT; campo faltante/inválido → 400 (A3)
 │   │   ├── RutasAuth.java           # Login, registro, sesión
@@ -249,7 +250,7 @@ Todo monto que llega del cliente pasa por `servicio/ValidadorMonto` **antes** de
 
 - Los errores de validación HTTP responden **400** con `{ "error": "..." }`; en el socket se emite `error_negociacion` solo al jugador que envió el monto.
 - Negociación de torneo: el voto de cada jugador se guarda ya validado y normalizado; un voto nuevo invalida confirmaciones previas; al cobrar se exige que ambos votos existan y coincidan y que ambos tengan saldo.
-- Fuera de alcance de D5 (siguen pendientes): `double` en la comisión de Wompi y en `match.monto` (D1), reembolso atómico si falla el cobro del segundo jugador (D2), `/api/deposit` sin chequeo de admin (S3).
+- Fuera de alcance de D5 (siguen pendientes): `double` en la comisión de Wompi y en `match.monto` (D1), reembolso atómico si falla el cobro del segundo jugador (D2). `/api/deposit` ya exige admin (S3, sección 18).
 
 ---
 
@@ -475,7 +476,7 @@ RutasX (servidor/)                        XService (servicio/)
 **Pendiente / fuera de A3**
 - `SocketHandler` (~50 KB) sigue mezclando protocolo de sockets con lógica de negocio (matchmaking, negociación, chat); es candidato a su propia tarea.
 - La lógica de decisión del scheduler de `Main` (qué día se premia) sigue en `Main`.
-- `/secret-admin/{username}` (S3), webhook sin firma (S7) y `userId` desde el body (S2) siguen abiertos; no son parte de A3.
+- Webhook sin firma (S7) y `userId` desde el body (S2) siguen abiertos; no son parte de A3. `/secret-admin/{username}` ya fue eliminada (S3).
 
 ---
 
@@ -512,7 +513,7 @@ ruta ── AuthMiddleware.getUserId(ctx) / Peticion.userIdDeSesion(ctx) (0 si n
 
 **Límites conocidos / pendientes**
 - **S2:** muchas rutas siguen leyendo `userId` del body (finanzas, sorteos, `register-token`) y el socket no se autentica en el handshake. Para eso ya existen `AuthMiddleware.getUserId(ctx)` y `AuthMiddleware.userIdDesdeCookieHeader(cookieHeader)`.
-- **S3:** el claim `rol` puede quedar viejo hasta el siguiente `/api/session` o login; para rutas admin, validar el rol contra la BD o confiar solo en tokens recién renovados.
+- **S3 (resuelto):** el claim `rol` puede quedar viejo hasta el siguiente `/api/session` o login, por eso las rutas de admin NO lo usan: `AdminMiddleware` consulta `users.tipo_suscripcion` en la BD en cada petición (sección 18).
 - **App nativa / React en otro origen:** con `SameSite=Lax` el navegador no envía la cookie en `fetch` entre sitios (igual que antes con la cookie sin SameSite). Si la app Capacitor necesita la sesión, usar `COOKIE_SAMESITE=None` **y** cambiar CORS `anyHost()` + `allowCredentials` por una lista de orígenes permitidos; con `None` y `anyHost()` cualquier web podría hacer peticiones autenticadas.
 
 ## Términos de Servicio y Política de Privacidad (roadmap 1.6)
@@ -573,3 +574,34 @@ Admin ── pestaña «🤖 Chatbot» del panel (AdminChatbot.jsx)
 - La búsqueda en la base es por palabras clave, no semántica: suficiente para decenas o cientos de respuestas cortas. Si crece mucho, sustituir `ChatbotConocimiento.relevantes` (embeddings).
 - El frontend legacy (`public/`) no tiene el chatbot: solo la app React (`/chatbot` y la pestaña del panel admin).
 - `RateLimitMiddleware` no clasifica la ruta del chatbot (ese archivo no se pudo editar en esta tarea); el límite por IP vive en `RutasChatbot`. Si se prefiere centralizarlo, mover `limitarPorIp` al middleware como cubo `IA`.
+
+---
+
+## 18. Autorización de admin (S3)
+
+`servidor/AdminMiddleware` es un `app.before` que corta la petición antes de llegar a la ruta si quien la hace no es admin. Se registra en `Main` después de `AuthMiddleware` (necesita el `userId` de la sesión) y antes de las rutas. Las rutas protegidas ya no verifican nada por su cuenta.
+
+```
+petición ── RateLimitMiddleware ── AuthMiddleware (JWT → userId) ── AdminMiddleware ── ruta
+                                                           ├─ sin userId            → 401 {"error"}
+                                                           ├─ AdminService.esAdmin  → SELECT tipo_suscripcion FROM users WHERE id = ?
+                                                           └─ no es admin           → 403 {"error"} (+ warn en el log)
+```
+
+| Patrón protegido | Qué cubre |
+|---|---|
+| `/api/admin/*` | `RutasAdmin` (transacciones, disputas, stats, procesar, resolver), `RutasSorteos` (`/api/admin/raffle*`, `/api/admin/raffles`) y `RutasChatbot` (`/api/admin/chatbot/*`, que además conserva su `exigirAdmin`) |
+| `/api/deposit` | Depósito manual (acredita saldo a cualquier `userId`) |
+| `/admin-fix-status/*` | Resetear el estado de un jugador (el segmento `{adminUser}` de la URL se ignora) |
+
+- **El rol sale de la BD, no del JWT.** El claim `rol` se fija al iniciar sesión y puede quedar viejo hasta 30 días: con él, un admin degradado seguiría entrando y uno recién promovido no. El JWT solo identifica al usuario. Cuesta una consulta por petición admin. Si la BD falla, se trata como no-admin.
+- **`OPTIONS` (preflight CORS) pasa sin chequeo:** no lleva cookies ni ejecuta rutas.
+- **Una ruta admin nueva** debe colgar de `/api/admin/` para quedar protegida sola. Si por compatibilidad no puede, añadir su patrón a `RUTAS_ADMIN` en `AdminMiddleware`.
+- **No existe ruta para crear admins.** `/secret-admin/{username}` se eliminó (cualquiera podía hacerse admin). Para promover a alguien: `/admin-db` → tabla `users` → `tipo_suscripcion = 'admin'` (clave `DB_ADMIN_SECRET`, sección 11). Efecto inmediato en el backend; el frontend lo ve en el siguiente `/api/session`.
+- **Frontend:** `Admin.jsx` llama a `/api/admin/*` con `llamarApi` (envía la cookie) y trata 401/403 como error. El frontend legacy `public/js/admin.js` no maneja esas respuestas.
+
+**Pendiente / fuera de S3**
+- `GET /admin-fix-status/...` modifica datos con GET (riesgo CSRF con `SameSite=Lax` desde un enlace externo): pasarlo a POST.
+- `GET /check-ip` sigue público (muestra la IP pública del servidor).
+- Las acciones de admin por Socket.IO (p. ej. anuncios) no pasan por este middleware; dependen de S2 (autenticar el socket).
+- `RateLimitMiddleware` todavía menciona `/secret-admin/` (ahora 404; el límite solo frena el sondeo).

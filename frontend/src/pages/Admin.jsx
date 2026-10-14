@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { llamarApi } from '../store/llamarApi';
 import AdminChatbot from './AdminChatbot';
 import './Admin.css';
 
@@ -39,11 +40,17 @@ export default function Admin() {
         return <div style={{padding: 20, color: 'white', textAlign: 'center'}}>Acceso denegado.</div>;
     }
 
+    // S3: las rutas /api/admin/* exigen la sesión (cookie httpOnly). llamarApi siempre envía la cookie y no lanza;
+    // un 401/403 llega como { ok: false, data: { error } } y no se confunde con una lista vacía.
     const cargarTransaccionesAdmin = async () => {
         setLoadingTx(true);
         try {
-            const res = await fetch(`${API_BASE_URL}/api/admin/transactions`);
-            const data = await res.json();
+            const { ok, data } = await llamarApi('/api/admin/transactions');
+            if (!ok || !Array.isArray(data)) {
+                console.error(data?.error || 'No se pudieron cargar las transacciones');
+                setTransactions([]);
+                return;
+            }
             setTransactions(data);
         } catch (e) {
             console.error(e);
@@ -54,8 +61,12 @@ export default function Admin() {
 
     const cargarDisputasAdmin = async () => {
         try {
-            const res = await fetch(`${API_BASE_URL}/api/admin/disputes`);
-            const data = await res.json();
+            const { ok, data } = await llamarApi('/api/admin/disputes');
+            if (!ok || !Array.isArray(data)) {
+                console.error(data?.error || 'No se pudieron cargar las disputas');
+                setDisputes([]);
+                return;
+            }
             setDisputes(data);
             
             // Init resolution state
@@ -72,13 +83,11 @@ export default function Admin() {
     const procesarTransaccionAdmin = async (id, act) => {
         if (!window.confirm(`¿${act === 'approve' ? 'Aprobar' : 'Rechazar'} esta solicitud?`)) return;
         try {
-            const res = await fetch(`${API_BASE_URL}/api/admin/transaction/process`, {
+            const { ok, data: d } = await llamarApi('/api/admin/transaction/process', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ transId: id, action: act })
             });
-            const d = await res.json();
-            if (d.error) return alert('Error: ' + d.error);
+            if (!ok || !d || d.error) return alert('Error: ' + (d?.error || 'No se pudo procesar'));
             
             setTransactions(prev => prev.filter(t => t.id !== id));
         } catch (e) {
@@ -93,15 +102,15 @@ export default function Admin() {
         if (!window.confirm(`SENTENCIA:\n\n🏆 Gana: ${resolution.ganador}\n💀 Culpable: ${resolution.culpable}\n\n¿Confirmar?`)) return;
 
         try {
-            await fetch(`${API_BASE_URL}/api/admin/resolve-dispute`, {
+            const { ok, data: d } = await llamarApi('/api/admin/resolve-dispute', {
                 method: 'POST', 
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     matchId,
                     ganadorNombre: resolution.ganador,
                     culpableNombre: resolution.culpable
                 })
             });
+            if (!ok || !d || d.error) return alert('Error: ' + (d?.error || 'No se pudo aplicar la sentencia'));
             alert("Sentencia aplicada.");
             cargarDisputasAdmin();
         } catch (e) {
@@ -130,8 +139,11 @@ export default function Admin() {
     const cargarEstadisticasAdmin = async () => {
         setLoadingStats(true);
         try {
-            const res = await fetch(`${API_BASE_URL}/api/admin/stats`);
-            const data = await res.json();
+            const { ok, data } = await llamarApi('/api/admin/stats');
+            if (!ok || !data || data.error) {
+                console.error(data?.error || 'No se pudieron cargar las estadísticas');
+                return;
+            }
             setStats(data);
             cargarDistribucionComisiones();
         } catch (e) {

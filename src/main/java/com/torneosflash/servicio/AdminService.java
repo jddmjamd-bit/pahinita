@@ -213,23 +213,27 @@ public class AdminService {
     // Utilidades
     // ------------------------------------------------------------------
 
-    /** Convierte a un usuario en admin. (S3 eliminará la ruta que lo expone.) */
-    public void hacerAdmin(String username) {
-        usuarioDAO.hacerAdmin(username);
+    /**
+     * S3: ¿este usuario es admin AHORA? Lo consulta {@code AdminMiddleware} en cada petición a una ruta de admin.
+     * Lee {@code users.tipo_suscripcion} de la BD (no el claim {@code rol} del JWT, que puede estar viejo).
+     * Cualquier duda (id inválido, usuario inexistente, error de BD) devuelve false.
+     */
+    public boolean esAdmin(int userId) {
+        if (userId <= 0) return false;
+        JsonObject fila = db.queryOne("SELECT tipo_suscripcion FROM users WHERE id = ?", userId);
+        if (fila == null || !fila.has("tipo_suscripcion") || fila.get("tipo_suscripcion").isJsonNull()) {
+            return false;
+        }
+        return "admin".equals(fila.get("tipo_suscripcion").getAsString());
     }
 
     /**
-     * Resetea el estado de un jugador a normal si quien lo pide es admin.
-     *
-     * @return false si {@code adminUser} no existe o no es admin
+     * Resetea el estado de un jugador a normal. S3: ya no verifica aquí si quien lo pide es admin (antes recibía el
+     * nombre de un admin por la URL y bastaba con escribir el de cualquiera); eso lo hace {@code AdminMiddleware}
+     * con la sesión JWT antes de llegar a este método.
      */
-    public boolean resetearEstado(String targetUser, String adminUser) {
-        JsonObject admin = db.queryOne("SELECT tipo_suscripcion FROM users WHERE username = ?", adminUser);
-        if (admin == null || !"admin".equals(admin.get("tipo_suscripcion").getAsString())) {
-            return false;
-        }
+    public void resetearEstado(String targetUser) {
         usuarioDAO.resetearEstado(targetUser);
-        return true;
     }
 
     /** IP pública de salida del servidor (la que hay que autorizar en servicios externos). Con timeout de 5 s (A8). */

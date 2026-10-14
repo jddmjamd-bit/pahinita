@@ -238,6 +238,10 @@ public class Main {
         MediaService mediaService = new MediaService(db);
         DbAdminService dbAdminService = new DbAdminService(db);
 
+        // S3: exige admin (sesión JWT + rol leído de la BD) en /api/admin/*, /api/deposit y /admin-fix-status/*.
+        // Va DESPUÉS de AuthMiddleware (necesita el userId de la sesión) y ANTES de registrar las rutas.
+        AdminMiddleware.register(app, adminService);
+
         RutasAuth.register(app, authService);
         RutasFinanzas.register(app, finanzasService);
         RutasAdmin.register(app, adminService);
