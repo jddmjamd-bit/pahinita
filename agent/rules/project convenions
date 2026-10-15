@@ -35,6 +35,7 @@
 - Notificar al usuario verificaciones manuales.
 - Ejecutar `git diff --stat` para verificar qué archivos se tocaron.
 - Seguir la regla de auto-push (add, commit con mensaje descriptivo en español, push a main) a no ser que se indique lo contrario.
+- al agregar nuevas funciones tambien agregaras las ayudas correspondientes para el chatbot ai, tutorial interactivo y preguntas frecuentes (faq), en caso tal ya se hayan agregado esas funcionalidades
 
 
 # 🚨 Reglas de Transición (Fase 0 → Fase 1) — LECTura OBLIGATORIA PARA AGENTES

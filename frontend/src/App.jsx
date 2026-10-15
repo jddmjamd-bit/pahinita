@@ -11,6 +11,7 @@ import Leaderboard from './pages/Leaderboard'
 import Sorteos from './pages/Sorteos'
 import Chatbot from './pages/Chatbot'
 import Legal from './pages/Legal'      // ← NUEVO
+import Faq from './pages/Faq'
 
 import { useCapacitor } from './hooks/useCapacitor'
 
@@ -80,6 +81,7 @@ function App() {
           <Route path="leaderboard" element={<Leaderboard />} />
           <Route path="sorteos" element={<Sorteos />} />
           <Route path="chatbot" element={<Chatbot />} />
+          <Route path="faq" element={<Faq />} />
           <Route path="admin" element={<Admin />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
