@@ -40,9 +40,9 @@ export default function Finance() {
         try {
             const res = await fetch(API_BASE_URL + '/api/transaction/create', {
                 method: 'POST',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    userId: currentUser.id,
                     username: currentUser.username,
                     tipo: 'deposito',
                     metodo: 'manual_nequi',
@@ -73,9 +73,9 @@ export default function Finance() {
         try {
             const res = await fetch(API_BASE_URL + '/api/wompi/init', {
                 method: 'POST',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    userId: currentUser.id,
                     username: currentUser.username,
                     monto: Number(monto)
                 })
@@ -123,9 +123,9 @@ export default function Finance() {
         try {
             const res = await fetch(API_BASE_URL + '/api/transaction/withdraw', {
                 method: 'POST',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    userId: currentUser.id,
                     username: currentUser.username,
                     monto: withdrawAmount,
                     datosCuenta: datosCuenta

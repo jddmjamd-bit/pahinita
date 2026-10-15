@@ -160,7 +160,7 @@ export default function Sorteos() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ userId: currentUser.id, raffleId, ticketsDelta: delta })
+                body: JSON.stringify({ raffleId, ticketsDelta: delta })
             });
             const data = await res.json();
             if (!res.ok) return alert(data.error || 'Error al participar');
@@ -210,7 +210,7 @@ export default function Sorteos() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ userId: currentUser.id, categoria })
+                body: JSON.stringify({ categoria })
             });
             const data = await res.json();
             if (data.error) alert(data.error);

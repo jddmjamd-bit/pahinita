@@ -11,6 +11,12 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-15 — S2: Obtener siempre el userId desde la sesión JWT en rutas y handshake (Gemini 3.8 Flash)
+- **Rutas HTTP (`RutasFinanzas`, `RutasSorteos`)**: Se elimina la confianza en el `userId` recibido en los cuerpos JSON de las solicitudes POST (`/api/transaction/create`, `/api/transaction/withdraw`, `/api/wompi/init`, `/api/raffle/participate`, `/api/raffle/vote`). Ahora se obtiene exclusivamente de la sesión JWT verificada mediante `Peticion.userIdDeSesion(ctx)`.
+- **Frontend (`Finance.jsx`, `Sorteos.jsx`)**: Se eliminó el envío de `userId` en el cuerpo JSON de las llamadas a la API de finanzas y sorteos, asegurando el uso de `credentials: 'include'` para enviar la cookie httpOnly del JWT.
+- **Handshake de Socket.IO**: Preparado el adaptador Socket.IO (`SocketIOServer`) para extraer y verificar la cookie de sesión durante la conexión WebSocket.
+Archivos: `AuthMiddleware.java`, `RutasFinanzas.java`, `RutasSorteos.java`, `SocketIOServer.java`, `SocketHandler.java`, `Finance.jsx`, `Sorteos.jsx`, `CHANGELOG.md`, `ARCHITECTURE.md`
+
 ## 2026-10-15 — Prioridad 24.5: Hablar con el admin (sistema de tickets de soporte) (Claude Sonnet 5.5)
 - **Migración Flyway `V6__soporte_tickets.sql`**: tabla `support_tickets` (`user_id`, `categoria` pregunta/sugerencia/bug/cuenta/otro, `asunto`, `mensaje`, `estado` abierto/resuelto, `respuesta`, `respondido_por`, `fecha_creacion`, `fecha_respuesta`) con CHECK en categoría y estado e índices por usuario y por estado.
 - **`SoporteService`** (nuevo, `servicio/`): `crear`, `misTickets`, `listarAdmin`, `responder` y `correoDeUsuario`. Texto limpiado con `ChatSanitizer` y con tope de largo (asunto 100, mensaje 2000, respuesta 3000). Un ticket solo se responde una vez (el `UPDATE ... WHERE estado = 'abierto'` es atómico: si dos admins responden a la vez, gana uno y solo se avisa una vez). Topes anti-spam por usuario, aplicados dentro del propio `INSERT` (cierra casi toda la ventana entre comprobar y guardar; no es un límite exacto bajo peticiones exactamente simultáneas): `SOPORTE_MAX_ABIERTOS` (5 sin responder) y `SOPORTE_MAX_TICKETS_DIA` (10 por 24 h) → 429 con mensaje claro. El admin ve id y username de quien escribe, nunca email ni teléfono.

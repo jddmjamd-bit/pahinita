@@ -60,15 +60,19 @@ frontend/
     pages/
       Admin.jsx
       AdminChatbot.jsx
+      AdminSoporte.jsx
       Asistente.jsx
       Auth.jsx
       Chat.jsx
       Chatbot.jsx
+      Faq.jsx
       Finance.jsx
       Leaderboard.jsx
       Legal.jsx
       Lobby.jsx
       Match.jsx
+      Soporte.jsx
+      soporteComun.js
       Sorteos.jsx
     store/
       llamarApi.js
@@ -112,6 +116,8 @@ src/
             RateLimiter.java
             ResultadoPartidaListener.java
             ServicioException.java
+            SoporteListener.java
+            SoporteService.java
             SorteoService.java
             TicketsPartidaListener.java
             UsuarioVista.java
@@ -131,6 +137,7 @@ src/
             RutasFinanzas.java
             RutasLeaderboard.java
             RutasMedia.java
+            RutasSoporte.java
             RutasSorteos.java
             SocketHandler.java
           socketio/
@@ -145,515 +152,13 @@ src/
           V3__chatbot_ia.sql
           V4__aceptacion_legal.sql
           V5__wallet_ledger.sql
+          V6__soporte_tickets.sql
 ARCHITECTURE.md
 pom.xml
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
-
-<file path="frontend/src/data/faq.js">
-/**
- * Contenido de la página de ayuda /faq (roadmap 21: preguntas frecuentes + video).
- *
- * Aquí se escriben TODAS las preguntas; la página (`pages/Faq.jsx`) solo las pinta. Para agregar o editar una
- * pregunta no hay que tocar el componente: basta con editar este archivo.
- *
- * Forma de una pregunta:
- *   id         string único y estable (sirve de enlace directo: /faq#recargar-nequi).
- *   categoria  id de una de las CATEGORIAS de abajo.
- *   pregunta   string.
- *   respuesta  string[] — un párrafo por elemento. Es texto plano: no se interpreta HTML.
- *   pasos      string[] (opcional) — se muestran como lista numerada después de la respuesta.
- *   enlace     { texto, to } (opcional) — botón hacia una pantalla de la app (ruta interna, ej. '/finance').
- *   video      (opcional) — solo para las preguntas que se entienden mejor viéndolas:
- *                { titulo, youtube: 'ID de 11 caracteres', archivo: '/videos/nombre.mp4' }
- *                Se usa `youtube` O `archivo` (si vienen los dos, gana `youtube`). Si ambos están vacíos la página
- *                muestra "Video próximamente", así que se puede dejar el hueco listo y llenarlo después.
- *                - youtube: solo el ID (lo que va después de `v=` en el enlace). Se incrusta con youtube-nocookie.
- *                - archivo: un .mp4 o .webm guardado en `frontend/public/videos/` (se sirve como /videos/...).
- *
- * Nota de vocabulario (tarea F5): no usar "apuesta". El dinero de una partida es el "monto" y jugar es
- * "realizar un torneo".
- */
-
-export const CATEGORIAS = [
-    { id: 'inicio', icono: '🚀', nombre: 'Primeros pasos' },
-    { id: 'dinero', icono: '💰', nombre: 'Recargas y retiros' },
-    { id: 'partidas', icono: '⚔️', nombre: 'Partidas' },
-    { id: 'sorteos', icono: '🎁', nombre: 'Sorteos y tickets' },
-    { id: 'rankings', icono: '🏆', nombre: 'Rankings y premios' },
-    { id: 'chats', icono: '💬', nombre: 'Chats y asistente' },
-    { id: 'cuenta', icono: '🛡️', nombre: 'Cuenta y seguridad' }
-];
-
-export const PREGUNTAS = [
-    // ───────────────────────── Primeros pasos ─────────────────────────
-    {
-        id: 'que-es',
-        categoria: 'inicio',
-        pregunta: '¿Qué es esta plataforma y cómo funciona?',
-        respuesta: [
-            'Es un sitio para jugar partidas de Clash Royale contra otros jugadores poniendo un monto de dinero. Te emparejamos con un rival, acuerdan el modo y el monto en una sala privada y juegan en Clash Royale.',
-            'Cuando la partida termina, la plataforma consulta la información de Clash Royale, detecta quién ganó y acredita el premio automáticamente a la cuenta del ganador.'
-        ],
-        pasos: [
-            'Crea tu cuenta con tu Player Tag de Clash Royale.',
-            'Recarga saldo en la sección Finanzas.',
-            'Entra a Jugar y pulsa Buscar partida.',
-            'Acuerda modo y monto con tu rival, confirmen y jueguen.',
-            'El ganador recibe el premio en su saldo.'
-        ],
-        video: { titulo: 'Recorrido general por la plataforma', youtube: '', archivo: '' }
-    },
-    {
-        id: 'registro',
-        categoria: 'inicio',
-        pregunta: '¿Cómo creo mi cuenta?',
-        respuesta: [
-            'En la pantalla de entrada elige «Crear cuenta» y llena usuario, correo, contraseña, Player Tag y teléfono. Mientras escribes, la página te avisa si el usuario o el correo ya están en uso y si tu Player Tag existe.',
-            'También debes aceptar los Términos de Servicio y la Política de Privacidad; sin eso el botón de registro no te deja continuar. Al terminar, vuelves a la pantalla de entrada e inicias sesión con tu correo y contraseña.'
-        ],
-        video: { titulo: 'Cómo crear tu cuenta paso a paso', youtube: '', archivo: '' }
-    },
-    {
-        id: 'player-tag',
-        categoria: 'inicio',
-        pregunta: '¿Qué es el Player Tag y dónde lo encuentro?',
-        respuesta: [
-            'Es el código único de tu cuenta de Clash Royale. Empieza con # y se compone de letras y números (por ejemplo #2PP). Lo usamos para saber cuáles partidas son tuyas y quién ganó.',
-            'Lo encuentras dentro del juego, en tu perfil, justo debajo de tu nombre. Escríbelo con el # al inicio. Si es correcto, la página te muestra el nombre y los trofeos de esa cuenta para que confirmes que es la tuya.'
-        ],
-        video: { titulo: 'Dónde encontrar tu Player Tag en Clash Royale', youtube: '', archivo: '' }
-    },
-    {
-        id: 'registro-no-disponible',
-        categoria: 'inicio',
-        pregunta: 'Me dice que el usuario o el correo no está disponible, ¿qué hago?',
-        respuesta: [
-            'Significa que alguien ya se registró con ese usuario o con ese correo. Prueba con otro nombre de usuario. Si el correo es tuyo y crees que no deberías estar registrado, intenta iniciar sesión con él: puede que ya hayas creado la cuenta antes.',
-            'Si ves el aviso «Demasiadas solicitudes», no es que esté ocupado: espera unos segundos y vuelve a intentar.'
-        ]
-    },
-    {
-        id: 'telefono',
-        categoria: 'inicio',
-        pregunta: '¿Para qué piden mi teléfono?',
-        respuesta: [
-            'Es para contactarte por WhatsApp si ganas un sorteo. Ponlo con el número que sí usas en esa aplicación.'
-        ]
-    },
-    {
-        id: 'tema',
-        categoria: 'inicio',
-        pregunta: '¿Cómo cambio entre modo claro y oscuro?',
-        respuesta: [
-            'Con el botón redondo con un sol o una luna que está fijo en la esquina inferior derecha de la pantalla. Aparece en todas las secciones.'
-        ]
-    },
-    {
-        id: 'navegacion',
-        categoria: 'inicio',
-        pregunta: '¿Dónde está cada cosa en la página?',
-        respuesta: [
-            'Todo está en el menú lateral (en el celular, se abre con el botón ☰ arriba a la izquierda):'
-        ],
-        pasos: [
-            'Chat / Anuncios: los canales de conversación y los avisos del administrador.',
-            'Clash Royale → Jugar / Privada: busca partida y sala privada con tu rival.',
-            'Clash Royale → Sorteos: sorteos activos, tus tickets y la encuesta del próximo premio.',
-            'Rankings: los mejores jugadores por periodo y los premios.',
-            'Asistente: el asistente que resuelve dudas.',
-            'Ayuda / FAQ: esta página.',
-            'En tu tarjeta de perfil (arriba del menú) tienes tu saldo y los botones para recargar y retirar.'
-        ]
-    },
-
-    // ───────────────────────── Recargas y retiros ─────────────────────────
-    {
-        id: 'metodos-recarga',
-        categoria: 'dinero',
-        pregunta: '¿Qué formas de recargar saldo hay?',
-        respuesta: [
-            'Hay dos, en Finanzas → Recargar:',
-            'Nequi manual: envías el dinero por Nequi y avisas el pago en la página; un administrador lo revisa y te acredita el saldo.',
-            'Tarjeta / PSE (Wompi): pagas en línea y el saldo se acredita automáticamente al confirmarse el pago. Esta opción cobra una comisión de la pasarela, que ves antes de pagar.'
-        ],
-        enlace: { texto: 'Ir a Finanzas', to: '/finance' }
-    },
-    {
-        id: 'recargar-nequi',
-        categoria: 'dinero',
-        pregunta: '¿Cómo recargo por Nequi (manual)?',
-        respuesta: [
-            'Es la opción sin comisión de pasarela, pero requiere que un administrador apruebe el pago, así que no es inmediata (la pantalla indica un tiempo estimado de 1 a 5 minutos).'
-        ],
-        pasos: [
-            'Entra a Finanzas → Recargar → «Nequi Manual».',
-            'Envía el dinero al número de Nequi que aparece en esa pantalla.',
-            'Guarda el número de referencia del comprobante de Nequi.',
-            'En la página escribe el monto que enviaste y la referencia, y pulsa «Notificar Pago».',
-            'Espera la aprobación: cuando el administrador la confirme, el saldo se acredita.'
-        ],
-        enlace: { texto: 'Ir a Finanzas', to: '/finance' },
-        video: { titulo: 'Recargar por Nequi paso a paso', youtube: '', archivo: '' }
-    },
-    {
-        id: 'recargar-wompi',
-        categoria: 'dinero',
-        pregunta: '¿Cómo recargo con tarjeta o PSE (Wompi)?',
-        respuesta: [
-            'Es la opción automática: pagas en línea y, cuando Wompi confirma el pago, el saldo se acredita solo y recibes una notificación.',
-            'En el campo pones cuánto quieres recibir en tu cuenta; la página calcula la comisión de la pasarela y te muestra el total exacto a pagar antes de continuar.'
-        ],
-        pasos: [
-            'Entra a Finanzas → Recargar → «Tarjeta / PSE (Wompi)».',
-            'Escribe cuánto quieres recibir (revisa el mínimo que indica la pantalla).',
-            'Verifica el total a pagar con la comisión incluida.',
-            'Pulsa «Pagar» y completa el pago en la ventana de Wompi con tu tarjeta o PSE.',
-            'Espera la confirmación; no cierres sesión mientras tanto.'
-        ],
-        enlace: { texto: 'Ir a Finanzas', to: '/finance' },
-        video: { titulo: 'Recargar con tarjeta o PSE (Wompi)', youtube: '', archivo: '' }
-    },
-    {
-        id: 'comision-wompi',
-        categoria: 'dinero',
-        pregunta: '¿Por qué debo pagar más de lo que recargo con Wompi?',
-        respuesta: [
-            'La pasarela de pagos cobra una comisión por procesar tarjetas y PSE. Para que a tu saldo llegue exactamente el monto que pediste, esa comisión se suma al total que pagas. Nosotros no la cobramos: se la queda la pasarela.',
-            'Si quieres evitarla, usa la recarga por Nequi manual.'
-        ]
-    },
-    {
-        id: 'recarga-no-llega',
-        categoria: 'dinero',
-        pregunta: 'Recargué pero mi saldo no aparece, ¿qué hago?',
-        respuesta: [
-            'Depende de cómo recargaste:'
-        ],
-        pasos: [
-            'Nequi manual: el saldo llega cuando un administrador aprueba tu solicitud. Si pasaron varios minutos, revisa que el monto y la referencia que escribiste coincidan con el comprobante.',
-            'Wompi: espera a que llegue la notificación de pago confirmado. A veces el banco tarda unos minutos en responder.',
-            'Mira el saldo en tu tarjeta de perfil del menú. Si no se actualiza, cierra sesión y vuelve a entrar.',
-            'Si sigue sin aparecer, escríbele al Asistente con el monto, la fecha y la referencia o el ID de la transacción para que el administrador lo revise.'
-        ],
-        enlace: { texto: 'Hablar con el Asistente', to: '/chatbot' }
-    },
-    {
-        id: 'retirar',
-        categoria: 'dinero',
-        pregunta: '¿Cómo retiro mi dinero?',
-        respuesta: [
-            'Los retiros se hacen a Nequi o Daviplata y se procesan manualmente; el tiempo estimado que indica la pantalla es de hasta 24 horas.',
-            'El saldo que pides retirar se descuenta de tu cuenta al momento de solicitar el retiro.'
-        ],
-        pasos: [
-            'Entra a Finanzas → Retirar.',
-            'Escribe el monto a retirar (respeta el mínimo que indica la pantalla y no pases de tu saldo disponible).',
-            'Escribe el número de la cuenta de Nequi o Daviplata.',
-            'Escribe el nombre completo del titular de esa cuenta.',
-            'Pulsa «Solicitar Retiro» y espera la transferencia.'
-        ],
-        enlace: { texto: 'Ir a Finanzas', to: '/finance' },
-        video: { titulo: 'Cómo solicitar un retiro', youtube: '', archivo: '' }
-    },
-    {
-        id: 'retiro-saldo-insuficiente',
-        categoria: 'dinero',
-        pregunta: 'Me sale «saldo insuficiente» al retirar',
-        respuesta: [
-            'El monto que pides retirar es mayor que tu saldo disponible. Revisa tu saldo en la tarjeta de perfil del menú y pide un monto menor o igual.',
-            'Recuerda que el dinero de una partida en curso o de un torneo que ya realizaste no está disponible hasta que termine la partida.'
-        ]
-    },
-    {
-        id: 'limites-dinero',
-        categoria: 'dinero',
-        pregunta: '¿Hay un mínimo y un máximo para recargar y retirar?',
-        respuesta: [
-            'Sí. Cada operación tiene un monto mínimo y uno máximo, y pueden cambiar con el tiempo. Si escribes un monto fuera de rango, la página te dice cuál es el límite exacto.',
-            'Siempre deben ser pesos enteros, sin decimales.'
-        ]
-    },
-
-    // ───────────────────────── Partidas ─────────────────────────
-    {
-        id: 'buscar-partida',
-        categoria: 'partidas',
-        pregunta: '¿Cómo busco una partida?',
-        respuesta: [
-            'Entra a Clash Royale → Jugar / Privada. Si no estás en una partida verás la pantalla «¿Listo para jugar?».'
-        ],
-        pasos: [
-            'Pulsa «Buscar partida». Verás «Buscando rival...».',
-            'Cuando otro jugador también esté buscando, te llevamos solos a la sala privada.',
-            'Si te cansas de esperar, pulsa «Cancelar búsqueda».'
-        ],
-        enlace: { texto: 'Ir a Jugar', to: '/match' },
-        video: { titulo: 'Buscar partida y entrar a la sala', youtube: '', archivo: '' }
-    },
-    {
-        id: 'sala-privada',
-        categoria: 'partidas',
-        pregunta: '¿Qué hago dentro de la sala privada?',
-        respuesta: [
-            'Es donde tú y tu rival se ponen de acuerdo antes de jugar. Arriba ves contra quién juegas y el tope máximo de monto permitido. Puedes chatear con el rival en el mini chat.',
-            'En «Configuración» escriben el modo de juego (texto libre, por ejemplo «Elección») y el monto. Lo que escribe uno lo ve el otro en vivo. Al poner un monto válido, la página te muestra cuánto recibirías si ganas.'
-        ],
-        pasos: [
-            'Acuerden el modo y el monto por el chat.',
-            'Escribe el modo y el monto en los campos de Configuración.',
-            'Pulsa «Comenzar». Quedas esperando a que el rival también pulse.',
-            'Cuando los dos pulsan, aparece una ventana para aceptar la partida con el modo y el monto: pulsa «Aceptar».',
-            'Cuando ambos aceptan, la partida empieza y juegan en Clash Royale.'
-        ],
-        video: { titulo: 'Cómo acordar modo y monto con tu rival', youtube: '', archivo: '' }
-    },
-    {
-        id: 'montos-partida',
-        categoria: 'partidas',
-        pregunta: '¿Cuánto dinero puedo poner en una partida?',
-        respuesta: [
-            'El monto tiene un mínimo y un máximo (hoy, desde $1.000 hasta $10.000) y además no puede superar el tope que aparece en la sala, que depende de tu saldo y el de tu rival. Si te pasas, la página te muestra el error debajo del campo y no te deja comenzar.'
-        ]
-    },
-    {
-        id: 'cuanto-gano',
-        categoria: 'partidas',
-        pregunta: '¿Cuánto gano si le gano a mi rival?',
-        respuesta: [
-            'Al escribir el monto, la sala te muestra «Si ganas recibes: $...». Es el premio ya con la comisión de la plataforma descontada; ese es el valor que se acredita a tu saldo. Si pierdes, pierdes el monto de la partida.'
-        ]
-    },
-    {
-        id: 'quien-gano',
-        categoria: 'partidas',
-        pregunta: '¿Cómo se decide quién ganó?',
-        respuesta: [
-            'Automáticamente. Cuando empieza la partida, la plataforma consulta la información de Clash Royale con el Player Tag de cada jugador y detecta el resultado. Tienes hasta 10 minutos para jugarla.',
-            'Al terminar verás en pantalla si ganaste o perdiste y, si ganaste, el premio acreditado. Pulsa «Volver» para cerrar el resultado.'
-        ],
-        video: { titulo: 'Qué pasa cuando termina la partida', youtube: '', archivo: '' }
-    },
-    {
-        id: 'disputa',
-        categoria: 'partidas',
-        pregunta: 'El resultado no fue claro, ¿qué es una disputa?',
-        respuesta: [
-            'Si el sistema no puede determinar claramente quién ganó (o el tiempo se acaba sin un resultado válido), se crea una disputa y verás el aviso «Disputa creada».',
-            'Un administrador revisa la partida y decide el resultado. No tienes que hacer nada más; el saldo se ajusta cuando se resuelve.'
-        ]
-    },
-    {
-        id: 'salir-sala',
-        categoria: 'partidas',
-        pregunta: '¿Qué pasa si salgo de la sala o mi rival se va?',
-        respuesta: [
-            'El botón ❌ de la sala cancela la partida para los dos y cuenta como una salida tuya; antes de hacerlo te pide confirmación. Si tu rival es quien sale, recibes el aviso de que la partida fue cancelada y quedas libre para buscar otra.',
-            'Mientras negocian puedes rechazar la partida en la ventana de confirmación si no estás de acuerdo con el modo o el monto.'
-        ]
-    },
-    {
-        id: 'nadie-responde',
-        categoria: 'partidas',
-        pregunta: 'Llevo mucho buscando y nadie aparece',
-        respuesta: [
-            'La búsqueda se cancela sola si pasa un tiempo sin rival y te lo avisa; puedes volver a intentarlo cuando quieras. Hay más probabilidad de encontrar rival cuando hay más gente conectada.',
-            'Si recargaste hace poco, revisa que tu saldo ya esté acreditado: sin saldo suficiente no puedes emparejarte.'
-        ]
-    },
-    {
-        id: 'cierre-sesion-partida',
-        categoria: 'partidas',
-        pregunta: 'Se me cerró la página o me desconecté en plena partida',
-        respuesta: [
-            'No pierdes la sala. Vuelve a entrar con tu cuenta y la plataforma te devuelve a la partida donde ibas, con el chat y el estado en que estaba.',
-            'Ojo: abrir tu cuenta en otro dispositivo o pestaña cierra la sesión anterior.'
-        ]
-    },
-
-    // ───────────────────────── Sorteos y tickets ─────────────────────────
-    {
-        id: 'como-funcionan-sorteos',
-        categoria: 'sorteos',
-        pregunta: '¿Cómo funcionan los sorteos?',
-        respuesta: [
-            'Los sorteos son premios (gemas, Pass Royale, evoluciones, emotes, cartas, comodines u ofertas especiales) que publica el administrador. Cada uno necesita una cantidad de tickets para completarse y tiene un tiempo límite.',
-            'Tú pones tus tickets en los sorteos que quieras con los botones + y −. Cuando el sorteo reúne todos los tickets necesarios, se elige un ganador entre los participantes (mientras más tickets pongas, más opciones tienes) y se anuncia en la tarjeta del sorteo. El administrador te contacta por WhatsApp.'
-        ],
-        pasos: [
-            'Entra a Clash Royale → Sorteos.',
-            'Mira tus tickets disponibles arriba.',
-            'En el sorteo que te guste, pulsa + para poner un ticket (− para quitarlo).',
-            'Espera a que se complete: el ganador aparece en la tarjeta con 🏆.'
-        ],
-        enlace: { texto: 'Ir a Sorteos', to: '/sorteos' },
-        video: { titulo: 'Cómo participar en un sorteo', youtube: '', archivo: '' }
-    },
-    {
-        id: 'conseguir-tickets',
-        categoria: 'sorteos',
-        pregunta: '¿Cómo consigo tickets?',
-        respuesta: [
-            'Los tickets se ganan jugando: cada vez que termina una partida, tú y tu rival acumulan una parte de la comisión de sorteos, ganes o pierdas. Cada $1.000 acumulados se convierten en 1 ticket y te llega un aviso cuando ganas tickets.',
-            'En Sorteos ves la barra «Mis Tickets» con cuánto llevas acumulado hacia el siguiente ticket.'
-        ]
-    },
-    {
-        id: 'pozo',
-        categoria: 'sorteos',
-        pregunta: '¿Qué es el «Pozo Acumulado»?',
-        respuesta: [
-            'Es el total que la plataforma ha ido reuniendo para los sorteos con una parte de la comisión de las partidas. De ahí salen los premios que se sortean.'
-        ]
-    },
-    {
-        id: 'retirar-tickets',
-        categoria: 'sorteos',
-        pregunta: '¿Puedo quitar los tickets que puse en un sorteo?',
-        respuesta: [
-            'Sí, mientras el sorteo siga activo: pulsa − y el ticket vuelve a tu cuenta. Cuando el sorteo ya se completó, no se pueden mover.',
-            'Si el administrador elimina un sorteo, los tickets participantes se devuelven a sus dueños.'
-        ]
-    },
-    {
-        id: 'encuesta-sorteos',
-        categoria: 'sorteos',
-        pregunta: '¿Para qué sirve la encuesta «¿Qué sorteamos luego?»',
-        respuesta: [
-            'Es para que decidas qué tipo de premio quieres ver en los próximos sorteos. Tienes un voto: pulsa una categoría para votarla y, si pulsas otra, cambias tu voto. El administrador usa los resultados para escoger los próximos premios.'
-        ]
-    },
-    {
-        id: 'ganador-sorteo',
-        categoria: 'sorteos',
-        pregunta: 'Gané un sorteo, ¿cómo recibo el premio?',
-        respuesta: [
-            'El administrador te contacta al número de WhatsApp que pusiste al registrarte, por eso es importante que ese número sea correcto y que lo tengas activo.',
-            'El sorteo completado queda a la vista un rato mostrando quién fue el ganador.'
-        ]
-    },
-
-    // ───────────────────────── Rankings y premios ─────────────────────────
-    {
-        id: 'rankings',
-        categoria: 'rankings',
-        pregunta: '¿Cómo funcionan los rankings?',
-        respuesta: [
-            'En Rankings ves a los mejores jugadores por periodo con las pestañas Día, Semana, Mes, Año y Global (ordenados por victorias). Hay además dos rankings de dinero: «Monto en torneos» (cuánto dinero has movido jugando) y «Ganado» (cuánto has ganado en total).',
-            'Tu nombre sale resaltado con una ⭐ cuando apareces en la lista. Arriba de la lista se muestran los premios de cada posición cuando el periodo los tiene.'
-        ],
-        enlace: { texto: 'Ir a Rankings', to: '/leaderboard' },
-        video: { titulo: 'Cómo leer los rankings y los premios', youtube: '', archivo: '' }
-    },
-    {
-        id: 'ranking-vacio',
-        categoria: 'rankings',
-        pregunta: 'El ranking dice que nadie ha ganado partidas, ¿es un error?',
-        respuesta: [
-            'No. Significa que en ese periodo todavía no hay victorias registradas (por ejemplo, al empezar el día). Se llena a medida que se juegan partidas.'
-        ]
-    },
-
-    // ───────────────────────── Chats y asistente ─────────────────────────
-    {
-        id: 'canales-chat',
-        categoria: 'chats',
-        pregunta: '¿Cuáles son los canales de chat y para qué sirve cada uno?',
-        respuesta: [
-            'En Chat / Anuncios hay cuatro pestañas:'
-        ],
-        pasos: [
-            '💬 General: conversación libre entre todos los jugadores.',
-            '📢 Anuncios: avisos oficiales. Solo los administradores pueden escribir; tú solo los lees.',
-            '⚔️ Clash: para hablar de partidas, buscar rivales y compartir cosas de Clash Royale.',
-            '📜 Registro: solo lectura. Muestra los eventos del sistema, como cuando alguien busca partida o deja de buscarla.'
-        ],
-        enlace: { texto: 'Ir al Chat', to: '/chat' }
-    },
-    {
-        id: 'chat-sala',
-        categoria: 'chats',
-        pregunta: '¿El chat de la sala privada es el mismo que el general?',
-        respuesta: [
-            'No. El mini chat de la sala privada es solo entre tú y tu rival y existe únicamente mientras la partida está abierta. Úsalo para acordar el modo y el monto.'
-        ]
-    },
-    {
-        id: 'asistente',
-        categoria: 'chats',
-        pregunta: '¿Qué es el Asistente y qué le puedo preguntar?',
-        respuesta: [
-            'Es un asistente automático que responde dudas sobre la plataforma: recargas, retiros, partidas, sorteos, etc. Si no sabe algo, le avisa al administrador y la respuesta de él te llega en el mismo chat.',
-            'También puedes escoger cómo te habla: tono por defecto, formal, informal o adaptativo (responde según cómo le escribas).'
-        ],
-        enlace: { texto: 'Abrir el Asistente', to: '/chatbot' }
-    },
-    {
-        id: 'reglas-chat',
-        categoria: 'chats',
-        pregunta: '¿Qué puedo y qué no puedo escribir en los chats?',
-        respuesta: [
-            'Sé respetuoso con los demás jugadores. Los enlaces que escribas se pueden abrir con un clic. El contenido que no es texto (como imágenes o videos) solo lo suben los administradores en Anuncios; si algo no es un archivo permitido verás «[contenido no permitido]».',
-            'Si alguien te molesta o ves algo raro, cuéntaselo al Asistente para que le llegue al administrador.'
-        ]
-    },
-
-    // ───────────────────────── Cuenta y seguridad ─────────────────────────
-    {
-        id: 'sesion-cerrada',
-        categoria: 'cuenta',
-        pregunta: 'La página me sacó de mi cuenta, ¿por qué?',
-        respuesta: [
-            'Hay dos causas comunes. La primera, que abriste tu cuenta en otro dispositivo o pestaña: solo una sesión puede estar activa a la vez, así que la anterior se cierra. La segunda, que tu sesión venció o el servidor ya no la reconoce; en ese caso solo debes iniciar sesión de nuevo.'
-        ]
-    },
-    {
-        id: 'demasiadas-solicitudes',
-        categoria: 'cuenta',
-        pregunta: 'Me aparece «Demasiadas solicitudes», ¿qué significa?',
-        respuesta: [
-            'Para proteger la plataforma hay un límite de peticiones por minuto. Si lo superas (por ejemplo, haciendo clic muchas veces seguidas), el servidor te pide esperar. Basta con esperar unos segundos y volver a intentar con calma.'
-        ]
-    },
-    {
-        id: 'seguridad-saldo',
-        categoria: 'cuenta',
-        pregunta: '¿Qué tan seguro está mi dinero?',
-        respuesta: [
-            'Todos los movimientos de dinero (recargas, retiros, montos de partidas, premios y comisiones) los procesa el servidor y quedan registrados en un historial que no se puede modificar. El cliente nunca decide cuánto dinero te corresponde: el cálculo siempre se hace en el servidor.',
-            'Para cuidar tu cuenta, usa una contraseña única y no la compartas con nadie. Nadie del equipo te la va a pedir.'
-        ]
-    },
-    {
-        id: 'terminos',
-        categoria: 'cuenta',
-        pregunta: '¿Dónde leo los Términos de Servicio y la Política de Privacidad?',
-        respuesta: [
-            'Están disponibles en cualquier momento, incluso sin iniciar sesión.'
-        ],
-        enlace: { texto: 'Leer Términos de Servicio', to: '/terminos' }
-    },
-    {
-        id: 'datos-privados',
-        categoria: 'cuenta',
-        pregunta: '¿Mi rival puede ver mis datos personales?',
-        respuesta: [
-            'No. A tu rival solo se le muestra tu nombre de usuario. Tu correo, tu teléfono y tu contraseña no se comparten con otros jugadores.'
-        ]
-    },
-    {
-        id: 'problema-no-listado',
-        categoria: 'cuenta',
-        pregunta: 'Mi problema no está en esta lista, ¿a quién le escribo?',
-        respuesta: [
-            'Pregúntale al Asistente: si no sabe la respuesta, avisa al administrador y la respuesta te llega en el mismo chat. Mientras más detalles des (qué estabas haciendo, el monto, la hora y el mensaje de error que viste), más rápido se resuelve.'
-        ],
-        enlace: { texto: 'Hablar con el Asistente', to: '/chatbot' }
-    }
-];
-</file>
 
 <file path="frontend/src/components/AceptacionLegal.jsx">
 import { useEffect, useState } from 'react';
@@ -1194,6 +699,509 @@ export default function DocumentoLegal({ tipo }) {
 }
 </file>
 
+<file path="frontend/src/data/faq.js">
+/**
+ * Contenido de la página de ayuda /faq (roadmap 21: preguntas frecuentes + video).
+ *
+ * Aquí se escriben TODAS las preguntas; la página (`pages/Faq.jsx`) solo las pinta. Para agregar o editar una
+ * pregunta no hay que tocar el componente: basta con editar este archivo.
+ *
+ * Forma de una pregunta:
+ *   id         string único y estable (sirve de enlace directo: /faq#recargar-nequi).
+ *   categoria  id de una de las CATEGORIAS de abajo.
+ *   pregunta   string.
+ *   respuesta  string[] — un párrafo por elemento. Es texto plano: no se interpreta HTML.
+ *   pasos      string[] (opcional) — se muestran como lista numerada después de la respuesta.
+ *   enlace     { texto, to } (opcional) — botón hacia una pantalla de la app (ruta interna, ej. '/finance').
+ *   video      (opcional) — solo para las preguntas que se entienden mejor viéndolas:
+ *                { titulo, youtube: 'ID de 11 caracteres', archivo: '/videos/nombre.mp4' }
+ *                Se usa `youtube` O `archivo` (si vienen los dos, gana `youtube`). Si ambos están vacíos la página
+ *                muestra "Video próximamente", así que se puede dejar el hueco listo y llenarlo después.
+ *                - youtube: solo el ID (lo que va después de `v=` en el enlace). Se incrusta con youtube-nocookie.
+ *                - archivo: un .mp4 o .webm guardado en `frontend/public/videos/` (se sirve como /videos/...).
+ *
+ * Nota de vocabulario (tarea F5): no usar "apuesta". El dinero de una partida es el "monto" y jugar es
+ * "realizar un torneo".
+ */
+
+export const CATEGORIAS = [
+    { id: 'inicio', icono: '🚀', nombre: 'Primeros pasos' },
+    { id: 'dinero', icono: '💰', nombre: 'Recargas y retiros' },
+    { id: 'partidas', icono: '⚔️', nombre: 'Partidas' },
+    { id: 'sorteos', icono: '🎁', nombre: 'Sorteos y tickets' },
+    { id: 'rankings', icono: '🏆', nombre: 'Rankings y premios' },
+    { id: 'chats', icono: '💬', nombre: 'Chats y asistente' },
+    { id: 'cuenta', icono: '🛡️', nombre: 'Cuenta y seguridad' }
+];
+
+export const PREGUNTAS = [
+    // ───────────────────────── Primeros pasos ─────────────────────────
+    {
+        id: 'que-es',
+        categoria: 'inicio',
+        pregunta: '¿Qué es esta plataforma y cómo funciona?',
+        respuesta: [
+            'Es un sitio para jugar partidas de Clash Royale contra otros jugadores poniendo un monto de dinero. Te emparejamos con un rival, acuerdan el modo y el monto en una sala privada y juegan en Clash Royale.',
+            'Cuando la partida termina, la plataforma consulta la información de Clash Royale, detecta quién ganó y acredita el premio automáticamente a la cuenta del ganador.'
+        ],
+        pasos: [
+            'Crea tu cuenta con tu Player Tag de Clash Royale.',
+            'Recarga saldo en la sección Finanzas.',
+            'Entra a Jugar y pulsa Buscar partida.',
+            'Acuerda modo y monto con tu rival, confirmen y jueguen.',
+            'El ganador recibe el premio en su saldo.'
+        ],
+        video: { titulo: 'Recorrido general por la plataforma', youtube: '', archivo: '' }
+    },
+    {
+        id: 'registro',
+        categoria: 'inicio',
+        pregunta: '¿Cómo creo mi cuenta?',
+        respuesta: [
+            'En la pantalla de entrada elige «Crear cuenta» y llena usuario, correo, contraseña, Player Tag y teléfono. Mientras escribes, la página te avisa si el usuario o el correo ya están en uso y si tu Player Tag existe.',
+            'También debes aceptar los Términos de Servicio y la Política de Privacidad; sin eso el botón de registro no te deja continuar. Al terminar, vuelves a la pantalla de entrada e inicias sesión con tu correo y contraseña.'
+        ],
+        video: { titulo: 'Cómo crear tu cuenta paso a paso', youtube: '', archivo: '' }
+    },
+    {
+        id: 'player-tag',
+        categoria: 'inicio',
+        pregunta: '¿Qué es el Player Tag y dónde lo encuentro?',
+        respuesta: [
+            'Es el código único de tu cuenta de Clash Royale. Empieza con # y se compone de letras y números (por ejemplo #2PP). Lo usamos para saber cuáles partidas son tuyas y quién ganó.',
+            'Lo encuentras dentro del juego, en tu perfil, justo debajo de tu nombre. Escríbelo con el # al inicio. Si es correcto, la página te muestra el nombre y los trofeos de esa cuenta para que confirmes que es la tuya.'
+        ],
+        video: { titulo: 'Dónde encontrar tu Player Tag en Clash Royale', youtube: '', archivo: '' }
+    },
+    {
+        id: 'registro-no-disponible',
+        categoria: 'inicio',
+        pregunta: 'Me dice que el usuario o el correo no está disponible, ¿qué hago?',
+        respuesta: [
+            'Significa que alguien ya se registró con ese usuario o con ese correo. Prueba con otro nombre de usuario. Si el correo es tuyo y crees que no deberías estar registrado, intenta iniciar sesión con él: puede que ya hayas creado la cuenta antes.',
+            'Si ves el aviso «Demasiadas solicitudes», no es que esté ocupado: espera unos segundos y vuelve a intentar.'
+        ]
+    },
+    {
+        id: 'telefono',
+        categoria: 'inicio',
+        pregunta: '¿Para qué piden mi teléfono?',
+        respuesta: [
+            'Es para contactarte por WhatsApp si ganas un sorteo. Ponlo con el número que sí usas en esa aplicación.'
+        ]
+    },
+    {
+        id: 'tema',
+        categoria: 'inicio',
+        pregunta: '¿Cómo cambio entre modo claro y oscuro?',
+        respuesta: [
+            'Con el botón redondo con un sol o una luna que está fijo en la esquina inferior derecha de la pantalla. Aparece en todas las secciones.'
+        ]
+    },
+    {
+        id: 'navegacion',
+        categoria: 'inicio',
+        pregunta: '¿Dónde está cada cosa en la página?',
+        respuesta: [
+            'Todo está en el menú lateral (en el celular, se abre con el botón ☰ arriba a la izquierda):'
+        ],
+        pasos: [
+            'Chat / Anuncios: los canales de conversación y los avisos del administrador.',
+            'Clash Royale → Jugar / Privada: busca partida y sala privada con tu rival.',
+            'Clash Royale → Sorteos: sorteos activos, tus tickets y la encuesta del próximo premio.',
+            'Rankings: los mejores jugadores por periodo y los premios.',
+            'Asistente: el asistente que resuelve dudas.',
+            'Ayuda / FAQ: esta página.',
+            'En tu tarjeta de perfil (arriba del menú) tienes tu saldo y los botones para recargar y retirar.'
+        ]
+    },
+
+    // ───────────────────────── Recargas y retiros ─────────────────────────
+    {
+        id: 'metodos-recarga',
+        categoria: 'dinero',
+        pregunta: '¿Qué formas de recargar saldo hay?',
+        respuesta: [
+            'Hay dos, en Finanzas → Recargar:',
+            'Nequi manual: envías el dinero por Nequi y avisas el pago en la página; un administrador lo revisa y te acredita el saldo.',
+            'Tarjeta / PSE (Wompi): pagas en línea y el saldo se acredita automáticamente al confirmarse el pago. Esta opción cobra una comisión de la pasarela, que ves antes de pagar.'
+        ],
+        enlace: { texto: 'Ir a Finanzas', to: '/finance' }
+    },
+    {
+        id: 'recargar-nequi',
+        categoria: 'dinero',
+        pregunta: '¿Cómo recargo por Nequi (manual)?',
+        respuesta: [
+            'Es la opción sin comisión de pasarela, pero requiere que un administrador apruebe el pago, así que no es inmediata (la pantalla indica un tiempo estimado de 1 a 5 minutos).'
+        ],
+        pasos: [
+            'Entra a Finanzas → Recargar → «Nequi Manual».',
+            'Envía el dinero al número de Nequi que aparece en esa pantalla.',
+            'Guarda el número de referencia del comprobante de Nequi.',
+            'En la página escribe el monto que enviaste y la referencia, y pulsa «Notificar Pago».',
+            'Espera la aprobación: cuando el administrador la confirme, el saldo se acredita.'
+        ],
+        enlace: { texto: 'Ir a Finanzas', to: '/finance' },
+        video: { titulo: 'Recargar por Nequi paso a paso', youtube: '', archivo: '' }
+    },
+    {
+        id: 'recargar-wompi',
+        categoria: 'dinero',
+        pregunta: '¿Cómo recargo con tarjeta o PSE (Wompi)?',
+        respuesta: [
+            'Es la opción automática: pagas en línea y, cuando Wompi confirma el pago, el saldo se acredita solo y recibes una notificación.',
+            'En el campo pones cuánto quieres recibir en tu cuenta; la página calcula la comisión de la pasarela y te muestra el total exacto a pagar antes de continuar.'
+        ],
+        pasos: [
+            'Entra a Finanzas → Recargar → «Tarjeta / PSE (Wompi)».',
+            'Escribe cuánto quieres recibir (revisa el mínimo que indica la pantalla).',
+            'Verifica el total a pagar con la comisión incluida.',
+            'Pulsa «Pagar» y completa el pago en la ventana de Wompi con tu tarjeta o PSE.',
+            'Espera la confirmación; no cierres sesión mientras tanto.'
+        ],
+        enlace: { texto: 'Ir a Finanzas', to: '/finance' },
+        video: { titulo: 'Recargar con tarjeta o PSE (Wompi)', youtube: '', archivo: '' }
+    },
+    {
+        id: 'comision-wompi',
+        categoria: 'dinero',
+        pregunta: '¿Por qué debo pagar más de lo que recargo con Wompi?',
+        respuesta: [
+            'La pasarela de pagos cobra una comisión por procesar tarjetas y PSE. Para que a tu saldo llegue exactamente el monto que pediste, esa comisión se suma al total que pagas. Nosotros no la cobramos: se la queda la pasarela.',
+            'Si quieres evitarla, usa la recarga por Nequi manual.'
+        ]
+    },
+    {
+        id: 'recarga-no-llega',
+        categoria: 'dinero',
+        pregunta: 'Recargué pero mi saldo no aparece, ¿qué hago?',
+        respuesta: [
+            'Depende de cómo recargaste:'
+        ],
+        pasos: [
+            'Nequi manual: el saldo llega cuando un administrador aprueba tu solicitud. Si pasaron varios minutos, revisa que el monto y la referencia que escribiste coincidan con el comprobante.',
+            'Wompi: espera a que llegue la notificación de pago confirmado. A veces el banco tarda unos minutos en responder.',
+            'Mira el saldo en tu tarjeta de perfil del menú. Si no se actualiza, cierra sesión y vuelve a entrar.',
+            'Si sigue sin aparecer, escríbele al Asistente con el monto, la fecha y la referencia o el ID de la transacción para que el administrador lo revise.'
+        ],
+        enlace: { texto: 'Hablar con el Asistente', to: '/chatbot' }
+    },
+    {
+        id: 'retirar',
+        categoria: 'dinero',
+        pregunta: '¿Cómo retiro mi dinero?',
+        respuesta: [
+            'Los retiros se hacen a Nequi o Daviplata y se procesan manualmente; el tiempo estimado que indica la pantalla es de hasta 24 horas.',
+            'El saldo que pides retirar se descuenta de tu cuenta al momento de solicitar el retiro.'
+        ],
+        pasos: [
+            'Entra a Finanzas → Retirar.',
+            'Escribe el monto a retirar (respeta el mínimo que indica la pantalla y no pases de tu saldo disponible).',
+            'Escribe el número de la cuenta de Nequi o Daviplata.',
+            'Escribe el nombre completo del titular de esa cuenta.',
+            'Pulsa «Solicitar Retiro» y espera la transferencia.'
+        ],
+        enlace: { texto: 'Ir a Finanzas', to: '/finance' },
+        video: { titulo: 'Cómo solicitar un retiro', youtube: '', archivo: '' }
+    },
+    {
+        id: 'retiro-saldo-insuficiente',
+        categoria: 'dinero',
+        pregunta: 'Me sale «saldo insuficiente» al retirar',
+        respuesta: [
+            'El monto que pides retirar es mayor que tu saldo disponible. Revisa tu saldo en la tarjeta de perfil del menú y pide un monto menor o igual.',
+            'Recuerda que el dinero de una partida en curso o de un torneo que ya realizaste no está disponible hasta que termine la partida.'
+        ]
+    },
+    {
+        id: 'limites-dinero',
+        categoria: 'dinero',
+        pregunta: '¿Hay un mínimo y un máximo para recargar y retirar?',
+        respuesta: [
+            'Sí. Cada operación tiene un monto mínimo y uno máximo, y pueden cambiar con el tiempo. Si escribes un monto fuera de rango, la página te dice cuál es el límite exacto.',
+            'Siempre deben ser pesos enteros, sin decimales.'
+        ]
+    },
+
+    // ───────────────────────── Partidas ─────────────────────────
+    {
+        id: 'buscar-partida',
+        categoria: 'partidas',
+        pregunta: '¿Cómo busco una partida?',
+        respuesta: [
+            'Entra a Clash Royale → Jugar / Privada. Si no estás en una partida verás la pantalla «¿Listo para jugar?».'
+        ],
+        pasos: [
+            'Pulsa «Buscar partida». Verás «Buscando rival...».',
+            'Cuando otro jugador también esté buscando, te llevamos solos a la sala privada.',
+            'Si te cansas de esperar, pulsa «Cancelar búsqueda».'
+        ],
+        enlace: { texto: 'Ir a Jugar', to: '/match' },
+        video: { titulo: 'Buscar partida y entrar a la sala', youtube: '', archivo: '' }
+    },
+    {
+        id: 'sala-privada',
+        categoria: 'partidas',
+        pregunta: '¿Qué hago dentro de la sala privada?',
+        respuesta: [
+            'Es donde tú y tu rival se ponen de acuerdo antes de jugar. Arriba ves contra quién juegas y el tope máximo de monto permitido. Puedes chatear con el rival en el mini chat.',
+            'En «Configuración» escriben el modo de juego (texto libre, por ejemplo «Elección») y el monto. Lo que escribe uno lo ve el otro en vivo. Al poner un monto válido, la página te muestra cuánto recibirías si ganas.'
+        ],
+        pasos: [
+            'Acuerden el modo y el monto por el chat.',
+            'Escribe el modo y el monto en los campos de Configuración.',
+            'Pulsa «Comenzar». Quedas esperando a que el rival también pulse.',
+            'Cuando los dos pulsan, aparece una ventana para aceptar la partida con el modo y el monto: pulsa «Aceptar».',
+            'Cuando ambos aceptan, la partida empieza y juegan en Clash Royale.'
+        ],
+        video: { titulo: 'Cómo acordar modo y monto con tu rival', youtube: '', archivo: '' }
+    },
+    {
+        id: 'montos-partida',
+        categoria: 'partidas',
+        pregunta: '¿Cuánto dinero puedo poner en una partida?',
+        respuesta: [
+            'El monto tiene un mínimo y un máximo (hoy, desde $1.000 hasta $10.000) y además no puede superar el tope que aparece en la sala, que depende de tu saldo y el de tu rival. Si te pasas, la página te muestra el error debajo del campo y no te deja comenzar.'
+        ]
+    },
+    {
+        id: 'cuanto-gano',
+        categoria: 'partidas',
+        pregunta: '¿Cuánto gano si le gano a mi rival?',
+        respuesta: [
+            'Al escribir el monto, la sala te muestra «Si ganas recibes: $...». Es el premio ya con la comisión de la plataforma descontada; ese es el valor que se acredita a tu saldo. Si pierdes, pierdes el monto de la partida.'
+        ]
+    },
+    {
+        id: 'quien-gano',
+        categoria: 'partidas',
+        pregunta: '¿Cómo se decide quién ganó?',
+        respuesta: [
+            'Automáticamente. Cuando empieza la partida, la plataforma consulta la información de Clash Royale con el Player Tag de cada jugador y detecta el resultado. Tienes hasta 10 minutos para jugarla.',
+            'Al terminar verás en pantalla si ganaste o perdiste y, si ganaste, el premio acreditado. Pulsa «Volver» para cerrar el resultado.'
+        ],
+        video: { titulo: 'Qué pasa cuando termina la partida', youtube: '', archivo: '' }
+    },
+    {
+        id: 'disputa',
+        categoria: 'partidas',
+        pregunta: 'El resultado no fue claro, ¿qué es una disputa?',
+        respuesta: [
+            'Si el sistema no puede determinar claramente quién ganó (o el tiempo se acaba sin un resultado válido), se crea una disputa y verás el aviso «Disputa creada».',
+            'Un administrador revisa la partida y decide el resultado. No tienes que hacer nada más; el saldo se ajusta cuando se resuelve.'
+        ]
+    },
+    {
+        id: 'salir-sala',
+        categoria: 'partidas',
+        pregunta: '¿Qué pasa si salgo de la sala o mi rival se va?',
+        respuesta: [
+            'El botón ❌ de la sala cancela la partida para los dos y cuenta como una salida tuya; antes de hacerlo te pide confirmación. Si tu rival es quien sale, recibes el aviso de que la partida fue cancelada y quedas libre para buscar otra.',
+            'Mientras negocian puedes rechazar la partida en la ventana de confirmación si no estás de acuerdo con el modo o el monto.'
+        ]
+    },
+    {
+        id: 'nadie-responde',
+        categoria: 'partidas',
+        pregunta: 'Llevo mucho buscando y nadie aparece',
+        respuesta: [
+            'La búsqueda se cancela sola si pasa un tiempo sin rival y te lo avisa; puedes volver a intentarlo cuando quieras. Hay más probabilidad de encontrar rival cuando hay más gente conectada.',
+            'Si recargaste hace poco, revisa que tu saldo ya esté acreditado.'
+        ]
+    },
+    {
+        id: 'cierre-sesion-partida',
+        categoria: 'partidas',
+        pregunta: 'Se me cerró la página o me desconecté en plena partida',
+        respuesta: [
+            'No pierdes la sala. Vuelve a entrar con tu cuenta y la plataforma te devuelve a la partida donde ibas, con el chat y el estado en que estaba.',
+            'Ojo: abrir tu cuenta en otro dispositivo o pestaña cierra la sesión anterior.'
+        ]
+    },
+
+    // ───────────────────────── Sorteos y tickets ─────────────────────────
+    {
+        id: 'como-funcionan-sorteos',
+        categoria: 'sorteos',
+        pregunta: '¿Cómo funcionan los sorteos?',
+        respuesta: [
+            'Los sorteos son premios (gemas, Pass Royale, evoluciones, emotes, cartas, comodines u ofertas especiales) que publica el administrador. Cada uno necesita una cantidad de tickets para completarse y tiene un tiempo límite.',
+            'Tú pones tus tickets en los sorteos que quieras con los botones + y −. Cuando el sorteo reúne todos los tickets necesarios, se elige un ganador entre los participantes (mientras más tickets pongas, más opciones tienes) y se anuncia en la tarjeta del sorteo. El administrador te contacta por WhatsApp.'
+        ],
+        pasos: [
+            'Entra a Clash Royale → Sorteos.',
+            'Mira tus tickets disponibles arriba.',
+            'En el sorteo que te guste, pulsa + para poner un ticket (− para quitarlo).',
+            'Espera a que se complete: el ganador aparece en la tarjeta con 🏆.'
+        ],
+        enlace: { texto: 'Ir a Sorteos', to: '/sorteos' },
+        video: { titulo: 'Cómo participar en un sorteo', youtube: '', archivo: '' }
+    },
+    {
+        id: 'conseguir-tickets',
+        categoria: 'sorteos',
+        pregunta: '¿Cómo consigo tickets?',
+        respuesta: [
+            'Los tickets se ganan jugando: cada vez que termina una partida, tú y tu rival acumulan una parte de la comisión de sorteos, ganes o pierdas. Cada $1.000 acumulados se convierten en 1 ticket y te llega un aviso cuando ganas tickets.',
+            'En Sorteos ves la barra «Mis Tickets» con cuánto llevas acumulado hacia el siguiente ticket.'
+        ]
+    },
+    {
+        id: 'pozo',
+        categoria: 'sorteos',
+        pregunta: '¿Qué es el «Pozo Acumulado»?',
+        respuesta: [
+            'Es el total que la plataforma ha ido reuniendo para los sorteos con una parte de la comisión de las partidas. De ahí salen los premios que se sortean.'
+        ]
+    },
+    {
+        id: 'retirar-tickets',
+        categoria: 'sorteos',
+        pregunta: '¿Puedo quitar los tickets que puse en un sorteo?',
+        respuesta: [
+            'Sí, mientras el sorteo siga activo: pulsa − y el ticket vuelve a tu cuenta. Cuando el sorteo ya se completó, no se pueden mover.',
+            'Si el administrador elimina un sorteo, los tickets participantes se devuelven a sus dueños.'
+        ]
+    },
+    {
+        id: 'encuesta-sorteos',
+        categoria: 'sorteos',
+        pregunta: '¿Para qué sirve la encuesta «¿Qué sorteamos luego?»',
+        respuesta: [
+            'Es para que decidas qué tipo de premio quieres ver en los próximos sorteos. Tienes un voto: pulsa una categoría para votarla y, si pulsas otra, cambias tu voto. El administrador usa los resultados para escoger los próximos premios.'
+        ]
+    },
+    {
+        id: 'ganador-sorteo',
+        categoria: 'sorteos',
+        pregunta: 'Gané un sorteo, ¿cómo recibo el premio?',
+        respuesta: [
+            'El administrador te contacta al número de WhatsApp que pusiste al registrarte, por eso es importante que ese número sea correcto y que lo tengas activo.',
+            'El sorteo completado queda a la vista un rato mostrando quién fue el ganador.'
+        ]
+    },
+
+    // ───────────────────────── Rankings y premios ─────────────────────────
+    {
+        id: 'rankings',
+        categoria: 'rankings',
+        pregunta: '¿Cómo funcionan los rankings?',
+        respuesta: [
+            'En Rankings ves a los mejores jugadores por periodo con las pestañas Día, Semana, Mes, Año y Global (ordenados por victorias). Hay además dos rankings de dinero: «Monto en torneos» (cuánto dinero has movido jugando) y «Ganado» (cuánto has ganado en total).',
+            'Tu nombre sale resaltado con una ⭐ cuando apareces en la lista. Arriba de la lista se muestran los premios de cada posición cuando el periodo los tiene.'
+        ],
+        enlace: { texto: 'Ir a Rankings', to: '/leaderboard' },
+        video: { titulo: 'Cómo leer los rankings y los premios', youtube: '', archivo: '' }
+    },
+    {
+        id: 'ranking-vacio',
+        categoria: 'rankings',
+        pregunta: 'El ranking dice que nadie ha ganado partidas, ¿es un error?',
+        respuesta: [
+            'No. Significa que en ese periodo todavía no hay victorias registradas (por ejemplo, al empezar el día). Se llena a medida que se juegan partidas.'
+        ]
+    },
+
+    // ───────────────────────── Chats y asistente ─────────────────────────
+    {
+        id: 'canales-chat',
+        categoria: 'chats',
+        pregunta: '¿Cuáles son los canales de chat y para qué sirve cada uno?',
+        respuesta: [
+            'En Chat / Anuncios hay cuatro pestañas:'
+        ],
+        pasos: [
+            '💬 General: conversación libre entre todos los jugadores.',
+            '📢 Anuncios: avisos oficiales. Solo los administradores pueden escribir; tú solo los lees.',
+            '⚔️ Clash: para hablar de partidas, buscar rivales y compartir cosas de Clash Royale.',
+            '📜 Registro: solo lectura. Muestra los eventos y partidas del sistema.'
+        ],
+        enlace: { texto: 'Ir al Chat', to: '/chat' }
+    },
+    {
+        id: 'chat-sala',
+        categoria: 'chats',
+        pregunta: '¿El chat de la sala privada es el mismo que el general?',
+        respuesta: [
+            'No. El mini chat de la sala privada es solo entre tú y tu rival y existe únicamente mientras la partida está abierta. Úsalo para acordar el modo y el monto.'
+        ]
+    },
+    {
+        id: 'asistente',
+        categoria: 'chats',
+        pregunta: '¿Qué es el Asistente y qué le puedo preguntar?',
+        respuesta: [
+            'Es un asistente automático que responde dudas sobre la plataforma: recargas, retiros, partidas, sorteos, etc. Si no sabe algo, le avisa al administrador y la respuesta de él te llega en el mismo chat.',
+            'También puedes escoger cómo te habla: tono por defecto, formal, informal o adaptativo (responde según cómo le escribas).'
+        ],
+        enlace: { texto: 'Abrir el Asistente', to: '/chatbot' }
+    },
+    {
+        id: 'reglas-chat',
+        categoria: 'chats',
+        pregunta: '¿Qué puedo y qué no puedo escribir en los chats?',
+        respuesta: [
+            'Sé respetuoso con los demás jugadores. Los enlaces que escribas se pueden abrir con un clic. El contenido que no es texto (como imágenes o videos) solo lo suben los administradores en Anuncios; si algo no es un archivo permitido verás «[contenido no permitido]».',
+            'Si alguien te molesta o ves algo raro, cuéntaselo al Asistente para que le llegue al administrador.'
+        ]
+    },
+
+    // ───────────────────────── Cuenta y seguridad ─────────────────────────
+    {
+        id: 'sesion-cerrada',
+        categoria: 'cuenta',
+        pregunta: 'La página me sacó de mi cuenta, ¿por qué?',
+        respuesta: [
+            'Hay dos causas comunes. La primera, que abriste tu cuenta en otro dispositivo o pestaña: solo una sesión puede estar activa a la vez, así que la anterior se cierra. La segunda, que tu sesión venció o el servidor ya no la reconoce; en ese caso solo debes iniciar sesión de nuevo.'
+        ]
+    },
+    {
+        id: 'demasiadas-solicitudes',
+        categoria: 'cuenta',
+        pregunta: 'Me aparece «Demasiadas solicitudes», ¿qué significa?',
+        respuesta: [
+            'Para proteger la plataforma hay un límite de peticiones por minuto. Si lo superas (por ejemplo, haciendo clic muchas veces seguidas), el servidor te pide esperar. Basta con esperar unos segundos y volver a intentar con calma.'
+        ]
+    },
+    {
+        id: 'seguridad-saldo',
+        categoria: 'cuenta',
+        pregunta: '¿Qué tan seguro está mi dinero?',
+        respuesta: [
+            'Todos los movimientos de dinero (recargas, retiros, montos de partidas, premios y comisiones) los procesa el servidor y quedan registrados en un historial que no se puede modificar. El cliente nunca decide cuánto dinero te corresponde: el cálculo siempre se hace en el servidor.',
+            'Para cuidar tu cuenta, usa una contraseña única y no la compartas con nadie. Nadie del equipo te la va a pedir.'
+        ]
+    },
+    {
+        id: 'terminos',
+        categoria: 'cuenta',
+        pregunta: '¿Dónde leo los Términos de Servicio y la Política de Privacidad?',
+        respuesta: [
+            'Están disponibles en cualquier momento, incluso sin iniciar sesión.'
+        ],
+        enlace: { texto: 'Leer Términos de Servicio', to: '/terminos' }
+    },
+    {
+        id: 'datos-privados',
+        categoria: 'cuenta',
+        pregunta: '¿Mi rival puede ver mis datos personales?',
+        respuesta: [
+            'No. A tu rival solo se le muestra tu nombre de usuario. Tu correo, tu teléfono y tu contraseña no se comparten con otros jugadores.'
+        ]
+    },
+    {
+        id: 'problema-no-listado',
+        categoria: 'cuenta',
+        pregunta: 'Mi problema no está en esta lista, ¿a quién le escribo?',
+        respuesta: [
+            'Pregúntale al Asistente: si no sabe la respuesta, avisa al administrador y la respuesta te llega en el mismo chat. Mientras más detalles des (qué estabas haciendo, el monto, la hora y el mensaje de error que viste), más rápido se resuelve.'
+        ],
+        enlace: { texto: 'Hablar con el Asistente', to: '/chatbot' }
+    }
+];
+</file>
+
 <file path="frontend/src/hooks/useCapacitor.js">
 import { useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
@@ -1570,6 +1578,135 @@ export default function AdminChatbot() {
                                     <div className="achat-acciones">
                                         <button className="refresh-btn" disabled={ocupado} onClick={() => setEdicion({ id: c.id, texto: c.respuesta || '' })}>✏️ Editar</button>
                                         <button className="btn-reject" disabled={ocupado} onClick={() => eliminar(c.id)}>🗑️ Borrar</button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+</file>
+
+<file path="frontend/src/pages/AdminSoporte.jsx">
+import React, { useState, useEffect, useCallback } from 'react';
+import { llamarApi } from '../store/llamarApi';
+import { etiquetaCategoria, formatearFecha } from './soporteComun';
+import './AdminChatbot.css'; // reutiliza .achat-* (tarjetas, textarea, acciones)
+import './Soporte.css';      // reutiliza .sop-estado, .sop-meta, .sop-texto, .sop-respuesta
+
+const FILTROS = [
+    { id: 'abierto', etiqueta: '⏳ Pendientes' },
+    { id: 'resuelto', etiqueta: '✅ Resueltos' },
+    { id: 'todos', etiqueta: '📋 Todos' }
+];
+
+const MAX_RESPUESTA = 3000;
+
+// Bandeja de tickets de soporte del panel admin (roadmap 24.5). Las rutas /api/admin/* exigen sesión de admin.
+export default function AdminSoporte() {
+    const [filtro, setFiltro] = useState('abierto');
+    const [tickets, setTickets] = useState([]);
+    const [cargando, setCargando] = useState(true);
+    const [borradores, setBorradores] = useState({}); // respuesta en edición, por id de ticket
+    const [ocupado, setOcupado] = useState(false);
+    const [error, setError] = useState('');
+
+    const cargar = useCallback(async () => {
+        setCargando(true);
+        const { ok, data } = await llamarApi(`/api/admin/soporte/tickets?estado=${filtro}`);
+        if (!ok || !Array.isArray(data)) {
+            setError(data?.error || 'No se pudieron cargar los tickets');
+            setTickets([]);
+        } else {
+            setTickets(data);
+            setError('');
+        }
+        setCargando(false);
+    }, [filtro]);
+
+    useEffect(() => { cargar(); }, [cargar]);
+
+    const responder = async (id) => {
+        const respuesta = (borradores[id] || '').trim();
+        if (!respuesta || ocupado) return;
+        setOcupado(true);
+        setError('');
+        const { ok, data } = await llamarApi(`/api/admin/soporte/tickets/${id}/responder`, {
+            method: 'POST',
+            body: JSON.stringify({ respuesta })
+        });
+        setOcupado(false);
+        if (!ok || data?.error) {
+            setError(data?.error || 'No se pudo enviar la respuesta');
+            return;
+        }
+        setBorradores(prev => { const copia = { ...prev }; delete copia[id]; return copia; });
+        cargar();
+    };
+
+    return (
+        <div className="admin-view achat">
+            {error && <div className="achat-error">⚠️ {error}</div>}
+
+            <div className="admin-section">
+                <div className="section-header">
+                    <h3>🎫 Soporte: consultas de usuarios ({tickets.length})</h3>
+                    <button className="refresh-btn" onClick={cargar}>🔄 Actualizar</button>
+                </div>
+
+                <div className="achat-tonos" style={{ marginBottom: 14 }}>
+                    {FILTROS.map(f => (
+                        <button
+                            key={f.id}
+                            className={`admin-tab ${filtro === f.id ? 'active' : ''}`}
+                            onClick={() => setFiltro(f.id)}
+                        >
+                            {f.etiqueta}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="admin-list">
+                    {cargando ? <p>Cargando...</p> : tickets.length === 0 ? (
+                        <p className="empty">{filtro === 'abierto' ? 'Nada pendiente.' : 'No hay tickets.'}</p>
+                    ) : tickets.map(t => (
+                        <div key={t.id} className="achat-card">
+                            <div className="achat-pregunta">
+                                #{t.id} · {t.asunto}{' '}
+                                <span className={`sop-estado ${t.estado === 'resuelto' ? 'resuelto' : 'abierto'}`}>
+                                    {t.estado === 'resuelto' ? '✅ Resuelto' : '⏳ Pendiente'}
+                                </span>
+                            </div>
+                            <div className="sop-meta">
+                                👤 {t.username} (id {t.user_id}) · {etiquetaCategoria(t.categoria)} · {formatearFecha(t.fecha_creacion)}
+                            </div>
+                            <div className="sop-texto">{t.mensaje}</div>
+
+                            {t.estado === 'resuelto' ? (
+                                <div className="sop-respuesta">
+                                    <div className="sop-meta">Tu respuesta · {formatearFecha(t.fecha_respuesta)}</div>
+                                    <div className="sop-texto">{t.respuesta}</div>
+                                </div>
+                            ) : (
+                                <>
+                                    <textarea
+                                        rows={4}
+                                        maxLength={MAX_RESPUESTA}
+                                        placeholder="Tu respuesta (le llega al correo del usuario y la ve en su panel de soporte)"
+                                        value={borradores[t.id] || ''}
+                                        onChange={e => setBorradores(prev => ({ ...prev, [t.id]: e.target.value }))}
+                                    />
+                                    <div className="achat-acciones">
+                                        <button
+                                            className="btn-approve"
+                                            disabled={ocupado || !(borradores[t.id] || '').trim()}
+                                            onClick={() => responder(t.id)}
+                                        >
+                                            ✅ Responder y marcar resuelto
+                                        </button>
                                     </div>
                                 </>
                             )}
@@ -1970,6 +2107,242 @@ export default function Chatbot() {
 }
 </file>
 
+<file path="frontend/src/pages/Faq.jsx">
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { CATEGORIAS, PREGUNTAS } from '../data/faq';
+import './Faq.css';
+
+// Minúsculas y sin tildes, para que "recargar" encuentre "Recárgar" y "sesion" encuentre "sesión".
+const normalizar = (t) => String(t ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+// Solo se aceptan IDs de YouTube de 11 caracteres y archivos propios de /videos/: nada de URLs arbitrarias en el iframe.
+const ID_YOUTUBE = /^[\w-]{11}$/;
+const ARCHIVO_VIDEO = /^\/videos\/[\w.-]+\.(mp4|webm)$/;
+
+function VideoPregunta({ video }) {
+    const titulo = video.titulo || 'Video tutorial';
+    const youtube = ID_YOUTUBE.test(video.youtube || '') ? video.youtube : null;
+    const archivo = !youtube && ARCHIVO_VIDEO.test(video.archivo || '') ? video.archivo : null;
+
+    if (!youtube && !archivo) {
+        return (
+            <div className="faq-video faq-video-pendiente">
+                <span className="faq-video-icono">🎬</span>
+                <div>
+                    <strong>{titulo}</strong>
+                    <span>Video próximamente</span>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="faq-video">
+            <div className="faq-video-titulo">🎬 {titulo}</div>
+            <div className="faq-video-marco">
+                {youtube ? (
+                    <iframe
+                        src={`https://www.youtube-nocookie.com/embed/${youtube}`}
+                        title={titulo}
+                        loading="lazy"
+                        allow="accelerometer; encrypted-media; picture-in-picture; fullscreen"
+                        allowFullScreen
+                        referrerPolicy="strict-origin-when-cross-origin"
+                    />
+                ) : (
+                    <video src={archivo} controls preload="metadata" playsInline />
+                )}
+            </div>
+        </div>
+    );
+}
+
+export default function Faq() {
+    const { hash } = useLocation();
+    const [busqueda, setBusqueda] = useState('');
+    const [categoria, setCategoria] = useState('todas');
+    const [soloVideo, setSoloVideo] = useState(false);
+    const [abiertas, setAbiertas] = useState(() => new Set());
+    const refs = useRef({});
+
+    // Enlace directo (/faq#recargar-nequi): abre esa pregunta y la deja a la vista.
+    useEffect(() => {
+        const id = decodeURIComponent((hash || '').replace('#', ''));
+        if (!id || !PREGUNTAS.some(p => p.id === id)) return;
+        setBusqueda('');
+        setCategoria('todas');
+        setSoloVideo(false);
+        setAbiertas(prev => new Set(prev).add(id));
+        const t = setTimeout(() => refs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
+        return () => clearTimeout(t);
+    }, [hash]);
+
+    const filtradas = useMemo(() => {
+        const q = normalizar(busqueda).trim();
+        const nombres = Object.fromEntries(CATEGORIAS.map(c => [c.id, c.nombre]));
+        return PREGUNTAS.filter(p => {
+            if (categoria !== 'todas' && p.categoria !== categoria) return false;
+            if (soloVideo && !p.video) return false;
+            if (!q) return true;
+            const texto = normalizar([p.pregunta, ...p.respuesta, ...(p.pasos || []), nombres[p.categoria]].join(' '));
+            return q.split(/\s+/).every(palabra => texto.includes(palabra));
+        });
+    }, [busqueda, categoria, soloVideo]);
+
+    const conteo = useMemo(() => {
+        const c = { todas: PREGUNTAS.length };
+        PREGUNTAS.forEach(p => { c[p.categoria] = (c[p.categoria] || 0) + 1; });
+        return c;
+    }, []);
+
+    const alternar = (id) => {
+        setAbiertas(prev => {
+            const nuevo = new Set(prev);
+            if (nuevo.has(id)) nuevo.delete(id); else nuevo.add(id);
+            return nuevo;
+        });
+    };
+
+    const limpiarFiltros = () => {
+        setBusqueda('');
+        setCategoria('todas');
+        setSoloVideo(false);
+    };
+
+    const hayFiltros = busqueda || categoria !== 'todas' || soloVideo;
+    const idsFiltradas = filtradas.map(p => p.id);
+    const todasAbiertas = idsFiltradas.length > 0 && idsFiltradas.every(id => abiertas.has(id));
+
+    const alternarTodas = () => {
+        setAbiertas(prev => {
+            const nuevo = new Set(prev);
+            idsFiltradas.forEach(id => (todasAbiertas ? nuevo.delete(id) : nuevo.add(id)));
+            return nuevo;
+        });
+    };
+
+    return (
+        <div className="faq-container">
+            <header className="faq-header">
+                <h2>❓ Preguntas frecuentes y ayuda</h2>
+                <p>Aquí encuentras cómo hacer cada cosa en la plataforma. Las preguntas con 🎬 incluyen un video para que lo veas paso a paso.</p>
+            </header>
+
+            <div className="faq-buscador">
+                <input
+                    type="search"
+                    placeholder="🔍 Busca tu duda (ej: retirar, sorteo, disputa...)"
+                    value={busqueda}
+                    onChange={e => setBusqueda(e.target.value)}
+                    aria-label="Buscar en las preguntas frecuentes"
+                />
+            </div>
+
+            <div className="faq-filtros">
+                <button
+                    type="button"
+                    className={`faq-chip ${categoria === 'todas' ? 'activo' : ''}`}
+                    onClick={() => setCategoria('todas')}
+                >
+                    Todas <span className="faq-chip-n">{conteo.todas}</span>
+                </button>
+                {CATEGORIAS.map(c => (
+                    <button
+                        key={c.id}
+                        type="button"
+                        className={`faq-chip ${categoria === c.id ? 'activo' : ''}`}
+                        onClick={() => setCategoria(c.id)}
+                    >
+                        {c.icono} {c.nombre} <span className="faq-chip-n">{conteo[c.id] || 0}</span>
+                    </button>
+                ))}
+                <button
+                    type="button"
+                    className={`faq-chip faq-chip-video ${soloVideo ? 'activo' : ''}`}
+                    onClick={() => setSoloVideo(v => !v)}
+                    aria-pressed={soloVideo}
+                >
+                    🎬 Solo con video
+                </button>
+            </div>
+
+            <div className="faq-barra">
+                <span>{filtradas.length === 1 ? '1 pregunta' : `${filtradas.length} preguntas`}</span>
+                {filtradas.length > 0 && (
+                    <button type="button" className="faq-link-btn" onClick={alternarTodas}>
+                        {todasAbiertas ? 'Contraer todas' : 'Expandir todas'}
+                    </button>
+                )}
+            </div>
+
+            {filtradas.length === 0 ? (
+                <div className="faq-vacio">
+                    <div className="faq-vacio-emoji">🔎</div>
+                    <h3>No encontramos nada con eso</h3>
+                    <p>Prueba con otras palabras, o pregúntale directamente al Asistente.</p>
+                    <div className="faq-vacio-acciones">
+                        {hayFiltros && <button type="button" className="faq-btn-sec" onClick={limpiarFiltros}>Quitar filtros</button>}
+                        <Link to="/chatbot" className="faq-btn-link">🤖 Preguntar al Asistente</Link>
+                    </div>
+                </div>
+            ) : (
+                <div className="faq-lista">
+                    {filtradas.map(p => {
+                        const abierta = abiertas.has(p.id);
+                        const cat = CATEGORIAS.find(c => c.id === p.categoria);
+                        return (
+                            <article
+                                key={p.id}
+                                id={p.id}
+                                ref={el => { refs.current[p.id] = el; }}
+                                className={`faq-item ${abierta ? 'abierta' : ''}`}
+                            >
+                                <button
+                                    type="button"
+                                    className="faq-pregunta"
+                                    onClick={() => alternar(p.id)}
+                                    aria-expanded={abierta}
+                                    aria-controls={`faq-resp-${p.id}`}
+                                >
+                                    <span className="faq-pregunta-texto">
+                                        <span className="faq-cat-icono" title={cat?.nombre}>{cat?.icono}</span>
+                                        {p.pregunta}
+                                    </span>
+                                    <span className="faq-pregunta-extra">
+                                        {p.video && <span className="faq-tag-video" title="Incluye video">🎬</span>}
+                                        <span className="faq-flecha">{abierta ? '▲' : '▼'}</span>
+                                    </span>
+                                </button>
+
+                                {abierta && (
+                                    <div className="faq-respuesta" id={`faq-resp-${p.id}`}>
+                                        {p.respuesta.map((parrafo, i) => <p key={i}>{parrafo}</p>)}
+                                        {p.pasos && (
+                                            <ol className="faq-pasos">
+                                                {p.pasos.map((paso, i) => <li key={i}>{paso}</li>)}
+                                            </ol>
+                                        )}
+                                        {p.video && <VideoPregunta video={p.video} />}
+                                        {p.enlace && (
+                                            <Link to={p.enlace.to} className="faq-btn-link">{p.enlace.texto} →</Link>
+                                        )}
+                                    </div>
+                                )}
+                            </article>
+                        );
+                    })}
+                </div>
+            )}
+
+            <footer className="faq-pie">
+                ¿No encontraste lo que buscabas? <Link to="/chatbot">Pregúntale al Asistente</Link> · <Link to="/terminos">Términos de Servicio</Link> · <Link to="/privacidad">Política de Privacidad</Link>
+            </footer>
+        </div>
+    );
+}
+</file>
+
 <file path="frontend/src/pages/Legal.jsx">
 import { Link } from 'react-router-dom';
 import DocumentoLegal from '../components/DocumentoLegal';
@@ -1995,6 +2368,220 @@ export default function Legal({ tipo }) {
         </div>
     );
 }
+</file>
+
+<file path="frontend/src/pages/Soporte.jsx">
+import React, { useState, useEffect, useCallback } from 'react';
+import { useAppStore } from '../store/useAppStore';
+import { llamarApi } from '../store/llamarApi';
+import './Soporte.css';
+import { CATEGORIAS_SOPORTE, etiquetaCategoria, formatearFecha } from './soporteComun';
+
+const MAX_ASUNTO = 100;
+const MAX_MENSAJE = 2000;
+const FORM_VACIO = { categoria: 'pregunta', asunto: '', mensaje: '' };
+
+export default function Soporte() {
+    const socket = useAppStore(state => state.socket);
+
+    const [tickets, setTickets] = useState([]);
+    const [cargando, setCargando] = useState(true);
+    const [error, setError] = useState('');
+    const [aviso, setAviso] = useState('');
+    const [formAbierto, setFormAbierto] = useState(false);
+    const [form, setForm] = useState(FORM_VACIO);
+    const [enviando, setEnviando] = useState(false);
+    const [errorForm, setErrorForm] = useState('');
+
+    const cargar = useCallback(async () => {
+        const { ok, data } = await llamarApi('/api/soporte/tickets');
+        if (!ok || !Array.isArray(data)) {
+            setError(data?.error || 'No se pudieron cargar tus consultas');
+        } else {
+            setTickets(data);
+            setError('');
+        }
+        setCargando(false);
+    }, []);
+
+    useEffect(() => { cargar(); }, [cargar]);
+
+    // Cuando el admin responde llega un aviso por socket: se recarga la lista para mostrar la respuesta
+    useEffect(() => {
+        if (!socket) return;
+        const alResponder = () => {
+            setAviso('✅ El administrador respondió una de tus consultas.');
+            cargar();
+        };
+        socket.on('soporte_respuesta', alResponder);
+        return () => socket.off('soporte_respuesta', alResponder);
+    }, [socket, cargar]);
+
+    const abrirForm = () => {
+        setForm(FORM_VACIO);
+        setErrorForm('');
+        setFormAbierto(true);
+    };
+
+    const cerrarForm = () => {
+        if (!enviando) setFormAbierto(false);
+    };
+
+    const enviar = async (e) => {
+        e.preventDefault();
+        if (enviando) return;
+        if (!form.asunto.trim() || !form.mensaje.trim()) {
+            setErrorForm('Escribe el asunto y tu mensaje');
+            return;
+        }
+        setEnviando(true);
+        setErrorForm('');
+        const { ok, data } = await llamarApi('/api/soporte/tickets', {
+            method: 'POST',
+            body: JSON.stringify(form)
+        });
+        setEnviando(false);
+        if (!ok || data?.error) {
+            setErrorForm(data?.error || 'No se pudo enviar tu mensaje. Inténtalo de nuevo.');
+            return;
+        }
+        setFormAbierto(false);
+        setAviso('📨 Mensaje enviado. Te avisaremos cuando el administrador responda.');
+        cargar();
+    };
+
+    return (
+        <div className="sop-container">
+            <header className="sop-header">
+                <div>
+                    <h2>✉️ Hablar con el admin</h2>
+                    <p className="sop-nota">
+                        Preguntas, sugerencias, bugs o problemas con tu cuenta. Te respondemos aquí y a tu correo.
+                    </p>
+                </div>
+                <button className="sop-btn-primario" onClick={abrirForm}>➕ Nueva consulta</button>
+            </header>
+
+            {aviso && <div className="sop-aviso" onClick={() => setAviso('')}>{aviso}</div>}
+            {error && <div className="sop-error">⚠️ {error}</div>}
+
+            <h3 className="sop-subtitulo">Mis consultas</h3>
+            {cargando ? (
+                <p className="sop-nota">Cargando...</p>
+            ) : tickets.length === 0 ? (
+                <p className="sop-nota">Todavía no has enviado ninguna consulta.</p>
+            ) : (
+                <div className="sop-lista">
+                    {tickets.map(t => (
+                        <article key={t.id} className="sop-ticket">
+                            <div className="sop-ticket-cabecera">
+                                <strong className="sop-asunto">{t.asunto}</strong>
+                                <span className={`sop-estado ${t.estado === 'resuelto' ? 'resuelto' : 'abierto'}`}>
+                                    {t.estado === 'resuelto' ? '✅ Resuelto' : '⏳ En espera'}
+                                </span>
+                            </div>
+                            <div className="sop-meta">
+                                {etiquetaCategoria(t.categoria)} · {formatearFecha(t.fecha_creacion)}
+                            </div>
+                            <div className="sop-texto">{t.mensaje}</div>
+                            {t.respuesta && (
+                                <div className="sop-respuesta">
+                                    <div className="sop-meta">👑 Respuesta del administrador · {formatearFecha(t.fecha_respuesta)}</div>
+                                    <div className="sop-texto">{t.respuesta}</div>
+                                </div>
+                            )}
+                        </article>
+                    ))}
+                </div>
+            )}
+
+            {formAbierto && (
+                <div className="sop-overlay" onClick={cerrarForm}>
+                    <form className="sop-modal" onClick={e => e.stopPropagation()} onSubmit={enviar}>
+                        <div className="sop-modal-cabecera">
+                            <h3>Nueva consulta</h3>
+                            <button type="button" className="sop-cerrar" onClick={cerrarForm} aria-label="Cerrar">✕</button>
+                        </div>
+
+                        <label>
+                            Tipo de consulta
+                            <select
+                                value={form.categoria}
+                                onChange={e => setForm(prev => ({ ...prev, categoria: e.target.value }))}
+                                disabled={enviando}
+                            >
+                                {CATEGORIAS_SOPORTE.map(c => (
+                                    <option key={c.id} value={c.id}>{c.etiqueta}</option>
+                                ))}
+                            </select>
+                        </label>
+
+                        <label>
+                            Asunto
+                            <input
+                                type="text"
+                                value={form.asunto}
+                                maxLength={MAX_ASUNTO}
+                                placeholder="Resumen corto de lo que necesitas"
+                                onChange={e => setForm(prev => ({ ...prev, asunto: e.target.value }))}
+                                disabled={enviando}
+                            />
+                        </label>
+
+                        <label>
+                            Mensaje
+                            <textarea
+                                rows={6}
+                                value={form.mensaje}
+                                maxLength={MAX_MENSAJE}
+                                placeholder="Cuéntanos con el mayor detalle posible. Nunca escribas tu contraseña."
+                                onChange={e => setForm(prev => ({ ...prev, mensaje: e.target.value }))}
+                                disabled={enviando}
+                            />
+                            <small className="sop-contador">{form.mensaje.length}/{MAX_MENSAJE}</small>
+                        </label>
+
+                        {errorForm && <div className="sop-error">⚠️ {errorForm}</div>}
+
+                        <div className="sop-acciones">
+                            <button type="button" className="sop-btn-secundario" onClick={cerrarForm} disabled={enviando}>
+                                Cancelar
+                            </button>
+                            <button
+                                type="submit"
+                                className="sop-btn-primario"
+                                disabled={enviando || !form.asunto.trim() || !form.mensaje.trim()}
+                            >
+                                {enviando ? 'Enviando...' : '📨 Enviar'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            )}
+        </div>
+    );
+}
+</file>
+
+<file path="frontend/src/pages/soporteComun.js">
+// Piezas compartidas por la página de soporte del usuario (Soporte.jsx) y la bandeja del admin (AdminSoporte.jsx).
+
+// Debe coincidir con las categorías que acepta SoporteService en el servidor
+export const CATEGORIAS_SOPORTE = [
+    { id: 'pregunta', etiqueta: '❓ Pregunta' },
+    { id: 'sugerencia', etiqueta: '💡 Sugerencia' },
+    { id: 'bug', etiqueta: '🐛 Bug / error de la página' },
+    { id: 'cuenta', etiqueta: '👤 Problema con mi cuenta' },
+    { id: 'otro', etiqueta: '📝 Otro' }
+];
+
+export const etiquetaCategoria = (id) => CATEGORIAS_SOPORTE.find(c => c.id === id)?.etiqueta || id;
+
+export const formatearFecha = (iso) => {
+    if (!iso) return '';
+    const fecha = new Date(iso);
+    return Number.isNaN(fecha.getTime()) ? '' : fecha.toLocaleString('es-CO');
+};
 </file>
 
 <file path="frontend/src/store/llamarApi.js">
@@ -4605,6 +5192,407 @@ public class ResultadoPartidaListener {
 }
 </file>
 
+<file path="src/main/java/com/torneosflash/servicio/SoporteListener.java">
+package com.torneosflash.servicio;
+
+import com.google.gson.JsonObject;
+import com.torneosflash.config.AppConfig;
+import com.torneosflash.eventos.EventBus;
+import com.torneosflash.eventos.Eventos;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.ArrayDeque;
+import java.util.regex.Pattern;
+
+/**
+ * Listeners de soporte (roadmap 24.5, "Hablar con el admin"), suscritos al bus de eventos (A4):
+ * <ul>
+ *   <li>{@link Eventos#SOPORTE_TICKET_CREADO}: avisa al admin por correo (Brevo) de la consulta nueva, con tope de
+ *       correos por hora ({@code SOPORTE_MAX_CORREOS_HORA}) para que nadie pueda inundar el buzón; lo que pase del tope
+ *       sigue visible en el panel admin. El correo lleva el id y el nombre de usuario, nunca email ni teléfono.</li>
+ *   <li>{@link Eventos#SOPORTE_TICKET_RESPONDIDO}: avisa al usuario de que su consulta fue resuelta (socket
+ *       {@code soporte_respuesta} + push) y le envía la respuesta a SU correo.</li>
+ * </ul>
+ * Son síncronos (A4): el correo y el push se encolan en el pool de IO por dentro, no bloquean.
+ */
+public class SoporteListener {
+    private static final Logger logger = LoggerFactory.getLogger(SoporteListener.class);
+
+    private static final long HORA_MS = 3_600_000L;
+    private static final int MAX_MENSAJE_CORREO = 1500;
+    private static final int MAX_ASUNTO_RESUMEN = 80;
+    private static final Pattern CORREO_VALIDO = Pattern.compile("^[^\\s@<>\",;]+@[^\\s@<>\",;]+\\.[^\\s@<>\",;]+$");
+
+    private final CorreoServicio correo;
+    private final NotificadorUsuarios notificador;
+    private final SoporteService soporte;
+    private final AppConfig config;
+
+    /** Instantes de los correos al admin enviados en la última hora (para el tope por hora). */
+    private final ArrayDeque<Long> enviados = new ArrayDeque<>();
+
+    public SoporteListener(CorreoServicio correo, NotificadorUsuarios notificador, SoporteService soporte, AppConfig config) {
+        this.correo = correo;
+        this.notificador = notificador;
+        this.soporte = soporte;
+        this.config = config;
+    }
+
+    /** Se suscribe al bus. Llamar una sola vez al arrancar. */
+    public void registrar(EventBus bus) {
+        bus.on(Eventos.SOPORTE_TICKET_CREADO, "soporte-correo-admin", this::avisarAlAdmin);
+        bus.on(Eventos.SOPORTE_TICKET_RESPONDIDO, "soporte-aviso-usuario", this::avisarAlUsuario);
+    }
+
+    private void avisarAlAdmin(EventBus.Evento evento) {
+        Eventos.TicketCreado ticket = evento.datos(Eventos.TicketCreado.class);
+        if (!correo.isHabilitado()) {
+            logger.info("Ticket de soporte #{} (correo no configurado: se ve en el panel admin)", ticket.ticketId());
+            return;
+        }
+        if (!hayCupoDeCorreo()) {
+            logger.warn("Ticket de soporte #{}: tope de {} correos/hora alcanzado, se ve solo en el panel admin",
+                    ticket.ticketId(), config.getSoporteMaxCorreosHora());
+            return;
+        }
+
+        String asunto = "Soporte #" + ticket.ticketId() + " [" + ticket.categoria() + "]: "
+                + recortar(ticket.asunto(), MAX_ASUNTO_RESUMEN);
+        String detalle = "Un usuario te escribió desde «Hablar con el admin».\n\n"
+                + "Usuario: " + ticket.username() + " (id " + ticket.userId() + ")\n"
+                + "Categoría: " + ticket.categoria() + "\n"
+                + "Asunto: " + ticket.asunto() + "\n\n"
+                + recortar(ticket.mensaje(), MAX_MENSAJE_CORREO) + "\n\n"
+                + "Respóndele en: " + config.getAppBaseUrl() + "/admin  →  pestaña «🎫 Soporte».\n"
+                + "Tu respuesta le llega por correo y la ve en su panel de soporte.";
+
+        String destino = config.getSoporteAdminEmail();
+        if (destino.isEmpty()) {
+            correo.notificarAdmin(asunto, detalle); // al remitente configurado en Brevo
+        } else {
+            correo.enviar(destino, "🔔 " + asunto, detalle);
+        }
+    }
+
+    private void avisarAlUsuario(EventBus.Evento evento) {
+        Eventos.TicketRespondido ticket = evento.datos(Eventos.TicketRespondido.class);
+        int userId = ticket.userId();
+
+        // Un fallo en un canal (socket, push o correo) no debe dejar al usuario sin los otros
+        try {
+            JsonObject datos = new JsonObject();
+            datos.addProperty("ticketId", ticket.ticketId());
+            datos.addProperty("asunto", ticket.asunto());
+            datos.addProperty("respuesta", ticket.respuesta());
+            notificador.emitirA(userId, "soporte_respuesta", datos);
+            notificador.enviarPush(userId, "Torneos Flash",
+                    "El administrador respondió tu consulta «" + recortar(ticket.asunto(), MAX_ASUNTO_RESUMEN) + "».");
+        } catch (Exception e) {
+            logger.error("No se pudo avisar al usuario {} de la respuesta del ticket #{}: {}",
+                    userId, ticket.ticketId(), e.getMessage());
+        }
+
+        try {
+            enviarRespuestaPorCorreo(ticket);
+        } catch (Exception e) {
+            logger.error("No se pudo enviar por correo la respuesta del ticket #{}: {}", ticket.ticketId(), e.getMessage());
+        }
+    }
+
+    private void enviarRespuestaPorCorreo(Eventos.TicketRespondido ticket) {
+        if (!correo.isHabilitado()) {
+            logger.info("Ticket #{} respondido (correo no configurado: el usuario la ve en su panel de soporte)",
+                    ticket.ticketId());
+            return;
+        }
+        String destino = soporte.correoDeUsuario(ticket.userId());
+        if (destino.isEmpty() || destino.length() > 254 || !CORREO_VALIDO.matcher(destino).matches()) {
+            logger.info("Ticket #{} respondido: el usuario {} no tiene un correo válido, la ve en su panel de soporte",
+                    ticket.ticketId(), ticket.userId());
+            return;
+        }
+
+        String asunto = "Respondimos tu consulta: " + recortar(ticket.asunto(), MAX_ASUNTO_RESUMEN);
+        String cuerpo = "Hola " + ticket.username() + ",\n\n"
+                + "El administrador respondió tu consulta «" + ticket.asunto() + "»:\n\n"
+                + ticket.respuesta() + "\n\n"
+                + "Puedes ver todas tus consultas en: " + config.getAppBaseUrl() + "/soporte\n\n"
+                + "— UltimateClash";
+        correo.enviar(destino, asunto, cuerpo);
+    }
+
+    /** Ventana deslizante de 1 hora: true (y registra el envío) si aún no se llegó al tope. */
+    private synchronized boolean hayCupoDeCorreo() {
+        long ahora = System.currentTimeMillis();
+        while (!enviados.isEmpty() && enviados.peekFirst() <= ahora - HORA_MS) {
+            enviados.pollFirst();
+        }
+        if (enviados.size() >= config.getSoporteMaxCorreosHora()) return false;
+        enviados.addLast(ahora);
+        return true;
+    }
+
+    private static String recortar(String texto, int max) {
+        if (texto == null) return "";
+        String t = texto.trim();
+        // El asunto del correo es de una sola línea; en el cuerpo los saltos del mensaje se conservan por separado
+        t = max <= MAX_ASUNTO_RESUMEN ? t.replaceAll("\\s+", " ") : t;
+        return t.length() <= max ? t : t.substring(0, max - 1) + "…";
+    }
+}
+</file>
+
+<file path="src/main/java/com/torneosflash/servicio/SoporteService.java">
+package com.torneosflash.servicio;
+
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.torneosflash.config.AppConfig;
+import com.torneosflash.dao.GenericDAO;
+import com.torneosflash.eventos.EventBus;
+import com.torneosflash.eventos.Eventos;
+
+import java.util.List;
+import java.util.Set;
+
+/**
+ * Soporte: "Hablar con el admin" (roadmap 24.5). Sistema de tickets: el usuario escribe una consulta (pregunta,
+ * sugerencia, bug, problema de su cuenta u otro), al admin le llega un correo y el admin responde desde su panel.
+ * No conoce HTTP (A3): recibe tipos simples y lanza {@link ServicioException}.
+ *
+ * <h3>Flujo</h3>
+ * <ol>
+ *   <li>{@link #crear}: guarda el ticket ({@code estado = 'abierto'}) y emite {@link Eventos#SOPORTE_TICKET_CREADO};
+ *       {@code SoporteListener} avisa al admin por correo.</li>
+ *   <li>{@link #responder}: guarda la respuesta, deja el ticket {@code resuelto} y emite
+ *       {@link Eventos#SOPORTE_TICKET_RESPONDIDO}; {@code SoporteListener} le avisa al usuario (socket + push) y le
+ *       manda la respuesta a su correo. El usuario también la ve en su panel ({@link #misTickets}).</li>
+ * </ol>
+ *
+ * <h3>Seguridad y abuso</h3>
+ * <ul>
+ *   <li>El usuario sale SIEMPRE de la sesión JWT, nunca del body; un usuario solo ve sus propios tickets.</li>
+ *   <li>Los endpoints del admin exigen {@code tipo_suscripcion = 'admin'} (además de {@code AdminMiddleware}).</li>
+ *   <li>Todo texto pasa por {@link ChatSanitizer#limpiarTexto} (sin etiquetas HTML ni caracteres de control) y tiene
+ *       tope de largo; el frontend lo pinta como texto, nunca como HTML.</li>
+ *   <li>Cada ticket manda un correo al admin, así que hay tope de tickets abiertos a la vez
+ *       ({@code SOPORTE_MAX_ABIERTOS}) y de tickets por día ({@code SOPORTE_MAX_TICKETS_DIA}) por usuario. El tope
+ *       se aplica dentro del mismo {@code INSERT} para que peticiones simultáneas no lo esquiven.</li>
+ *   <li>Los datos del usuario que salen hacia el admin son solo id y username: nunca email, teléfono ni hash.</li>
+ * </ul>
+ */
+public class SoporteService {
+
+    public static final String CATEGORIA_PREGUNTA = "pregunta";
+    public static final String CATEGORIA_SUGERENCIA = "sugerencia";
+    public static final String CATEGORIA_BUG = "bug";
+    public static final String CATEGORIA_CUENTA = "cuenta";
+    public static final String CATEGORIA_OTRO = "otro";
+    private static final Set<String> CATEGORIAS = Set.of(
+            CATEGORIA_PREGUNTA, CATEGORIA_SUGERENCIA, CATEGORIA_BUG, CATEGORIA_CUENTA, CATEGORIA_OTRO);
+
+    public static final String ESTADO_ABIERTO = "abierto";
+    public static final String ESTADO_RESUELTO = "resuelto";
+    private static final String FILTRO_TODOS = "todos";
+    private static final Set<String> FILTROS_ADMIN = Set.of(ESTADO_ABIERTO, ESTADO_RESUELTO, FILTRO_TODOS);
+
+    /** Largo máximo del asunto (una línea). */
+    static final int MAX_ASUNTO = 100;
+    /** Largo máximo del mensaje del usuario. */
+    static final int MAX_MENSAJE = 2000;
+    /** Largo máximo de la respuesta del admin. */
+    static final int MAX_RESPUESTA = 3000;
+
+    /** Cuántos tickets propios ve el usuario en su panel. */
+    private static final int MAX_LISTA_USUARIO = 50;
+    /** Cuántos tickets ve el admin por consulta. */
+    private static final int MAX_LISTA_ADMIN = 200;
+
+    private final GenericDAO db;
+    private final EventBus eventos;
+    private final AppConfig config;
+
+    public SoporteService(GenericDAO db, EventBus eventos, AppConfig config) {
+        this.db = db;
+        this.eventos = eventos;
+        this.config = config;
+    }
+
+    // ==================================================================
+    // Usuario
+    // ==================================================================
+
+    /**
+     * Abre un ticket nuevo.
+     *
+     * @return {@code {success, ticket}} con el ticket recién creado
+     */
+    public JsonObject crear(int userId, String categoriaCruda, String asuntoCrudo, String mensajeCrudo) {
+        JsonObject usuario = exigirUsuario(userId);
+
+        String categoria = categoriaCruda == null ? "" : categoriaCruda.trim().toLowerCase(java.util.Locale.ROOT);
+        if (!CATEGORIAS.contains(categoria)) {
+            throw ServicioException.solicitudInvalida(
+                    "Categoría no válida. Usa pregunta, sugerencia, bug, cuenta u otro");
+        }
+        // El asunto es de una sola línea: los saltos y espacios repetidos se juntan
+        String asunto = ChatSanitizer.limpiarTexto(asuntoCrudo, MAX_ASUNTO).replaceAll("\\s+", " ").trim();
+        String mensaje = ChatSanitizer.limpiarTexto(mensajeCrudo, MAX_MENSAJE);
+        if (asunto.isEmpty()) throw ServicioException.solicitudInvalida("Escribe el asunto");
+        if (mensaje.isEmpty()) throw ServicioException.solicitudInvalida("Escribe tu mensaje");
+
+        verificarCupo(userId); // mensajes claros; el tope real lo garantiza el INSERT de abajo
+
+        int id = db.insertReturningId("INSERT INTO support_tickets (user_id, categoria, asunto, mensaje) "
+                + "SELECT ?::integer, ?::text, ?::text, ?::text "
+                + "WHERE (SELECT COUNT(*) FROM support_tickets WHERE user_id = ? AND estado = 'abierto') < ? "
+                + "AND (SELECT COUNT(*) FROM support_tickets WHERE user_id = ? "
+                + "AND fecha_creacion > NOW() - INTERVAL '1 day') < ? "
+                + "RETURNING id",
+                userId, categoria, asunto, mensaje,
+                userId, config.getSoporteMaxAbiertos(),
+                userId, config.getSoporteMaxTicketsDia());
+        if (id <= 0) {
+            // Sin fila: o una petición simultánea llenó el cupo (verificarCupo lanza el 429 que corresponde) o falló la BD
+            verificarCupo(userId);
+            throw ServicioException.interno("No se pudo enviar tu mensaje. Inténtalo de nuevo", null);
+        }
+
+        // El ticket ya está guardado; los listeners solo avisan (emit no lanza)
+        eventos.emit(Eventos.SOPORTE_TICKET_CREADO, new Eventos.TicketCreado(
+                id, userId, textoOVacio(usuario, "username"), categoria, asunto, mensaje));
+
+        JsonObject r = new JsonObject();
+        r.addProperty("success", true);
+        r.add("ticket", db.queryOne("SELECT id, categoria, asunto, mensaje, estado, respuesta, fecha_creacion, "
+                + "fecha_respuesta FROM support_tickets WHERE id = ? AND user_id = ?", id, userId));
+        return r;
+    }
+
+    /** Los tickets del propio usuario (más recientes primero), con la respuesta del admin si ya la hay. */
+    public List<JsonObject> misTickets(int userId) {
+        exigirUsuario(userId);
+        return db.query("SELECT id, categoria, asunto, mensaje, estado, respuesta, fecha_creacion, fecha_respuesta "
+                + "FROM support_tickets WHERE user_id = ? ORDER BY id DESC LIMIT ?", userId, MAX_LISTA_USUARIO);
+    }
+
+    // ==================================================================
+    // Admin
+    // ==================================================================
+
+    /**
+     * Bandeja del admin. {@code estado}: {@code abierto} (los más viejos primero), {@code resuelto} o {@code todos}
+     * (los más recientes primero). Lleva id y username de quien escribió; nunca email ni teléfono.
+     */
+    public List<JsonObject> listarAdmin(int adminId, String estado) {
+        exigirAdmin(adminId);
+        if (estado == null || !FILTROS_ADMIN.contains(estado)) {
+            throw ServicioException.solicitudInvalida("Estado no válido. Usa abierto, resuelto o todos");
+        }
+        String columnas = "SELECT t.id, t.user_id, u.username, t.categoria, t.asunto, t.mensaje, t.estado, "
+                + "t.respuesta, t.fecha_creacion, t.fecha_respuesta FROM support_tickets t "
+                + "JOIN users u ON u.id = t.user_id ";
+        if (FILTRO_TODOS.equals(estado)) {
+            return db.query(columnas + "ORDER BY t.id DESC LIMIT ?", MAX_LISTA_ADMIN);
+        }
+        String orden = ESTADO_ABIERTO.equals(estado) ? "ASC" : "DESC"; // pendientes: primero el que lleva más esperando
+        return db.query(columnas + "WHERE t.estado = ? ORDER BY t.id " + orden + " LIMIT ?", estado, MAX_LISTA_ADMIN);
+    }
+
+    /**
+     * El admin responde un ticket abierto. Queda {@code resuelto} y se emite
+     * {@link Eventos#SOPORTE_TICKET_RESPONDIDO}. Un ticket ya resuelto no se puede volver a responder (400).
+     */
+    public JsonObject responder(int adminId, int ticketId, String respuestaCruda) {
+        exigirAdmin(adminId);
+        String respuesta = ChatSanitizer.limpiarTexto(respuestaCruda, MAX_RESPUESTA);
+        if (respuesta.isEmpty()) throw ServicioException.solicitudInvalida("Escribe la respuesta");
+
+        // Una sola sentencia: si dos admins responden a la vez, solo una gana y solo se avisa una vez
+        int filas = db.update("UPDATE support_tickets SET respuesta = ?, estado = 'resuelto', respondido_por = ?, "
+                + "fecha_respuesta = CURRENT_TIMESTAMP WHERE id = ? AND estado = 'abierto'",
+                respuesta, adminId, ticketId);
+        if (filas == 0) {
+            JsonObject existente = db.queryOne("SELECT id FROM support_tickets WHERE id = ?", ticketId);
+            if (existente == null) throw ServicioException.noEncontrado("Ese ticket no existe");
+            throw ServicioException.solicitudInvalida("Ese ticket ya fue respondido");
+        }
+
+        JsonObject ticket = db.queryOne("SELECT t.id, t.user_id, u.username, t.categoria, t.asunto "
+                + "FROM support_tickets t JOIN users u ON u.id = t.user_id WHERE t.id = ?", ticketId);
+        if (ticket != null) {
+            // La respuesta ya está guardada; los listeners solo la reparten (emit no lanza)
+            eventos.emit(Eventos.SOPORTE_TICKET_RESPONDIDO, new Eventos.TicketRespondido(
+                    ticketId,
+                    ticket.get("user_id").getAsInt(),
+                    textoOVacio(ticket, "username"),
+                    textoOVacio(ticket, "categoria"),
+                    textoOVacio(ticket, "asunto"),
+                    respuesta));
+        }
+
+        JsonObject r = new JsonObject();
+        r.addProperty("success", true);
+        r.addProperty("id", ticketId);
+        return r;
+    }
+
+    // ==================================================================
+    // Piezas internas
+    // ==================================================================
+
+    /**
+     * Correo de la cuenta del usuario, o {@code ""} si no tiene. Solo lo usa {@code SoporteListener} para enviarle
+     * SU propia respuesta; nunca sale hacia el admin ni hacia otros usuarios.
+     */
+    public String correoDeUsuario(int userId) {
+        JsonObject fila = db.queryOne("SELECT email FROM users WHERE id = ?", userId);
+        return fila == null ? "" : textoOVacio(fila, "email").trim();
+    }
+
+    /** Lanza 429 si el usuario ya llegó al tope de tickets abiertos o de tickets en las últimas 24 horas. */
+    private void verificarCupo(int userId) {
+        JsonObject fila = db.queryOne("SELECT "
+                + "(SELECT COUNT(*) FROM support_tickets WHERE user_id = ? AND estado = 'abierto') AS abiertos, "
+                + "(SELECT COUNT(*) FROM support_tickets WHERE user_id = ? "
+                + "AND fecha_creacion > NOW() - INTERVAL '1 day') AS hoy", userId, userId);
+        if (fila == null) throw ServicioException.interno("No se pudo enviar tu mensaje. Inténtalo de nuevo", null);
+
+        if (fila.get("abiertos").getAsLong() >= config.getSoporteMaxAbiertos()) {
+            throw ServicioException.demasiadasSolicitudes("Ya tienes " + config.getSoporteMaxAbiertos()
+                    + " consultas sin responder. Espera la respuesta del administrador antes de enviar otra");
+        }
+        if (fila.get("hoy").getAsLong() >= config.getSoporteMaxTicketsDia()) {
+            throw ServicioException.demasiadasSolicitudes(
+                    "Llegaste al límite de consultas de hoy. Vuelve a intentarlo mañana");
+        }
+    }
+
+    /** Usuario de la sesión; 401 si no hay sesión o el usuario ya no existe. */
+    private JsonObject exigirUsuario(int userId) {
+        if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión para hablar con el administrador");
+        JsonObject usuario = db.queryOne("SELECT id, username, tipo_suscripcion FROM users WHERE id = ?", userId);
+        if (usuario == null) throw ServicioException.noAutenticado("Sesión inválida. Vuelve a iniciar sesión");
+        return usuario;
+    }
+
+    /** Usuario de la sesión, que además debe ser admin ({@code tipo_suscripcion = 'admin'}); 403 si no lo es. */
+    private JsonObject exigirAdmin(int userId) {
+        JsonObject usuario = exigirUsuario(userId);
+        if (!"admin".equals(textoOVacio(usuario, "tipo_suscripcion"))) {
+            throw ServicioException.prohibido("Solo los administradores pueden hacer esto");
+        }
+        return usuario;
+    }
+
+    private static String textoOVacio(JsonObject objeto, String campo) {
+        JsonElement valor = objeto.get(campo);
+        return (valor == null || valor.isJsonNull()) ? "" : valor.getAsString();
+    }
+}
+</file>
+
 <file path="src/main/java/com/torneosflash/servicio/SorteoService.java">
 package com.torneosflash.servicio;
 
@@ -5510,6 +6498,65 @@ public class RutasComisiones {
 }
 </file>
 
+<file path="src/main/java/com/torneosflash/servidor/RutasSoporte.java">
+package com.torneosflash.servidor;
+
+import com.google.gson.JsonObject;
+import com.torneosflash.servicio.SoporteService;
+import io.javalin.Javalin;
+
+import static com.torneosflash.servidor.RutasAuth.parseBody;
+
+/**
+ * Rutas de soporte, "Hablar con el admin" (roadmap 24.5).
+ *
+ * A3: solo parsean el request y llaman a {@link SoporteService}. El usuario sale SIEMPRE de la sesión JWT
+ * ({@link Peticion#userIdDeSesion}), nunca del body; el servicio responde 401 si no hay sesión y 403 si una ruta de
+ * admin la llama alguien que no es admin. Las rutas de admin cuelgan de {@code /api/admin/*}, así que además las
+ * cubre {@link AdminMiddleware} (S3).
+ *
+ * <pre>
+ * Usuario
+ *   POST /api/soporte/tickets   {categoria, asunto, mensaje} abre un ticket (429 si supera sus topes)
+ *   GET  /api/soporte/tickets   mis tickets, con la respuesta del admin si ya la hay
+ * Admin
+ *   GET  /api/admin/soporte/tickets?estado=abierto|resuelto|todos        bandeja (default: abierto)
+ *   POST /api/admin/soporte/tickets/{id}/responder   {respuesta}         responde y deja el ticket resuelto
+ * </pre>
+ */
+public class RutasSoporte {
+
+    public static void register(Javalin app, SoporteService soporte) {
+
+        // ---------------- Usuario ----------------
+
+        app.post("/api/soporte/tickets", ctx -> {
+            JsonObject body = parseBody(ctx);
+            ctx.json(soporte.crear(Peticion.userIdDeSesion(ctx),
+                    Peticion.texto(body, "categoria"),
+                    Peticion.texto(body, "asunto"),
+                    Peticion.texto(body, "mensaje")));
+        });
+
+        app.get("/api/soporte/tickets", ctx ->
+                ctx.json(soporte.misTickets(Peticion.userIdDeSesion(ctx))));
+
+        // ---------------- Admin ----------------
+
+        app.get("/api/admin/soporte/tickets", ctx -> {
+            String estado = ctx.queryParam("estado");
+            ctx.json(soporte.listarAdmin(Peticion.userIdDeSesion(ctx), estado == null ? "abierto" : estado));
+        });
+
+        app.post("/api/admin/soporte/tickets/{id}/responder", ctx -> {
+            JsonObject body = parseBody(ctx);
+            ctx.json(soporte.responder(Peticion.userIdDeSesion(ctx),
+                    Peticion.pathEntero(ctx, "id"), Peticion.texto(body, "respuesta")));
+        });
+    }
+}
+</file>
+
 <file path="src/main/java/com/torneosflash/socketio/SocketIOClient.java">
 package com.torneosflash.socketio;
 
@@ -5972,6 +7019,42 @@ CREATE INDEX IF NOT EXISTS idx_wallet_ledger_tipo ON wallet_ledger (tipo);
 
 -- Índice para consultas por fecha (reportes por rango)
 CREATE INDEX IF NOT EXISTS idx_wallet_ledger_fecha ON wallet_ledger (fecha);
+</file>
+
+<file path="src/main/resources/db/migration/V6__soporte_tickets.sql">
+-- ============================================================================
+-- V6 — Soporte: "Hablar con el admin" (roadmap 24.5)
+--
+-- Sistema de tickets: el usuario escribe una consulta (pregunta, sugerencia, bug, problema de su cuenta u otro),
+-- al admin le llega un correo y el admin responde desde el panel. La respuesta queda guardada aquí (el usuario la
+-- ve en su panel de soporte) y además se le envía a su correo.
+--
+-- NUNCA editar este archivo una vez aplicado (Flyway guarda su checksum). Cambios = un V7__ nuevo.
+-- ============================================================================
+
+--    categoria: 'pregunta' | 'sugerencia' | 'bug' | 'cuenta' | 'otro'
+--    estado:    'abierto' (sin respuesta) | 'resuelto' (el admin ya respondió)
+--    respondido_por: admin que respondió (queda en NULL si ese usuario se borra)
+CREATE TABLE IF NOT EXISTS support_tickets (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    categoria TEXT NOT NULL,
+    asunto TEXT NOT NULL,
+    mensaje TEXT NOT NULL,
+    estado TEXT NOT NULL DEFAULT 'abierto',
+    respuesta TEXT,
+    respondido_por INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    fecha_respuesta TIMESTAMP,
+    CONSTRAINT support_tickets_categoria_chk CHECK (categoria IN ('pregunta', 'sugerencia', 'bug', 'cuenta', 'otro')),
+    CONSTRAINT support_tickets_estado_chk CHECK (estado IN ('abierto', 'resuelto'))
+);
+
+-- "Mis consultas" de un usuario (más recientes primero) y conteo de sus tickets abiertos
+CREATE INDEX IF NOT EXISTS idx_support_tickets_usuario ON support_tickets (user_id, id DESC);
+
+-- Bandeja del admin: por estado, más recientes primero
+CREATE INDEX IF NOT EXISTS idx_support_tickets_estado ON support_tickets (estado, id DESC);
 </file>
 
 <file path="agent/rules/auto-push.md">
@@ -8225,173 +9308,6 @@ public class UsuarioDAO {
 }
 </file>
 
-<file path="src/main/java/com/torneosflash/eventos/Eventos.java">
-package com.torneosflash.eventos;
-
-import com.torneosflash.servicio.ComisionService;
-
-import java.math.BigDecimal;
-import java.util.List;
-
-/**
- * Catálogo de eventos del {@link EventBus} (A4): el nombre de cada evento y la clase de sus datos.
- * Para añadir un evento nuevo: una constante aquí, un {@code record} con sus datos y, en el emisor,
- * {@code eventBus.emit(Eventos.NOMBRE, new Datos(...))}. Los nombres siguen el formato {@code entidad.accion}
- * en pasado ({@code match.finished}): el evento cuenta algo que YA ocurrió.
- */
-public final class Eventos {
-    private Eventos() {}
-
-    /**
-     * Una partida terminó y ya se liquidó (el dinero ya se movió y el match quedó {@code finalizada} en la BD).
-     * Datos: {@link PartidaFinalizada}. Lo emiten {@code SocketHandler} (resultado automático por la API de Clash)
-     * y {@code AdminService.resolverDisputa} (resultado decidido por un admin).
-     */
-    public static final String MATCH_FINISHED = "match.finished";
-
-    /** Cómo se decidió el resultado de la partida. */
-    public enum Origen {
-        /** El sondeo a la API de Clash Royale encontró la batalla. */
-        API,
-        /** Un admin resolvió la disputa a mano. */
-        DISPUTA
-    }
-
-    /**
-     * Datos de {@link #MATCH_FINISHED}. Todos los montos son los de la liquidación ya confirmada. // REVIEW-MONEY
-     *
-     * @param matchId           id de la partida en la tabla {@code matches}
-     * @param origen            cómo se decidió el resultado
-     * @param participantes     ids de los jugadores que jugaron (ganador y perdedor; un id <= 0 significa "no
-     *                          encontrado" y los listeners lo saltan). Lista inmutable
-     * @param ganadorId         id del ganador
-     * @param ganadorNombre     username del ganador
-     * @param monto             lo que puso cada jugador
-     * @param premio            lo que recibió el ganador (pozo - comisión)
-     * @param nuevoSaldoGanador saldo del ganador después de cobrar el premio
-     * @param desglose          comisión de la partida y su reparto por categoría ({@link ComisionService})
-     */
-    public record PartidaFinalizada(
-            int matchId,
-            Origen origen,
-            List<Integer> participantes,
-            int ganadorId,
-            String ganadorNombre,
-            BigDecimal monto,
-            BigDecimal premio,
-            BigDecimal nuevoSaldoGanador,
-            ComisionService.Desglose desglose) {
-
-        public PartidaFinalizada {
-            participantes = List.copyOf(participantes);
-        }
-    }
-
-    /**
-     * El chatbot no supo resolver la duda de un usuario y quedó guardada como pendiente (roadmap parte 20).
-     * Datos: {@link DudaSinRespuesta}. Lo emite {@code ChatbotService} DESPUÉS de guardar la duda; el listener
-     * {@code ChatbotListener} le manda el correo al admin.
-     */
-    public static final String CHATBOT_DUDA_SIN_RESPUESTA = "chatbot.duda_sin_respuesta";
-
-    /**
-     * El admin respondió una duda pendiente y la respuesta ya es parte de la base de conocimiento del bot.
-     * Datos: {@link DudaRespondida}. Lo emite {@code ChatbotService}; el listener {@code ChatbotListener} se la
-     * entrega a los usuarios que la hicieron (historial del chat + socket + push).
-     */
-    public static final String CHATBOT_DUDA_RESPONDIDA = "chatbot.duda_respondida";
-
-    /**
-     * Datos de {@link #CHATBOT_DUDA_SIN_RESPUESTA}.
-     *
-     * @param dudaId   id de la fila en {@code chatbot_conocimiento}
-     * @param userId   usuario que hizo esta pregunta ahora
-     * @param username su nombre (el correo al admin nunca lleva email ni teléfono)
-     * @param pregunta texto de la pregunta, ya limpio
-     * @param nueva    true si es una duda nueva; false si es la misma duda pendiente que se repitió (no se vuelve a avisar)
-     * @param veces    cuántas veces se ha hecho esta duda mientras está pendiente
-     */
-    public record DudaSinRespuesta(int dudaId, int userId, String username, String pregunta, boolean nueva, int veces) {}
-
-    // ═══════════════════════════════════════════
-    // EVENTOS DE WALLET (D2)
-    // ═══════════════════════════════════════════
-
-    /**
-     * Se depositó dinero en la cuenta de un usuario (recarga Wompi, manual, retiro rechazado, etc.).
-     * Datos: {@link MovimientoWallet}. Lo emite {@code WalletService.depositar()} DESPUÉS de confirmar la transacción.
-     */
-    public static final String WALLET_DEPOSITED = "wallet.deposited";
-
-    /**
-     * Se retiró dinero de la cuenta de un usuario (solicitud de retiro aprobada).
-     * Datos: {@link MovimientoWallet}. Lo emite {@code WalletService.retirar()}.
-     */
-    public static final String WALLET_WITHDRAWN = "wallet.withdrawn";
-
-    /**
-     * Se descontó el monto de un torneo al iniciar una partida.
-     * Datos: {@link MovimientoWallet}. Lo emite {@code WalletService.realizarTorneo()}.
-     */
-    public static final String WALLET_BET = "wallet.bet";
-
-    /**
-     * Se premió a un usuario (leaderboard, sorteo, etc.).
-     * Datos: {@link MovimientoWallet}. Lo emite {@code WalletService.premiar()}.
-     */
-    public static final String WALLET_AWARDED = "wallet.awarded";
-
-    /**
-     * Se liquidó una partida: el ganador recibió su premio y las comisiones se distribuyeron.
-     * Datos: {@link PartidaFinalizada}. Nota: este evento NO se emite desde WalletService;
-     * la liquidación ya dispara {@link #MATCH_FINISHED} desde SocketHandler/AdminService.
-     */
-    // (wallet.settled se documenta aquí pero no se agrega como constante: la liquidación
-    //  ya tiene MATCH_FINISHED y duplicar el evento generaría confusión)
-
-    /** Tipo de movimiento de wallet. */
-    public enum TipoMovimiento {
-        DEPOSITO, RETIRO, TORNEO, PREMIO
-    }
-
-    /**
-     * Datos genéricos de un movimiento de wallet (D2). Se emite DESPUÉS de confirmar la transacción SQL.
-     * Los listeners no deben revertir nada: el dinero ya se movió.
-     *
-     * @param tipo         tipo de operación
-     * @param userId       id del usuario afectado
-     * @param monto        monto de la operación (siempre positivo)
-     * @param nuevoSaldo   saldo del usuario después de la operación
-     * @param motivo       descripción legible (ej: "Recarga Wompi", "Retiro Nequi")
-     */
-    // REVIEW-MONEY
-    public record MovimientoWallet(
-            TipoMovimiento tipo,
-            int userId,
-            BigDecimal monto,
-            BigDecimal nuevoSaldo,
-            String motivo) {}
-
-    // ═══════════════════════════════════════════
-    // EVENTOS DE CHATBOT
-    // ═══════════════════════════════════════════
-
-    /**
-     * Datos de {@link #CHATBOT_DUDA_RESPONDIDA}.
-     *
-     * @param dudaId   id de la fila en {@code chatbot_conocimiento}
-     * @param pregunta la pregunta original
-     * @param respuesta lo que respondió el admin
-     * @param usuarios ids de los usuarios que hicieron esa duda (lista inmutable; puede estar vacía si era una pregunta de la IA)
-     */
-    public record DudaRespondida(int dudaId, String pregunta, String respuesta, List<Integer> usuarios) {
-        public DudaRespondida {
-            usuarios = List.copyOf(usuarios);
-        }
-    }
-}
-</file>
-
 <file path="src/main/java/com/torneosflash/servicio/NotificacionPushServicio.java">
 package com.torneosflash.servicio;
 
@@ -9630,6 +10546,215 @@ export default function Leaderboard() {
 }
 </file>
 
+<file path="src/main/java/com/torneosflash/eventos/Eventos.java">
+package com.torneosflash.eventos;
+
+import com.torneosflash.servicio.ComisionService;
+
+import java.math.BigDecimal;
+import java.util.List;
+
+/**
+ * Catálogo de eventos del {@link EventBus} (A4): el nombre de cada evento y la clase de sus datos.
+ * Para añadir un evento nuevo: una constante aquí, un {@code record} con sus datos y, en el emisor,
+ * {@code eventBus.emit(Eventos.NOMBRE, new Datos(...))}. Los nombres siguen el formato {@code entidad.accion}
+ * en pasado ({@code match.finished}): el evento cuenta algo que YA ocurrió.
+ */
+public final class Eventos {
+    private Eventos() {}
+
+    /**
+     * Una partida terminó y ya se liquidó (el dinero ya se movió y el match quedó {@code finalizada} en la BD).
+     * Datos: {@link PartidaFinalizada}. Lo emiten {@code SocketHandler} (resultado automático por la API de Clash)
+     * y {@code AdminService.resolverDisputa} (resultado decidido por un admin).
+     */
+    public static final String MATCH_FINISHED = "match.finished";
+
+    /** Cómo se decidió el resultado de la partida. */
+    public enum Origen {
+        /** El sondeo a la API de Clash Royale encontró la batalla. */
+        API,
+        /** Un admin resolvió la disputa a mano. */
+        DISPUTA
+    }
+
+    /**
+     * Datos de {@link #MATCH_FINISHED}. Todos los montos son los de la liquidación ya confirmada. // REVIEW-MONEY
+     *
+     * @param matchId           id de la partida en la tabla {@code matches}
+     * @param origen            cómo se decidió el resultado
+     * @param participantes     ids de los jugadores que jugaron (ganador y perdedor; un id <= 0 significa "no
+     *                          encontrado" y los listeners lo saltan). Lista inmutable
+     * @param ganadorId         id del ganador
+     * @param ganadorNombre     username del ganador
+     * @param monto             lo que puso cada jugador
+     * @param premio            lo que recibió el ganador (pozo - comisión)
+     * @param nuevoSaldoGanador saldo del ganador después de cobrar el premio
+     * @param desglose          comisión de la partida y su reparto por categoría ({@link ComisionService})
+     */
+    public record PartidaFinalizada(
+            int matchId,
+            Origen origen,
+            List<Integer> participantes,
+            int ganadorId,
+            String ganadorNombre,
+            BigDecimal monto,
+            BigDecimal premio,
+            BigDecimal nuevoSaldoGanador,
+            ComisionService.Desglose desglose) {
+
+        public PartidaFinalizada {
+            participantes = List.copyOf(participantes);
+        }
+    }
+
+    /**
+     * El chatbot no supo resolver la duda de un usuario y quedó guardada como pendiente (roadmap parte 20).
+     * Datos: {@link DudaSinRespuesta}. Lo emite {@code ChatbotService} DESPUÉS de guardar la duda; el listener
+     * {@code ChatbotListener} le manda el correo al admin.
+     */
+    public static final String CHATBOT_DUDA_SIN_RESPUESTA = "chatbot.duda_sin_respuesta";
+
+    /**
+     * El admin respondió una duda pendiente y la respuesta ya es parte de la base de conocimiento del bot.
+     * Datos: {@link DudaRespondida}. Lo emite {@code ChatbotService}; el listener {@code ChatbotListener} se la
+     * entrega a los usuarios que la hicieron (historial del chat + socket + push).
+     */
+    public static final String CHATBOT_DUDA_RESPONDIDA = "chatbot.duda_respondida";
+
+    /**
+     * Datos de {@link #CHATBOT_DUDA_SIN_RESPUESTA}.
+     *
+     * @param dudaId   id de la fila en {@code chatbot_conocimiento}
+     * @param userId   usuario que hizo esta pregunta ahora
+     * @param username su nombre (el correo al admin nunca lleva email ni teléfono)
+     * @param pregunta texto de la pregunta, ya limpio
+     * @param nueva    true si es una duda nueva; false si es la misma duda pendiente que se repitió (no se vuelve a avisar)
+     * @param veces    cuántas veces se ha hecho esta duda mientras está pendiente
+     */
+    public record DudaSinRespuesta(int dudaId, int userId, String username, String pregunta, boolean nueva, int veces) {}
+
+    // ═══════════════════════════════════════════
+    // EVENTOS DE WALLET (D2)
+    // ═══════════════════════════════════════════
+
+    /**
+     * Se depositó dinero en la cuenta de un usuario (recarga Wompi, manual, retiro rechazado, etc.).
+     * Datos: {@link MovimientoWallet}. Lo emite {@code WalletService.depositar()} DESPUÉS de confirmar la transacción.
+     */
+    public static final String WALLET_DEPOSITED = "wallet.deposited";
+
+    /**
+     * Se retiró dinero de la cuenta de un usuario (solicitud de retiro aprobada).
+     * Datos: {@link MovimientoWallet}. Lo emite {@code WalletService.retirar()}.
+     */
+    public static final String WALLET_WITHDRAWN = "wallet.withdrawn";
+
+    /**
+     * Se descontó el monto de un torneo al iniciar una partida.
+     * Datos: {@link MovimientoWallet}. Lo emite {@code WalletService.realizarTorneo()}.
+     */
+    public static final String WALLET_BET = "wallet.bet";
+
+    /**
+     * Se premió a un usuario (leaderboard, sorteo, etc.).
+     * Datos: {@link MovimientoWallet}. Lo emite {@code WalletService.premiar()}.
+     */
+    public static final String WALLET_AWARDED = "wallet.awarded";
+
+    /**
+     * Se liquidó una partida: el ganador recibió su premio y las comisiones se distribuyeron.
+     * Datos: {@link PartidaFinalizada}. Nota: este evento NO se emite desde WalletService;
+     * la liquidación ya dispara {@link #MATCH_FINISHED} desde SocketHandler/AdminService.
+     */
+    // (wallet.settled se documenta aquí pero no se agrega como constante: la liquidación
+    //  ya tiene MATCH_FINISHED y duplicar el evento generaría confusión)
+
+    /** Tipo de movimiento de wallet. */
+    public enum TipoMovimiento {
+        DEPOSITO, RETIRO, TORNEO, PREMIO
+    }
+
+    /**
+     * Datos genéricos de un movimiento de wallet (D2). Se emite DESPUÉS de confirmar la transacción SQL.
+     * Los listeners no deben revertir nada: el dinero ya se movió.
+     *
+     * @param tipo         tipo de operación
+     * @param userId       id del usuario afectado
+     * @param monto        monto de la operación (siempre positivo)
+     * @param nuevoSaldo   saldo del usuario después de la operación
+     * @param motivo       descripción legible (ej: "Recarga Wompi", "Retiro Nequi")
+     */
+    // REVIEW-MONEY
+    public record MovimientoWallet(
+            TipoMovimiento tipo,
+            int userId,
+            BigDecimal monto,
+            BigDecimal nuevoSaldo,
+            String motivo) {}
+
+    // ═══════════════════════════════════════════
+    // EVENTOS DE CHATBOT
+    // ═══════════════════════════════════════════
+
+    /**
+     * Datos de {@link #CHATBOT_DUDA_RESPONDIDA}.
+     *
+     * @param dudaId   id de la fila en {@code chatbot_conocimiento}
+     * @param pregunta la pregunta original
+     * @param respuesta lo que respondió el admin
+     * @param usuarios ids de los usuarios que hicieron esa duda (lista inmutable; puede estar vacía si era una pregunta de la IA)
+     */
+    public record DudaRespondida(int dudaId, String pregunta, String respuesta, List<Integer> usuarios) {
+        public DudaRespondida {
+            usuarios = List.copyOf(usuarios);
+        }
+    }
+
+    // ═════════════════════════════════════════════
+    // EVENTOS DE SOPORTE (roadmap 24.5)
+    // ═════════════════════════════════════════════
+
+    /**
+     * Un usuario abrió un ticket de soporte ("Hablar con el admin").
+     * Datos: {@link TicketCreado}. Lo emite {@code SoporteService.crear} DESPUÉS de guardar el ticket; el listener
+     * {@code SoporteListener} le manda el correo al admin.
+     */
+    public static final String SOPORTE_TICKET_CREADO = "soporte.ticket_creado";
+
+    /**
+     * El admin respondió un ticket y quedó {@code resuelto}.
+     * Datos: {@link TicketRespondido}. Lo emite {@code SoporteService.responder}; el listener {@code SoporteListener}
+     * avisa al usuario (socket + push) y le envía la respuesta a su correo.
+     */
+    public static final String SOPORTE_TICKET_RESPONDIDO = "soporte.ticket_respondido";
+
+    /**
+     * Datos de {@link #SOPORTE_TICKET_CREADO}. Nunca lleva email ni teléfono del usuario.
+     *
+     * @param ticketId  id de la fila en {@code support_tickets}
+     * @param userId    usuario que escribió
+     * @param username  su nombre de usuario
+     * @param categoria pregunta | sugerencia | bug | cuenta | otro
+     * @param asunto    asunto ya limpio
+     * @param mensaje   mensaje ya limpio
+     */
+    public record TicketCreado(int ticketId, int userId, String username, String categoria, String asunto, String mensaje) {}
+
+    /**
+     * Datos de {@link #SOPORTE_TICKET_RESPONDIDO}.
+     *
+     * @param ticketId  id de la fila en {@code support_tickets}
+     * @param userId    usuario que abrió el ticket (a quien se le avisa)
+     * @param username  su nombre de usuario (saludo del correo)
+     * @param categoria categoría del ticket
+     * @param asunto    asunto original
+     * @param respuesta lo que respondió el admin
+     */
+    public record TicketRespondido(int ticketId, int userId, String username, String categoria, String asunto, String respuesta) {}
+}
+</file>
+
 <file path="src/main/java/com/torneosflash/servidor/RutasMedia.java">
 package com.torneosflash.servidor;
 
@@ -10253,111 +11378,6 @@ export default function Chat() {
                     </form>
                 )}
             </div>
-        </div>
-    );
-}
-</file>
-
-<file path="frontend/src/pages/Lobby.jsx">
-import React, { useState, useEffect } from 'react';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { useAppStore } from '../store/useAppStore';
-import './Lobby.css';
-
-export default function Lobby() {
-    const navigate = useNavigate();
-    const location = useLocation();
-    
-    const currentUser = useAppStore(state => state.user) || { username: 'Usuario', saldo: 0, estado: 'normal' };
-    const logout = useAppStore(state => state.logout);
-    const connectSocket = useAppStore(state => state.connectSocket);
-    const disconnectSocket = useAppStore(state => state.disconnectSocket);
-    const inMatch = useAppStore(state => state.matchState.inMatch);
-
-    // Al encontrar partida (o restaurarla) el usuario va a la sala, esté donde esté. Solo al cambiar a "en partida":
-    // después puede moverse libremente por la app.
-    useEffect(() => {
-        if (inMatch && location.pathname !== '/match') navigate('/match');
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [inMatch]);
-
-    useEffect(() => {
-        if (currentUser && currentUser.username !== 'Usuario') {
-            connectSocket();
-        } else {
-            disconnectSocket();
-        }
-    }, [currentUser, connectSocket, disconnectSocket]);
-
-    const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
-    const [clashMenuOpen, setClashMenuOpen] = useState(false);
-
-    const handleLogout = async () => {
-        logout();
-        navigate('/auth');
-    };
-
-    const isActive = (path) => location.pathname === path ? 'active' : '';
-
-    const handleNavigation = (path) => {
-        navigate(path);
-        setMobileMenuOpen(false);
-    };
-
-    return (
-        <div className="discord-layout">
-            <button className="mobile-menu-btn" onClick={() => setMobileMenuOpen(!isMobileMenuOpen)}>
-                ☰
-            </button>
-            
-            {isMobileMenuOpen && (
-                <div className="mobile-overlay" onClick={() => setMobileMenuOpen(false)}></div>
-            )}
-
-            <aside className={`sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
-                <div className="profile-box">
-                    <h3>{currentUser.username}</h3>
-                    <div className="status-indicator">
-                        <span className="status-dot"></span>
-                        <span>{currentUser.estado === 'normal' ? 'Libre' : 'Jugando'}</span>
-                    </div>
-                    <p className="money">${currentUser.saldo.toLocaleString()}</p>
-                    
-                    <button className="mini-btn" onClick={() => handleNavigation('/finance')}>+ Recargar</button>
-                    <button className="mini-btn" style={{background: '#ed4245', marginTop: 5}} onClick={() => handleNavigation('/finance')}>- Retirar</button>
-                    {currentUser.tipo_suscripcion === 'admin' && (
-                        <button className="mini-btn admin-btn" onClick={() => handleNavigation('/admin')} style={{marginTop: 5}}>👑 Admin</button>
-                    )}
-                </div>
-                
-                <div className="channels-list">
-                    <div className={`channel ${isActive('/chat')}`} onClick={() => handleNavigation('/chat')}># 💬 Chat / Anuncios</div>
-                    <div className="category">JUEGOS</div>
-                    
-                    <div className="dropdown-group">
-                        <div className="channel category-title" onClick={() => setClashMenuOpen(!clashMenuOpen)}>
-                            <span>⚔️ CLASH ROYALE</span>
-                            <span>{clashMenuOpen ? '▲' : '▼'}</span>
-                        </div>
-                        
-                        {clashMenuOpen && (
-                            <div className="submenu">
-                                <div className={`channel sub-channel ${isActive('/match')}`} onClick={() => handleNavigation('/match')}>⚔️ Jugar / Privada</div>
-                                <div className={`channel sub-channel ${isActive('/sorteos')}`} onClick={() => handleNavigation('/sorteos')}>🎁 Sorteos</div>
-                            </div>
-                        )}
-                    </div>
-                    
-                    <div className={`channel ${isActive('/leaderboard')}`} onClick={() => handleNavigation('/leaderboard')}>🏆 Rankings</div>
-                    <div className={`channel ${isActive('/chatbot')}`} onClick={() => handleNavigation('/chatbot')}>🤖 Asistente</div>
-                </div>
-                
-                <button className="logout-btn" onClick={handleLogout}>Salir</button>
-            </aside>
-
-            <main className="chat-area">
-                <Outlet />
-            </main>
         </div>
     );
 }
@@ -12081,17 +13101,125 @@ public class RutasLeaderboard {
 }
 </file>
 
+<file path="frontend/src/pages/Lobby.jsx">
+import React, { useState, useEffect } from 'react';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { useAppStore } from '../store/useAppStore';
+import './Lobby.css';
+
+export default function Lobby() {
+    const navigate = useNavigate();
+    const location = useLocation();
+    
+    const currentUser = useAppStore(state => state.user) || { username: 'Usuario', saldo: 0, estado: 'normal' };
+    const logout = useAppStore(state => state.logout);
+    const connectSocket = useAppStore(state => state.connectSocket);
+    const disconnectSocket = useAppStore(state => state.disconnectSocket);
+    const inMatch = useAppStore(state => state.matchState.inMatch);
+
+    // Al encontrar partida (o restaurarla) el usuario va a la sala, esté donde esté. Solo al cambiar a "en partida":
+    // después puede moverse libremente por la app.
+    useEffect(() => {
+        if (inMatch && location.pathname !== '/match') navigate('/match');
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [inMatch]);
+
+    useEffect(() => {
+        if (currentUser && currentUser.username !== 'Usuario') {
+            connectSocket();
+        } else {
+            disconnectSocket();
+        }
+    }, [currentUser, connectSocket, disconnectSocket]);
+
+    const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [clashMenuOpen, setClashMenuOpen] = useState(false);
+
+    const handleLogout = async () => {
+        logout();
+        navigate('/auth');
+    };
+
+    const isActive = (path) => location.pathname === path ? 'active' : '';
+
+    const handleNavigation = (path) => {
+        navigate(path);
+        setMobileMenuOpen(false);
+    };
+
+    return (
+        <div className="discord-layout">
+            <button className="mobile-menu-btn" onClick={() => setMobileMenuOpen(!isMobileMenuOpen)}>
+                ☰
+            </button>
+            
+            {isMobileMenuOpen && (
+                <div className="mobile-overlay" onClick={() => setMobileMenuOpen(false)}></div>
+            )}
+
+            <aside className={`sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
+                <div className="profile-box">
+                    <h3>{currentUser.username}</h3>
+                    <div className="status-indicator">
+                        <span className="status-dot"></span>
+                        <span>{currentUser.estado === 'normal' ? 'Libre' : 'Jugando'}</span>
+                    </div>
+                    <p className="money">${currentUser.saldo.toLocaleString()}</p>
+                    
+                    <button className="mini-btn" onClick={() => handleNavigation('/finance')}>+ Recargar</button>
+                    <button className="mini-btn" style={{background: '#ed4245', marginTop: 5}} onClick={() => handleNavigation('/finance')}>- Retirar</button>
+                    {currentUser.tipo_suscripcion === 'admin' && (
+                        <button className="mini-btn admin-btn" onClick={() => handleNavigation('/admin')} style={{marginTop: 5}}>👑 Admin</button>
+                    )}
+                </div>
+                
+                <div className="channels-list">
+                    <div className={`channel ${isActive('/chat')}`} onClick={() => handleNavigation('/chat')}># 💬 Chat / Anuncios</div>
+                    <div className="category">JUEGOS</div>
+                    
+                    <div className="dropdown-group">
+                        <div className="channel category-title" onClick={() => setClashMenuOpen(!clashMenuOpen)}>
+                            <span>⚔️ CLASH ROYALE</span>
+                            <span>{clashMenuOpen ? '▲' : '▼'}</span>
+                        </div>
+                        
+                        {clashMenuOpen && (
+                            <div className="submenu">
+                                <div className={`channel sub-channel ${isActive('/match')}`} onClick={() => handleNavigation('/match')}>⚔️ Jugar / Privada</div>
+                                <div className={`channel sub-channel ${isActive('/sorteos')}`} onClick={() => handleNavigation('/sorteos')}>🎁 Sorteos</div>
+                            </div>
+                        )}
+                    </div>
+                    
+                    <div className={`channel ${isActive('/leaderboard')}`} onClick={() => handleNavigation('/leaderboard')}>🏆 Rankings</div>
+                    <div className={`channel ${isActive('/chatbot')}`} onClick={() => handleNavigation('/chatbot')}>🤖 Asistente</div>
+                    <div className={`channel ${isActive('/faq')}`} onClick={() => handleNavigation('/faq')}>❓ Ayuda / FAQ</div>
+                    <div className={`channel ${isActive('/soporte')}`} onClick={() => handleNavigation('/soporte')}>✉️ Hablar con el admin</div>
+                </div>
+                
+                <button className="logout-btn" onClick={handleLogout}>Salir</button>
+            </aside>
+
+            <main className="chat-area">
+                <Outlet />
+            </main>
+        </div>
+    );
+}
+</file>
+
 <file path="frontend/src/pages/Admin.jsx">
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { llamarApi } from '../store/llamarApi';
 import AdminChatbot from './AdminChatbot';
+import AdminSoporte from './AdminSoporte';
 import './Admin.css';
 
 const API_BASE_URL = 'https://torneos-beta.onrender.com';
 
 export default function Admin() {
-    const [view, setView] = useState('transactions'); // 'transactions', 'stats' o 'chatbot'
+    const [view, setView] = useState('transactions'); // 'transactions', 'stats', 'chatbot' o 'soporte'
     
     // Transactions & Disputes
     const [transactions, setTransactions] = useState([]);
@@ -12245,6 +13373,7 @@ export default function Admin() {
                     <button className={`admin-tab ${view === 'transactions' ? 'active' : ''}`} onClick={() => setView('transactions')}>💸 Pagos / Disputas</button>
                     <button className={`admin-tab ${view === 'stats' ? 'active' : ''}`} onClick={() => setView('stats')}>📊 Finanzas</button>
                     <button className={`admin-tab ${view === 'chatbot' ? 'active' : ''}`} onClick={() => setView('chatbot')}>🤖 Chatbot</button>
+                    <button className={`admin-tab ${view === 'soporte' ? 'active' : ''}`} onClick={() => setView('soporte')}>🎫 Soporte</button>
                 </div>
             </header>
 
@@ -12319,6 +13448,7 @@ export default function Admin() {
             )}
 
             {view === 'chatbot' && <AdminChatbot />}
+            {view === 'soporte' && <AdminSoporte />}
 
             {view === 'stats' && (
                 <div className="admin-view">
@@ -12387,113 +13517,6 @@ export default function Admin() {
         </div>
     );
 }
-</file>
-
-<file path="agent/rules/project convenions">
-# Regla: Convenciones del proyecto
-
-## Tokens
-- En caso tal tus tokens de uso lleguen al 10% o menos del total, modificar el `CHANGELOG.md` con lo q alcanzaste a hacer y lo q faltó por terminar para luego notificar el usuario y dejar de editar
-
-## Autenticación
-- Nunca leer `userId` del body del request. Sacarlo siempre de la sesión (JWT verificado en middleware).
-- El socket se autentica en el handshake con el JWT. No confiar en datos que mande el cliente.
-
-## Dinero
-- Todo movimiento de dinero pasa por `WalletService`. Nunca hacer `UPDATE users SET saldo` directo.
-- Usar `BigDecimal` o `int` (centavos/tokens). Nunca `double` para dinero.
-- Verificar saldo con `WHERE saldo >= ?` dentro de la misma transacción SQL. No consultar y luego descontar en queries separados.
-- Si una tarea toca dinero, marcar el bloque con `// REVIEW-MONEY`.
-
-## Seguridad
-- Escapar todo HTML del usuario. Nunca usar `innerHTML` con datos del usuario; usar `textContent` o una librería de sanitización.
-- Las consultas SQL siempre usan `PreparedStatement` con `?`. Nunca concatenar strings del usuario en SQL.
-- Validar todos los inputs del servidor: montos positivos, dentro de rango, tipos correctos.
-- No enviar `password`, `email` ni `telefono` al rival ni en broadcasts. Hacer `SELECT` solo de los campos necesarios.
-
-## Arquitectura
-- Hay diferentes agentes trabajando en diferentes funcionalidades, por lo que es posible que hayan trabajos incompletos, por lo que es importante que si el archivo a modificar le faltan partes no editarlos y en vez de eso continuar con la funcionalidad pedida ignorando lo incompleto a no ser que sea necesario para continua con la funcionalidad trabajada, asi que siempre haras unicamente lo que se te pide sin prestar atencion a las demas siempre y cuando no afecten lo que vayas a realizar.
-- Cada funcionalidad nueva lanza un evento en el bus de eventos y no notifica directamente.
-- Las tablas nuevas se crean con una migración de Flyway, no en `ConexionDB.inicializarTablas()`.
-- Toda configuración va en variables de entorno, nunca hardcodeada.
-- La lógica de negocio va en la capa de servicio (`servicio/`), no en los handlers de rutas ni en los handlers de socket.
-
-## Después de cada tarea
-- **No resumir** lo que se hizo en el chat. En cambio, editar `CHANGELOG.md` (junto al modelo usado) y `ARCHITECTURE.md` (solo si es necesario) en la raíz del proyecto agregando la entrada al inicio (debajo de la línea `---`).
--ejecutar el archivo `recarga.bat`
-- despues de cada mensaje editar el ARCHITECTURE.md para documentar el cambio. si el cambio no es significativo, no editarlo. y el `CHANGELOG.md`
-- Verificar si los cambios si son mostrados en el frontend y backend.
-- Compilar y verificar si no hay ningun error en el codigo
-- Notificar al usuario verificaciones manuales.
-- Ejecutar `git diff --stat` para verificar qué archivos se tocaron.
-- Seguir la regla de auto-push (add, commit con mensaje descriptivo en español, push a main) a no ser que se indique lo contrario.
-- al agregar nuevas funciones tambien agregaras las ayudas correspondientes para el chatbot ai, tutorial interactivo y preguntas frecuentes (faq), en caso tal ya se hayan agregado esas funcionalidades
-
-
-# 🚨 Reglas de Transición (Fase 0 → Fase 1) — LECTura OBLIGATORIA PARA AGENTES
-
-> **Estado actual del proyecto:** El proyecto se encuentra en entorno cerrado de pruebas (sin clientes reales en producción) avanzando en funcionalidades de **Fase 1** mientras se terminan de saldar las siguientes tareas de **Fase 0**: `S2`, `S3`, `S4`, `S7`, `D1`, `A1`, `A2`.
-> **Objetivo del agente:** Implementar funcionalidades nuevas con **cero deuda técnica adicional** y **cero retrabajo futuro**.
-
----
-
-## 1. Seguridad y Autenticación (`S1`–`S6`)
-
-1. **Identidad del usuario (`S2`):**
-   - **OBLIGATORIO:** En todo endpoint nuevo o modificado que actúe en nombre del usuario autenticado, obtén el ID exclusivamente desde la sesión JWT inyectada por el middleware: `ctx.attribute("userId")`.
-   - **PROHIBIDO:** Leer `userId`, `id_usuario` o `username` del usuario emisor desde `ctx.body()`, `ctx.queryParam()` o `ctx.pathParam()` (salvo cuando sea el ID de un tercero, ej. enviar solicitud de amistad a `targetUserId`).
-2. **Rutas de Administración (`S3`):**
-   - **OBLIGATORIO:** Todo endpoint de uso administrativo (aprobación de KYC, revisión de evidencias de pago, gestión de tickets de soporte, configuración de límites, etc.) **DEBE** ubicarse bajo el prefijo `/api/admin/*` para quedar cubierto automáticamente por el middleware de rol admin.
-   - **PROHIBIDO:** Crear rutas administrativas fuera de `/api/admin/*` o usar patrones inseguros como `/secret-admin/*`.
-3. **Prevención de SQL Injection (`S4`):**
-   - **OBLIGATORIO:** Todas las consultas SQL en DAOs o servicios nuevos deben usar exclusivamente `PreparedStatement` con parámetros `?`.
-   - **PROHIBIDO:** Concatenar variables o strings del usuario en consultas SQL o usar `Statement.execute()`.
-4. **Exposición de datos (`S6`):**
-   - **PROHIBIDO:** Usar `SELECT * FROM usuarios` para devolver datos al frontend. Especifica siempre las columnas seguras y jamás serialices `password_hash`, secretos `2FA` ni tokens internos.
-
----
-
-## 2. Manejo de Dinero y Ledger (`D1`–`D5`)
-
-1. **Uso estricto de `BigDecimal` (`D1`):**
-   - **OBLIGATORIO:** Todo código nuevo que represente dinero, saldos, apuestas/retos, comisiones, límites o porcentajes de devolución **DEBE** usar `java.math.BigDecimal` en Java (`rs.getBigDecimal()`, `ps.setBigDecimal()`) y `NUMERIC`/`DECIMAL` en PostgreSQL.
-   - **PROHIBIDO:** Declarar variables, parámetros o campos de tipo `double` o `float` para valores monetarios en código nuevo.
-   - **Interoperabilidad temporal con código legacy:** Si tu código nuevo debe llamar a un método antiguo que aún usa `double` (mientras se completa la migración `D1`), realiza la conversión únicamente en la línea de llamada y añade el comentario `// TODO(D1): eliminar conversión cuando se migre a BigDecimal`.
-2. **Centralización en `WalletService` y `wallet_ledger` (`D2`, `D3`):**
-   - **OBLIGATORIO:** Cualquier alteración del saldo de un usuario debe ejecutarse a través de `WalletService` dentro de una transacción atómica y dejando registro inmutable (`INSERT`) en `wallet_ledger`.
-   - **PROHIBIDO:** Ejecutar `UPDATE usuarios SET saldo = ...` directamente desde rutas, DAOs externos o handlers de sockets.
-3. **Auditoría:**
-   - Añade el comentario `// REVIEW-MONEY` encima de cualquier método nuevo que calcule premios, comisiones, devoluciones, préstamos/regalos o límites financieros.
-
----
-
-## 3. Arquitectura, Eventos y Tiempo Real (`A1`–`A4`)
-
-1. **Separación de capas (`A3`):**
-   - Los archivos `Rutas*.java` solo deben validar/parsear la petición HTTP, extraer `ctx.attribute("userId")` y llamar al `*Service.java` correspondiente. **PROHIBIDO** escribir lógica de negocio o consultas SQL dentro de `Rutas*.java`.
-2. **Desacoplamiento por Eventos (`A4`):**
-   - Funciones reactivas como **Notificaciones de dinero (1)**, **Misiones (7)**, **Logros (11)**, **Ligas/Copas (12.2)** y **Puntos VIP (16.7)** deben implementarse como listeners del `EventBus` (ej. escuchando `wallet.movement`, `match.finished`, `user.verified`) en lugar de acoplar llamadas directas dentro del flujo crítico de partidas o pagos.
-3. **Guardia de Bloqueo de WebSockets (`A1` - `netty-socketio`):**
-   - **PROHIBIDO** construir nuevas funcionalidades complejas de tiempo real que dependan de *rooms* o *namespaces* (ej. Chat privado, Chat de clanes, salas 2v2, sincronización de Torneos) sobre el adaptador WebSocket custom antiguo (`socketio/`).
-   - Si el usuario pide avanzar en Clanes (18.4), Amigos (7) o Soporte (24.5) antes de que `A1` esté completado, implementa **toda la capa de Base de Datos, Servicios, API REST y UI estática**, dejando únicamente la emisión de eventos de sala Socket.IO preparada o pendiente de `A1`.
-4. **Guardia de Bloqueo de Estado en Memoria (`A2` - Persistencia en BD):**
-   - **PROHIBIDO** crear nuevas listas o mapas estáticos en memoria (`ConcurrentHashMap`, `ArrayList` en `SocketHandler`) para gestionar colas de emparejamiento, salas 2v2 o brackets de torneos. Todo estado de juego nuevo debe persistirse en base de datos (`active_matches`, `match_queue`, `tournament_matches`).
-
----
-
-## 4. Semáforo de Ejecución para Agentes (Fase 1)
-
-Antes de implementar una funcionalidad del Roadmap, verifica en qué categoría cae:
-
-* 🟢 **Implementación directa permitida (sin bloqueos):**
-  * Verificación de email + VIP, TOS/Privacidad, 2FA, KYC (usando `/api/admin/*`), Notificaciones de movimientos y su configuración, Referidos, Misiones, Logros, Ligas/Arenas (vía `EventBus`), Sistema VIP, Amigos (CRUD REST), Clanes y Prestigio (CRUD REST), Evidencias de pago, Tickets de soporte, Pasarelas manuales (Llaves/Nu), FAQ, Tutorial, Chatbot IA, Capacitor, Bot de Discord.
-* 🟡 **Requiere verificar/aplicar `D1` (`BigDecimal`) en los archivos afectados antes de codificar:**
-  * Límites de dinero (8), Sistema de devolución (12.5), Regalar/prestar dinero (18.7), Unificación de moneda (23.5), Coach (26.6).
-* 🟠 **Requiere patrón de verificación de firmas (`S7`) + `D1`:**
-  * Pasarelas automatizadas por Webhook: PayPal (22), Nequi API (23), Cripto (24).
-* 🔴 **Bloqueado por `A1` (`netty-socketio`) y/o `A2` (Estado en BD):**
-  * Chat privado en tiempo real (8), Chat de clanes en tiempo real (18.5), Matchmaking justo en cola (15), Partidas 2v2 en vivo (16.2), Motor en vivo de Torneos (17.7, 18, 20) y Guerra de clanes (25.5).
-  * *Acción del agente si se solicita una tarea 🔴 sin estar listos `A1`/`A2`:* Advierte al usuario del retrabajo en la parte de sockets/colas y ofrece construir primero las migraciones SQL (Flyway), modelos, servicios CRUD y vistas de interfaz que no dependan del socket en vivo.
 </file>
 
 <file path="frontend/src/pages/Match.jsx">
@@ -13014,98 +14037,111 @@ export default function Match() {
 }
 </file>
 
-<file path="frontend/src/App.jsx">
-import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
-import { useEffect } from 'react'
-import { useAppStore } from './store/useAppStore'
-import Auth from './pages/Auth'
-import Lobby from './pages/Lobby'
-import Admin from './pages/Admin'
-import Match from './pages/Match'
-import Chat from './pages/Chat'
-import Finance from './pages/Finance'
-import Leaderboard from './pages/Leaderboard'
-import Sorteos from './pages/Sorteos'
-import Chatbot from './pages/Chatbot'
-import Legal from './pages/Legal'      // ← NUEVO
+<file path="agent/rules/project convenions">
+# Regla: Convenciones del proyecto
 
-import { useCapacitor } from './hooks/useCapacitor'
+## Tokens
+- En caso tal tus tokens de uso lleguen al 10% o menos del total, modificar el `CHANGELOG.md` con lo q alcanzaste a hacer y lo q faltó por terminar para luego notificar el usuario y dejar de editar
 
-const RUTAS_PUBLICAS = ['/auth', '/terminos', '/privacidad'];
+## Autenticación
+- Nunca leer `userId` del body del request. Sacarlo siempre de la sesión (JWT verificado en middleware).
+- El socket se autentica en el handshake con el JWT. No confiar en datos que mande el cliente.
 
-function App() {
-  const theme = useAppStore(state => state.theme);
-  const toggleTheme = useAppStore(state => state.toggleTheme);
-  const user = useAppStore(state => state.user);
-  const sincronizarSesion = useAppStore(state => state.sincronizarSesion);
-  const navigate = useNavigate();
-  const { pathname } = useLocation();
+## Dinero
+- Todo movimiento de dinero pasa por `WalletService`. Nunca hacer `UPDATE users SET saldo` directo.
+- Usar `BigDecimal` o `int` (centavos/tokens). Nunca `double` para dinero.
+- Verificar saldo con `WHERE saldo >= ?` dentro de la misma transacción SQL. No consultar y luego descontar en queries separados.
+- Si una tarea toca dinero, marcar el bloque con `// REVIEW-MONEY`.
 
-  useCapacitor();
+## Seguridad
+- Escapar todo HTML del usuario. Nunca usar `innerHTML` con datos del usuario; usar `textContent` o una librería de sanitización.
+- Las consultas SQL siempre usan `PreparedStatement` con `?`. Nunca concatenar strings del usuario en SQL.
+- Validar todos los inputs del servidor: montos positivos, dentro de rango, tipos correctos.
+- No enviar `password`, `email` ni `telefono` al rival ni en broadcasts. Hacer `SELECT` solo de los campos necesarios.
 
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-  }, [theme]);
+## Arquitectura
+- Hay diferentes agentes trabajando en diferentes funcionalidades, por lo que es posible que hayan trabajos incompletos, por lo que es importante que si el archivo a modificar le faltan partes no editarlos y en vez de eso continuar con la funcionalidad pedida ignorando lo incompleto a no ser que sea necesario para continua con la funcionalidad trabajada, asi que siempre haras unicamente lo que se te pide sin prestar atencion a las demas siempre y cuando no afecten lo que vayas a realizar.
+- Cada funcionalidad nueva lanza un evento en el bus de eventos y no notifica directamente.
+- Las tablas nuevas se crean con una migración de Flyway, no en `ConexionDB.inicializarTablas()`.
+- Toda configuración va en variables de entorno, nunca hardcodeada.
+- La lógica de negocio va en la capa de servicio (`servicio/`), no en los handlers de rutas ni en los handlers de socket.
 
-  // Al cargar la app se pide el usuario real al servidor (saldo actual, rol, estado). Sin esto el front arranca con el
-  // saldo viejo del localStorage. Si el servidor responde 401 se cierra la sesión (ver sincronizarSesion).
-  useEffect(() => {
-    sincronizarSesion();
-  }, [sincronizarSesion]);
+## Después de cada tarea
+- **No resumir** lo que se hizo en el chat. En cambio, editar `CHANGELOG.md` (junto al modelo usado) y `ARCHITECTURE.md` (solo si es necesario) en la raíz del proyecto agregando la entrada al inicio (debajo de la línea `---`).
+-ejecutar el archivo `recarga.bat`
+- despues de cada mensaje editar el ARCHITECTURE.md para documentar el cambio. si el cambio no es significativo, no editarlo. y el `CHANGELOG.md`
+- Verificar si los cambios si son mostrados en el frontend y backend.
+- Compilar y verificar si no hay ningun error en el codigo
+- Notificar al usuario verificaciones manuales.
+- Ejecutar `git diff --stat` para verificar qué archivos se tocaron.
+- Seguir la regla de auto-push (add, commit con mensaje descriptivo en español, push a main) a no ser que se indique lo contrario.
+- al agregar nuevas funciones tambien agregaras las ayudas correspondientes para el chatbot ai, tutorial interactivo y preguntas frecuentes (faq), en caso tal ya se hayan agregado esas funcionalidades
 
-  // Sin usuario no hay nada que mostrar fuera de /auth y las páginas legales (cubre también el cierre por 401).
-  useEffect(() => {
-    if (!user && !RUTAS_PUBLICAS.includes(pathname)) {
-      navigate('/auth', { replace: true });
-    }
-  }, [user, pathname, navigate]);
 
-  return (
-    <>
-      <button
-        onClick={toggleTheme}
-        style={{
-          position: 'fixed',
-          bottom: '20px',
-          right: '20px',
-          zIndex: 9999,
-          width: '50px',
-          height: '50px',
-          borderRadius: '50%',
-          padding: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: '1.5rem',
-          boxShadow: 'var(--shadow-md)',
-          background: 'var(--bg-surface-elevated)',
-          color: 'var(--text-primary)'
-        }}
-        title="Cambiar Modo Claro/Oscuro"
-      >
-        {theme === 'dark' ? '☀️' : '🌙'}
-      </button>
-      <Routes>
-        <Route path="/auth" element={<Auth />} />
-        <Route path="/terminos" element={<Legal tipo="terminos" />} />        {/* ← NUEVO */}
-        <Route path="/privacidad" element={<Legal tipo="privacidad" />} />   {/* ← NUEVO */}
-        <Route path="/" element={<Lobby />}>
-          <Route index element={<Navigate to="/chat" replace />} />
-          <Route path="chat" element={<Chat />} />
-          <Route path="match" element={<Match />} />
-          <Route path="finance" element={<Finance />} />
-          <Route path="leaderboard" element={<Leaderboard />} />
-          <Route path="sorteos" element={<Sorteos />} />
-          <Route path="chatbot" element={<Chatbot />} />
-          <Route path="admin" element={<Admin />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </>
-  )
-}
+# 🚨 Reglas de Transición (Fase 0 → Fase 1) — LECTura OBLIGATORIA PARA AGENTES
 
-export default App
+> **Estado actual del proyecto:** El proyecto se encuentra en entorno cerrado de pruebas (sin clientes reales en producción) avanzando en funcionalidades de **Fase 1** mientras se terminan de saldar las siguientes tareas de **Fase 0**: `S2`, `S3`, `S4`, `S7`, `D1`, `A1`, `A2`.
+> **Objetivo del agente:** Implementar funcionalidades nuevas con **cero deuda técnica adicional** y **cero retrabajo futuro**.
+
+---
+
+## 1. Seguridad y Autenticación (`S1`–`S6`)
+
+1. **Identidad del usuario (`S2`):**
+   - **OBLIGATORIO:** En todo endpoint nuevo o modificado que actúe en nombre del usuario autenticado, obtén el ID exclusivamente desde la sesión JWT inyectada por el middleware: `ctx.attribute("userId")`.
+   - **PROHIBIDO:** Leer `userId`, `id_usuario` o `username` del usuario emisor desde `ctx.body()`, `ctx.queryParam()` o `ctx.pathParam()` (salvo cuando sea el ID de un tercero, ej. enviar solicitud de amistad a `targetUserId`).
+2. **Rutas de Administración (`S3`):**
+   - **OBLIGATORIO:** Todo endpoint de uso administrativo (aprobación de KYC, revisión de evidencias de pago, gestión de tickets de soporte, configuración de límites, etc.) **DEBE** ubicarse bajo el prefijo `/api/admin/*` para quedar cubierto automáticamente por el middleware de rol admin.
+   - **PROHIBIDO:** Crear rutas administrativas fuera de `/api/admin/*` o usar patrones inseguros como `/secret-admin/*`.
+3. **Prevención de SQL Injection (`S4`):**
+   - **OBLIGATORIO:** Todas las consultas SQL en DAOs o servicios nuevos deben usar exclusivamente `PreparedStatement` con parámetros `?`.
+   - **PROHIBIDO:** Concatenar variables o strings del usuario en consultas SQL o usar `Statement.execute()`.
+4. **Exposición de datos (`S6`):**
+   - **PROHIBIDO:** Usar `SELECT * FROM usuarios` para devolver datos al frontend. Especifica siempre las columnas seguras y jamás serialices `password_hash`, secretos `2FA` ni tokens internos.
+
+---
+
+## 2. Manejo de Dinero y Ledger (`D1`–`D5`)
+
+1. **Uso estricto de `BigDecimal` (`D1`):**
+   - **OBLIGATORIO:** Todo código nuevo que represente dinero, saldos, apuestas/retos, comisiones, límites o porcentajes de devolución **DEBE** usar `java.math.BigDecimal` en Java (`rs.getBigDecimal()`, `ps.setBigDecimal()`) y `NUMERIC`/`DECIMAL` en PostgreSQL.
+   - **PROHIBIDO:** Declarar variables, parámetros o campos de tipo `double` o `float` para valores monetarios en código nuevo.
+   - **Interoperabilidad temporal con código legacy:** Si tu código nuevo debe llamar a un método antiguo que aún usa `double` (mientras se completa la migración `D1`), realiza la conversión únicamente en la línea de llamada y añade el comentario `// TODO(D1): eliminar conversión cuando se migre a BigDecimal`.
+2. **Centralización en `WalletService` y `wallet_ledger` (`D2`, `D3`):**
+   - **OBLIGATORIO:** Cualquier alteración del saldo de un usuario debe ejecutarse a través de `WalletService` dentro de una transacción atómica y dejando registro inmutable (`INSERT`) en `wallet_ledger`.
+   - **PROHIBIDO:** Ejecutar `UPDATE usuarios SET saldo = ...` directamente desde rutas, DAOs externos o handlers de sockets.
+3. **Auditoría:**
+   - Añade el comentario `// REVIEW-MONEY` encima de cualquier método nuevo que calcule premios, comisiones, devoluciones, préstamos/regalos o límites financieros.
+
+---
+
+## 3. Arquitectura, Eventos y Tiempo Real (`A1`–`A4`)
+
+1. **Separación de capas (`A3`):**
+   - Los archivos `Rutas*.java` solo deben validar/parsear la petición HTTP, extraer `ctx.attribute("userId")` y llamar al `*Service.java` correspondiente. **PROHIBIDO** escribir lógica de negocio o consultas SQL dentro de `Rutas*.java`.
+2. **Desacoplamiento por Eventos (`A4`):**
+   - Funciones reactivas como **Notificaciones de dinero (1)**, **Misiones (7)**, **Logros (11)**, **Ligas/Copas (12.2)** y **Puntos VIP (16.7)** deben implementarse como listeners del `EventBus` (ej. escuchando `wallet.movement`, `match.finished`, `user.verified`) en lugar de acoplar llamadas directas dentro del flujo crítico de partidas o pagos.
+3. **Guardia de Bloqueo de WebSockets (`A1` - `netty-socketio`):**
+   - **PROHIBIDO** construir nuevas funcionalidades complejas de tiempo real que dependan de *rooms* o *namespaces* (ej. Chat privado, Chat de clanes, salas 2v2, sincronización de Torneos) sobre el adaptador WebSocket custom antiguo (`socketio/`).
+   - Si el usuario pide avanzar en Clanes (18.4), Amigos (7) o Soporte (24.5) antes de que `A1` esté completado, implementa **toda la capa de Base de Datos, Servicios, API REST y UI estática**, dejando únicamente la emisión de eventos de sala Socket.IO preparada o pendiente de `A1`.
+4. **Guardia de Bloqueo de Estado en Memoria (`A2` - Persistencia en BD):**
+   - **PROHIBIDO** crear nuevas listas o mapas estáticos en memoria (`ConcurrentHashMap`, `ArrayList` en `SocketHandler`) para gestionar colas de emparejamiento, salas 2v2 o brackets de torneos. Todo estado de juego nuevo debe persistirse en base de datos (`active_matches`, `match_queue`, `tournament_matches`).
+
+---
+
+## 4. Semáforo de Ejecución para Agentes (Fase 1)
+
+Antes de implementar una funcionalidad del Roadmap, verifica en qué categoría cae:
+
+* 🟢 **Implementación directa permitida (sin bloqueos):**
+  * Verificación de email + VIP, TOS/Privacidad, 2FA, KYC (usando `/api/admin/*`), Notificaciones de movimientos y su configuración, Referidos, Misiones, Logros, Ligas/Arenas (vía `EventBus`), Sistema VIP, Amigos (CRUD REST), Clanes y Prestigio (CRUD REST), Evidencias de pago, Tickets de soporte, Pasarelas manuales (Llaves/Nu), FAQ, Tutorial, Chatbot IA, Capacitor, Bot de Discord.
+* 🟡 **Requiere verificar/aplicar `D1` (`BigDecimal`) en los archivos afectados antes de codificar:**
+  * Límites de dinero (8), Sistema de devolución (12.5), Regalar/prestar dinero (18.7), Unificación de moneda (23.5), Coach (26.6).
+* 🟠 **Requiere patrón de verificación de firmas (`S7`) + `D1`:**
+  * Pasarelas automatizadas por Webhook: PayPal (22), Nequi API (23), Cripto (24).
+* 🔴 **Bloqueado por `A1` (`netty-socketio`) y/o `A2` (Estado en BD):**
+  * Chat privado en tiempo real (8), Chat de clanes en tiempo real (18.5), Matchmaking justo en cola (15), Partidas 2v2 en vivo (16.2), Motor en vivo de Torneos (17.7, 18, 20) y Guerra de clanes (25.5).
+  * *Acción del agente si se solicita una tarea 🔴 sin estar listos `A1`/`A2`:* Advierte al usuario del retrabajo en la parte de sockets/colas y ofrece construir primero las migraciones SQL (Flyway), modelos, servicios CRUD y vistas de interfaz que no dependan del socket en vivo.
 </file>
 
 <file path="src/main/java/com/torneosflash/dao/ConexionDB.java">
@@ -13592,6 +14628,182 @@ public class RutasFinanzas {
 }
 </file>
 
+<file path="frontend/src/App.jsx">
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
+import { useEffect } from 'react'
+import { useAppStore } from './store/useAppStore'
+import Auth from './pages/Auth'
+import Lobby from './pages/Lobby'
+import Admin from './pages/Admin'
+import Match from './pages/Match'
+import Chat from './pages/Chat'
+import Finance from './pages/Finance'
+import Leaderboard from './pages/Leaderboard'
+import Sorteos from './pages/Sorteos'
+import Chatbot from './pages/Chatbot'
+import Soporte from './pages/Soporte'
+import Legal from './pages/Legal'      // ← NUEVO
+import Faq from './pages/Faq'
+
+import { useCapacitor } from './hooks/useCapacitor'
+
+const RUTAS_PUBLICAS = ['/auth', '/terminos', '/privacidad'];
+
+function App() {
+  const theme = useAppStore(state => state.theme);
+  const toggleTheme = useAppStore(state => state.toggleTheme);
+  const user = useAppStore(state => state.user);
+  const sincronizarSesion = useAppStore(state => state.sincronizarSesion);
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+
+  useCapacitor();
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
+  // Al cargar la app se pide el usuario real al servidor (saldo actual, rol, estado). Sin esto el front arranca con el
+  // saldo viejo del localStorage. Si el servidor responde 401 se cierra la sesión (ver sincronizarSesion).
+  useEffect(() => {
+    sincronizarSesion();
+  }, [sincronizarSesion]);
+
+  // Sin usuario no hay nada que mostrar fuera de /auth y las páginas legales (cubre también el cierre por 401).
+  useEffect(() => {
+    if (!user && !RUTAS_PUBLICAS.includes(pathname)) {
+      navigate('/auth', { replace: true });
+    }
+  }, [user, pathname, navigate]);
+
+  return (
+    <>
+      <button
+        onClick={toggleTheme}
+        style={{
+          position: 'fixed',
+          bottom: '20px',
+          right: '20px',
+          zIndex: 9999,
+          width: '50px',
+          height: '50px',
+          borderRadius: '50%',
+          padding: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '1.5rem',
+          boxShadow: 'var(--shadow-md)',
+          background: 'var(--bg-surface-elevated)',
+          color: 'var(--text-primary)'
+        }}
+        title="Cambiar Modo Claro/Oscuro"
+      >
+        {theme === 'dark' ? '☀️' : '🌙'}
+      </button>
+      <Routes>
+        <Route path="/auth" element={<Auth />} />
+        <Route path="/terminos" element={<Legal tipo="terminos" />} />        {/* ← NUEVO */}
+        <Route path="/privacidad" element={<Legal tipo="privacidad" />} />   {/* ← NUEVO */}
+        <Route path="/" element={<Lobby />}>
+          <Route index element={<Navigate to="/chat" replace />} />
+          <Route path="chat" element={<Chat />} />
+          <Route path="match" element={<Match />} />
+          <Route path="finance" element={<Finance />} />
+          <Route path="leaderboard" element={<Leaderboard />} />
+          <Route path="sorteos" element={<Sorteos />} />
+          <Route path="chatbot" element={<Chatbot />} />
+          <Route path="soporte" element={<Soporte />} />
+          <Route path="faq" element={<Faq />} />
+          <Route path="admin" element={<Admin />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
+  )
+}
+
+export default App
+</file>
+
+<file path="src/main/java/com/torneosflash/servidor/RutasSorteos.java">
+package com.torneosflash.servidor;
+
+import com.google.gson.*;
+import com.torneosflash.servicio.SorteoService;
+import io.javalin.Javalin;
+
+import static com.torneosflash.servidor.RutasAuth.*;
+
+/**
+ * Rutas de sorteos: tickets, participación, admin CRUD.
+ *
+ * A3: solo parsean el request y llaman a {@link SorteoService}.
+ */
+public class RutasSorteos {
+
+    public static void register(Javalin app, SorteoService sorteos) {
+
+        // GET /api/raffle/tickets/:userId
+        app.get("/api/raffle/tickets/{userId}", ctx ->
+                ctx.json(sorteos.ticketsDeUsuario(Peticion.pathEntero(ctx, "userId"))));
+
+        // GET /api/raffle/pool
+        app.get("/api/raffle/pool", ctx -> ctx.json(sorteos.pozo()));
+
+        // GET /api/raffle/poll
+        app.get("/api/raffle/poll", ctx -> ctx.json(sorteos.encuesta(Peticion.userIdDeSesion(ctx))));
+
+        // POST /api/raffle/vote
+        app.post("/api/raffle/vote", ctx -> {
+            JsonObject body = parseBody(ctx);
+            sorteos.votar(Peticion.entero(body, "userId"), Peticion.texto(body, "categoria"));
+            ctx.json(successJson("Voto registrado", 0));
+        });
+
+        // DELETE /api/admin/raffle/poll
+        app.delete("/api/admin/raffle/poll", ctx -> {
+            sorteos.reiniciarEncuesta();
+            ctx.json(successJson("Encuesta reiniciada", 0));
+        });
+
+        // GET /api/raffle/offers
+        app.get("/api/raffle/offers", ctx -> ctx.json(sorteos.ofertas(Peticion.userIdDeSesion(ctx))));
+
+        // GET /api/raffle/all
+        app.get("/api/raffle/all", ctx -> ctx.json(sorteos.todos(Peticion.userIdDeSesion(ctx))));
+
+        // POST /api/raffle/participate
+        app.post("/api/raffle/participate", ctx -> {
+            JsonObject body = parseBody(ctx);
+            ctx.json(sorteos.participar(
+                    Peticion.entero(body, "userId"),
+                    Peticion.entero(body, "raffleId"),
+                    Peticion.entero(body, "ticketsDelta")));
+        });
+
+        // POST /api/admin/raffle/create
+        app.post("/api/admin/raffle/create", ctx -> {
+            JsonObject body = parseBody(ctx);
+            ctx.json(sorteos.crear(
+                    Peticion.texto(body, "nombre"),
+                    Peticion.texto(body, "categoria"),
+                    body.get("precio"),
+                    body.get("duracionMinutos")));
+        });
+
+        // DELETE /api/admin/raffle/:id
+        app.delete("/api/admin/raffle/{id}", ctx -> {
+            String mensaje = sorteos.eliminar(Peticion.pathEntero(ctx, "id"));
+            ctx.json(successJson(mensaje, 0));
+        });
+
+        // GET /api/admin/raffles
+        app.get("/api/admin/raffles", ctx -> ctx.json(sorteos.listarAdmin()));
+    }
+}
+</file>
+
 <file path="src/main/java/com/torneosflash/config/AppConfig.java">
 package com.torneosflash.config;
 
@@ -13686,6 +14898,12 @@ public class AppConfig {
     private final int chatbotContextoMensajes;
     private final int chatbotMaxTokens;
     private final int rateLimitChatbotPorMin;
+
+    // --- Soporte: "Hablar con el admin" (roadmap 24.5). Ver SoporteService y SoporteListener. ---
+    private final String soporteAdminEmail;
+    private final int soporteMaxAbiertos;
+    private final int soporteMaxTicketsDia;
+    private final int soporteMaxCorreosHora;
 
     // --- Constructor (CONSTRUCTOR con parámetros desde env) ---
     public AppConfig() {
@@ -13783,6 +15001,13 @@ public class AppConfig {
         this.chatbotContextoMensajes = getEnvEntero("CHATBOT_CONTEXTO_MENSAJES", 8, 0, 30);
         this.chatbotMaxTokens = getEnvEntero("CHATBOT_MAX_TOKENS", 1024, 64, 8192);
         this.rateLimitChatbotPorMin = getEnvEntero("RATE_LIMIT_CHATBOT_PER_MIN", 10, 1);
+
+        // Soporte (roadmap 24.5). SOPORTE_ADMIN_EMAIL vacío -> se usa CHATBOT_ADMIN_EMAIL y, si tampoco está, el remitente de Brevo.
+        String soporteCorreo = normalizarCorreo(getEnv("SOPORTE_ADMIN_EMAIL", ""), "SOPORTE_ADMIN_EMAIL");
+        this.soporteAdminEmail = soporteCorreo.isEmpty() ? this.chatbotAdminEmail : soporteCorreo;
+        this.soporteMaxAbiertos = getEnvEntero("SOPORTE_MAX_ABIERTOS", 5, 1, 100);
+        this.soporteMaxTicketsDia = getEnvEntero("SOPORTE_MAX_TICKETS_DIA", 10, 1, 1000);
+        this.soporteMaxCorreosHora = getEnvEntero("SOPORTE_MAX_CORREOS_HORA", 10, 1, 1000);
     }
 
     /**
@@ -13926,6 +15151,11 @@ public class AppConfig {
     public int getChatbotContextoMensajes() { return chatbotContextoMensajes; }
     public int getChatbotMaxTokens() { return chatbotMaxTokens; }
     public int getRateLimitChatbotPorMin() { return rateLimitChatbotPorMin; }
+    /** Correo al que llegan los tickets de soporte (vacío = remitente de Brevo). */
+    public String getSoporteAdminEmail() { return soporteAdminEmail; }
+    public int getSoporteMaxAbiertos() { return soporteMaxAbiertos; }
+    public int getSoporteMaxTicketsDia() { return soporteMaxTicketsDia; }
+    public int getSoporteMaxCorreosHora() { return soporteMaxCorreosHora; }
 
     public boolean hasClashApi() { return !clashApiToken.isEmpty(); }
     public boolean hasFirebase() { return !firebaseServiceAccount.isEmpty(); }
@@ -13939,89 +15169,15 @@ public class AppConfig {
 
     /** Un solo correo, sin espacios ni separadores (evita mandar a varios destinatarios por error). Si es inválido, vacío. */
     private static String normalizarCorreo(String valor) {
+        return normalizarCorreo(valor, "CHATBOT_ADMIN_EMAIL");
+    }
+
+    private static String normalizarCorreo(String valor, String variable) {
         String correo = valor.trim();
         if (correo.isEmpty()) return "";
         if (CORREO_VALIDO.matcher(correo).matches()) return correo;
-        logger.error("⚠️ CHATBOT_ADMIN_EMAIL no es un correo válido. Se avisará al correo remitente de Brevo.");
+        logger.error("⚠️ {} no es un correo válido. Se avisará al correo remitente de Brevo.", variable);
         return "";
-    }
-}
-</file>
-
-<file path="src/main/java/com/torneosflash/servidor/RutasSorteos.java">
-package com.torneosflash.servidor;
-
-import com.google.gson.*;
-import com.torneosflash.servicio.SorteoService;
-import io.javalin.Javalin;
-
-import static com.torneosflash.servidor.RutasAuth.*;
-
-/**
- * Rutas de sorteos: tickets, participación, admin CRUD.
- *
- * A3: solo parsean el request y llaman a {@link SorteoService}.
- */
-public class RutasSorteos {
-
-    public static void register(Javalin app, SorteoService sorteos) {
-
-        // GET /api/raffle/tickets/:userId
-        app.get("/api/raffle/tickets/{userId}", ctx ->
-                ctx.json(sorteos.ticketsDeUsuario(Peticion.pathEntero(ctx, "userId"))));
-
-        // GET /api/raffle/pool
-        app.get("/api/raffle/pool", ctx -> ctx.json(sorteos.pozo()));
-
-        // GET /api/raffle/poll
-        app.get("/api/raffle/poll", ctx -> ctx.json(sorteos.encuesta(Peticion.userIdDeSesion(ctx))));
-
-        // POST /api/raffle/vote
-        app.post("/api/raffle/vote", ctx -> {
-            JsonObject body = parseBody(ctx);
-            sorteos.votar(Peticion.entero(body, "userId"), Peticion.texto(body, "categoria"));
-            ctx.json(successJson("Voto registrado", 0));
-        });
-
-        // DELETE /api/admin/raffle/poll
-        app.delete("/api/admin/raffle/poll", ctx -> {
-            sorteos.reiniciarEncuesta();
-            ctx.json(successJson("Encuesta reiniciada", 0));
-        });
-
-        // GET /api/raffle/offers
-        app.get("/api/raffle/offers", ctx -> ctx.json(sorteos.ofertas(Peticion.userIdDeSesion(ctx))));
-
-        // GET /api/raffle/all
-        app.get("/api/raffle/all", ctx -> ctx.json(sorteos.todos(Peticion.userIdDeSesion(ctx))));
-
-        // POST /api/raffle/participate
-        app.post("/api/raffle/participate", ctx -> {
-            JsonObject body = parseBody(ctx);
-            ctx.json(sorteos.participar(
-                    Peticion.entero(body, "userId"),
-                    Peticion.entero(body, "raffleId"),
-                    Peticion.entero(body, "ticketsDelta")));
-        });
-
-        // POST /api/admin/raffle/create
-        app.post("/api/admin/raffle/create", ctx -> {
-            JsonObject body = parseBody(ctx);
-            ctx.json(sorteos.crear(
-                    Peticion.texto(body, "nombre"),
-                    Peticion.texto(body, "categoria"),
-                    body.get("precio"),
-                    body.get("duracionMinutos")));
-        });
-
-        // DELETE /api/admin/raffle/:id
-        app.delete("/api/admin/raffle/{id}", ctx -> {
-            String mensaje = sorteos.eliminar(Peticion.pathEntero(ctx, "id"));
-            ctx.json(successJson(mensaje, 0));
-        });
-
-        // GET /api/admin/raffles
-        app.get("/api/admin/raffles", ctx -> ctx.json(sorteos.listarAdmin()));
     }
 }
 </file>
@@ -14141,6 +15297,8 @@ import java.util.concurrent.*;
 import com.torneosflash.servicio.ChatbotIaCliente;
 import com.torneosflash.servicio.ChatbotListener;
 import com.torneosflash.servicio.ChatbotService;
+import com.torneosflash.servicio.SoporteListener;
+import com.torneosflash.servicio.SoporteService;
 
 /**
  * Punto de entrada principal de Torneos Flash.
@@ -14334,6 +15492,9 @@ public class Main {
         RateLimiter limitadorChatbot = new RateLimiter();
         ChatbotService chatbotService = new ChatbotService(db, chatbotIa, eventBus, config, limitadorChatbot);
         new ChatbotListener(correo, notificador, chatbotService, config).registrar(eventBus);
+        // Soporte "Hablar con el admin" (roadmap 24.5): correo al admin al crear un ticket y aviso/correo al usuario al responderlo
+        SoporteService soporteService = new SoporteService(db, eventBus, config);
+        new SoporteListener(correo, notificador, soporteService, config).registrar(eventBus);
         AdminService adminService = new AdminService(db, usuarioDAO, wallet, eventBus, notificador, socketServer);
         LeaderboardService leaderboardService = new LeaderboardService(db, socketServer, wallet);
         MediaService mediaService = new MediaService(db);
@@ -14352,6 +15513,7 @@ public class Main {
         RutasDbAdmin.register(app, dbAdminService, config);
         RutasMedia.register(app, mediaService);
         RutasChatbot.register(app, chatbotService, config, limitadorChatbot);
+        RutasSoporte.register(app, soporteService);
 
         // ============================================
         // 8. REGISTRAR SOCKET HANDLERS
@@ -14457,7 +15619,7 @@ public class Main {
 # ARCHITECTURE.md — UltimateClash (TorneosFlash)
 
 > Documento de referencia para que cualquier modelo o desarrollador entienda el sistema.
-> Última actualización: 2026-10-14
+> Última actualización: 2026-10-15
 
 ---
 
@@ -14533,7 +15695,9 @@ TorneosFlash/
 │   │   ├── ChatbotService.java      # Chatbot IA: conversación, base de conocimiento, entrenamiento (la IA le pregunta al admin), dudas sin respuesta y tono. Ver sección 17
 │   │   ├── ChatbotIaCliente.java    # Cliente HTTP de la IA (Gemini u OpenAI) con timeout y tope de llamadas simultáneas
 │   │   ├── ChatbotConocimiento.java # Lógica pura: normaliza preguntas y elige qué entradas de la base ve la IA
-│   │   └── ChatbotListener.java     # Listeners de `chatbot.*`: correo al admin y entrega de la respuesta al usuario
+│   │   ├── ChatbotListener.java     # Listeners de `chatbot.*`: correo al admin y entrega de la respuesta al usuario
+│   │   ├── SoporteService.java      # "Hablar con el admin" (24.5): crear ticket, mis tickets, bandeja admin y responder. Ver sección 19
+│   │   └── SoporteListener.java     # Listeners de `soporte.*`: correo al admin al crear un ticket; aviso + correo al usuario al responderlo
 │   ├── servidor/                    # Capa HTTP (A3): parsea el request, llama a un servicio y responde. Sin lógica de negocio ni SQL
 │   │   ├── RateLimitMiddleware.java # Rate limiting por IP (S8): clasifica cada request y responde 429. Ver sección 10
 │   │   ├── AuthMiddleware.java      # Sesión JWT (S1): lee la cookie httpOnly `session`, inyecta `userId`/`rol`, emite y borra la cookie. Ver sección 16
@@ -14548,12 +15712,13 @@ TorneosFlash/
 │   │   ├── RutasComisiones.java     # GET /api/comisiones/simular y /distribucion (solo lectura). Ver sección 9
 │   │   ├── RutasMedia.java          # Upload/descarga de videos
 │   │   ├── RutasChatbot.java        # `/api/chatbot/*` (usuario) y `/api/admin/chatbot/*` (admin). Ver sección 17
+│   │   ├── RutasSoporte.java        # `/api/soporte/tickets` (usuario) y `/api/admin/soporte/tickets*` (admin). Ver sección 19
 │   │   └── RutasSorteos.java        # CRUD sorteos y participaciones
 │   └── socketio/                    # Adaptador custom Socket.IO
 │       ├── SocketIOServer.java      # Parseo de paquetes Engine.IO/Socket.IO
 │       └── SocketIOClient.java      # Wrapper del cliente WS
 ├── src/main/resources/
-│   └── db/migration/                # Migraciones Flyway: V1 esquema base, V2 datos antiguos, V3 chatbot IA, V4 aceptación legal, V5 wallet_ledger (D3)
+│   └── db/migration/                # Migraciones Flyway: V1 esquema base, V2 datos antiguos, V3 chatbot IA, V4 aceptación legal, V5 wallet_ledger (D3), V6 soporte_tickets (24.5)
 ├── agent/rules/                     # Reglas para modelos IA
 │   ├── auto-push.md
 │   └── project-conventions.md       # ← NUEVO
@@ -14589,6 +15754,7 @@ TorneosFlash/
 | `chatbot_config` | Ajustes globales del bot | `clave`, `valor` (`tono_defecto`) |
 | `wallet_ledger` | Auditoría inmutable de movimientos de dinero (D3) | `id` (BIGSERIAL), `user_id`, `tipo` (deposito/retiro/torneo/premio/comision/liquidacion), `monto`, `saldo_anterior`, `saldo_posterior`, `referencia`, `fecha`. Solo INSERT, nunca UPDATE/DELETE. `user_id=0` para comisiones del sistema |
 | `legal_acceptances` | Registro de aceptación de documentos legales | `user_id`, `documento`, `version`, `aceptado_en` |
+| `support_tickets` | Tickets de "Hablar con el admin" (24.5) | `user_id`, `categoria` (pregunta/sugerencia/bug/cuenta/otro), `asunto`, `mensaje`, `estado` (abierto/resuelto), `respuesta`, `respondido_por`, `fecha_creacion`, `fecha_respuesta` |
 
 ---
 
@@ -14840,6 +16006,8 @@ Todos los pools se crean en `config/Ejecutores` (con tamaños de `AppConfig`) y 
 | `match.finished` | `Eventos.PartidaFinalizada`: `matchId`, `origen` (`API` / `DISPUTA`), `participantes` (ids de los 2 jugadores), `ganadorId`, `ganadorNombre`, `monto`, `premio`, `nuevoSaldoGanador`, `desglose` (`ComisionService.Desglose`) | `SocketHandler` (sondeo de la API de Clash, `API`) y `AdminService.resolverDisputa` (`DISPUTA`) | 1. `tickets-sorteo` (`TicketsPartidaListener`) · 2. `notificacion-resultado` (`ResultadoPartidaListener`) |
 | `chatbot.duda_sin_respuesta` | `Eventos.DudaSinRespuesta`: `dudaId`, `userId`, `username`, `pregunta`, `nueva`, `veces` | `ChatbotService.responder` (la IA dijo `[SIN_RESPUESTA]`, ya guardada la duda) | `chatbot-correo-admin` (`ChatbotListener`): correo al admin solo si `nueva` y con tope por hora |
 | `chatbot.duda_respondida` | `Eventos.DudaRespondida`: `dudaId`, `pregunta`, `respuesta`, `usuarios` | `ChatbotService.responderDuda` (solo si estaba pendiente) | `chatbot-aviso-usuarios` (`ChatbotListener`): historial del chat + socket `chatbot_respuesta` + push |
+| `soporte.ticket_creado` | `Eventos.TicketCreado`: `ticketId`, `userId`, `username`, `categoria`, `asunto`, `mensaje` (nunca email ni teléfono) | `SoporteService.crear` (ya guardado el ticket) | `soporte-correo-admin` (`SoporteListener`): correo al admin con tope por hora |
+| `soporte.ticket_respondido` | `Eventos.TicketRespondido`: `ticketId`, `userId`, `username`, `categoria`, `asunto`, `respuesta` | `SoporteService.responder` (solo la primera respuesta) | `soporte-aviso-usuario` (`SoporteListener`): socket `soporte_respuesta` + push + correo a la cuenta del usuario |
 
 ```
 SocketHandler (sondeo) ── WalletService.liquidar()  ← transacción SQL: saldo, comisiones, gen_*, victorias_*, pozos del leaderboard
@@ -14888,7 +16056,7 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | Ya migrada | Aplica solo los scripts nuevos; si no hay, no hace nada |
 
 **Reglas**
-- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V6`). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
+- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V7`). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
 - **Nunca editar un `V*` ya aplicado:** Flyway guarda el checksum y `validateOnMigrate` hace fallar el arranque. Para corregir algo, una migración nueva.
 - **Fail-fast:** si una migración falla, `Main` loguea el error y sale con código 1 (no se sirve tráfico con el esquema a medias). Cada script corre en su propia transacción en PostgreSQL: si falla se revierte entero.
 - `cleanDisabled=true`: la app nunca puede ejecutar `flyway clean`.
@@ -15061,6 +16229,43 @@ petición ── RateLimitMiddleware ── AuthMiddleware (JWT → userId) ─�
 - `GET /check-ip` sigue público (muestra la IP pública del servidor).
 - Las acciones de admin por Socket.IO (p. ej. anuncios) no pasan por este middleware; dependen de S2 (autenticar el socket).
 - `RateLimitMiddleware` todavía menciona `/secret-admin/` (ahora 404; el límite solo frena el sondeo).
+
+---
+
+## 19. Soporte: "Hablar con el admin" (roadmap 24.5)
+
+Sistema de tickets. El usuario abre un formulario desde su menú (`/soporte`), al admin le llega un correo, el admin responde desde la pestaña «🎫 Soporte» de su panel y el usuario recibe la respuesta por correo, por aviso en vivo/push y en su propio panel.
+
+```
+Usuario ── POST /api/soporte/tickets ── SoporteService.crear
+             ├─ valida categoría y textos (ChatSanitizer), topes por usuario (abiertos y por día) → 429 si se superan
+             └─ INSERT en support_tickets → emit soporte.ticket_creado → SoporteListener: correo al admin (tope por hora)
+
+Admin ── POST /api/admin/soporte/tickets/{id}/responder ── SoporteService.responder
+             └─ UPDATE ... WHERE estado = 'abierto' (atómico) → emit soporte.ticket_respondido → SoporteListener:
+                  socket `soporte_respuesta` + push + correo a users.email del usuario
+```
+
+| Endpoint | Quién | Qué hace |
+|---|---|---|
+| `POST /api/soporte/tickets` `{categoria, asunto, mensaje}` | usuario (sesión JWT) | Abre un ticket. Categorías: `pregunta`, `sugerencia`, `bug`, `cuenta`, `otro` |
+| `GET /api/soporte/tickets` | usuario | Sus tickets (máx. 50, recientes primero) con la respuesta si ya la hay. Nunca ve los de otros |
+| `GET /api/admin/soporte/tickets?estado=abierto\|resuelto\|todos` | admin | Bandeja (default `abierto`, los más viejos primero). Lleva `user_id` y `username`, nunca email ni teléfono |
+| `POST /api/admin/soporte/tickets/{id}/responder` `{respuesta}` | admin | Responde y deja el ticket `resuelto`. Un ticket ya resuelto responde 400 |
+
+| Variable | Default | Qué controla |
+|---|---|---|
+| `SOPORTE_ADMIN_EMAIL` | `CHATBOT_ADMIN_EMAIL` → remitente de Brevo | Correo al que llegan los tickets nuevos |
+| `SOPORTE_MAX_ABIERTOS` | 5 (1 - 100) | Tickets sin responder que un usuario puede tener a la vez |
+| `SOPORTE_MAX_TICKETS_DIA` | 10 (1 - 1000) | Tickets que un usuario puede abrir en 24 h |
+| `SOPORTE_MAX_CORREOS_HORA` | 10 (1 - 1000) | Tope de correos al admin por hora (lo que pase se ve solo en el panel) |
+
+**Reglas y límites conocidos**
+- Los dos topes por usuario se aplican dentro del propio `INSERT` (subconsultas en el `WHERE`), lo que cierra casi toda la ventana entre comprobar y guardar; en PostgreSQL con `READ COMMITTED` dos peticiones exactamente simultáneas aún podrían pasar justas, así que el tope es de abuso, no un límite exacto. El de correos por hora es en memoria (se reinicia con el servidor).
+- Cada ticket admite **una sola respuesta** y el usuario no puede replicar: una consulta nueva es un ticket nuevo. Si se necesita conversación, habría que añadir una tabla de mensajes por ticket.
+- El correo al usuario va a `users.email` sin verificar que sea suyo (la verificación de email es otra tarea del roadmap). Si no hay correo válido o Brevo no está configurado, el usuario igual ve la respuesta en su panel.
+- El aviso en vivo usa `NotificadorUsuarios.emitirA` (directo a los sockets del usuario, sin rooms ni namespaces), igual que el chatbot; no depende de A1.
+- Frontend: solo la app React (`pages/Soporte.jsx`, `pages/AdminSoporte.jsx`, `pages/soporteComun.js`); el frontend legacy de `public/` no lo tiene. El texto de usuarios y admin se pinta con React, nunca con `innerHTML`.
 </file>
 
 <file path="src/main/java/com/torneosflash/servidor/SocketHandler.java">

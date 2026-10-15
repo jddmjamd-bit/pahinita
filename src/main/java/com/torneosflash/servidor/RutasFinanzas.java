@@ -29,8 +29,10 @@ public class RutasFinanzas {
         // POST /api/transaction/create (crear solicitud de recarga)
         app.post("/api/transaction/create", ctx -> {
             JsonObject body = parseBody(ctx);
+            int userId = Peticion.userIdDeSesion(ctx);
+            if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
             finanzas.crearSolicitudRecarga(
-                    Peticion.entero(body, "userId"),
+                    userId,
                     Peticion.texto(body, "username"),
                     Peticion.texto(body, "metodo"),
                     Peticion.textoOpcional(body, "referencia", ""),
@@ -41,8 +43,10 @@ public class RutasFinanzas {
         // POST /api/transaction/withdraw (solicitar retiro)
         app.post("/api/transaction/withdraw", ctx -> {
             JsonObject body = parseBody(ctx);
+            int userId = Peticion.userIdDeSesion(ctx);
+            if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
             double nuevoSaldo = finanzas.solicitarRetiro(
-                    Peticion.entero(body, "userId"),
+                    userId,
                     Peticion.texto(body, "username"),
                     Peticion.textoOpcional(body, "metodo", "nequi_retiro"),
                     Peticion.textoOpcional(body, "referencia", ""),
@@ -59,8 +63,10 @@ public class RutasFinanzas {
         // POST /api/wompi/init (iniciar pago Wompi)
         app.post("/api/wompi/init", ctx -> {
             JsonObject body = parseBody(ctx);
+            int userId = Peticion.userIdDeSesion(ctx);
+            if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
             ctx.json(finanzas.iniciarWompi(
-                    Peticion.entero(body, "userId"),
+                    userId,
                     Peticion.texto(body, "username"),
                     body.get("monto")));
         });

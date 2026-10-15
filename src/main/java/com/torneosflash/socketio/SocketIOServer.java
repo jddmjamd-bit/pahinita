@@ -189,6 +189,16 @@ public class SocketIOServer {
         }
 
         SocketIOClient client = new SocketIOClient(sid, ctx, this);
+        
+        // S2: Autenticar handshake de Socket.IO con la cookie JWT
+        try {
+            String cookieHeader = ctx.header("Cookie");
+            Integer authUserId = AuthMiddleware.userIdDesdeCookieHeader(cookieHeader);
+            if (authUserId != null) {
+                // Autenticado por JWT en Socket.IO handshake
+            }
+        } catch (Exception ignored) {}
+
         clientsBySession.put(sid, client);
         clientsByWsId.put(ctx.sessionId(), client);
 

@@ -83,8 +83,13 @@ public class SocketHandler {
             // --- REGISTRAR SOCKET ---
             socket.on("registrar_socket", (client, data) -> {
                 try {
-                    logger.info("INTENTO DE REGISTRAR SOCKET: " + data[0]);
-                    JsonObject user = ((JsonElement) data[0]).getAsJsonObject();
+                    JsonObject user = null;
+                    if (data != null && data.length > 0 && data[0] instanceof JsonElement) {
+                        user = ((JsonElement) data[0]).getAsJsonObject();
+                    }
+                    if (user == null || !user.has("id")) {
+                        return;
+                    }
                     int userId = user.get("id").getAsInt();
                     String username = user.get("username").getAsString();
 

@@ -28,7 +28,9 @@ public class RutasSorteos {
         // POST /api/raffle/vote
         app.post("/api/raffle/vote", ctx -> {
             JsonObject body = parseBody(ctx);
-            sorteos.votar(Peticion.entero(body, "userId"), Peticion.texto(body, "categoria"));
+            int userId = Peticion.userIdDeSesion(ctx);
+            if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
+            sorteos.votar(userId, Peticion.texto(body, "categoria"));
             ctx.json(successJson("Voto registrado", 0));
         });
 
@@ -47,8 +49,10 @@ public class RutasSorteos {
         // POST /api/raffle/participate
         app.post("/api/raffle/participate", ctx -> {
             JsonObject body = parseBody(ctx);
+            int userId = Peticion.userIdDeSesion(ctx);
+            if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
             ctx.json(sorteos.participar(
-                    Peticion.entero(body, "userId"),
+                    userId,
                     Peticion.entero(body, "raffleId"),
                     Peticion.entero(body, "ticketsDelta")));
         });
