@@ -161,4 +161,46 @@ public final class Eventos {
             usuarios = List.copyOf(usuarios);
         }
     }
+
+    // ═════════════════════════════════════════════
+    // EVENTOS DE SOPORTE (roadmap 24.5)
+    // ═════════════════════════════════════════════
+
+    /**
+     * Un usuario abrió un ticket de soporte ("Hablar con el admin").
+     * Datos: {@link TicketCreado}. Lo emite {@code SoporteService.crear} DESPUÉS de guardar el ticket; el listener
+     * {@code SoporteListener} le manda el correo al admin.
+     */
+    public static final String SOPORTE_TICKET_CREADO = "soporte.ticket_creado";
+
+    /**
+     * El admin respondió un ticket y quedó {@code resuelto}.
+     * Datos: {@link TicketRespondido}. Lo emite {@code SoporteService.responder}; el listener {@code SoporteListener}
+     * avisa al usuario (socket + push) y le envía la respuesta a su correo.
+     */
+    public static final String SOPORTE_TICKET_RESPONDIDO = "soporte.ticket_respondido";
+
+    /**
+     * Datos de {@link #SOPORTE_TICKET_CREADO}. Nunca lleva email ni teléfono del usuario.
+     *
+     * @param ticketId  id de la fila en {@code support_tickets}
+     * @param userId    usuario que escribió
+     * @param username  su nombre de usuario
+     * @param categoria pregunta | sugerencia | bug | cuenta | otro
+     * @param asunto    asunto ya limpio
+     * @param mensaje   mensaje ya limpio
+     */
+    public record TicketCreado(int ticketId, int userId, String username, String categoria, String asunto, String mensaje) {}
+
+    /**
+     * Datos de {@link #SOPORTE_TICKET_RESPONDIDO}.
+     *
+     * @param ticketId  id de la fila en {@code support_tickets}
+     * @param userId    usuario que abrió el ticket (a quien se le avisa)
+     * @param username  su nombre de usuario (saludo del correo)
+     * @param categoria categoría del ticket
+     * @param asunto    asunto original
+     * @param respuesta lo que respondió el admin
+     */
+    public record TicketRespondido(int ticketId, int userId, String username, String categoria, String asunto, String respuesta) {}
 }

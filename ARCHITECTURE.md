@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — UltimateClash (TorneosFlash)
 
 > Documento de referencia para que cualquier modelo o desarrollador entienda el sistema.
-> Última actualización: 2026-10-14
+> Última actualización: 2026-10-15
 
 ---
 
@@ -77,7 +77,9 @@ TorneosFlash/
 │   │   ├── ChatbotService.java      # Chatbot IA: conversación, base de conocimiento, entrenamiento (la IA le pregunta al admin), dudas sin respuesta y tono. Ver sección 17
 │   │   ├── ChatbotIaCliente.java    # Cliente HTTP de la IA (Gemini u OpenAI) con timeout y tope de llamadas simultáneas
 │   │   ├── ChatbotConocimiento.java # Lógica pura: normaliza preguntas y elige qué entradas de la base ve la IA
-│   │   └── ChatbotListener.java     # Listeners de `chatbot.*`: correo al admin y entrega de la respuesta al usuario
+│   │   ├── ChatbotListener.java     # Listeners de `chatbot.*`: correo al admin y entrega de la respuesta al usuario
+│   │   ├── SoporteService.java      # "Hablar con el admin" (24.5): crear ticket, mis tickets, bandeja admin y responder. Ver sección 19
+│   │   └── SoporteListener.java     # Listeners de `soporte.*`: correo al admin al crear un ticket; aviso + correo al usuario al responderlo
 │   ├── servidor/                    # Capa HTTP (A3): parsea el request, llama a un servicio y responde. Sin lógica de negocio ni SQL
 │   │   ├── RateLimitMiddleware.java # Rate limiting por IP (S8): clasifica cada request y responde 429. Ver sección 10
 │   │   ├── AuthMiddleware.java      # Sesión JWT (S1): lee la cookie httpOnly `session`, inyecta `userId`/`rol`, emite y borra la cookie. Ver sección 16
@@ -92,12 +94,13 @@ TorneosFlash/
 │   │   ├── RutasComisiones.java     # GET /api/comisiones/simular y /distribucion (solo lectura). Ver sección 9
 │   │   ├── RutasMedia.java          # Upload/descarga de videos
 │   │   ├── RutasChatbot.java        # `/api/chatbot/*` (usuario) y `/api/admin/chatbot/*` (admin). Ver sección 17
+│   │   ├── RutasSoporte.java        # `/api/soporte/tickets` (usuario) y `/api/admin/soporte/tickets*` (admin). Ver sección 19
 │   │   └── RutasSorteos.java        # CRUD sorteos y participaciones
 │   └── socketio/                    # Adaptador custom Socket.IO
 │       ├── SocketIOServer.java      # Parseo de paquetes Engine.IO/Socket.IO
 │       └── SocketIOClient.java      # Wrapper del cliente WS
 ├── src/main/resources/
-│   └── db/migration/                # Migraciones Flyway: V1 esquema base, V2 datos antiguos, V3 chatbot IA, V4 aceptación legal, V5 wallet_ledger (D3)
+│   └── db/migration/                # Migraciones Flyway: V1 esquema base, V2 datos antiguos, V3 chatbot IA, V4 aceptación legal, V5 wallet_ledger (D3), V6 soporte_tickets (24.5)
 ├── agent/rules/                     # Reglas para modelos IA
 │   ├── auto-push.md
 │   └── project-conventions.md       # ← NUEVO
@@ -133,6 +136,7 @@ TorneosFlash/
 | `chatbot_config` | Ajustes globales del bot | `clave`, `valor` (`tono_defecto`) |
 | `wallet_ledger` | Auditoría inmutable de movimientos de dinero (D3) | `id` (BIGSERIAL), `user_id`, `tipo` (deposito/retiro/torneo/premio/comision/liquidacion), `monto`, `saldo_anterior`, `saldo_posterior`, `referencia`, `fecha`. Solo INSERT, nunca UPDATE/DELETE. `user_id=0` para comisiones del sistema |
 | `legal_acceptances` | Registro de aceptación de documentos legales | `user_id`, `documento`, `version`, `aceptado_en` |
+| `support_tickets` | Tickets de "Hablar con el admin" (24.5) | `user_id`, `categoria` (pregunta/sugerencia/bug/cuenta/otro), `asunto`, `mensaje`, `estado` (abierto/resuelto), `respuesta`, `respondido_por`, `fecha_creacion`, `fecha_respuesta` |
 
 ---
 
@@ -384,6 +388,8 @@ Todos los pools se crean en `config/Ejecutores` (con tamaños de `AppConfig`) y 
 | `match.finished` | `Eventos.PartidaFinalizada`: `matchId`, `origen` (`API` / `DISPUTA`), `participantes` (ids de los 2 jugadores), `ganadorId`, `ganadorNombre`, `monto`, `premio`, `nuevoSaldoGanador`, `desglose` (`ComisionService.Desglose`) | `SocketHandler` (sondeo de la API de Clash, `API`) y `AdminService.resolverDisputa` (`DISPUTA`) | 1. `tickets-sorteo` (`TicketsPartidaListener`) · 2. `notificacion-resultado` (`ResultadoPartidaListener`) |
 | `chatbot.duda_sin_respuesta` | `Eventos.DudaSinRespuesta`: `dudaId`, `userId`, `username`, `pregunta`, `nueva`, `veces` | `ChatbotService.responder` (la IA dijo `[SIN_RESPUESTA]`, ya guardada la duda) | `chatbot-correo-admin` (`ChatbotListener`): correo al admin solo si `nueva` y con tope por hora |
 | `chatbot.duda_respondida` | `Eventos.DudaRespondida`: `dudaId`, `pregunta`, `respuesta`, `usuarios` | `ChatbotService.responderDuda` (solo si estaba pendiente) | `chatbot-aviso-usuarios` (`ChatbotListener`): historial del chat + socket `chatbot_respuesta` + push |
+| `soporte.ticket_creado` | `Eventos.TicketCreado`: `ticketId`, `userId`, `username`, `categoria`, `asunto`, `mensaje` (nunca email ni teléfono) | `SoporteService.crear` (ya guardado el ticket) | `soporte-correo-admin` (`SoporteListener`): correo al admin con tope por hora |
+| `soporte.ticket_respondido` | `Eventos.TicketRespondido`: `ticketId`, `userId`, `username`, `categoria`, `asunto`, `respuesta` | `SoporteService.responder` (solo la primera respuesta) | `soporte-aviso-usuario` (`SoporteListener`): socket `soporte_respuesta` + push + correo a la cuenta del usuario |
 
 ```
 SocketHandler (sondeo) ── WalletService.liquidar()  ← transacción SQL: saldo, comisiones, gen_*, victorias_*, pozos del leaderboard
@@ -432,7 +438,7 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | Ya migrada | Aplica solo los scripts nuevos; si no hay, no hace nada |
 
 **Reglas**
-- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V6`). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
+- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V7`). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
 - **Nunca editar un `V*` ya aplicado:** Flyway guarda el checksum y `validateOnMigrate` hace fallar el arranque. Para corregir algo, una migración nueva.
 - **Fail-fast:** si una migración falla, `Main` loguea el error y sale con código 1 (no se sirve tráfico con el esquema a medias). Cada script corre en su propia transacción en PostgreSQL: si falla se revierte entero.
 - `cleanDisabled=true`: la app nunca puede ejecutar `flyway clean`.
@@ -605,3 +611,40 @@ petición ── RateLimitMiddleware ── AuthMiddleware (JWT → userId) ─�
 - `GET /check-ip` sigue público (muestra la IP pública del servidor).
 - Las acciones de admin por Socket.IO (p. ej. anuncios) no pasan por este middleware; dependen de S2 (autenticar el socket).
 - `RateLimitMiddleware` todavía menciona `/secret-admin/` (ahora 404; el límite solo frena el sondeo).
+
+---
+
+## 19. Soporte: "Hablar con el admin" (roadmap 24.5)
+
+Sistema de tickets. El usuario abre un formulario desde su menú (`/soporte`), al admin le llega un correo, el admin responde desde la pestaña «🎫 Soporte» de su panel y el usuario recibe la respuesta por correo, por aviso en vivo/push y en su propio panel.
+
+```
+Usuario ── POST /api/soporte/tickets ── SoporteService.crear
+             ├─ valida categoría y textos (ChatSanitizer), topes por usuario (abiertos y por día) → 429 si se superan
+             └─ INSERT en support_tickets → emit soporte.ticket_creado → SoporteListener: correo al admin (tope por hora)
+
+Admin ── POST /api/admin/soporte/tickets/{id}/responder ── SoporteService.responder
+             └─ UPDATE ... WHERE estado = 'abierto' (atómico) → emit soporte.ticket_respondido → SoporteListener:
+                  socket `soporte_respuesta` + push + correo a users.email del usuario
+```
+
+| Endpoint | Quién | Qué hace |
+|---|---|---|
+| `POST /api/soporte/tickets` `{categoria, asunto, mensaje}` | usuario (sesión JWT) | Abre un ticket. Categorías: `pregunta`, `sugerencia`, `bug`, `cuenta`, `otro` |
+| `GET /api/soporte/tickets` | usuario | Sus tickets (máx. 50, recientes primero) con la respuesta si ya la hay. Nunca ve los de otros |
+| `GET /api/admin/soporte/tickets?estado=abierto\|resuelto\|todos` | admin | Bandeja (default `abierto`, los más viejos primero). Lleva `user_id` y `username`, nunca email ni teléfono |
+| `POST /api/admin/soporte/tickets/{id}/responder` `{respuesta}` | admin | Responde y deja el ticket `resuelto`. Un ticket ya resuelto responde 400 |
+
+| Variable | Default | Qué controla |
+|---|---|---|
+| `SOPORTE_ADMIN_EMAIL` | `CHATBOT_ADMIN_EMAIL` → remitente de Brevo | Correo al que llegan los tickets nuevos |
+| `SOPORTE_MAX_ABIERTOS` | 5 (1 - 100) | Tickets sin responder que un usuario puede tener a la vez |
+| `SOPORTE_MAX_TICKETS_DIA` | 10 (1 - 1000) | Tickets que un usuario puede abrir en 24 h |
+| `SOPORTE_MAX_CORREOS_HORA` | 10 (1 - 1000) | Tope de correos al admin por hora (lo que pase se ve solo en el panel) |
+
+**Reglas y límites conocidos**
+- Los dos topes por usuario se aplican dentro del propio `INSERT` (subconsultas en el `WHERE`), lo que cierra casi toda la ventana entre comprobar y guardar; en PostgreSQL con `READ COMMITTED` dos peticiones exactamente simultáneas aún podrían pasar justas, así que el tope es de abuso, no un límite exacto. El de correos por hora es en memoria (se reinicia con el servidor).
+- Cada ticket admite **una sola respuesta** y el usuario no puede replicar: una consulta nueva es un ticket nuevo. Si se necesita conversación, habría que añadir una tabla de mensajes por ticket.
+- El correo al usuario va a `users.email` sin verificar que sea suyo (la verificación de email es otra tarea del roadmap). Si no hay correo válido o Brevo no está configurado, el usuario igual ve la respuesta en su panel.
+- El aviso en vivo usa `NotificadorUsuarios.emitirA` (directo a los sockets del usuario, sin rooms ni namespaces), igual que el chatbot; no depende de A1.
+- Frontend: solo la app React (`pages/Soporte.jsx`, `pages/AdminSoporte.jsx`, `pages/soporteComun.js`); el frontend legacy de `public/` no lo tiene. El texto de usuarios y admin se pinta con React, nunca con `innerHTML`.

@@ -40,6 +40,8 @@ import java.util.concurrent.*;
 import com.torneosflash.servicio.ChatbotIaCliente;
 import com.torneosflash.servicio.ChatbotListener;
 import com.torneosflash.servicio.ChatbotService;
+import com.torneosflash.servicio.SoporteListener;
+import com.torneosflash.servicio.SoporteService;
 
 /**
  * Punto de entrada principal de Torneos Flash.
@@ -233,6 +235,9 @@ public class Main {
         RateLimiter limitadorChatbot = new RateLimiter();
         ChatbotService chatbotService = new ChatbotService(db, chatbotIa, eventBus, config, limitadorChatbot);
         new ChatbotListener(correo, notificador, chatbotService, config).registrar(eventBus);
+        // Soporte "Hablar con el admin" (roadmap 24.5): correo al admin al crear un ticket y aviso/correo al usuario al responderlo
+        SoporteService soporteService = new SoporteService(db, eventBus, config);
+        new SoporteListener(correo, notificador, soporteService, config).registrar(eventBus);
         AdminService adminService = new AdminService(db, usuarioDAO, wallet, eventBus, notificador, socketServer);
         LeaderboardService leaderboardService = new LeaderboardService(db, socketServer, wallet);
         MediaService mediaService = new MediaService(db);
@@ -251,6 +256,7 @@ public class Main {
         RutasDbAdmin.register(app, dbAdminService, config);
         RutasMedia.register(app, mediaService);
         RutasChatbot.register(app, chatbotService, config, limitadorChatbot);
+        RutasSoporte.register(app, soporteService);
 
         // ============================================
         // 8. REGISTRAR SOCKET HANDLERS

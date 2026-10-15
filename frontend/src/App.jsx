@@ -10,6 +10,7 @@ import Finance from './pages/Finance'
 import Leaderboard from './pages/Leaderboard'
 import Sorteos from './pages/Sorteos'
 import Chatbot from './pages/Chatbot'
+import Soporte from './pages/Soporte'
 import Legal from './pages/Legal'      // ← NUEVO
 import Faq from './pages/Faq'
 
@@ -81,6 +82,7 @@ function App() {
           <Route path="leaderboard" element={<Leaderboard />} />
           <Route path="sorteos" element={<Sorteos />} />
           <Route path="chatbot" element={<Chatbot />} />
+          <Route path="soporte" element={<Soporte />} />
           <Route path="faq" element={<Faq />} />
           <Route path="admin" element={<Admin />} />
         </Route>

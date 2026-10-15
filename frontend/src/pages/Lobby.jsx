@@ -90,6 +90,7 @@ export default function Lobby() {
                     <div className={`channel ${isActive('/leaderboard')}`} onClick={() => handleNavigation('/leaderboard')}>🏆 Rankings</div>
                     <div className={`channel ${isActive('/chatbot')}`} onClick={() => handleNavigation('/chatbot')}>🤖 Asistente</div>
                     <div className={`channel ${isActive('/faq')}`} onClick={() => handleNavigation('/faq')}>❓ Ayuda / FAQ</div>
+                    <div className={`channel ${isActive('/soporte')}`} onClick={() => handleNavigation('/soporte')}>✉️ Hablar con el admin</div>
                 </div>
                 
                 <button className="logout-btn" onClick={handleLogout}>Salir</button>

@@ -92,6 +92,12 @@ public class AppConfig {
     private final int chatbotMaxTokens;
     private final int rateLimitChatbotPorMin;
 
+    // --- Soporte: "Hablar con el admin" (roadmap 24.5). Ver SoporteService y SoporteListener. ---
+    private final String soporteAdminEmail;
+    private final int soporteMaxAbiertos;
+    private final int soporteMaxTicketsDia;
+    private final int soporteMaxCorreosHora;
+
     // --- Constructor (CONSTRUCTOR con parámetros desde env) ---
     public AppConfig() {
         this.port = Integer.parseInt(getEnv("PORT", "5000"));
@@ -188,6 +194,13 @@ public class AppConfig {
         this.chatbotContextoMensajes = getEnvEntero("CHATBOT_CONTEXTO_MENSAJES", 8, 0, 30);
         this.chatbotMaxTokens = getEnvEntero("CHATBOT_MAX_TOKENS", 1024, 64, 8192);
         this.rateLimitChatbotPorMin = getEnvEntero("RATE_LIMIT_CHATBOT_PER_MIN", 10, 1);
+
+        // Soporte (roadmap 24.5). SOPORTE_ADMIN_EMAIL vacío -> se usa CHATBOT_ADMIN_EMAIL y, si tampoco está, el remitente de Brevo.
+        String soporteCorreo = normalizarCorreo(getEnv("SOPORTE_ADMIN_EMAIL", ""), "SOPORTE_ADMIN_EMAIL");
+        this.soporteAdminEmail = soporteCorreo.isEmpty() ? this.chatbotAdminEmail : soporteCorreo;
+        this.soporteMaxAbiertos = getEnvEntero("SOPORTE_MAX_ABIERTOS", 5, 1, 100);
+        this.soporteMaxTicketsDia = getEnvEntero("SOPORTE_MAX_TICKETS_DIA", 10, 1, 1000);
+        this.soporteMaxCorreosHora = getEnvEntero("SOPORTE_MAX_CORREOS_HORA", 10, 1, 1000);
     }
 
     /**
@@ -331,6 +344,11 @@ public class AppConfig {
     public int getChatbotContextoMensajes() { return chatbotContextoMensajes; }
     public int getChatbotMaxTokens() { return chatbotMaxTokens; }
     public int getRateLimitChatbotPorMin() { return rateLimitChatbotPorMin; }
+    /** Correo al que llegan los tickets de soporte (vacío = remitente de Brevo). */
+    public String getSoporteAdminEmail() { return soporteAdminEmail; }
+    public int getSoporteMaxAbiertos() { return soporteMaxAbiertos; }
+    public int getSoporteMaxTicketsDia() { return soporteMaxTicketsDia; }
+    public int getSoporteMaxCorreosHora() { return soporteMaxCorreosHora; }
 
     public boolean hasClashApi() { return !clashApiToken.isEmpty(); }
     public boolean hasFirebase() { return !firebaseServiceAccount.isEmpty(); }
@@ -344,10 +362,14 @@ public class AppConfig {
 
     /** Un solo correo, sin espacios ni separadores (evita mandar a varios destinatarios por error). Si es inválido, vacío. */
     private static String normalizarCorreo(String valor) {
+        return normalizarCorreo(valor, "CHATBOT_ADMIN_EMAIL");
+    }
+
+    private static String normalizarCorreo(String valor, String variable) {
         String correo = valor.trim();
         if (correo.isEmpty()) return "";
         if (CORREO_VALIDO.matcher(correo).matches()) return correo;
-        logger.error("⚠️ CHATBOT_ADMIN_EMAIL no es un correo válido. Se avisará al correo remitente de Brevo.");
+        logger.error("⚠️ {} no es un correo válido. Se avisará al correo remitente de Brevo.", variable);
         return "";
     }
 }

@@ -1,0 +1,222 @@
+/* Soporte "Hablar con el admin" (roadmap 24.5): página del usuario. Usa las variables de tema del resto de la app. */
+
+.sop-container {
+    padding: 20px;
+    overflow-y: auto;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+.sop-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.sop-header h2 {
+    margin: 0 0 4px;
+}
+
+.sop-subtitulo {
+    margin: 18px 0 10px;
+}
+
+.sop-nota {
+    color: var(--text-secondary);
+    margin: 4px 0;
+    font-size: 0.9rem;
+}
+
+.sop-aviso {
+    background: rgba(67, 181, 129, 0.15);
+    border: 1px solid #43b581;
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    cursor: pointer;
+}
+
+.sop-error {
+    background: rgba(237, 66, 69, 0.15);
+    border: 1px solid #ed4245;
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+    margin: 10px 0;
+}
+
+.sop-lista {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.sop-ticket {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sop-ticket-cabecera {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.sop-asunto {
+    word-break: break-word;
+}
+
+.sop-estado {
+    font-size: 0.8rem;
+    padding: 2px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.sop-estado.abierto {
+    background: rgba(250, 166, 26, 0.18);
+    color: #faa61a;
+}
+
+.sop-estado.resuelto {
+    background: rgba(67, 181, 129, 0.18);
+    color: #43b581;
+}
+
+.sop-meta {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+/* Mensajes y respuestas son texto del usuario/admin: se respetan los saltos de línea y nunca se interpretan como HTML */
+.sop-texto {
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.4;
+}
+
+.sop-respuesta {
+    border-left: 3px solid #43b581;
+    padding-left: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* Botones: esta página no depende de las clases globales de botones */
+.sop-btn-primario,
+.sop-btn-secundario {
+    width: auto;
+    padding: 8px 16px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    border: 1px solid transparent;
+}
+
+.sop-btn-primario {
+    background: #5865f2;
+    color: #fff;
+}
+
+.sop-btn-secundario {
+    background: transparent;
+    color: var(--text-primary);
+    border-color: var(--border-color);
+}
+
+.sop-btn-primario:disabled,
+.sop-btn-secundario:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Formulario en ventana */
+.sop-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    z-index: 10000;
+}
+
+.sop-modal {
+    background: var(--bg-surface-elevated, var(--bg-surface));
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 18px;
+    width: 100%;
+    max-width: 520px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.sop-modal-cabecera {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.sop-modal-cabecera h3 {
+    margin: 0;
+}
+
+.sop-cerrar {
+    width: auto;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+.sop-modal label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.9rem;
+}
+
+.sop-modal input,
+.sop-modal select,
+.sop-modal textarea {
+    width: 100%;
+    margin: 0;
+    box-sizing: border-box;
+    resize: vertical;
+}
+
+.sop-contador {
+    align-self: flex-end;
+    color: var(--text-secondary);
+}
+
+.sop-acciones {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+@media (max-width: 600px) {
+    .sop-container {
+        padding: 14px;
+        padding-top: 56px; /* deja libre el botón ☰ del menú móvil */
+    }
+}
