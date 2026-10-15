@@ -9,9 +9,12 @@ import static com.torneosflash.servidor.RutasAuth.parseBody;
 /**
  * Rutas de soporte, "Hablar con el admin" (roadmap 24.5).
  *
- * A3: solo parsean el request y llaman a {@link SoporteService}. El usuario sale SIEMPRE de la sesión JWT
- * ({@link Peticion#userIdDeSesion}), nunca del body; el servicio responde 401 si no hay sesión y 403 si una ruta de
- * admin la llama alguien que no es admin. Las rutas de admin cuelgan de {@code /api/admin/*}, así que además las
+ * A3: solo parsean el request y llaman a {@link SoporteService}. El usuario
+ * sale SIEMPRE de la sesión JWT
+ * ({@link Peticion#userIdDeSesion}), nunca del body; el servicio responde 401
+ * si no hay sesión y 403 si una ruta de
+ * admin la llama alguien que no es admin. Las rutas de admin cuelgan de
+ * {@code /api/admin/*}, así que además las
  * cubre {@link AdminMiddleware} (S3).
  *
  * <pre>
@@ -37,8 +40,7 @@ public class RutasSoporte {
                     Peticion.texto(body, "mensaje")));
         });
 
-        app.get("/api/soporte/tickets", ctx ->
-                ctx.json(soporte.misTickets(Peticion.userIdDeSesion(ctx))));
+        app.get("/api/soporte/tickets", ctx -> ctx.json(soporte.misTickets(Peticion.userIdDeSesion(ctx))));
 
         // ---------------- Admin ----------------
 

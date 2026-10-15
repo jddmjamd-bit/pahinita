@@ -7,12 +7,15 @@ import com.torneosflash.servicio.FinanzasService;
 import io.javalin.Javalin;
 
 import static com.torneosflash.servidor.RutasAuth.*;
+import com.torneosflash.servicio.ServicioException;
 
 /**
  * Rutas de finanzas: depósitos, retiros, Wompi webhooks.
  *
- * A3: solo parsean el request y llaman a {@link FinanzasService}. La validación de montos, los
- * movimientos de dinero, las notificaciones y la firma de Wompi viven en el servicio.
+ * A3: solo parsean el request y llaman a {@link FinanzasService}. La validación
+ * de montos, los
+ * movimientos de dinero, las notificaciones y la firma de Wompi viven en el
+ * servicio.
  */
 public class RutasFinanzas {
     private static final Logger logger = LoggerFactory.getLogger(RutasFinanzas.class);
@@ -30,7 +33,8 @@ public class RutasFinanzas {
         app.post("/api/transaction/create", ctx -> {
             JsonObject body = parseBody(ctx);
             int userId = Peticion.userIdDeSesion(ctx);
-            if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
+            if (userId <= 0)
+                throw ServicioException.noAutenticado("Inicia sesión");
             finanzas.crearSolicitudRecarga(
                     userId,
                     Peticion.texto(body, "username"),
@@ -44,7 +48,8 @@ public class RutasFinanzas {
         app.post("/api/transaction/withdraw", ctx -> {
             JsonObject body = parseBody(ctx);
             int userId = Peticion.userIdDeSesion(ctx);
-            if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
+            if (userId <= 0)
+                throw ServicioException.noAutenticado("Inicia sesión");
             double nuevoSaldo = finanzas.solicitarRetiro(
                     userId,
                     Peticion.texto(body, "username"),
@@ -52,7 +57,8 @@ public class RutasFinanzas {
                     Peticion.textoOpcional(body, "referencia", ""),
                     body.get("monto"));
 
-            // newBalance en la respuesta para que el frontend actualice el saldo de inmediato
+            // newBalance en la respuesta para que el frontend actualice el saldo de
+            // inmediato
             JsonObject response = new JsonObject();
             response.addProperty("success", true);
             response.addProperty("message", "Retiro solicitado");
@@ -64,7 +70,8 @@ public class RutasFinanzas {
         app.post("/api/wompi/init", ctx -> {
             JsonObject body = parseBody(ctx);
             int userId = Peticion.userIdDeSesion(ctx);
-            if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
+            if (userId <= 0)
+                throw ServicioException.noAutenticado("Inicia sesión");
             ctx.json(finanzas.iniciarWompi(
                     userId,
                     Peticion.texto(body, "username"),

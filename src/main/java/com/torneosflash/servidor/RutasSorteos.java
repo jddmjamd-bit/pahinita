@@ -5,6 +5,7 @@ import com.torneosflash.servicio.SorteoService;
 import io.javalin.Javalin;
 
 import static com.torneosflash.servidor.RutasAuth.*;
+import com.torneosflash.servicio.ServicioException;
 
 /**
  * Rutas de sorteos: tickets, participación, admin CRUD.
@@ -16,8 +17,8 @@ public class RutasSorteos {
     public static void register(Javalin app, SorteoService sorteos) {
 
         // GET /api/raffle/tickets/:userId
-        app.get("/api/raffle/tickets/{userId}", ctx ->
-                ctx.json(sorteos.ticketsDeUsuario(Peticion.pathEntero(ctx, "userId"))));
+        app.get("/api/raffle/tickets/{userId}",
+                ctx -> ctx.json(sorteos.ticketsDeUsuario(Peticion.pathEntero(ctx, "userId"))));
 
         // GET /api/raffle/pool
         app.get("/api/raffle/pool", ctx -> ctx.json(sorteos.pozo()));
@@ -29,7 +30,8 @@ public class RutasSorteos {
         app.post("/api/raffle/vote", ctx -> {
             JsonObject body = parseBody(ctx);
             int userId = Peticion.userIdDeSesion(ctx);
-            if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
+            if (userId <= 0)
+                throw ServicioException.noAutenticado("Inicia sesión");
             sorteos.votar(userId, Peticion.texto(body, "categoria"));
             ctx.json(successJson("Voto registrado", 0));
         });
@@ -50,7 +52,8 @@ public class RutasSorteos {
         app.post("/api/raffle/participate", ctx -> {
             JsonObject body = parseBody(ctx);
             int userId = Peticion.userIdDeSesion(ctx);
-            if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
+            if (userId <= 0)
+                throw ServicioException.noAutenticado("Inicia sesión");
             ctx.json(sorteos.participar(
                     userId,
                     Peticion.entero(body, "raffleId"),

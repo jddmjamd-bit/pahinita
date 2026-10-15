@@ -8,17 +8,18 @@ import io.javalin.websocket.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.BiConsumer;
+import com.torneosflash.servidor.AuthMiddleware;
 
 /**
  * Adaptador Socket.IO compatible con socket.io-client v4.
- * Implementa el protocolo Engine.IO v4 + Socket.IO v4 usando WebSockets de Javalin.
+ * Implementa el protocolo Engine.IO v4 + Socket.IO v4 usando WebSockets de
+ * Javalin.
  *
  * CONCEPTO POO: Collection - ConcurrentHashMap para clientes, rooms, handlers
  * CONCEPTO POO: Encapsulamiento - toda la lógica de protocolo es interna
  */
 public class SocketIOServer {
     private static final Logger logger = LoggerFactory.getLogger(SocketIOServer.class);
-
 
     // --- COLLECTION: ConcurrentHashMap para hilos seguros ---
     private final ConcurrentHashMap<String, SocketIOClient> clientsBySession = new ConcurrentHashMap<>();
@@ -32,7 +33,8 @@ public class SocketIOServer {
     private static final int PING_INTERVAL = 25000;
     private static final int PING_TIMEOUT = 5000;
     private final Gson gson = new Gson();
-    // A8: temporizador compartido (Ejecutores.timers()); antes este servidor creaba su propio pool de 2 hilos.
+    // A8: temporizador compartido (Ejecutores.timers()); antes este servidor creaba
+    // su propio pool de 2 hilos.
     private final ScheduledExecutorService scheduler;
 
     public SocketIOServer(ScheduledExecutorService scheduler) {
@@ -44,7 +46,8 @@ public class SocketIOServer {
     private final ConcurrentHashMap<String, Boolean> upgradedSessions = new ConcurrentHashMap<>();
 
     /**
-     * Registrar handler para evento "connection" (cuando un nuevo cliente se conecta).
+     * Registrar handler para evento "connection" (cuando un nuevo cliente se
+     * conecta).
      */
     public void onConnection(BiConsumer<SocketIOClient, Object[]> handler) {
         this.connectionHandler = handler;
@@ -102,7 +105,7 @@ public class SocketIOServer {
 
                 JsonObject openData = new JsonObject();
                 openData.addProperty("sid", newSid);
-                openData.add("upgrades", gson.toJsonTree(new String[]{"websocket"}));
+                openData.add("upgrades", gson.toJsonTree(new String[] { "websocket" }));
                 openData.addProperty("pingInterval", PING_INTERVAL);
                 openData.addProperty("pingTimeout", PING_TIMEOUT);
                 openData.addProperty("maxPayload", 50000000);
@@ -116,7 +119,8 @@ public class SocketIOServer {
                     StringBuilder sb = new StringBuilder();
                     String msg;
                     while ((msg = queue.poll()) != null) {
-                        if (sb.length() > 0) sb.append("\u001e"); // Record separator
+                        if (sb.length() > 0)
+                            sb.append("\u001e"); // Record separator
                         sb.append(msg);
                     }
                     ctx.contentType("text/plain; charset=UTF-8");
@@ -171,7 +175,10 @@ public class SocketIOServer {
         scheduler.scheduleAtFixedRate(() -> {
             for (SocketIOClient client : clientsBySession.values()) {
                 if (client.isConnected()) {
-                    try { client.sendRaw("2"); } catch (Exception ignored) {} // Engine.IO PING
+                    try {
+                        client.sendRaw("2");
+                    } catch (Exception ignored) {
+                    } // Engine.IO PING
                 }
             }
         }, PING_INTERVAL, PING_INTERVAL, TimeUnit.MILLISECONDS);
@@ -189,7 +196,7 @@ public class SocketIOServer {
         }
 
         SocketIOClient client = new SocketIOClient(sid, ctx, this);
-        
+
         // S2: Autenticar handshake de Socket.IO con la cookie JWT
         try {
             String cookieHeader = ctx.header("Cookie");
@@ -197,7 +204,8 @@ public class SocketIOServer {
             if (authUserId != null) {
                 // Autenticado por JWT en Socket.IO handshake
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
 
         clientsBySession.put(sid, client);
         clientsByWsId.put(ctx.sessionId(), client);
@@ -219,10 +227,12 @@ public class SocketIOServer {
 
     private void handleWsMessage(WsMessageContext ctx) {
         String message = ctx.message();
-        if (message == null || message.isEmpty()) return;
+        if (message == null || message.isEmpty())
+            return;
 
         SocketIOClient client = clientsByWsId.get(ctx.sessionId());
-        if (client == null) return;
+        if (client == null)
+            return;
 
         char eioType = message.charAt(0);
         switch (eioType) {
@@ -264,12 +274,13 @@ public class SocketIOServer {
             }
 
             // Fire disconnect handlers
-            client.fireEvent("disconnect", new Object[]{});
+            client.fireEvent("disconnect", new Object[] {});
         }
     }
 
     private void handleSocketIOPacket(SocketIOClient client, String packet) {
-        if (packet.isEmpty()) return;
+        if (packet.isEmpty())
+            return;
 
         char sioType = packet.charAt(0);
         String data = packet.length() > 1 ? packet.substring(1) : "";
@@ -284,7 +295,7 @@ public class SocketIOServer {
                 // Fire connection handler
                 if (connectionHandler != null) {
                     try {
-                        connectionHandler.accept(client, new Object[]{});
+                        connectionHandler.accept(client, new Object[] {});
                     } catch (Exception e) {
                         logger.error("Error in connection handler: " + e.getMessage());
                         e.printStackTrace();
@@ -307,7 +318,8 @@ public class SocketIOServer {
     private void handleEvent(SocketIOClient client, String data) {
         try {
             JsonArray array = JsonParser.parseString(data).getAsJsonArray();
-            if (array.size() == 0) return;
+            if (array.size() == 0)
+                return;
 
             String eventName = array.get(0).getAsString();
             Object[] args = new Object[array.size() - 1];
@@ -332,15 +344,18 @@ public class SocketIOServer {
         Set<String> roomClients = rooms.get(room);
         if (roomClients != null) {
             roomClients.remove(client.getSid());
-            if (roomClients.isEmpty()) rooms.remove(room);
+            if (roomClients.isEmpty())
+                rooms.remove(room);
         }
     }
 
     void emitToRoom(String room, String excludeSid, String packet) {
         Set<String> roomClients = rooms.get(room);
-        if (roomClients == null) return;
+        if (roomClients == null)
+            return;
         for (String sid : roomClients) {
-            if (excludeSid != null && excludeSid.equals(sid)) continue;
+            if (excludeSid != null && excludeSid.equals(sid))
+                continue;
             SocketIOClient client = clientsBySession.get(sid);
             if (client != null && client.isConnected()) {
                 client.sendRaw(packet);
