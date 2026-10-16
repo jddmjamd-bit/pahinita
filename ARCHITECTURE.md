@@ -223,6 +223,11 @@ Ver archivo completo en [`agent/rules/project-conventions.md`](file:///c:/Users/
 
 ---
 
+**Prevención de SQL Injection (S4):**
+- Todas las consultas en `GenericDAO`, `UsuarioDAO` y servicios usan exclusivamente `PreparedStatement` con parámetros `?`.
+- Se eliminaron `GenericDAO.execute(String)` y `UsuarioDAO.ejecutarUpdate(String, Object...)`, y se reemplazaron todos los usos de `Statement` en `DbAdminService` por `PreparedStatement` con validación estricta de identificadores (`information_schema` + regex `^[a-zA-Z_][a-zA-Z0-9_]*$`).
+- En `LeaderboardService`, las columnas de ordenamiento y reseteo salen únicamente de listas blancas cerradas (`switch`).
+
 ## 7. Seguridad: XSS en chat (S5)
 
 Defensa en dos capas; ninguna confía en la otra.

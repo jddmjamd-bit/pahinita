@@ -153,12 +153,47 @@ src/
           V4__aceptacion_legal.sql
           V5__wallet_ledger.sql
           V6__soporte_tickets.sql
+          V7__evidencias_pago.sql
 ARCHITECTURE.md
 pom.xml
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="src/main/resources/db/migration/V7__evidencias_pago.sql">
+-- ============================================================================
+-- V7 — Evidencias de pago (roadmap 7: "Chat evidencias de pago")
+--
+-- Cuando el admin paga un retiro por fuera (Nequi, Llaves...) sube la imagen del comprobante y queda publicada en el
+-- canal «🧾 Pagos» del chat. Cada retiro tiene como máximo UNA evidencia (UNIQUE en transaction_id).
+--
+-- La imagen se guarda aquí como data URI base64 (igual que las imágenes del canal de anuncios); NO usa media_files
+-- (esa tabla es solo para videos). El historial del canal «pagos» se lee de esta tabla, no de `messages`.
+--
+-- NUNCA editar este archivo una vez aplicado (Flyway guarda su checksum). Cambios = un V8__ nuevo.
+-- ============================================================================
+
+--    transaction_id: el retiro (transactions.tipo = 'retiro') al que corresponde el comprobante
+--    user_id:        a quien se le pagó (copiado de la transacción, nunca del cliente)
+--    admin_id:       admin que subió la imagen (queda en NULL si ese usuario se borra)
+--    monto/metodo:   copiados de la transacción al publicar, así el mensaje no depende de lo que escriba el admin
+--    imagen:         data URI base64 (png/jpeg/gif/webp) ya validada por el servidor
+CREATE TABLE IF NOT EXISTS payment_evidences (
+    id SERIAL PRIMARY KEY,
+    transaction_id INTEGER NOT NULL UNIQUE REFERENCES transactions(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    admin_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    monto NUMERIC NOT NULL,
+    metodo TEXT,
+    nota TEXT,
+    imagen TEXT NOT NULL,
+    fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Historial del canal (más recientes primero)
+CREATE INDEX IF NOT EXISTS idx_payment_evidences_fecha ON payment_evidences (id DESC);
+</file>
 
 <file path="frontend/src/components/AceptacionLegal.jsx">
 import { useEffect, useState } from 'react';
@@ -6327,112 +6362,6 @@ public final class AdminMiddleware {
 }
 </file>
 
-<file path="src/main/java/com/torneosflash/servidor/AuthMiddleware.java">
-package com.torneosflash.servidor;
-
-import com.torneosflash.config.AppConfig;
-import com.torneosflash.servicio.JwtServicio;
-import io.javalin.Javalin;
-import io.javalin.http.Context;
-
-/**
- * Middleware de autenticación.
- * Lee la cookie httpOnly de sesión, verifica el JWT y, si es válido,
- * inyecta {@code ctx.attribute("userId")} y {@code ctx.attribute("rol")}.
- *
- * No rechaza requests: cada ruta decide si exige sesión
- * (usar {@link #getUserId(Context)} y responder 401 si es null).
- */
-public class AuthMiddleware {
-
-    public static final String COOKIE_SESION = "session";
-    public static final String ATTR_USER_ID = "userId";
-    public static final String ATTR_ROL = "rol";
-
-    /** Cookie antigua en texto plano. Solo se usa para borrarla. */
-    private static final String COOKIE_LEGACY = "userId";
-
-    private static JwtServicio jwt;
-    private static AppConfig config;
-
-    public static void register(Javalin app, JwtServicio jwtServicio, AppConfig appConfig) {
-        jwt = jwtServicio;
-        config = appConfig;
-
-        app.before(ctx -> {
-            JwtServicio.Sesion sesion = jwt.verificar(leerCookie(ctx.header("Cookie"), COOKIE_SESION));
-            if (sesion != null) {
-                ctx.attribute(ATTR_USER_ID, sesion.userId());
-                ctx.attribute(ATTR_ROL, sesion.rol());
-            }
-        });
-    }
-
-    /** userId de la sesión JWT verificada, o null si no hay sesión válida. */
-    public static Integer getUserId(Context ctx) {
-        return ctx.attribute(ATTR_USER_ID);
-    }
-
-    /** Rol de la sesión JWT verificada, o null si no hay sesión válida. */
-    public static String getRol(Context ctx) {
-        return ctx.attribute(ATTR_ROL);
-    }
-
-    /** Emite un JWT nuevo y lo guarda en la cookie httpOnly. Borra la cookie legacy. */
-    public static void iniciarSesion(Context ctx, int userId, String rol) {
-        String token = jwt.generarToken(userId, rol);
-        ctx.res().addHeader("Set-Cookie", construirCookie(COOKIE_SESION, token, jwt.getExpiracionSegundos()));
-        ctx.res().addHeader("Set-Cookie", construirCookie(COOKIE_LEGACY, "", 0));
-    }
-
-    /** Borra la cookie de sesión y la legacy. */
-    public static void cerrarSesion(Context ctx) {
-        ctx.res().addHeader("Set-Cookie", construirCookie(COOKIE_SESION, "", 0));
-        ctx.res().addHeader("Set-Cookie", construirCookie(COOKIE_LEGACY, "", 0));
-    }
-
-    /**
-     * Para el handshake del socket: recibe el header Cookie crudo y
-     * devuelve el userId si el JWT es válido.
-     */
-    public static Integer userIdDesdeCookieHeader(String cookieHeader) {
-        if (jwt == null) return null;
-        JwtServicio.Sesion sesion = jwt.verificar(leerCookie(cookieHeader, COOKIE_SESION));
-        return sesion != null ? sesion.userId() : null;
-    }
-
-    // --- Helpers ---
-
-    /**
-     * Se arma el header Set-Cookie a mano porque jakarta.servlet.http.Cookie
-     * (Servlet 5 / Jetty 11) no soporta SameSite, y ctx.cookie() de Javalin 6
-     * tiene un bug conocido con Java 17 en este proyecto.
-     */
-    private static String construirCookie(String nombre, String valor, long maxAgeSegundos) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(nombre).append('=').append(valor)
-          .append("; Path=/")
-          .append("; Max-Age=").append(maxAgeSegundos)
-          .append("; HttpOnly")
-          .append("; SameSite=").append(config.getCookieSameSite());
-        if (config.isCookieSecure()) sb.append("; Secure");
-        return sb.toString();
-    }
-
-    static String leerCookie(String cookieHeader, String nombre) {
-        if (cookieHeader == null || cookieHeader.isEmpty()) return null;
-        for (String parte : cookieHeader.split(";")) {
-            int eq = parte.indexOf('=');
-            if (eq <= 0) continue;
-            if (parte.substring(0, eq).trim().equals(nombre)) {
-                return parte.substring(eq + 1).trim();
-            }
-        }
-        return null;
-    }
-}
-</file>
-
 <file path="src/main/java/com/torneosflash/servidor/RutasComisiones.java">
 package com.torneosflash.servidor;
 
@@ -6493,65 +6422,6 @@ public class RutasComisiones {
             res.addProperty("success", true);
             res.add("distribucion", distribucion);
             ctx.json(res);
-        });
-    }
-}
-</file>
-
-<file path="src/main/java/com/torneosflash/servidor/RutasSoporte.java">
-package com.torneosflash.servidor;
-
-import com.google.gson.JsonObject;
-import com.torneosflash.servicio.SoporteService;
-import io.javalin.Javalin;
-
-import static com.torneosflash.servidor.RutasAuth.parseBody;
-
-/**
- * Rutas de soporte, "Hablar con el admin" (roadmap 24.5).
- *
- * A3: solo parsean el request y llaman a {@link SoporteService}. El usuario sale SIEMPRE de la sesión JWT
- * ({@link Peticion#userIdDeSesion}), nunca del body; el servicio responde 401 si no hay sesión y 403 si una ruta de
- * admin la llama alguien que no es admin. Las rutas de admin cuelgan de {@code /api/admin/*}, así que además las
- * cubre {@link AdminMiddleware} (S3).
- *
- * <pre>
- * Usuario
- *   POST /api/soporte/tickets   {categoria, asunto, mensaje} abre un ticket (429 si supera sus topes)
- *   GET  /api/soporte/tickets   mis tickets, con la respuesta del admin si ya la hay
- * Admin
- *   GET  /api/admin/soporte/tickets?estado=abierto|resuelto|todos        bandeja (default: abierto)
- *   POST /api/admin/soporte/tickets/{id}/responder   {respuesta}         responde y deja el ticket resuelto
- * </pre>
- */
-public class RutasSoporte {
-
-    public static void register(Javalin app, SoporteService soporte) {
-
-        // ---------------- Usuario ----------------
-
-        app.post("/api/soporte/tickets", ctx -> {
-            JsonObject body = parseBody(ctx);
-            ctx.json(soporte.crear(Peticion.userIdDeSesion(ctx),
-                    Peticion.texto(body, "categoria"),
-                    Peticion.texto(body, "asunto"),
-                    Peticion.texto(body, "mensaje")));
-        });
-
-        app.get("/api/soporte/tickets", ctx ->
-                ctx.json(soporte.misTickets(Peticion.userIdDeSesion(ctx))));
-
-        // ---------------- Admin ----------------
-
-        app.get("/api/admin/soporte/tickets", ctx -> {
-            String estado = ctx.queryParam("estado");
-            ctx.json(soporte.listarAdmin(Peticion.userIdDeSesion(ctx), estado == null ? "abierto" : estado));
-        });
-
-        app.post("/api/admin/soporte/tickets/{id}/responder", ctx -> {
-            JsonObject body = parseBody(ctx);
-            ctx.json(soporte.responder(Peticion.userIdDeSesion(ctx),
-                    Peticion.pathEntero(ctx, "id"), Peticion.texto(body, "respuesta")));
         });
     }
 }
@@ -8752,6 +8622,93 @@ public class ServicioException extends RuntimeException {
 }
 </file>
 
+<file path="src/main/java/com/torneosflash/servidor/AuthMiddleware.java">
+package com.torneosflash.servidor;
+
+import com.torneosflash.config.AppConfig;
+import com.torneosflash.servicio.JwtServicio;
+import io.javalin.Javalin;
+import io.javalin.http.Context;
+
+/**
+ * Middleware de autenticación.
+ * Lee la cookie httpOnly de sesión, verifica el JWT y, si es válido,
+ * inyecta {@code ctx.attribute("userId")} y {@code ctx.attribute("rol")}.
+ */
+public class AuthMiddleware {
+
+    public static final String COOKIE_SESION = "session";
+    public static final String ATTR_USER_ID = "userId";
+    public static final String ATTR_ROL = "rol";
+
+    private static final String COOKIE_LEGACY = "userId";
+
+    private static JwtServicio jwt;
+    private static AppConfig config;
+
+    public static void register(Javalin app, JwtServicio jwtServicio, AppConfig appConfig) {
+        jwt = jwtServicio;
+        config = appConfig;
+
+        app.before(ctx -> {
+            JwtServicio.Sesion sesion = jwt.verificar(leerCookie(ctx.header("Cookie"), COOKIE_SESION));
+            if (sesion != null) {
+                ctx.attribute(ATTR_USER_ID, sesion.userId());
+                ctx.attribute(ATTR_ROL, sesion.rol());
+            }
+        });
+    }
+
+    public static Integer getUserId(Context ctx) {
+        return ctx.attribute(ATTR_USER_ID);
+    }
+
+    public static String getRol(Context ctx) {
+        return ctx.attribute(ATTR_ROL);
+    }
+
+    public static void iniciarSesion(Context ctx, int userId, String rol) {
+        String token = jwt.generarToken(userId, rol);
+        ctx.res().addHeader("Set-Cookie", construirCookie(COOKIE_SESION, token, jwt.getExpiracionSegundos()));
+        ctx.res().addHeader("Set-Cookie", construirCookie(COOKIE_LEGACY, "", 0));
+    }
+
+    public static void cerrarSesion(Context ctx) {
+        ctx.res().addHeader("Set-Cookie", construirCookie(COOKIE_SESION, "", 0));
+        ctx.res().addHeader("Set-Cookie", construirCookie(COOKIE_LEGACY, "", 0));
+    }
+
+    public static Integer userIdDesdeCookieHeader(String cookieHeader) {
+        if (jwt == null) return null;
+        JwtServicio.Sesion sesion = jwt.verificar(leerCookie(cookieHeader, COOKIE_SESION));
+        return sesion != null ? sesion.userId() : null;
+    }
+
+    private static String construirCookie(String nombre, String valor, long maxAgeSegundos) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(nombre).append('=').append(valor)
+          .append("; Path=/")
+          .append("; Max-Age=").append(maxAgeSegundos)
+          .append("; HttpOnly")
+          .append("; SameSite=").append(config.getCookieSameSite());
+        if (config.isCookieSecure()) sb.append("; Secure");
+        return sb.toString();
+    }
+
+    static String leerCookie(String cookieHeader, String nombre) {
+        if (cookieHeader == null || cookieHeader.isEmpty()) return null;
+        for (String parte : cookieHeader.split(";")) {
+            int eq = parte.indexOf('=');
+            if (eq <= 0) continue;
+            if (parte.substring(0, eq).trim().equals(nombre)) {
+                return parte.substring(eq + 1).trim();
+            }
+        }
+        return null;
+    }
+}
+</file>
+
 <file path="src/main/java/com/torneosflash/servidor/ManejadorErrores.java">
 package com.torneosflash.servidor;
 
@@ -8908,6 +8865,67 @@ public class RutasChatbot {
             throw ServicioException.demasiadasSolicitudes(
                     "Vas muy rápido. Espera " + r.getReintentarEnSegundos() + " segundos e inténtalo de nuevo");
         }
+    }
+}
+</file>
+
+<file path="src/main/java/com/torneosflash/servidor/RutasSoporte.java">
+package com.torneosflash.servidor;
+
+import com.google.gson.JsonObject;
+import com.torneosflash.servicio.SoporteService;
+import io.javalin.Javalin;
+
+import static com.torneosflash.servidor.RutasAuth.parseBody;
+
+/**
+ * Rutas de soporte, "Hablar con el admin" (roadmap 24.5).
+ *
+ * A3: solo parsean el request y llaman a {@link SoporteService}. El usuario
+ * sale SIEMPRE de la sesión JWT
+ * ({@link Peticion#userIdDeSesion}), nunca del body; el servicio responde 401
+ * si no hay sesión y 403 si una ruta de
+ * admin la llama alguien que no es admin. Las rutas de admin cuelgan de
+ * {@code /api/admin/*}, así que además las
+ * cubre {@link AdminMiddleware} (S3).
+ *
+ * <pre>
+ * Usuario
+ *   POST /api/soporte/tickets   {categoria, asunto, mensaje} abre un ticket (429 si supera sus topes)
+ *   GET  /api/soporte/tickets   mis tickets, con la respuesta del admin si ya la hay
+ * Admin
+ *   GET  /api/admin/soporte/tickets?estado=abierto|resuelto|todos        bandeja (default: abierto)
+ *   POST /api/admin/soporte/tickets/{id}/responder   {respuesta}         responde y deja el ticket resuelto
+ * </pre>
+ */
+public class RutasSoporte {
+
+    public static void register(Javalin app, SoporteService soporte) {
+
+        // ---------------- Usuario ----------------
+
+        app.post("/api/soporte/tickets", ctx -> {
+            JsonObject body = parseBody(ctx);
+            ctx.json(soporte.crear(Peticion.userIdDeSesion(ctx),
+                    Peticion.texto(body, "categoria"),
+                    Peticion.texto(body, "asunto"),
+                    Peticion.texto(body, "mensaje")));
+        });
+
+        app.get("/api/soporte/tickets", ctx -> ctx.json(soporte.misTickets(Peticion.userIdDeSesion(ctx))));
+
+        // ---------------- Admin ----------------
+
+        app.get("/api/admin/soporte/tickets", ctx -> {
+            String estado = ctx.queryParam("estado");
+            ctx.json(soporte.listarAdmin(Peticion.userIdDeSesion(ctx), estado == null ? "abierto" : estado));
+        });
+
+        app.post("/api/admin/soporte/tickets/{id}/responder", ctx -> {
+            JsonObject body = parseBody(ctx);
+            ctx.json(soporte.responder(Peticion.userIdDeSesion(ctx),
+                    Peticion.pathEntero(ctx, "id"), Peticion.texto(body, "respuesta")));
+        });
     }
 }
 </file>
@@ -9789,630 +9807,6 @@ public class RateLimitMiddleware {
 }
 </file>
 
-<file path="src/main/java/com/torneosflash/socketio/SocketIOServer.java">
-package com.torneosflash.socketio;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import com.google.gson.*;
-import io.javalin.Javalin;
-import io.javalin.websocket.*;
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.function.BiConsumer;
-
-/**
- * Adaptador Socket.IO compatible con socket.io-client v4.
- * Implementa el protocolo Engine.IO v4 + Socket.IO v4 usando WebSockets de Javalin.
- *
- * CONCEPTO POO: Collection - ConcurrentHashMap para clientes, rooms, handlers
- * CONCEPTO POO: Encapsulamiento - toda la lógica de protocolo es interna
- */
-public class SocketIOServer {
-    private static final Logger logger = LoggerFactory.getLogger(SocketIOServer.class);
-
-
-    // --- COLLECTION: ConcurrentHashMap para hilos seguros ---
-    private final ConcurrentHashMap<String, SocketIOClient> clientsBySession = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, SocketIOClient> clientsByWsId = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Set<String>> rooms = new ConcurrentHashMap<>();
-
-    // Handlers para eventos del namespace "/"
-    private BiConsumer<SocketIOClient, Object[]> connectionHandler;
-
-    // Engine.IO config
-    private static final int PING_INTERVAL = 25000;
-    private static final int PING_TIMEOUT = 5000;
-    private final Gson gson = new Gson();
-    // A8: temporizador compartido (Ejecutores.timers()); antes este servidor creaba su propio pool de 2 hilos.
-    private final ScheduledExecutorService scheduler;
-
-    public SocketIOServer(ScheduledExecutorService scheduler) {
-        this.scheduler = scheduler;
-    }
-
-    // Polling sessions: sid -> pending messages queue
-    private final ConcurrentHashMap<String, ConcurrentLinkedQueue<String>> pollingQueues = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Boolean> upgradedSessions = new ConcurrentHashMap<>();
-
-    /**
-     * Registrar handler para evento "connection" (cuando un nuevo cliente se conecta).
-     */
-    public void onConnection(BiConsumer<SocketIOClient, Object[]> handler) {
-        this.connectionHandler = handler;
-    }
-
-    /**
-     * Emitir evento a TODOS los clientes conectados.
-     * CONCEPTO POO: Polimorfismo - opera sobre la colección de clientes
-     */
-    public void emit(String event, Object... data) {
-        String packet = buildEventPacket(event, data);
-        for (SocketIOClient client : clientsBySession.values()) {
-            if (client.isConnected()) {
-                client.sendRaw(packet);
-            }
-        }
-    }
-
-    /**
-     * Obtener un emitter para una room específica.
-     */
-    public RoomEmitter to(String room) {
-        return new RoomEmitter(this, room, null);
-    }
-
-    /**
-     * Obtener mapa de sockets (equivalente a io.sockets.sockets en Node.js).
-     */
-    public ConcurrentHashMap<String, SocketIOClient> getSockets() {
-        return clientsBySession;
-    }
-
-    /**
-     * Registrar las rutas HTTP + WebSocket en Javalin.
-     */
-    public void register(Javalin app) {
-        // --- HTTP Polling transport ---
-        app.get("/socket.io/", ctx -> {
-            String transport = ctx.queryParam("transport");
-            String sid = ctx.queryParam("sid");
-
-            if (!"polling".equals(transport)) {
-                ctx.status(400).result("Invalid transport");
-                return;
-            }
-
-            ctx.header("Access-Control-Allow-Origin", ctx.header("Origin") != null ? ctx.header("Origin") : "*");
-            ctx.header("Access-Control-Allow-Credentials", "true");
-
-            if (sid == null || sid.isEmpty()) {
-                // New session - Engine.IO OPEN
-                String newSid = UUID.randomUUID().toString().replace("-", "").substring(0, 20);
-                pollingQueues.put(newSid, new ConcurrentLinkedQueue<>());
-                upgradedSessions.put(newSid, false);
-
-                JsonObject openData = new JsonObject();
-                openData.addProperty("sid", newSid);
-                openData.add("upgrades", gson.toJsonTree(new String[]{"websocket"}));
-                openData.addProperty("pingInterval", PING_INTERVAL);
-                openData.addProperty("pingTimeout", PING_TIMEOUT);
-                openData.addProperty("maxPayload", 50000000);
-
-                ctx.contentType("text/plain; charset=UTF-8");
-                ctx.result("0" + openData.toString());
-            } else {
-                // Existing session - return queued messages or NOOP
-                ConcurrentLinkedQueue<String> queue = pollingQueues.get(sid);
-                if (queue != null && !queue.isEmpty()) {
-                    StringBuilder sb = new StringBuilder();
-                    String msg;
-                    while ((msg = queue.poll()) != null) {
-                        if (sb.length() > 0) sb.append("\u001e"); // Record separator
-                        sb.append(msg);
-                    }
-                    ctx.contentType("text/plain; charset=UTF-8");
-                    ctx.result(sb.toString());
-                } else {
-                    ctx.contentType("text/plain; charset=UTF-8");
-                    ctx.result("6"); // NOOP
-                }
-            }
-        });
-
-        app.post("/socket.io/", ctx -> {
-            String sid = ctx.queryParam("sid");
-            ctx.header("Access-Control-Allow-Origin", ctx.header("Origin") != null ? ctx.header("Origin") : "*");
-            ctx.header("Access-Control-Allow-Credentials", "true");
-
-            if (sid != null) {
-                String body = ctx.body();
-                // Handle Socket.IO CONNECT (40) via polling
-                if (body.startsWith("4")) {
-                    ConcurrentLinkedQueue<String> queue = pollingQueues.get(sid);
-                    if (queue != null) {
-                        // Queue the connect ack for the next GET poll
-                        JsonObject ack = new JsonObject();
-                        ack.addProperty("sid", sid);
-                        queue.add("40" + ack.toString());
-                    }
-                }
-            }
-            ctx.result("ok");
-        });
-
-        app.options("/socket.io/", ctx -> {
-            ctx.header("Access-Control-Allow-Origin", ctx.header("Origin") != null ? ctx.header("Origin") : "*");
-            ctx.header("Access-Control-Allow-Credentials", "true");
-            ctx.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-            ctx.header("Access-Control-Allow-Headers", "Content-Type");
-            ctx.status(200);
-        });
-
-        // --- WebSocket transport ---
-        app.ws("/socket.io/", ws -> {
-            ws.onConnect(this::handleWsConnect);
-            ws.onMessage(this::handleWsMessage);
-            ws.onClose(this::handleWsClose);
-            ws.onError(ctx -> {
-                logger.error("WebSocket error: " + (ctx.error() != null ? ctx.error().getMessage() : "unknown"));
-            });
-        });
-
-        // Ping scheduler
-        scheduler.scheduleAtFixedRate(() -> {
-            for (SocketIOClient client : clientsBySession.values()) {
-                if (client.isConnected()) {
-                    try { client.sendRaw("2"); } catch (Exception ignored) {} // Engine.IO PING
-                }
-            }
-        }, PING_INTERVAL, PING_INTERVAL, TimeUnit.MILLISECONDS);
-
-        logger.info("✅ Socket.IO adapter registrado en /socket.io/");
-    }
-
-    // --- WebSocket Handlers ---
-
-    private void handleWsConnect(WsConnectContext ctx) {
-        String sid = ctx.queryParam("sid");
-        if (sid == null) {
-            // Direct WebSocket connection (no polling first)
-            sid = UUID.randomUUID().toString().replace("-", "").substring(0, 20);
-        }
-
-        SocketIOClient client = new SocketIOClient(sid, ctx, this);
-        clientsBySession.put(sid, client);
-        clientsByWsId.put(ctx.sessionId(), client);
-
-        // If upgrading from polling, mark as upgraded
-        if (upgradedSessions.containsKey(sid)) {
-            upgradedSessions.put(sid, true);
-        }
-
-        // Send Engine.IO OPEN
-        JsonObject openData = new JsonObject();
-        openData.addProperty("sid", sid);
-        openData.add("upgrades", gson.toJsonTree(new String[0]));
-        openData.addProperty("pingInterval", PING_INTERVAL);
-        openData.addProperty("pingTimeout", PING_TIMEOUT);
-        openData.addProperty("maxPayload", 50000000);
-        client.sendRaw("0" + openData.toString());
-    }
-
-    private void handleWsMessage(WsMessageContext ctx) {
-        String message = ctx.message();
-        if (message == null || message.isEmpty()) return;
-
-        SocketIOClient client = clientsByWsId.get(ctx.sessionId());
-        if (client == null) return;
-
-        char eioType = message.charAt(0);
-        switch (eioType) {
-            case '2': // Engine.IO PING (from client)
-                if (message.equals("2probe")) {
-                    client.sendRaw("3probe"); // PONG probe (upgrade handshake)
-                } else {
-                    client.sendRaw("3"); // PONG
-                }
-                break;
-            case '3': // Engine.IO PONG (response to our ping)
-                break;
-            case '4': // Engine.IO MESSAGE (Socket.IO packet)
-                handleSocketIOPacket(client, message.substring(1));
-                break;
-            case '5': // Engine.IO UPGRADE
-                // Upgrade complete - stop polling for this session
-                if (client.getSid() != null) {
-                    upgradedSessions.put(client.getSid(), true);
-                    pollingQueues.remove(client.getSid());
-                }
-                break;
-            default:
-                break;
-        }
-    }
-
-    private void handleWsClose(WsCloseContext ctx) {
-        SocketIOClient client = clientsByWsId.remove(ctx.sessionId());
-        if (client != null) {
-            client.setConnected(false);
-            clientsBySession.remove(client.getSid());
-            pollingQueues.remove(client.getSid());
-            upgradedSessions.remove(client.getSid());
-
-            // Remove from all rooms
-            for (String room : client.getRooms()) {
-                leaveRoom(client, room);
-            }
-
-            // Fire disconnect handlers
-            client.fireEvent("disconnect", new Object[]{});
-        }
-    }
-
-    private void handleSocketIOPacket(SocketIOClient client, String packet) {
-        if (packet.isEmpty()) return;
-
-        char sioType = packet.charAt(0);
-        String data = packet.length() > 1 ? packet.substring(1) : "";
-
-        switch (sioType) {
-            case '0': // CONNECT
-                // Send CONNECT ack
-                JsonObject ack = new JsonObject();
-                ack.addProperty("sid", client.getSid());
-                client.sendRaw("40" + ack.toString());
-
-                // Fire connection handler
-                if (connectionHandler != null) {
-                    try {
-                        connectionHandler.accept(client, new Object[]{});
-                    } catch (Exception e) {
-                        logger.error("Error in connection handler: " + e.getMessage());
-                        e.printStackTrace();
-                    }
-                }
-                break;
-
-            case '1': // DISCONNECT
-                break;
-
-            case '2': // EVENT
-                handleEvent(client, data);
-                break;
-
-            default:
-                break;
-        }
-    }
-
-    private void handleEvent(SocketIOClient client, String data) {
-        try {
-            JsonArray array = JsonParser.parseString(data).getAsJsonArray();
-            if (array.size() == 0) return;
-
-            String eventName = array.get(0).getAsString();
-            Object[] args = new Object[array.size() - 1];
-            for (int i = 1; i < array.size(); i++) {
-                args[i - 1] = array.get(i);
-            }
-
-            // Fire per-client handlers first
-            client.fireEvent(eventName, args);
-        } catch (Exception e) {
-            logger.error("Error parsing Socket.IO event: " + e.getMessage());
-        }
-    }
-
-    // --- Room management ---
-
-    void joinRoom(SocketIOClient client, String room) {
-        rooms.computeIfAbsent(room, k -> ConcurrentHashMap.newKeySet()).add(client.getSid());
-    }
-
-    void leaveRoom(SocketIOClient client, String room) {
-        Set<String> roomClients = rooms.get(room);
-        if (roomClients != null) {
-            roomClients.remove(client.getSid());
-            if (roomClients.isEmpty()) rooms.remove(room);
-        }
-    }
-
-    void emitToRoom(String room, String excludeSid, String packet) {
-        Set<String> roomClients = rooms.get(room);
-        if (roomClients == null) return;
-        for (String sid : roomClients) {
-            if (excludeSid != null && excludeSid.equals(sid)) continue;
-            SocketIOClient client = clientsBySession.get(sid);
-            if (client != null && client.isConnected()) {
-                client.sendRaw(packet);
-            }
-        }
-    }
-
-    /**
-     * Construye un packet de evento Socket.IO: 42["event",data...]
-     */
-    String buildEventPacket(String event, Object... data) {
-        JsonArray array = new JsonArray();
-        array.add(event);
-        for (Object d : data) {
-            if (d instanceof JsonElement) {
-                array.add((JsonElement) d);
-            } else if (d instanceof String) {
-                array.add((String) d);
-            } else if (d instanceof Number) {
-                array.add((Number) d);
-            } else if (d instanceof Boolean) {
-                array.add((Boolean) d);
-            } else if (d != null) {
-                array.add(gson.toJsonTree(d));
-            } else {
-                array.add(JsonNull.INSTANCE);
-            }
-        }
-        return "42" + array.toString();
-    }
-
-    /**
-     * Room emitter - para io.to(room).emit() y socket.to(room).emit()
-     */
-    public static class RoomEmitter {
-        private final SocketIOServer server;
-        private final String room;
-        private final String excludeSid;
-
-        RoomEmitter(SocketIOServer server, String room, String excludeSid) {
-            this.server = server;
-            this.room = room;
-            this.excludeSid = excludeSid;
-        }
-
-        public void emit(String event, Object... data) {
-            String packet = server.buildEventPacket(event, data);
-            server.emitToRoom(room, excludeSid, packet);
-        }
-    }
-}
-</file>
-
-<file path="frontend/src/pages/Finance.jsx">
-import React, { useState } from 'react';
-import { useAppStore } from '../store/useAppStore';
-import './Finance.css';
-
-const API_BASE_URL = 'https://torneos-beta.onrender.com';
-
-export default function Finance() {
-    const [activeTab, setActiveTab] = useState('deposit'); // 'deposit' or 'withdraw'
-    const [depositMethod, setDepositMethod] = useState('manual'); // 'manual' or 'auto'
-    
-    // Deposit states
-    const [manualAmount, setManualAmount] = useState('');
-    const [manualRef, setManualRef] = useState('');
-    const [autoAmount, setAutoAmount] = useState('');
-    const [isProcessing, setIsProcessing] = useState(false);
-
-    // Withdraw states
-    const [withdrawAmount, setWithdrawAmount] = useState('');
-    const [withdrawAccount, setWithdrawAccount] = useState('');
-    const [withdrawName, setWithdrawName] = useState('');
-
-    const currentUser = useAppStore(state => state.user);
-    const setUser = useAppStore(state => state.setUser);
-
-    // Calculos de comisión Wompi
-    const calculateTotalAuto = (val) => {
-        if (!val || val < 1000) return { totalPagar: 0, comisionTotal: 0 };
-        const baseConMargen = val + 840;
-        const totalPagar = Math.ceil(baseConMargen / 0.964);
-        const comisionTotal = totalPagar - val;
-        return { totalPagar, comisionTotal };
-    };
-
-    const autoCalc = calculateTotalAuto(Number(autoAmount));
-
-    const handleManualDeposit = async () => {
-        if (!manualAmount || !manualRef) return alert("Por favor llena los datos.");
-        if (!currentUser) return alert("Debes iniciar sesión.");
-
-        try {
-            const res = await fetch(API_BASE_URL + '/api/transaction/create', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    userId: currentUser.id,
-                    username: currentUser.username,
-                    tipo: 'deposito',
-                    metodo: 'manual_nequi',
-                    monto: manualAmount,
-                    referencia: manualRef
-                })
-            });
-            const d = await res.json();
-            // D5: si el servidor rechaza el monto, se muestra su mensaje y se conserva lo escrito
-            if (!res.ok || d.error) {
-                alert(d.error || "No se pudo crear la solicitud.");
-                return;
-            }
-            alert(d.message);
-            setManualAmount('');
-            setManualRef('');
-        } catch (e) {
-            console.error(e);
-            alert("Error procesando solicitud.");
-        }
-    };
-
-    const handleAutoDeposit = async () => {
-        const monto = autoAmount;
-        if (!monto || monto < 1000 || !currentUser) return;
-        
-        setIsProcessing(true);
-        try {
-            const res = await fetch(API_BASE_URL + '/api/wompi/init', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    userId: currentUser.id,
-                    username: currentUser.username,
-                    monto: Number(monto)
-                })
-            });
-
-            if (!res.ok) {
-                const errData = await res.json();
-                throw new Error(errData.error || "Error al iniciar pago");
-            }
-
-            const datos = await res.json();
-
-            // Configurar Widget
-            const checkout = new window.WidgetCheckout({
-                currency: "COP",
-                amountInCents: datos.amountInCents,
-                reference: datos.reference,
-                publicKey: datos.publicKey,
-                signature: { integrity: datos.signature },
-                redirectUrl: window.location.href,
-            });
-
-            checkout.open(function (result) {
-                const transaction = result.transaction;
-                console.log('Transaction ID: ', transaction.id);
-                // Confirmación real llega por Socket desde Webhook
-                alert("Pago en proceso con Wompi. Recibirás una notificación cuando se confirme.");
-                setIsProcessing(false);
-            });
-
-        } catch (error) {
-            console.error(error);
-            alert(error.message || "Error iniciando Wompi");
-            setIsProcessing(false);
-        }
-    };
-
-    const handleWithdraw = async () => {
-        if (!withdrawAmount || !withdrawAccount || !withdrawName) return alert("Por favor completa todos los datos.");
-        if (!currentUser) return alert("Debes iniciar sesión.");
-        if (Number(withdrawAmount) > currentUser.saldo) return alert("Saldo insuficiente.");
-
-        const datosCuenta = `${withdrawAccount} - ${withdrawName}`;
-
-        try {
-            const res = await fetch(API_BASE_URL + '/api/transaction/withdraw', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    userId: currentUser.id,
-                    username: currentUser.username,
-                    monto: withdrawAmount,
-                    datosCuenta: datosCuenta
-                })
-            });
-
-            const data = await res.json();
-            if (data.success) {
-                alert(data.message);
-                setUser({ ...currentUser, saldo: data.newBalance });
-                setWithdrawAmount('');
-                setWithdrawAccount('');
-                setWithdrawName('');
-                // TODO: Notificar al componente superior/header para actualizar saldo
-            } else {
-                alert("Error: " + data.error);
-            }
-        } catch (e) {
-            console.error(e);
-            alert("Error al procesar retiro.");
-        }
-    };
-
-    return (
-        <div className="finance-container center-screen">
-            <h2>💰 Finanzas</h2>
-
-            <div className="finance-main-tabs">
-                <button 
-                    className={`tab-btn ${activeTab === 'deposit' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('deposit')}
-                >Recargar</button>
-                <button 
-                    className={`tab-btn ${activeTab === 'withdraw' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('withdraw')}
-                >Retirar</button>
-            </div>
-
-            {activeTab === 'deposit' && (
-                <div className="deposit-section-container">
-                    <div className="deposit-tabs">
-                        <button 
-                            className={`sub-tab-btn ${depositMethod === 'manual' ? 'active' : ''}`}
-                            onClick={() => setDepositMethod('manual')}
-                        >📱 Nequi Manual</button>
-                        <button 
-                            className={`sub-tab-btn ${depositMethod === 'auto' ? 'active' : ''}`}
-                            onClick={() => setDepositMethod('auto')}
-                        >💳 Tarjeta / PSE (Wompi)</button>
-                    </div>
-
-                    {depositMethod === 'manual' ? (
-                        <div className="deposit-section">
-                            <p className="info-text">Envía a Nequi <strong>3126655995</strong>.<br/>Espera aprobación (1-5 min).</p>
-                            <input type="number" placeholder="Monto enviado" min="1000"
-                                value={manualAmount} onChange={e => setManualAmount(e.target.value)} />
-                            <input type="text" placeholder="Número de Referencia"
-                                value={manualRef} onChange={e => setManualRef(e.target.value)} />
-                            <button className="finance-action-btn" onClick={handleManualDeposit}>Notificar Pago</button>
-                        </div>
-                    ) : (
-                        <div className="deposit-section">
-                            <p className="info-text">Recarga inmediata automatizada.</p>
-                            <div className="calc-box">
-                                <label>Recibir en cuenta:</label>
-                                <input type="number" placeholder="10000" min="1000"
-                                    value={autoAmount} onChange={e => setAutoAmount(e.target.value)} />
-                                
-                                {autoAmount >= 1000 && (
-                                    <div className="cost-breakdown">
-                                        <div className="cost-row"><span>Comisión pasarela:</span> <span className="fee-amount">+ ${autoCalc.comisionTotal.toLocaleString()}</span></div>
-                                        <hr/>
-                                        <div className="cost-row total"><span>Total a pagar:</span> <span className="total-amount">${autoCalc.totalPagar.toLocaleString()}</span></div>
-                                    </div>
-                                )}
-                            </div>
-                            <button 
-                                className="finance-action-btn" 
-                                disabled={isProcessing || autoAmount < 1000}
-                                onClick={handleAutoDeposit}
-                            >
-                                {isProcessing ? 'Cargando Wompi...' : autoAmount >= 1000 ? `Pagar $${autoCalc.totalPagar.toLocaleString()}` : 'Pagar con Wompi'}
-                            </button>
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {activeTab === 'withdraw' && (
-                <div className="withdraw-section">
-                    <p className="info-text">Retiros a Nequi o Daviplata. Tiempo estimado: 24h.</p>
-                    <div className="withdraw-balance">
-                        Saldo disponible: <strong>${currentUser ? currentUser.saldo.toLocaleString() : 0}</strong>
-                    </div>
-                    <input type="number" placeholder="Monto a retirar" min="10000"
-                        value={withdrawAmount} onChange={e => setWithdrawAmount(e.target.value)} />
-                    <input type="text" placeholder="Número de cuenta (Nequi/Daviplata)"
-                        value={withdrawAccount} onChange={e => setWithdrawAccount(e.target.value)} />
-                    <input type="text" placeholder="Nombre completo del titular"
-                        value={withdrawName} onChange={e => setWithdrawName(e.target.value)} />
-                    <button className="finance-action-btn withdraw-btn" onClick={handleWithdraw}>Solicitar Retiro</button>
-                </div>
-            )}
-        </div>
-    );
-}
-</file>
-
 <file path="frontend/src/pages/Leaderboard.jsx">
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
@@ -10752,64 +10146,6 @@ public final class Eventos {
      * @param respuesta lo que respondió el admin
      */
     public record TicketRespondido(int ticketId, int userId, String username, String categoria, String asunto, String respuesta) {}
-}
-</file>
-
-<file path="src/main/java/com/torneosflash/servidor/RutasMedia.java">
-package com.torneosflash.servidor;
-
-import com.torneosflash.servicio.MediaService;
-import com.torneosflash.servicio.ServicioException;
-import io.javalin.Javalin;
-import io.javalin.http.UploadedFile;
-
-/**
- * Rutas para subir y servir archivos multimedia (videos).
- *
- * A3: aquí solo se leen el archivo y los headers del request y se escriben los headers de la respuesta;
- * validación, guardado en BD y resolución del header Range viven en {@link MediaService}.
- *
- * POST /api/upload     → sube un video y devuelve su URL
- * GET  /api/media/{id} → sirve el archivo desde la BD
- */
-public class RutasMedia {
-
-    public static void register(Javalin app, MediaService media) {
-
-        // POST /api/upload - Subir video
-        app.post("/api/upload", ctx -> {
-            UploadedFile archivo = ctx.uploadedFile("file");
-            if (archivo == null) {
-                throw ServicioException.solicitudInvalida("No se recibió ningún archivo");
-            }
-            ctx.json(media.subirVideo(archivo.contentType(), archivo.filename(), archivo.content()));
-        });
-
-        // GET /api/media/{id} - Servir archivo desde BD (con soporte Range para seek en videos)
-        app.get("/api/media/{id}", ctx -> {
-            MediaService.Descarga descarga = media.descargar(Peticion.pathEntero(ctx, "id"), ctx.header("Range"));
-            if (descarga == null) {
-                ctx.status(404).result("Archivo no encontrado");
-                return;
-            }
-
-            ctx.contentType(descarga.contentType());
-            ctx.header("X-Content-Type-Options", "nosniff"); // S5: el navegador no debe "adivinar" otro tipo (p.ej. HTML)
-            ctx.header("Accept-Ranges", "bytes");
-            ctx.header("Cache-Control", "public, max-age=86400"); // Cache 24h
-
-            if (descarga.status() == 416) {
-                ctx.status(416).header("Content-Range", descarga.contentRange());
-                return;
-            }
-            if (descarga.status() == 206) {
-                ctx.status(206);
-                ctx.header("Content-Range", descarga.contentRange());
-            }
-            ctx.header("Content-Length", String.valueOf(descarga.datos().length));
-            ctx.result(descarga.datos());
-        });
-    }
 }
 </file>
 
@@ -11378,6 +10714,243 @@ export default function Chat() {
                     </form>
                 )}
             </div>
+        </div>
+    );
+}
+</file>
+
+<file path="frontend/src/pages/Finance.jsx">
+import React, { useState } from 'react';
+import { useAppStore } from '../store/useAppStore';
+import './Finance.css';
+
+const API_BASE_URL = 'https://torneos-beta.onrender.com';
+
+export default function Finance() {
+    const [activeTab, setActiveTab] = useState('deposit'); // 'deposit' or 'withdraw'
+    const [depositMethod, setDepositMethod] = useState('manual'); // 'manual' or 'auto'
+    
+    // Deposit states
+    const [manualAmount, setManualAmount] = useState('');
+    const [manualRef, setManualRef] = useState('');
+    const [autoAmount, setAutoAmount] = useState('');
+    const [isProcessing, setIsProcessing] = useState(false);
+
+    // Withdraw states
+    const [withdrawAmount, setWithdrawAmount] = useState('');
+    const [withdrawAccount, setWithdrawAccount] = useState('');
+    const [withdrawName, setWithdrawName] = useState('');
+
+    const currentUser = useAppStore(state => state.user);
+    const setUser = useAppStore(state => state.setUser);
+
+    // Calculos de comisión Wompi
+    const calculateTotalAuto = (val) => {
+        if (!val || val < 1000) return { totalPagar: 0, comisionTotal: 0 };
+        const baseConMargen = val + 840;
+        const totalPagar = Math.ceil(baseConMargen / 0.964);
+        const comisionTotal = totalPagar - val;
+        return { totalPagar, comisionTotal };
+    };
+
+    const autoCalc = calculateTotalAuto(Number(autoAmount));
+
+    const handleManualDeposit = async () => {
+        if (!manualAmount || !manualRef) return alert("Por favor llena los datos.");
+        if (!currentUser) return alert("Debes iniciar sesión.");
+
+        try {
+            const res = await fetch(API_BASE_URL + '/api/transaction/create', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: currentUser.username,
+                    tipo: 'deposito',
+                    metodo: 'manual_nequi',
+                    monto: manualAmount,
+                    referencia: manualRef
+                })
+            });
+            const d = await res.json();
+            // D5: si el servidor rechaza el monto, se muestra su mensaje y se conserva lo escrito
+            if (!res.ok || d.error) {
+                alert(d.error || "No se pudo crear la solicitud.");
+                return;
+            }
+            alert(d.message);
+            setManualAmount('');
+            setManualRef('');
+        } catch (e) {
+            console.error(e);
+            alert("Error procesando solicitud.");
+        }
+    };
+
+    const handleAutoDeposit = async () => {
+        const monto = autoAmount;
+        if (!monto || monto < 1000 || !currentUser) return;
+        
+        setIsProcessing(true);
+        try {
+            const res = await fetch(API_BASE_URL + '/api/wompi/init', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: currentUser.username,
+                    monto: Number(monto)
+                })
+            });
+
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.error || "Error al iniciar pago");
+            }
+
+            const datos = await res.json();
+
+            // Configurar Widget
+            const checkout = new window.WidgetCheckout({
+                currency: "COP",
+                amountInCents: datos.amountInCents,
+                reference: datos.reference,
+                publicKey: datos.publicKey,
+                signature: { integrity: datos.signature },
+                redirectUrl: window.location.href,
+            });
+
+            checkout.open(function (result) {
+                const transaction = result.transaction;
+                console.log('Transaction ID: ', transaction.id);
+                // Confirmación real llega por Socket desde Webhook
+                alert("Pago en proceso con Wompi. Recibirás una notificación cuando se confirme.");
+                setIsProcessing(false);
+            });
+
+        } catch (error) {
+            console.error(error);
+            alert(error.message || "Error iniciando Wompi");
+            setIsProcessing(false);
+        }
+    };
+
+    const handleWithdraw = async () => {
+        if (!withdrawAmount || !withdrawAccount || !withdrawName) return alert("Por favor completa todos los datos.");
+        if (!currentUser) return alert("Debes iniciar sesión.");
+        if (Number(withdrawAmount) > currentUser.saldo) return alert("Saldo insuficiente.");
+
+        const datosCuenta = `${withdrawAccount} - ${withdrawName}`;
+
+        try {
+            const res = await fetch(API_BASE_URL + '/api/transaction/withdraw', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: currentUser.username,
+                    monto: withdrawAmount,
+                    datosCuenta: datosCuenta
+                })
+            });
+
+            const data = await res.json();
+            if (data.success) {
+                alert(data.message);
+                setUser({ ...currentUser, saldo: data.newBalance });
+                setWithdrawAmount('');
+                setWithdrawAccount('');
+                setWithdrawName('');
+                // TODO: Notificar al componente superior/header para actualizar saldo
+            } else {
+                alert("Error: " + data.error);
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Error al procesar retiro.");
+        }
+    };
+
+    return (
+        <div className="finance-container center-screen">
+            <h2>💰 Finanzas</h2>
+
+            <div className="finance-main-tabs">
+                <button 
+                    className={`tab-btn ${activeTab === 'deposit' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('deposit')}
+                >Recargar</button>
+                <button 
+                    className={`tab-btn ${activeTab === 'withdraw' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('withdraw')}
+                >Retirar</button>
+            </div>
+
+            {activeTab === 'deposit' && (
+                <div className="deposit-section-container">
+                    <div className="deposit-tabs">
+                        <button 
+                            className={`sub-tab-btn ${depositMethod === 'manual' ? 'active' : ''}`}
+                            onClick={() => setDepositMethod('manual')}
+                        >📱 Nequi Manual</button>
+                        <button 
+                            className={`sub-tab-btn ${depositMethod === 'auto' ? 'active' : ''}`}
+                            onClick={() => setDepositMethod('auto')}
+                        >💳 Tarjeta / PSE (Wompi)</button>
+                    </div>
+
+                    {depositMethod === 'manual' ? (
+                        <div className="deposit-section">
+                            <p className="info-text">Envía a Nequi <strong>3126655995</strong>.<br/>Espera aprobación (1-5 min).</p>
+                            <input type="number" placeholder="Monto enviado" min="1000"
+                                value={manualAmount} onChange={e => setManualAmount(e.target.value)} />
+                            <input type="text" placeholder="Número de Referencia"
+                                value={manualRef} onChange={e => setManualRef(e.target.value)} />
+                            <button className="finance-action-btn" onClick={handleManualDeposit}>Notificar Pago</button>
+                        </div>
+                    ) : (
+                        <div className="deposit-section">
+                            <p className="info-text">Recarga inmediata automatizada.</p>
+                            <div className="calc-box">
+                                <label>Recibir en cuenta:</label>
+                                <input type="number" placeholder="10000" min="1000"
+                                    value={autoAmount} onChange={e => setAutoAmount(e.target.value)} />
+                                
+                                {autoAmount >= 1000 && (
+                                    <div className="cost-breakdown">
+                                        <div className="cost-row"><span>Comisión pasarela:</span> <span className="fee-amount">+ ${autoCalc.comisionTotal.toLocaleString()}</span></div>
+                                        <hr/>
+                                        <div className="cost-row total"><span>Total a pagar:</span> <span className="total-amount">${autoCalc.totalPagar.toLocaleString()}</span></div>
+                                    </div>
+                                )}
+                            </div>
+                            <button 
+                                className="finance-action-btn" 
+                                disabled={isProcessing || autoAmount < 1000}
+                                onClick={handleAutoDeposit}
+                            >
+                                {isProcessing ? 'Cargando Wompi...' : autoAmount >= 1000 ? `Pagar $${autoCalc.totalPagar.toLocaleString()}` : 'Pagar con Wompi'}
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {activeTab === 'withdraw' && (
+                <div className="withdraw-section">
+                    <p className="info-text">Retiros a Nequi o Daviplata. Tiempo estimado: 24h.</p>
+                    <div className="withdraw-balance">
+                        Saldo disponible: <strong>${currentUser ? currentUser.saldo.toLocaleString() : 0}</strong>
+                    </div>
+                    <input type="number" placeholder="Monto a retirar" min="10000"
+                        value={withdrawAmount} onChange={e => setWithdrawAmount(e.target.value)} />
+                    <input type="text" placeholder="Número de cuenta (Nequi/Daviplata)"
+                        value={withdrawAccount} onChange={e => setWithdrawAccount(e.target.value)} />
+                    <input type="text" placeholder="Nombre completo del titular"
+                        value={withdrawName} onChange={e => setWithdrawName(e.target.value)} />
+                    <button className="finance-action-btn withdraw-btn" onClick={handleWithdraw}>Solicitar Retiro</button>
+                </div>
+            )}
         </div>
     );
 }
@@ -11970,392 +11543,477 @@ public class RutasDbAdmin {
 }
 </file>
 
-<file path="frontend/src/pages/Sorteos.jsx">
-import React, { useState, useEffect } from 'react';
-import { useAppStore } from '../store/useAppStore';
-import './Sorteos.css';
+<file path="src/main/java/com/torneosflash/servidor/RutasMedia.java">
+package com.torneosflash.servidor;
 
-const API_BASE_URL = 'https://torneos-beta.onrender.com';
+import com.torneosflash.servicio.MediaService;
+import com.torneosflash.servicio.ServicioException;
+import io.javalin.Javalin;
+import io.javalin.http.UploadedFile;
 
-export default function Sorteos() {
-    const [userTickets, setUserTickets] = useState(0);
-    const [userAcumulado, setUserAcumulado] = useState(0);
-    const [poolAmount, setPoolAmount] = useState(0);
-    const [sorteos, setSorteos] = useState([]);
-    const [encuesta, setEncuesta] = useState([]);
-    const [miVoto, setMiVoto] = useState(null);
-    const [loading, setLoading] = useState(true);
+/**
+ * Rutas para subir y servir archivos multimedia (videos).
+ *
+ * A3: aquí solo se leen el archivo y los headers del request y se escriben los
+ * headers de la respuesta;
+ * validación, guardado en BD y resolución del header Range viven en
+ * {@link MediaService}.
+ *
+ * POST /api/upload → sube un video y devuelve su URL
+ * GET /api/media/{id} → sirve el archivo desde la BD
+ */
+public class RutasMedia {
 
-    const currentUser = useAppStore(state => state.user);
-    const socket = useAppStore(state => state.socket);
-    const connectSocket = useAppStore(state => state.connectSocket);
-    const esAdmin = currentUser && currentUser.tipo_suscripcion === 'admin';
+    public static void register(Javalin app, MediaService media) {
 
-    // Formulario crear sorteo
-    const [showCreateModal, setShowCreateModal] = useState(false);
-    const [newNombre, setNewNombre] = useState('');
-    const [newCategoria, setNewCategoria] = useState('gemas');
-    const [newPrecio, setNewPrecio] = useState('');
-    const [newDuracion, setNewDuracion] = useState('');
+        // POST /api/upload - Subir video
+        app.post("/api/upload", ctx -> {
+            UploadedFile archivo = ctx.uploadedFile("file");
+            if (archivo == null) {
+                throw ServicioException.solicitudInvalida("No se recibió ningún archivo");
+            }
+            ctx.json(media.subirVideo(archivo.contentType(), archivo.filename(), archivo.content()));
+        });
 
-    const categoriasEmoji = {
-        'gemas': '💎', 'pass': '👑', 'evoluciones': '✨',
-        'emotes': '😄', 'cartas': '🃏', 'comodines': '🎴', 'especial': '🎁'
-    };
-    const categoriasEncuesta = {
-        'gemas': '💎 Gemas', 'pass': '👑 Pass Royale', 'evoluciones': '✨ Evoluciones',
-        'emotes': '😄 Emotes', 'cartas': '🃏 Cartas', 'comodines': '🎴 Comodines', 'especial': '🎁 Oferta Especial'
-    };
-
-    const cargarSorteos = async () => {
-        if (!currentUser) return;
-        try {
-            // Tickets
-            const ticketsRes = await fetch(`${API_BASE_URL}/api/raffle/tickets/${currentUser.id}`, { credentials: 'include' });
-            if(ticketsRes.ok) {
-                const ticketsData = await ticketsRes.json();
-                setUserTickets(ticketsData.tickets || 0);
-                setUserAcumulado(ticketsData.acumulado || 0);
+        // GET /api/media/{id} - Servir archivo desde BD (con soporte Range para seek en
+        // videos)
+        app.get("/api/media/{id}", ctx -> {
+            MediaService.Descarga descarga = media.descargar(Peticion.pathEntero(ctx, "id"), ctx.header("Range"));
+            if (descarga == null) {
+                ctx.status(404).result("Archivo no encontrado");
+                return;
             }
 
-            // Pool
-            try {
-                const poolRes = await fetch(`${API_BASE_URL}/api/raffle/pool`, { credentials: 'include' });
-                const poolData = await poolRes.json();
-                setPoolAmount(poolData.pool || 0);
-            } catch (e) { }
+            ctx.contentType(descarga.contentType());
+            ctx.header("X-Content-Type-Options", "nosniff"); // S5: el navegador no debe "adivinar" otro tipo (p.ej.
+                                                             // HTML)
+            ctx.header("Accept-Ranges", "bytes");
+            ctx.header("Cache-Control", "public, max-age=86400"); // Cache 24h
 
-            // Encuesta
-            await cargarEncuesta();
-
-            // Sorteos activos
-            await cargarOfertas();
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // S8: recarga solo los sorteos (1 petición). Tras participar basta con esto: los tickets del usuario
-    // ya vienen en la respuesta de /participate; recargarlo todo eran 5 peticiones por clic en +/−.
-    const cargarOfertas = async () => {
-        try {
-            const res = await fetch(`${API_BASE_URL}/api/raffle/offers`, { credentials: 'include' });
-            if (res.ok) {
-                const data = await res.json();
-                setSorteos(data);
+            if (descarga.status() == 416) {
+                ctx.status(416).header("Content-Range", descarga.contentRange());
+                return;
             }
-        } catch (e) {
-            console.error(e);
-        }
-    };
-
-    const cargarEncuesta = async () => {
-        try {
-            const res = await fetch(`${API_BASE_URL}/api/raffle/poll`, { credentials: 'include' });
-            const data = await res.json();
-            setEncuesta(data.resultados || []);
-            setMiVoto(data.miVoto);
-        } catch (e) { }
-    };
-
-    useEffect(() => {
-        if (currentUser) connectSocket();
-    }, [currentUser, connectSocket]);
-
-    // Carga inicial: depende del id, no del objeto usuario. Con [currentUser] cada cambio de saldo volvía a pedir
-    // las 4 consultas (tickets, pozo, encuesta, ofertas) y se comía el límite de 60 peticiones por minuto.
-    const userId = currentUser?.id;
-    useEffect(() => {
-        cargarSorteos();
-    }, [userId]);
-
-    useEffect(() => {
-        if (!socket) return;
-
-        const onNuevoSorteo = () => cargarSorteos();
-        const onSorteoActualizado = () => cargarOfertas();
-        const onSorteoGanador = () => cargarSorteos();
-        const onSorteoEliminado = () => cargarOfertas();
-        const onPollReset = () => cargarEncuesta();
-        const onPollUpdated = () => cargarEncuesta();
-        const onTicketsGanados = (data) => {
-            if (data?.cantidad) {
-                setUserTickets(prev => prev + data.cantidad);
+            if (descarga.status() == 206) {
+                ctx.status(206);
+                ctx.header("Content-Range", descarga.contentRange());
             }
-        };
+            ctx.header("Content-Length", String.valueOf(descarga.datos().length));
+            ctx.result(descarga.datos());
+        });
+    }
+}
+</file>
 
-        socket.on('nuevo_sorteo', onNuevoSorteo);
-        socket.on('sorteo_actualizado', onSorteoActualizado);
-        socket.on('sorteo_ganador', onSorteoGanador);
-        socket.on('sorteo_eliminado', onSorteoEliminado);
-        socket.on('poll_reset', onPollReset);
-        socket.on('poll_updated', onPollUpdated);
-        socket.on('tickets_ganados', onTicketsGanados);
+<file path="src/main/java/com/torneosflash/socketio/SocketIOServer.java">
+package com.torneosflash.socketio;
 
-        return () => {
-            socket.off('nuevo_sorteo', onNuevoSorteo);
-            socket.off('sorteo_actualizado', onSorteoActualizado);
-            socket.off('sorteo_ganador', onSorteoGanador);
-            socket.off('sorteo_eliminado', onSorteoEliminado);
-            socket.off('poll_reset', onPollReset);
-            socket.off('poll_updated', onPollUpdated);
-            socket.off('tickets_ganados', onTicketsGanados);
-        };
-    }, [socket, userId]);
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import com.google.gson.*;
+import io.javalin.Javalin;
+import io.javalin.websocket.*;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.function.BiConsumer;
+import com.torneosflash.servidor.AuthMiddleware;
 
-    // Countdown effect
-    const [now, setNow] = useState(new Date());
-    useEffect(() => {
-        const interval = setInterval(() => setNow(new Date()), 1000);
-        return () => clearInterval(interval);
-    }, []);
+/**
+ * Adaptador Socket.IO compatible con socket.io-client v4.
+ * Implementa el protocolo Engine.IO v4 + Socket.IO v4 usando WebSockets de
+ * Javalin.
+ *
+ * CONCEPTO POO: Collection - ConcurrentHashMap para clientes, rooms, handlers
+ * CONCEPTO POO: Encapsulamiento - toda la lógica de protocolo es interna
+ */
+public class SocketIOServer {
+    private static final Logger logger = LoggerFactory.getLogger(SocketIOServer.class);
 
-    const renderCountdown = (fechaLimite) => {
-        const fecha = new Date(fechaLimite);
-        const diff = fecha - now;
-        if (diff <= 0) return <span className="sorteo-countdown urgente">⏰ ¡Expirado!</span>;
-        
-        const horas = Math.floor(diff / (1000 * 60 * 60));
-        const minutos = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-        const segundos = Math.floor((diff % (1000 * 60)) / 1000);
+    // --- COLLECTION: ConcurrentHashMap para hilos seguros ---
+    private final ConcurrentHashMap<String, SocketIOClient> clientsBySession = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, SocketIOClient> clientsByWsId = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Set<String>> rooms = new ConcurrentHashMap<>();
 
-        if (horas > 0) return <span className="sorteo-countdown">⏰ {horas}h {minutos}m</span>;
-        if (minutos > 0) return <span className={`sorteo-countdown ${minutos < 5 ? 'urgente' : ''}`}>⏰ {minutos}m {segundos}s</span>;
-        return <span className="sorteo-countdown urgente">⏰ {segundos}s</span>;
-    };
+    // Handlers para eventos del namespace "/"
+    private BiConsumer<SocketIOClient, Object[]> connectionHandler;
 
-    const ajustarTickets = async (raffleId, delta) => {
-        if (!currentUser) return alert("Debes iniciar sesión");
-        try {
-            const res = await fetch(`${API_BASE_URL}/api/raffle/participate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ userId: currentUser.id, raffleId, ticketsDelta: delta })
-            });
-            const data = await res.json();
-            if (!res.ok) return alert(data.error || 'Error al participar');
-            setUserTickets(data.ticketsUsuario);
-            cargarOfertas();
-        } catch (e) {
-            alert("Error de conexión");
+    // Engine.IO config
+    private static final int PING_INTERVAL = 25000;
+    private static final int PING_TIMEOUT = 5000;
+    private final Gson gson = new Gson();
+    // A8: temporizador compartido (Ejecutores.timers()); antes este servidor creaba
+    // su propio pool de 2 hilos.
+    private final ScheduledExecutorService scheduler;
+
+    public SocketIOServer(ScheduledExecutorService scheduler) {
+        this.scheduler = scheduler;
+    }
+
+    // Polling sessions: sid -> pending messages queue
+    private final ConcurrentHashMap<String, ConcurrentLinkedQueue<String>> pollingQueues = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Boolean> upgradedSessions = new ConcurrentHashMap<>();
+
+    /**
+     * Registrar handler para evento "connection" (cuando un nuevo cliente se
+     * conecta).
+     */
+    public void onConnection(BiConsumer<SocketIOClient, Object[]> handler) {
+        this.connectionHandler = handler;
+    }
+
+    /**
+     * Emitir evento a TODOS los clientes conectados.
+     * CONCEPTO POO: Polimorfismo - opera sobre la colección de clientes
+     */
+    public void emit(String event, Object... data) {
+        String packet = buildEventPacket(event, data);
+        for (SocketIOClient client : clientsBySession.values()) {
+            if (client.isConnected()) {
+                client.sendRaw(packet);
+            }
         }
-    };
+    }
 
-    const handleCreateSorteo = async (e) => {
-        e.preventDefault();
-        if (!newNombre || !newPrecio || !newDuracion) return alert("Completa todos los campos");
-        try {
-            const res = await fetch(`${API_BASE_URL}/api/admin/raffle/create`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ nombre: newNombre, categoria: newCategoria, precio: Number(newPrecio), duracionMinutos: Number(newDuracion) })
-            });
-            const data = await res.json();
-            if (data.success) {
-                alert(`✅ Sorteo "${newNombre}" creado`);
-                setShowCreateModal(false);
-                setNewNombre(''); setNewPrecio(''); setNewDuracion('');
-                cargarSorteos();
+    /**
+     * Obtener un emitter para una room específica.
+     */
+    public RoomEmitter to(String room) {
+        return new RoomEmitter(this, room, null);
+    }
+
+    /**
+     * Obtener mapa de sockets (equivalente a io.sockets.sockets en Node.js).
+     */
+    public ConcurrentHashMap<String, SocketIOClient> getSockets() {
+        return clientsBySession;
+    }
+
+    /**
+     * Registrar las rutas HTTP + WebSocket en Javalin.
+     */
+    public void register(Javalin app) {
+        // --- HTTP Polling transport ---
+        app.get("/socket.io/", ctx -> {
+            String transport = ctx.queryParam("transport");
+            String sid = ctx.queryParam("sid");
+
+            if (!"polling".equals(transport)) {
+                ctx.status(400).result("Invalid transport");
+                return;
+            }
+
+            ctx.header("Access-Control-Allow-Origin", ctx.header("Origin") != null ? ctx.header("Origin") : "*");
+            ctx.header("Access-Control-Allow-Credentials", "true");
+
+            if (sid == null || sid.isEmpty()) {
+                // New session - Engine.IO OPEN
+                String newSid = UUID.randomUUID().toString().replace("-", "").substring(0, 20);
+                pollingQueues.put(newSid, new ConcurrentLinkedQueue<>());
+                upgradedSessions.put(newSid, false);
+
+                JsonObject openData = new JsonObject();
+                openData.addProperty("sid", newSid);
+                openData.add("upgrades", gson.toJsonTree(new String[] { "websocket" }));
+                openData.addProperty("pingInterval", PING_INTERVAL);
+                openData.addProperty("pingTimeout", PING_TIMEOUT);
+                openData.addProperty("maxPayload", 50000000);
+
+                ctx.contentType("text/plain; charset=UTF-8");
+                ctx.result("0" + openData.toString());
             } else {
-                alert(data.error || 'Error creando sorteo');
+                // Existing session - return queued messages or NOOP
+                ConcurrentLinkedQueue<String> queue = pollingQueues.get(sid);
+                if (queue != null && !queue.isEmpty()) {
+                    StringBuilder sb = new StringBuilder();
+                    String msg;
+                    while ((msg = queue.poll()) != null) {
+                        if (sb.length() > 0)
+                            sb.append("\u001e"); // Record separator
+                        sb.append(msg);
+                    }
+                    ctx.contentType("text/plain; charset=UTF-8");
+                    ctx.result(sb.toString());
+                } else {
+                    ctx.contentType("text/plain; charset=UTF-8");
+                    ctx.result("6"); // NOOP
+                }
             }
-        } catch (e) { alert("Error de conexión"); }
-    };
+        });
 
-    const eliminarSorteo = async (id) => {
-        if (!window.confirm("¿Eliminar este sorteo? Los tickets serán devueltos.")) return;
-        try {
-            const res = await fetch(`${API_BASE_URL}/api/admin/raffle/${id}`, { method: 'DELETE', credentials: 'include' });
-            const data = await res.json();
-            if (data.success) { alert(data.message); cargarSorteos(); }
-            else alert(data.error);
-        } catch (e) { alert("Error eliminando sorteo"); }
-    };
+        app.post("/socket.io/", ctx -> {
+            String sid = ctx.queryParam("sid");
+            ctx.header("Access-Control-Allow-Origin", ctx.header("Origin") != null ? ctx.header("Origin") : "*");
+            ctx.header("Access-Control-Allow-Credentials", "true");
 
-    const votarSorteo = async (categoria) => {
-        if (!currentUser) return;
-        try {
-            const res = await fetch(`${API_BASE_URL}/api/raffle/vote`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ userId: currentUser.id, categoria })
+            if (sid != null) {
+                String body = ctx.body();
+                // Handle Socket.IO CONNECT (40) via polling
+                if (body.startsWith("4")) {
+                    ConcurrentLinkedQueue<String> queue = pollingQueues.get(sid);
+                    if (queue != null) {
+                        // Queue the connect ack for the next GET poll
+                        JsonObject ack = new JsonObject();
+                        ack.addProperty("sid", sid);
+                        queue.add("40" + ack.toString());
+                    }
+                }
+            }
+            ctx.result("ok");
+        });
+
+        app.options("/socket.io/", ctx -> {
+            ctx.header("Access-Control-Allow-Origin", ctx.header("Origin") != null ? ctx.header("Origin") : "*");
+            ctx.header("Access-Control-Allow-Credentials", "true");
+            ctx.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+            ctx.header("Access-Control-Allow-Headers", "Content-Type");
+            ctx.status(200);
+        });
+
+        // --- WebSocket transport ---
+        app.ws("/socket.io/", ws -> {
+            ws.onConnect(this::handleWsConnect);
+            ws.onMessage(this::handleWsMessage);
+            ws.onClose(this::handleWsClose);
+            ws.onError(ctx -> {
+                logger.error("WebSocket error: " + (ctx.error() != null ? ctx.error().getMessage() : "unknown"));
             });
-            const data = await res.json();
-            if (data.error) alert(data.error);
-            else cargarEncuesta();
-        } catch (e) { console.error(e); }
-    };
+        });
 
-    const reiniciarEncuesta = async () => {
-        if (!window.confirm("¿Estás seguro de reiniciar la encuesta?")) return;
+        // Ping scheduler
+        scheduler.scheduleAtFixedRate(() -> {
+            for (SocketIOClient client : clientsBySession.values()) {
+                if (client.isConnected()) {
+                    try {
+                        client.sendRaw("2");
+                    } catch (Exception ignored) {
+                    } // Engine.IO PING
+                }
+            }
+        }, PING_INTERVAL, PING_INTERVAL, TimeUnit.MILLISECONDS);
+
+        logger.info("✅ Socket.IO adapter registrado en /socket.io/");
+    }
+
+    // --- WebSocket Handlers ---
+
+    private void handleWsConnect(WsConnectContext ctx) {
+        String sid = ctx.queryParam("sid");
+        if (sid == null) {
+            // Direct WebSocket connection (no polling first)
+            sid = UUID.randomUUID().toString().replace("-", "").substring(0, 20);
+        }
+
+        SocketIOClient client = new SocketIOClient(sid, ctx, this);
+
+        // S2: Autenticar handshake de Socket.IO con la cookie JWT
         try {
-            const res = await fetch(`${API_BASE_URL}/api/admin/raffle/poll`, { method: 'DELETE', credentials: 'include' });
-            const data = await res.json();
-            if (data.error) alert(data.error);
-            else cargarEncuesta();
-        } catch (e) { }
-    };
+            String cookieHeader = ctx.header("Cookie");
+            Integer authUserId = AuthMiddleware.userIdDesdeCookieHeader(cookieHeader);
+            if (authUserId != null) {
+                // Autenticado por JWT en Socket.IO handshake
+            }
+        } catch (Exception ignored) {
+        }
 
-    const progresoSiguiente = Math.min(100, (userAcumulado / 1000) * 100);
-    
-    let totalVotos = 0;
-    const votosPorCat = {};
-    encuesta.forEach(r => {
-        totalVotos += parseInt(r.votos) || 0;
-        votosPorCat[r.categoria] = parseInt(r.votos) || 0;
-    });
+        clientsBySession.put(sid, client);
+        clientsByWsId.put(ctx.sessionId(), client);
 
-    return (
-        <div className="sorteos-container">
-            <header className="sorteos-header">
-                <div className="raffle-pool-box">
-                    <span>Pozo Acumulado</span>
-                    <h2 id="raffle-pool-amount">${poolAmount.toLocaleString()}</h2>
-                </div>
-                <div className="user-tickets-box">
-                    <span>Mis Tickets 🎟️</span>
-                    <h2 id="user-tickets-count">{userTickets}</h2>
-                    <div className="next-ticket-progress">
-                        <div className="nt-bar"><div className="nt-fill" style={{width: `${progresoSiguiente}%`}}></div></div>
-                        <span className="nt-text">${Math.round(userAcumulado)} / $1000</span>
-                    </div>
-                </div>
-            </header>
+        // If upgrading from polling, mark as upgraded
+        if (upgradedSessions.containsKey(sid)) {
+            upgradedSessions.put(sid, true);
+        }
 
-            {esAdmin && (
-                <div className="sorteos-admin-controls">
-                    <button onClick={() => setShowCreateModal(true)}>➕ Crear Sorteo</button>
-                    <button onClick={reiniciarEncuesta} style={{background:'#ed4245'}}>🔄 Reiniciar Encuesta</button>
-                </div>
-            )}
+        // Send Engine.IO OPEN
+        JsonObject openData = new JsonObject();
+        openData.addProperty("sid", sid);
+        openData.add("upgrades", gson.toJsonTree(new String[0]));
+        openData.addProperty("pingInterval", PING_INTERVAL);
+        openData.addProperty("pingTimeout", PING_TIMEOUT);
+        openData.addProperty("maxPayload", 50000000);
+        client.sendRaw("0" + openData.toString());
+    }
 
-            <div className="sorteos-layout">
-                <div className="sorteos-main">
-                    <h3>🎁 Sorteos Activos</h3>
-                    {loading ? <p>Cargando sorteos...</p> : sorteos.length === 0 ? (
-                        <p className="no-sorteos">No hay sorteos activos en este momento.<br/>¡Juega partidas para ganar tickets!</p>
-                    ) : (
-                        <div className="sorteos-list">
-                            {sorteos.map(sorteo => {
-                                const emoji = categoriasEmoji[sorteo.categoria] || '🎁';
-                                const misTickets = sorteo.mis_tickets || 0;
-                                const progreso = Math.min(100, (sorteo.tickets_actuales / sorteo.tickets_necesarios) * 100);
-                                const esCompletado = sorteo.estado === 'completado';
+    private void handleWsMessage(WsMessageContext ctx) {
+        String message = ctx.message();
+        if (message == null || message.isEmpty())
+            return;
 
-                                if (esCompletado) {
-                                    return (
-                                        <div key={sorteo.id} className="sorteo-card sorteo-ganador">
-                                            <div className="sorteo-header-card">
-                                                <div>
-                                                    <span className="sorteo-nombre">{emoji} {sorteo.nombre}</span>
-                                                    <span className="sorteo-categoria">{sorteo.categoria}</span>
-                                                </div>
-                                                {esAdmin && <span className="sorteo-precio">${sorteo.precio.toLocaleString()}</span>}
-                                            </div>
-                                            <div className="sorteo-ganador-info">
-                                                🏆 GANADOR: <strong>{sorteo.ganador_nombre}</strong>
-                                            </div>
-                                            <div className="ticket-progress">
-                                                <div className="ticket-progress-bar">
-                                                    <div className="ticket-progress-fill" style={{width: '100%'}}></div>
-                                                    <span className="ticket-progress-text">✅ {sorteo.tickets_necesarios} / {sorteo.tickets_necesarios} tickets</span>
-                                                </div>
-                                            </div>
-                                            {esAdmin && <button className="btn-eliminar-sorteo" onClick={() => eliminarSorteo(sorteo.id)}>🗑️ Eliminar</button>}
-                                        </div>
-                                    );
-                                }
+        SocketIOClient client = clientsByWsId.get(ctx.sessionId());
+        if (client == null)
+            return;
 
-                                return (
-                                    <div key={sorteo.id} className="sorteo-card nuevo">
-                                        <div className="sorteo-header-card">
-                                            <div>
-                                                <span className="sorteo-nombre">{emoji} {sorteo.nombre}</span>
-                                                <span className="sorteo-categoria">{sorteo.categoria}</span>
-                                            </div>
-                                            {esAdmin && <span className="sorteo-precio">${sorteo.precio.toLocaleString()}</span>}
-                                        </div>
-                                        <div className="ticket-progress">
-                                            <div className="ticket-progress-bar">
-                                                <div className="ticket-progress-fill" style={{width: `${progreso}%`}}></div>
-                                                <span className="ticket-progress-text">{sorteo.tickets_actuales} / {sorteo.tickets_necesarios} tickets</span>
-                                            </div>
-                                            <div className="ticket-info">
-                                                {renderCountdown(sorteo.fecha_limite)}
-                                                <span>Mis tickets: {misTickets}</span>
-                                            </div>
-                                        </div>
-                                        <div className="ticket-controls">
-                                            <button className="ticket-btn minus" onClick={() => ajustarTickets(sorteo.id, -1)} disabled={misTickets <= 0}>−</button>
-                                            <span className="my-tickets-count">{misTickets} 🎟️</span>
-                                            <button className="ticket-btn plus" onClick={() => ajustarTickets(sorteo.id, 1)} disabled={userTickets <= 0 || sorteo.tickets_actuales >= sorteo.tickets_necesarios}>+</button>
-                                        </div>
-                                        {esAdmin && <button className="btn-eliminar-sorteo" onClick={() => eliminarSorteo(sorteo.id)}>🗑️ Eliminar</button>}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
+        char eioType = message.charAt(0);
+        switch (eioType) {
+            case '2': // Engine.IO PING (from client)
+                if (message.equals("2probe")) {
+                    client.sendRaw("3probe"); // PONG probe (upgrade handshake)
+                } else {
+                    client.sendRaw("3"); // PONG
+                }
+                break;
+            case '3': // Engine.IO PONG (response to our ping)
+                break;
+            case '4': // Engine.IO MESSAGE (Socket.IO packet)
+                handleSocketIOPacket(client, message.substring(1));
+                break;
+            case '5': // Engine.IO UPGRADE
+                // Upgrade complete - stop polling for this session
+                if (client.getSid() != null) {
+                    upgradedSessions.put(client.getSid(), true);
+                    pollingQueues.remove(client.getSid());
+                }
+                break;
+            default:
+                break;
+        }
+    }
 
-                <div className="sorteos-poll">
-                    <h3>📊 ¿Qué sorteamos luego?</h3>
-                    <p className="poll-desc">Vota por el próximo premio.</p>
-                    <div className="poll-list">
-                        {Object.keys(categoriasEncuesta).map(cat => {
-                            const votos = votosPorCat[cat] || 0;
-                            const porcentaje = totalVotos > 0 ? Math.round((votos / totalVotos) * 100) : 0;
-                            const isVoted = miVoto === cat;
-                            return (
-                                <div key={cat} className={`poll-item ${isVoted ? 'voted' : ''}`} onClick={() => votarSorteo(cat)}>
-                                    <div className="poll-fill" style={{width: `${porcentaje}%`}}></div>
-                                    <div className="poll-content">
-                                        <span className="poll-title">{categoriasEncuesta[cat]}</span>
-                                        <span className="poll-stats">{porcentaje}% ({votos})</span>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            </div>
+    private void handleWsClose(WsCloseContext ctx) {
+        SocketIOClient client = clientsByWsId.remove(ctx.sessionId());
+        if (client != null) {
+            client.setConnected(false);
+            clientsBySession.remove(client.getSid());
+            pollingQueues.remove(client.getSid());
+            upgradedSessions.remove(client.getSid());
 
-            {/* Modal Crear Sorteo */}
-            {showCreateModal && (
-                <div className="modal-overlay">
-                    <div className="modal-content">
-                        <header className="modal-header">
-                            <h3>➕ Crear Sorteo</h3>
-                            <button className="close-btn" onClick={() => setShowCreateModal(false)}>&times;</button>
-                        </header>
-                        <form id="create-raffle-form" onSubmit={handleCreateSorteo}>
-                            <label>Nombre del Premio</label>
-                            <input type="text" value={newNombre} onChange={e => setNewNombre(e.target.value)} required placeholder="Ej: 500 Gemas" style={{width:'100%', padding:'8px', marginBottom:'10px'}}/>
-                            
-                            <label>Categoría</label>
-                            <select value={newCategoria} onChange={e => setNewCategoria(e.target.value)} style={{width:'100%', padding:'8px', marginBottom:'10px'}}>
-                                {Object.entries(categoriasEmoji).map(([k, v]) => <option key={k} value={k}>{v} {k}</option>)}
-                            </select>
-                            
-                            <label>Precio del Premio (COP)</label>
-                            <input type="number" value={newPrecio} onChange={e => setNewPrecio(e.target.value)} required min="1000" placeholder="Ej: 20000" style={{width:'100%', padding:'8px', marginBottom:'10px'}}/>
-                            <div style={{color:'#7289da', marginBottom:'10px'}}>Tickets necesarios: {Math.ceil(Number(newPrecio)/1000) || 0}</div>
-                            
-                            <label>Duración (Minutos)</label>
-                            <input type="number" value={newDuracion} onChange={e => setNewDuracion(e.target.value)} required min="1" placeholder="Ej: 1440 (24h)" style={{width:'100%', padding:'8px', marginBottom:'15px'}}/>
-                            
-                            <button type="submit" style={{width:'100%', padding:'10px', background:'#43b581', color:'white', border:'none', borderRadius:'4px'}}>Crear</button>
-                        </form>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
+            // Remove from all rooms
+            for (String room : client.getRooms()) {
+                leaveRoom(client, room);
+            }
+
+            // Fire disconnect handlers
+            client.fireEvent("disconnect", new Object[] {});
+        }
+    }
+
+    private void handleSocketIOPacket(SocketIOClient client, String packet) {
+        if (packet.isEmpty())
+            return;
+
+        char sioType = packet.charAt(0);
+        String data = packet.length() > 1 ? packet.substring(1) : "";
+
+        switch (sioType) {
+            case '0': // CONNECT
+                // Send CONNECT ack
+                JsonObject ack = new JsonObject();
+                ack.addProperty("sid", client.getSid());
+                client.sendRaw("40" + ack.toString());
+
+                // Fire connection handler
+                if (connectionHandler != null) {
+                    try {
+                        connectionHandler.accept(client, new Object[] {});
+                    } catch (Exception e) {
+                        logger.error("Error in connection handler: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                }
+                break;
+
+            case '1': // DISCONNECT
+                break;
+
+            case '2': // EVENT
+                handleEvent(client, data);
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    private void handleEvent(SocketIOClient client, String data) {
+        try {
+            JsonArray array = JsonParser.parseString(data).getAsJsonArray();
+            if (array.size() == 0)
+                return;
+
+            String eventName = array.get(0).getAsString();
+            Object[] args = new Object[array.size() - 1];
+            for (int i = 1; i < array.size(); i++) {
+                args[i - 1] = array.get(i);
+            }
+
+            // Fire per-client handlers first
+            client.fireEvent(eventName, args);
+        } catch (Exception e) {
+            logger.error("Error parsing Socket.IO event: " + e.getMessage());
+        }
+    }
+
+    // --- Room management ---
+
+    void joinRoom(SocketIOClient client, String room) {
+        rooms.computeIfAbsent(room, k -> ConcurrentHashMap.newKeySet()).add(client.getSid());
+    }
+
+    void leaveRoom(SocketIOClient client, String room) {
+        Set<String> roomClients = rooms.get(room);
+        if (roomClients != null) {
+            roomClients.remove(client.getSid());
+            if (roomClients.isEmpty())
+                rooms.remove(room);
+        }
+    }
+
+    void emitToRoom(String room, String excludeSid, String packet) {
+        Set<String> roomClients = rooms.get(room);
+        if (roomClients == null)
+            return;
+        for (String sid : roomClients) {
+            if (excludeSid != null && excludeSid.equals(sid))
+                continue;
+            SocketIOClient client = clientsBySession.get(sid);
+            if (client != null && client.isConnected()) {
+                client.sendRaw(packet);
+            }
+        }
+    }
+
+    /**
+     * Construye un packet de evento Socket.IO: 42["event",data...]
+     */
+    String buildEventPacket(String event, Object... data) {
+        JsonArray array = new JsonArray();
+        array.add(event);
+        for (Object d : data) {
+            if (d instanceof JsonElement) {
+                array.add((JsonElement) d);
+            } else if (d instanceof String) {
+                array.add((String) d);
+            } else if (d instanceof Number) {
+                array.add((Number) d);
+            } else if (d instanceof Boolean) {
+                array.add((Boolean) d);
+            } else if (d != null) {
+                array.add(gson.toJsonTree(d));
+            } else {
+                array.add(JsonNull.INSTANCE);
+            }
+        }
+        return "42" + array.toString();
+    }
+
+    /**
+     * Room emitter - para io.to(room).emit() y socket.to(room).emit()
+     */
+    public static class RoomEmitter {
+        private final SocketIOServer server;
+        private final String room;
+        private final String excludeSid;
+
+        RoomEmitter(SocketIOServer server, String room, String excludeSid) {
+            this.server = server;
+            this.room = room;
+            this.excludeSid = excludeSid;
+        }
+
+        public void emit(String event, Object... data) {
+            String packet = server.buildEventPacket(event, data);
+            server.emitToRoom(room, excludeSid, packet);
+        }
+    }
 }
 </file>
 
@@ -13208,6 +12866,395 @@ export default function Lobby() {
 }
 </file>
 
+<file path="frontend/src/pages/Sorteos.jsx">
+import React, { useState, useEffect } from 'react';
+import { useAppStore } from '../store/useAppStore';
+import './Sorteos.css';
+
+const API_BASE_URL = 'https://torneos-beta.onrender.com';
+
+export default function Sorteos() {
+    const [userTickets, setUserTickets] = useState(0);
+    const [userAcumulado, setUserAcumulado] = useState(0);
+    const [poolAmount, setPoolAmount] = useState(0);
+    const [sorteos, setSorteos] = useState([]);
+    const [encuesta, setEncuesta] = useState([]);
+    const [miVoto, setMiVoto] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    const currentUser = useAppStore(state => state.user);
+    const socket = useAppStore(state => state.socket);
+    const connectSocket = useAppStore(state => state.connectSocket);
+    const esAdmin = currentUser && currentUser.tipo_suscripcion === 'admin';
+
+    // Formulario crear sorteo
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [newNombre, setNewNombre] = useState('');
+    const [newCategoria, setNewCategoria] = useState('gemas');
+    const [newPrecio, setNewPrecio] = useState('');
+    const [newDuracion, setNewDuracion] = useState('');
+
+    const categoriasEmoji = {
+        'gemas': '💎', 'pass': '👑', 'evoluciones': '✨',
+        'emotes': '😄', 'cartas': '🃏', 'comodines': '🎴', 'especial': '🎁'
+    };
+    const categoriasEncuesta = {
+        'gemas': '💎 Gemas', 'pass': '👑 Pass Royale', 'evoluciones': '✨ Evoluciones',
+        'emotes': '😄 Emotes', 'cartas': '🃏 Cartas', 'comodines': '🎴 Comodines', 'especial': '🎁 Oferta Especial'
+    };
+
+    const cargarSorteos = async () => {
+        if (!currentUser) return;
+        try {
+            // Tickets
+            const ticketsRes = await fetch(`${API_BASE_URL}/api/raffle/tickets/${currentUser.id}`, { credentials: 'include' });
+            if(ticketsRes.ok) {
+                const ticketsData = await ticketsRes.json();
+                setUserTickets(ticketsData.tickets || 0);
+                setUserAcumulado(ticketsData.acumulado || 0);
+            }
+
+            // Pool
+            try {
+                const poolRes = await fetch(`${API_BASE_URL}/api/raffle/pool`, { credentials: 'include' });
+                const poolData = await poolRes.json();
+                setPoolAmount(poolData.pool || 0);
+            } catch (e) { }
+
+            // Encuesta
+            await cargarEncuesta();
+
+            // Sorteos activos
+            await cargarOfertas();
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // S8: recarga solo los sorteos (1 petición). Tras participar basta con esto: los tickets del usuario
+    // ya vienen en la respuesta de /participate; recargarlo todo eran 5 peticiones por clic en +/−.
+    const cargarOfertas = async () => {
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/raffle/offers`, { credentials: 'include' });
+            if (res.ok) {
+                const data = await res.json();
+                setSorteos(data);
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const cargarEncuesta = async () => {
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/raffle/poll`, { credentials: 'include' });
+            const data = await res.json();
+            setEncuesta(data.resultados || []);
+            setMiVoto(data.miVoto);
+        } catch (e) { }
+    };
+
+    useEffect(() => {
+        if (currentUser) connectSocket();
+    }, [currentUser, connectSocket]);
+
+    // Carga inicial: depende del id, no del objeto usuario. Con [currentUser] cada cambio de saldo volvía a pedir
+    // las 4 consultas (tickets, pozo, encuesta, ofertas) y se comía el límite de 60 peticiones por minuto.
+    const userId = currentUser?.id;
+    useEffect(() => {
+        cargarSorteos();
+    }, [userId]);
+
+    useEffect(() => {
+        if (!socket) return;
+
+        const onNuevoSorteo = () => cargarSorteos();
+        const onSorteoActualizado = () => cargarOfertas();
+        const onSorteoGanador = () => cargarSorteos();
+        const onSorteoEliminado = () => cargarOfertas();
+        const onPollReset = () => cargarEncuesta();
+        const onPollUpdated = () => cargarEncuesta();
+        const onTicketsGanados = (data) => {
+            if (data?.cantidad) {
+                setUserTickets(prev => prev + data.cantidad);
+            }
+        };
+
+        socket.on('nuevo_sorteo', onNuevoSorteo);
+        socket.on('sorteo_actualizado', onSorteoActualizado);
+        socket.on('sorteo_ganador', onSorteoGanador);
+        socket.on('sorteo_eliminado', onSorteoEliminado);
+        socket.on('poll_reset', onPollReset);
+        socket.on('poll_updated', onPollUpdated);
+        socket.on('tickets_ganados', onTicketsGanados);
+
+        return () => {
+            socket.off('nuevo_sorteo', onNuevoSorteo);
+            socket.off('sorteo_actualizado', onSorteoActualizado);
+            socket.off('sorteo_ganador', onSorteoGanador);
+            socket.off('sorteo_eliminado', onSorteoEliminado);
+            socket.off('poll_reset', onPollReset);
+            socket.off('poll_updated', onPollUpdated);
+            socket.off('tickets_ganados', onTicketsGanados);
+        };
+    }, [socket, userId]);
+
+    // Countdown effect
+    const [now, setNow] = useState(new Date());
+    useEffect(() => {
+        const interval = setInterval(() => setNow(new Date()), 1000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const renderCountdown = (fechaLimite) => {
+        const fecha = new Date(fechaLimite);
+        const diff = fecha - now;
+        if (diff <= 0) return <span className="sorteo-countdown urgente">⏰ ¡Expirado!</span>;
+        
+        const horas = Math.floor(diff / (1000 * 60 * 60));
+        const minutos = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const segundos = Math.floor((diff % (1000 * 60)) / 1000);
+
+        if (horas > 0) return <span className="sorteo-countdown">⏰ {horas}h {minutos}m</span>;
+        if (minutos > 0) return <span className={`sorteo-countdown ${minutos < 5 ? 'urgente' : ''}`}>⏰ {minutos}m {segundos}s</span>;
+        return <span className="sorteo-countdown urgente">⏰ {segundos}s</span>;
+    };
+
+    const ajustarTickets = async (raffleId, delta) => {
+        if (!currentUser) return alert("Debes iniciar sesión");
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/raffle/participate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ raffleId, ticketsDelta: delta })
+            });
+            const data = await res.json();
+            if (!res.ok) return alert(data.error || 'Error al participar');
+            setUserTickets(data.ticketsUsuario);
+            cargarOfertas();
+        } catch (e) {
+            alert("Error de conexión");
+        }
+    };
+
+    const handleCreateSorteo = async (e) => {
+        e.preventDefault();
+        if (!newNombre || !newPrecio || !newDuracion) return alert("Completa todos los campos");
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/admin/raffle/create`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ nombre: newNombre, categoria: newCategoria, precio: Number(newPrecio), duracionMinutos: Number(newDuracion) })
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(`✅ Sorteo "${newNombre}" creado`);
+                setShowCreateModal(false);
+                setNewNombre(''); setNewPrecio(''); setNewDuracion('');
+                cargarSorteos();
+            } else {
+                alert(data.error || 'Error creando sorteo');
+            }
+        } catch (e) { alert("Error de conexión"); }
+    };
+
+    const eliminarSorteo = async (id) => {
+        if (!window.confirm("¿Eliminar este sorteo? Los tickets serán devueltos.")) return;
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/admin/raffle/${id}`, { method: 'DELETE', credentials: 'include' });
+            const data = await res.json();
+            if (data.success) { alert(data.message); cargarSorteos(); }
+            else alert(data.error);
+        } catch (e) { alert("Error eliminando sorteo"); }
+    };
+
+    const votarSorteo = async (categoria) => {
+        if (!currentUser) return;
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/raffle/vote`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ categoria })
+            });
+            const data = await res.json();
+            if (data.error) alert(data.error);
+            else cargarEncuesta();
+        } catch (e) { console.error(e); }
+    };
+
+    const reiniciarEncuesta = async () => {
+        if (!window.confirm("¿Estás seguro de reiniciar la encuesta?")) return;
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/admin/raffle/poll`, { method: 'DELETE', credentials: 'include' });
+            const data = await res.json();
+            if (data.error) alert(data.error);
+            else cargarEncuesta();
+        } catch (e) { }
+    };
+
+    const progresoSiguiente = Math.min(100, (userAcumulado / 1000) * 100);
+    
+    let totalVotos = 0;
+    const votosPorCat = {};
+    encuesta.forEach(r => {
+        totalVotos += parseInt(r.votos) || 0;
+        votosPorCat[r.categoria] = parseInt(r.votos) || 0;
+    });
+
+    return (
+        <div className="sorteos-container">
+            <header className="sorteos-header">
+                <div className="raffle-pool-box">
+                    <span>Pozo Acumulado</span>
+                    <h2 id="raffle-pool-amount">${poolAmount.toLocaleString()}</h2>
+                </div>
+                <div className="user-tickets-box">
+                    <span>Mis Tickets 🎟️</span>
+                    <h2 id="user-tickets-count">{userTickets}</h2>
+                    <div className="next-ticket-progress">
+                        <div className="nt-bar"><div className="nt-fill" style={{width: `${progresoSiguiente}%`}}></div></div>
+                        <span className="nt-text">${Math.round(userAcumulado)} / $1000</span>
+                    </div>
+                </div>
+            </header>
+
+            {esAdmin && (
+                <div className="sorteos-admin-controls">
+                    <button onClick={() => setShowCreateModal(true)}>➕ Crear Sorteo</button>
+                    <button onClick={reiniciarEncuesta} style={{background:'#ed4245'}}>🔄 Reiniciar Encuesta</button>
+                </div>
+            )}
+
+            <div className="sorteos-layout">
+                <div className="sorteos-main">
+                    <h3>🎁 Sorteos Activos</h3>
+                    {loading ? <p>Cargando sorteos...</p> : sorteos.length === 0 ? (
+                        <p className="no-sorteos">No hay sorteos activos en este momento.<br/>¡Juega partidas para ganar tickets!</p>
+                    ) : (
+                        <div className="sorteos-list">
+                            {sorteos.map(sorteo => {
+                                const emoji = categoriasEmoji[sorteo.categoria] || '🎁';
+                                const misTickets = sorteo.mis_tickets || 0;
+                                const progreso = Math.min(100, (sorteo.tickets_actuales / sorteo.tickets_necesarios) * 100);
+                                const esCompletado = sorteo.estado === 'completado';
+
+                                if (esCompletado) {
+                                    return (
+                                        <div key={sorteo.id} className="sorteo-card sorteo-ganador">
+                                            <div className="sorteo-header-card">
+                                                <div>
+                                                    <span className="sorteo-nombre">{emoji} {sorteo.nombre}</span>
+                                                    <span className="sorteo-categoria">{sorteo.categoria}</span>
+                                                </div>
+                                                {esAdmin && <span className="sorteo-precio">${sorteo.precio.toLocaleString()}</span>}
+                                            </div>
+                                            <div className="sorteo-ganador-info">
+                                                🏆 GANADOR: <strong>{sorteo.ganador_nombre}</strong>
+                                            </div>
+                                            <div className="ticket-progress">
+                                                <div className="ticket-progress-bar">
+                                                    <div className="ticket-progress-fill" style={{width: '100%'}}></div>
+                                                    <span className="ticket-progress-text">✅ {sorteo.tickets_necesarios} / {sorteo.tickets_necesarios} tickets</span>
+                                                </div>
+                                            </div>
+                                            {esAdmin && <button className="btn-eliminar-sorteo" onClick={() => eliminarSorteo(sorteo.id)}>🗑️ Eliminar</button>}
+                                        </div>
+                                    );
+                                }
+
+                                return (
+                                    <div key={sorteo.id} className="sorteo-card nuevo">
+                                        <div className="sorteo-header-card">
+                                            <div>
+                                                <span className="sorteo-nombre">{emoji} {sorteo.nombre}</span>
+                                                <span className="sorteo-categoria">{sorteo.categoria}</span>
+                                            </div>
+                                            {esAdmin && <span className="sorteo-precio">${sorteo.precio.toLocaleString()}</span>}
+                                        </div>
+                                        <div className="ticket-progress">
+                                            <div className="ticket-progress-bar">
+                                                <div className="ticket-progress-fill" style={{width: `${progreso}%`}}></div>
+                                                <span className="ticket-progress-text">{sorteo.tickets_actuales} / {sorteo.tickets_necesarios} tickets</span>
+                                            </div>
+                                            <div className="ticket-info">
+                                                {renderCountdown(sorteo.fecha_limite)}
+                                                <span>Mis tickets: {misTickets}</span>
+                                            </div>
+                                        </div>
+                                        <div className="ticket-controls">
+                                            <button className="ticket-btn minus" onClick={() => ajustarTickets(sorteo.id, -1)} disabled={misTickets <= 0}>−</button>
+                                            <span className="my-tickets-count">{misTickets} 🎟️</span>
+                                            <button className="ticket-btn plus" onClick={() => ajustarTickets(sorteo.id, 1)} disabled={userTickets <= 0 || sorteo.tickets_actuales >= sorteo.tickets_necesarios}>+</button>
+                                        </div>
+                                        {esAdmin && <button className="btn-eliminar-sorteo" onClick={() => eliminarSorteo(sorteo.id)}>🗑️ Eliminar</button>}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                <div className="sorteos-poll">
+                    <h3>📊 ¿Qué sorteamos luego?</h3>
+                    <p className="poll-desc">Vota por el próximo premio.</p>
+                    <div className="poll-list">
+                        {Object.keys(categoriasEncuesta).map(cat => {
+                            const votos = votosPorCat[cat] || 0;
+                            const porcentaje = totalVotos > 0 ? Math.round((votos / totalVotos) * 100) : 0;
+                            const isVoted = miVoto === cat;
+                            return (
+                                <div key={cat} className={`poll-item ${isVoted ? 'voted' : ''}`} onClick={() => votarSorteo(cat)}>
+                                    <div className="poll-fill" style={{width: `${porcentaje}%`}}></div>
+                                    <div className="poll-content">
+                                        <span className="poll-title">{categoriasEncuesta[cat]}</span>
+                                        <span className="poll-stats">{porcentaje}% ({votos})</span>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            </div>
+
+            {/* Modal Crear Sorteo */}
+            {showCreateModal && (
+                <div className="modal-overlay">
+                    <div className="modal-content">
+                        <header className="modal-header">
+                            <h3>➕ Crear Sorteo</h3>
+                            <button className="close-btn" onClick={() => setShowCreateModal(false)}>&times;</button>
+                        </header>
+                        <form id="create-raffle-form" onSubmit={handleCreateSorteo}>
+                            <label>Nombre del Premio</label>
+                            <input type="text" value={newNombre} onChange={e => setNewNombre(e.target.value)} required placeholder="Ej: 500 Gemas" style={{width:'100%', padding:'8px', marginBottom:'10px'}}/>
+                            
+                            <label>Categoría</label>
+                            <select value={newCategoria} onChange={e => setNewCategoria(e.target.value)} style={{width:'100%', padding:'8px', marginBottom:'10px'}}>
+                                {Object.entries(categoriasEmoji).map(([k, v]) => <option key={k} value={k}>{v} {k}</option>)}
+                            </select>
+                            
+                            <label>Precio del Premio (COP)</label>
+                            <input type="number" value={newPrecio} onChange={e => setNewPrecio(e.target.value)} required min="1000" placeholder="Ej: 20000" style={{width:'100%', padding:'8px', marginBottom:'10px'}}/>
+                            <div style={{color:'#7289da', marginBottom:'10px'}}>Tickets necesarios: {Math.ceil(Number(newPrecio)/1000) || 0}</div>
+                            
+                            <label>Duración (Minutos)</label>
+                            <input type="number" value={newDuracion} onChange={e => setNewDuracion(e.target.value)} required min="1" placeholder="Ej: 1440 (24h)" style={{width:'100%', padding:'8px', marginBottom:'15px'}}/>
+                            
+                            <button type="submit" style={{width:'100%', padding:'10px', background:'#43b581', color:'white', border:'none', borderRadius:'4px'}}>Crear</button>
+                        </form>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+</file>
+
 <file path="frontend/src/pages/Admin.jsx">
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
@@ -14037,6 +14084,169 @@ export default function Match() {
 }
 </file>
 
+<file path="src/main/java/com/torneosflash/servidor/RutasAuth.java">
+package com.torneosflash.servidor;
+
+import com.google.gson.*;
+import com.torneosflash.servicio.AuthService;
+import com.torneosflash.servicio.ServicioException;
+import io.javalin.Javalin;
+import io.javalin.http.Context;
+
+/**
+ * Rutas de autenticación: registro, login, sesión, logout.
+ *
+ * A3: aquí solo se parsea el request, se maneja la cookie y se llama a
+ * {@link AuthService}.
+ * Las reglas (validaciones, duplicados, bcrypt, Clash API) viven en el
+ * servicio.
+ *
+ * S1: la sesión es un JWT firmado en la cookie httpOnly {@code session} (ver
+ * {@link AuthMiddleware}).
+ * La cookie antigua {@code userId} en texto plano ya NO se acepta: solo se
+ * borra.
+ */
+public class RutasAuth {
+
+    /**
+     * Rol por defecto de una cuenta nueva (columna {@code users.tipo_suscripcion}).
+     */
+    private static final String ROL_POR_DEFECTO = "free";
+
+    public static void register(Javalin app, AuthService auth) {
+
+        // POST /api/register
+        app.post("/api/register", ctx -> {
+            JsonObject body = parseBody(ctx);
+            int newId = auth.registrar(
+                    Peticion.texto(body, "username"),
+                    Peticion.texto(body, "email"),
+                    Peticion.texto(body, "password"),
+                    Peticion.textoOpcional(body, "playerTag", ""),
+                    Peticion.textoOpcional(body, "telefono", ""), // ← CAMBIA: ahora termina en coma (antes: `""));`)
+                    Peticion.booleanoOpcional(body, "aceptaTerminos", false)); // ← NUEVO
+
+            // S1: sesión JWT en cookie httpOnly + SameSite (+ Secure). Una cuenta nueva
+            // siempre es "free".
+            AuthMiddleware.iniciarSesion(ctx, newId, ROL_POR_DEFECTO);
+            ctx.result(successJson("Registrado exitosamente", newId).toString()).contentType("application/json");
+        });
+
+        // POST /api/login
+        app.post("/api/login", ctx -> {
+            JsonObject body = parseBody(ctx);
+            AuthService.SesionIniciada sesion = auth.login(
+                    Peticion.texto(body, "email"),
+                    Peticion.texto(body, "password"));
+
+            AuthMiddleware.iniciarSesion(ctx, sesion.userId(), rolDe(sesion.user()));
+
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            response.add("user", sesion.user());
+            ctx.status(200).contentType("application/json").result(response.toString());
+        });
+
+        // GET /api/session
+        app.get("/api/session", ctx -> {
+            // S1: el userId sale del JWT ya verificado por AuthMiddleware (firma +
+            // expiración), nunca de una cookie en claro
+            Integer userId = AuthMiddleware.getUserId(ctx);
+            if (userId == null) {
+                AuthMiddleware.cerrarSesion(ctx); // borra un token vencido/manipulado y la cookie legacy "userId"
+                ctx.status(401).json(errorJson("No hay sesión"));
+                return;
+            }
+
+            JsonObject user;
+            try {
+                user = auth.obtenerSesion(userId);
+            } catch (ServicioException e) {
+                if (e.getStatus() >= 500)
+                    throw e; // fallo de BD: no se desloguea al usuario por un error temporal
+                // Token válido pero la cuenta ya no existe: se cierra la sesión
+                AuthMiddleware.cerrarSesion(ctx);
+                ctx.status(401).json(errorJson("Sesión inválida"));
+                return;
+            }
+
+            // Sesión deslizante: se re-emite el token con el rol ACTUAL de la BD (si lo
+            // hicieron admin o le quitaron
+            // el rol, el JWT se corrige aquí) y con la expiración renovada para quien sigue
+            // usando la app.
+            AuthMiddleware.iniciarSesion(ctx, userId, rolDe(user));
+
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            response.add("user", user);
+            ctx.result(response.toString()).contentType("application/json");
+        });
+
+        // POST /api/logout
+        app.post("/api/logout", ctx -> {
+            AuthMiddleware.cerrarSesion(ctx);
+            ctx.json(successJson("Sesión cerrada", 0));
+        });
+
+        // GET /api/check-username/:username
+        app.get("/api/check-username/{username}", ctx -> ctx.json(auth.usernameDisponible(ctx.pathParam("username"))));
+
+        // GET /api/check-email/:email
+        app.get("/api/check-email/{email}", ctx -> ctx.json(auth.emailDisponible(ctx.pathParam("email"))));
+
+        // GET /api/verify-tag/:tag
+        app.get("/api/verify-tag/{tag}", ctx -> ctx.json(auth.verificarTag(ctx.pathParam("tag"))));
+
+        // POST /api/register-token (FCM push tokens)
+        app.post("/api/register-token", ctx -> {
+            JsonObject body = parseBody(ctx);
+            if (!body.has("userId") || !body.has("token")) {
+                ctx.status(400).json(errorJson("Faltan datos"));
+                return;
+            }
+            auth.registrarTokenPush(Peticion.entero(body, "userId"), Peticion.texto(body, "token"));
+            ctx.json(successJson("Token registrado", 0));
+        });
+    }
+
+    // --- Helpers HTTP (los usan también las demás rutas) ---
+    static JsonObject parseBody(Context ctx) {
+        try {
+            return JsonParser.parseString(ctx.body()).getAsJsonObject();
+        } catch (Exception e) {
+            return new JsonObject();
+        }
+    }
+
+    static JsonObject errorJson(String message) {
+        JsonObject obj = new JsonObject();
+        obj.addProperty("error", message);
+        return obj;
+    }
+
+    static JsonObject successJson(String message, int id) {
+        JsonObject obj = new JsonObject();
+        obj.addProperty("success", true);
+        obj.addProperty("message", message);
+        if (id > 0)
+            obj.addProperty("userId", id);
+        return obj;
+    }
+
+    /**
+     * Rol para el JWT: la columna {@code tipo_suscripcion} de la vista de sesión
+     * ("free" si falta).
+     */
+    private static String rolDe(JsonObject user) {
+        if (user == null || !user.has("tipo_suscripcion") || user.get("tipo_suscripcion").isJsonNull()) {
+            return ROL_POR_DEFECTO;
+        }
+        String rol = user.get("tipo_suscripcion").getAsString().trim();
+        return rol.isEmpty() ? ROL_POR_DEFECTO : rol;
+    }
+}
+</file>
+
 <file path="agent/rules/project convenions">
 # Regla: Convenciones del proyecto
 
@@ -14383,251 +14593,6 @@ public class ConexionDB {
 }
 </file>
 
-<file path="src/main/java/com/torneosflash/servidor/RutasAuth.java">
-package com.torneosflash.servidor;
-
-import com.google.gson.*;
-import com.torneosflash.servicio.AuthService;
-import com.torneosflash.servicio.ServicioException;
-import io.javalin.Javalin;
-import io.javalin.http.Context;
-
-/**
- * Rutas de autenticación: registro, login, sesión, logout.
- *
- * A3: aquí solo se parsea el request, se maneja la cookie y se llama a
- * {@link AuthService}.
- * Las reglas (validaciones, duplicados, bcrypt, Clash API) viven en el
- * servicio.
- *
- * S1: la sesión es un JWT firmado en la cookie httpOnly {@code session} (ver
- * {@link AuthMiddleware}).
- * La cookie antigua {@code userId} en texto plano ya NO se acepta: solo se
- * borra.
- */
-public class RutasAuth {
-
-    /**
-     * Rol por defecto de una cuenta nueva (columna {@code users.tipo_suscripcion}).
-     */
-    private static final String ROL_POR_DEFECTO = "free";
-
-    public static void register(Javalin app, AuthService auth) {
-
-        // POST /api/register
-        app.post("/api/register", ctx -> {
-            JsonObject body = parseBody(ctx);
-            int newId = auth.registrar(
-                    Peticion.texto(body, "username"),
-                    Peticion.texto(body, "email"),
-                    Peticion.texto(body, "password"),
-                    Peticion.textoOpcional(body, "playerTag", ""),
-                    Peticion.textoOpcional(body, "telefono", ""), // ← CAMBIA: ahora termina en coma (antes: `""));`)
-                    Peticion.booleanoOpcional(body, "aceptaTerminos", false)); // ← NUEVO
-
-            // S1: sesión JWT en cookie httpOnly + SameSite (+ Secure). Una cuenta nueva
-            // siempre es "free".
-            AuthMiddleware.iniciarSesion(ctx, newId, ROL_POR_DEFECTO);
-            ctx.result(successJson("Registrado exitosamente", newId).toString()).contentType("application/json");
-        });
-
-        // POST /api/login
-        app.post("/api/login", ctx -> {
-            JsonObject body = parseBody(ctx);
-            AuthService.SesionIniciada sesion = auth.login(
-                    Peticion.texto(body, "email"),
-                    Peticion.texto(body, "password"));
-
-            AuthMiddleware.iniciarSesion(ctx, sesion.userId(), rolDe(sesion.user()));
-
-            JsonObject response = new JsonObject();
-            response.addProperty("success", true);
-            response.add("user", sesion.user());
-            ctx.status(200).contentType("application/json").result(response.toString());
-        });
-
-        // GET /api/session
-        app.get("/api/session", ctx -> {
-            // S1: el userId sale del JWT ya verificado por AuthMiddleware (firma +
-            // expiración), nunca de una cookie en claro
-            Integer userId = AuthMiddleware.getUserId(ctx);
-            if (userId == null) {
-                AuthMiddleware.cerrarSesion(ctx); // borra un token vencido/manipulado y la cookie legacy "userId"
-                ctx.status(401).json(errorJson("No hay sesión"));
-                return;
-            }
-
-            JsonObject user;
-            try {
-                user = auth.obtenerSesion(userId);
-            } catch (ServicioException e) {
-                if (e.getStatus() >= 500)
-                    throw e; // fallo de BD: no se desloguea al usuario por un error temporal
-                // Token válido pero la cuenta ya no existe: se cierra la sesión
-                AuthMiddleware.cerrarSesion(ctx);
-                ctx.status(401).json(errorJson("Sesión inválida"));
-                return;
-            }
-
-            // Sesión deslizante: se re-emite el token con el rol ACTUAL de la BD (si lo
-            // hicieron admin o le quitaron
-            // el rol, el JWT se corrige aquí) y con la expiración renovada para quien sigue
-            // usando la app.
-            AuthMiddleware.iniciarSesion(ctx, userId, rolDe(user));
-
-            JsonObject response = new JsonObject();
-            response.addProperty("success", true);
-            response.add("user", user);
-            ctx.result(response.toString()).contentType("application/json");
-        });
-
-        // POST /api/logout
-        app.post("/api/logout", ctx -> {
-            AuthMiddleware.cerrarSesion(ctx);
-            ctx.json(successJson("Sesión cerrada", 0));
-        });
-
-        // GET /api/check-username/:username
-        app.get("/api/check-username/{username}", ctx -> ctx.json(auth.usernameDisponible(ctx.pathParam("username"))));
-
-        // GET /api/check-email/:email
-        app.get("/api/check-email/{email}", ctx -> ctx.json(auth.emailDisponible(ctx.pathParam("email"))));
-
-        // GET /api/verify-tag/:tag
-        app.get("/api/verify-tag/{tag}", ctx -> ctx.json(auth.verificarTag(ctx.pathParam("tag"))));
-
-        // POST /api/register-token (FCM push tokens)
-        app.post("/api/register-token", ctx -> {
-            JsonObject body = parseBody(ctx);
-            if (!body.has("userId") || !body.has("token")) {
-                ctx.status(400).json(errorJson("Faltan datos"));
-                return;
-            }
-            auth.registrarTokenPush(Peticion.entero(body, "userId"), Peticion.texto(body, "token"));
-            ctx.json(successJson("Token registrado", 0));
-        });
-    }
-
-    // --- Helpers HTTP (los usan también las demás rutas) ---
-    static JsonObject parseBody(Context ctx) {
-        try {
-            return JsonParser.parseString(ctx.body()).getAsJsonObject();
-        } catch (Exception e) {
-            return new JsonObject();
-        }
-    }
-
-    static JsonObject errorJson(String message) {
-        JsonObject obj = new JsonObject();
-        obj.addProperty("error", message);
-        return obj;
-    }
-
-    static JsonObject successJson(String message, int id) {
-        JsonObject obj = new JsonObject();
-        obj.addProperty("success", true);
-        obj.addProperty("message", message);
-        if (id > 0)
-            obj.addProperty("userId", id);
-        return obj;
-    }
-
-    /**
-     * Rol para el JWT: la columna {@code tipo_suscripcion} de la vista de sesión
-     * ("free" si falta).
-     */
-    private static String rolDe(JsonObject user) {
-        if (user == null || !user.has("tipo_suscripcion") || user.get("tipo_suscripcion").isJsonNull()) {
-            return ROL_POR_DEFECTO;
-        }
-        String rol = user.get("tipo_suscripcion").getAsString().trim();
-        return rol.isEmpty() ? ROL_POR_DEFECTO : rol;
-    }
-}
-</file>
-
-<file path="src/main/java/com/torneosflash/servidor/RutasFinanzas.java">
-package com.torneosflash.servidor;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import com.google.gson.*;
-import com.torneosflash.servicio.FinanzasService;
-import io.javalin.Javalin;
-
-import static com.torneosflash.servidor.RutasAuth.*;
-
-/**
- * Rutas de finanzas: depósitos, retiros, Wompi webhooks.
- *
- * A3: solo parsean el request y llaman a {@link FinanzasService}. La validación de montos, los
- * movimientos de dinero, las notificaciones y la firma de Wompi viven en el servicio.
- */
-public class RutasFinanzas {
-    private static final Logger logger = LoggerFactory.getLogger(RutasFinanzas.class);
-
-    public static void register(Javalin app, FinanzasService finanzas) {
-
-        // POST /api/deposit (depósito manual por admin)
-        app.post("/api/deposit", ctx -> {
-            JsonObject body = parseBody(ctx);
-            finanzas.depositoManual(Peticion.entero(body, "userId"), body.get("monto"));
-            ctx.json(successJson("Depósito realizado", 0));
-        });
-
-        // POST /api/transaction/create (crear solicitud de recarga)
-        app.post("/api/transaction/create", ctx -> {
-            JsonObject body = parseBody(ctx);
-            finanzas.crearSolicitudRecarga(
-                    Peticion.entero(body, "userId"),
-                    Peticion.texto(body, "username"),
-                    Peticion.texto(body, "metodo"),
-                    Peticion.textoOpcional(body, "referencia", ""),
-                    body.get("monto"));
-            ctx.json(successJson("Solicitud creada", 0));
-        });
-
-        // POST /api/transaction/withdraw (solicitar retiro)
-        app.post("/api/transaction/withdraw", ctx -> {
-            JsonObject body = parseBody(ctx);
-            double nuevoSaldo = finanzas.solicitarRetiro(
-                    Peticion.entero(body, "userId"),
-                    Peticion.texto(body, "username"),
-                    Peticion.textoOpcional(body, "metodo", "nequi_retiro"),
-                    Peticion.textoOpcional(body, "referencia", ""),
-                    body.get("monto"));
-
-            // newBalance en la respuesta para que el frontend actualice el saldo de inmediato
-            JsonObject response = new JsonObject();
-            response.addProperty("success", true);
-            response.addProperty("message", "Retiro solicitado");
-            response.addProperty("newBalance", nuevoSaldo);
-            ctx.json(response);
-        });
-
-        // POST /api/wompi/init (iniciar pago Wompi)
-        app.post("/api/wompi/init", ctx -> {
-            JsonObject body = parseBody(ctx);
-            ctx.json(finanzas.iniciarWompi(
-                    Peticion.entero(body, "userId"),
-                    Peticion.texto(body, "username"),
-                    body.get("monto")));
-        });
-
-        // POST /api/wompi/webhook (lo llama Wompi: respuesta en texto plano)
-        app.post("/api/wompi/webhook", ctx -> {
-            try {
-                finanzas.procesarWebhookWompi(parseBody(ctx));
-                ctx.result("OK");
-            } catch (Exception e) {
-                logger.error("Error webhook Wompi: " + e.getMessage());
-                ctx.status(500).result("Error");
-            }
-        });
-    }
-}
-</file>
-
 <file path="frontend/src/App.jsx">
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { useEffect } from 'react'
@@ -14724,84 +14689,6 @@ function App() {
 }
 
 export default App
-</file>
-
-<file path="src/main/java/com/torneosflash/servidor/RutasSorteos.java">
-package com.torneosflash.servidor;
-
-import com.google.gson.*;
-import com.torneosflash.servicio.SorteoService;
-import io.javalin.Javalin;
-
-import static com.torneosflash.servidor.RutasAuth.*;
-
-/**
- * Rutas de sorteos: tickets, participación, admin CRUD.
- *
- * A3: solo parsean el request y llaman a {@link SorteoService}.
- */
-public class RutasSorteos {
-
-    public static void register(Javalin app, SorteoService sorteos) {
-
-        // GET /api/raffle/tickets/:userId
-        app.get("/api/raffle/tickets/{userId}", ctx ->
-                ctx.json(sorteos.ticketsDeUsuario(Peticion.pathEntero(ctx, "userId"))));
-
-        // GET /api/raffle/pool
-        app.get("/api/raffle/pool", ctx -> ctx.json(sorteos.pozo()));
-
-        // GET /api/raffle/poll
-        app.get("/api/raffle/poll", ctx -> ctx.json(sorteos.encuesta(Peticion.userIdDeSesion(ctx))));
-
-        // POST /api/raffle/vote
-        app.post("/api/raffle/vote", ctx -> {
-            JsonObject body = parseBody(ctx);
-            sorteos.votar(Peticion.entero(body, "userId"), Peticion.texto(body, "categoria"));
-            ctx.json(successJson("Voto registrado", 0));
-        });
-
-        // DELETE /api/admin/raffle/poll
-        app.delete("/api/admin/raffle/poll", ctx -> {
-            sorteos.reiniciarEncuesta();
-            ctx.json(successJson("Encuesta reiniciada", 0));
-        });
-
-        // GET /api/raffle/offers
-        app.get("/api/raffle/offers", ctx -> ctx.json(sorteos.ofertas(Peticion.userIdDeSesion(ctx))));
-
-        // GET /api/raffle/all
-        app.get("/api/raffle/all", ctx -> ctx.json(sorteos.todos(Peticion.userIdDeSesion(ctx))));
-
-        // POST /api/raffle/participate
-        app.post("/api/raffle/participate", ctx -> {
-            JsonObject body = parseBody(ctx);
-            ctx.json(sorteos.participar(
-                    Peticion.entero(body, "userId"),
-                    Peticion.entero(body, "raffleId"),
-                    Peticion.entero(body, "ticketsDelta")));
-        });
-
-        // POST /api/admin/raffle/create
-        app.post("/api/admin/raffle/create", ctx -> {
-            JsonObject body = parseBody(ctx);
-            ctx.json(sorteos.crear(
-                    Peticion.texto(body, "nombre"),
-                    Peticion.texto(body, "categoria"),
-                    body.get("precio"),
-                    body.get("duracionMinutos")));
-        });
-
-        // DELETE /api/admin/raffle/:id
-        app.delete("/api/admin/raffle/{id}", ctx -> {
-            String mensaje = sorteos.eliminar(Peticion.pathEntero(ctx, "id"));
-            ctx.json(successJson(mensaje, 0));
-        });
-
-        // GET /api/admin/raffles
-        app.get("/api/admin/raffles", ctx -> ctx.json(sorteos.listarAdmin()));
-    }
-}
 </file>
 
 <file path="src/main/java/com/torneosflash/config/AppConfig.java">
@@ -15178,6 +15065,186 @@ public class AppConfig {
         if (CORREO_VALIDO.matcher(correo).matches()) return correo;
         logger.error("⚠️ {} no es un correo válido. Se avisará al correo remitente de Brevo.", variable);
         return "";
+    }
+}
+</file>
+
+<file path="src/main/java/com/torneosflash/servidor/RutasFinanzas.java">
+package com.torneosflash.servidor;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import com.google.gson.*;
+import com.torneosflash.servicio.FinanzasService;
+import io.javalin.Javalin;
+
+import static com.torneosflash.servidor.RutasAuth.*;
+import com.torneosflash.servicio.ServicioException;
+
+/**
+ * Rutas de finanzas: depósitos, retiros, Wompi webhooks.
+ *
+ * A3: solo parsean el request y llaman a {@link FinanzasService}. La validación
+ * de montos, los
+ * movimientos de dinero, las notificaciones y la firma de Wompi viven en el
+ * servicio.
+ */
+public class RutasFinanzas {
+    private static final Logger logger = LoggerFactory.getLogger(RutasFinanzas.class);
+
+    public static void register(Javalin app, FinanzasService finanzas) {
+
+        // POST /api/deposit (depósito manual por admin)
+        app.post("/api/deposit", ctx -> {
+            JsonObject body = parseBody(ctx);
+            finanzas.depositoManual(Peticion.entero(body, "userId"), body.get("monto"));
+            ctx.json(successJson("Depósito realizado", 0));
+        });
+
+        // POST /api/transaction/create (crear solicitud de recarga)
+        app.post("/api/transaction/create", ctx -> {
+            JsonObject body = parseBody(ctx);
+            int userId = Peticion.userIdDeSesion(ctx);
+            if (userId <= 0)
+                throw ServicioException.noAutenticado("Inicia sesión");
+            finanzas.crearSolicitudRecarga(
+                    userId,
+                    Peticion.texto(body, "username"),
+                    Peticion.texto(body, "metodo"),
+                    Peticion.textoOpcional(body, "referencia", ""),
+                    body.get("monto"));
+            ctx.json(successJson("Solicitud creada", 0));
+        });
+
+        // POST /api/transaction/withdraw (solicitar retiro)
+        app.post("/api/transaction/withdraw", ctx -> {
+            JsonObject body = parseBody(ctx);
+            int userId = Peticion.userIdDeSesion(ctx);
+            if (userId <= 0)
+                throw ServicioException.noAutenticado("Inicia sesión");
+            double nuevoSaldo = finanzas.solicitarRetiro(
+                    userId,
+                    Peticion.texto(body, "username"),
+                    Peticion.textoOpcional(body, "metodo", "nequi_retiro"),
+                    Peticion.textoOpcional(body, "referencia", ""),
+                    body.get("monto"));
+
+            // newBalance en la respuesta para que el frontend actualice el saldo de
+            // inmediato
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            response.addProperty("message", "Retiro solicitado");
+            response.addProperty("newBalance", nuevoSaldo);
+            ctx.json(response);
+        });
+
+        // POST /api/wompi/init (iniciar pago Wompi)
+        app.post("/api/wompi/init", ctx -> {
+            JsonObject body = parseBody(ctx);
+            int userId = Peticion.userIdDeSesion(ctx);
+            if (userId <= 0)
+                throw ServicioException.noAutenticado("Inicia sesión");
+            ctx.json(finanzas.iniciarWompi(
+                    userId,
+                    Peticion.texto(body, "username"),
+                    body.get("monto")));
+        });
+
+        // POST /api/wompi/webhook (lo llama Wompi: respuesta en texto plano)
+        app.post("/api/wompi/webhook", ctx -> {
+            try {
+                finanzas.procesarWebhookWompi(parseBody(ctx));
+                ctx.result("OK");
+            } catch (Exception e) {
+                logger.error("Error webhook Wompi: " + e.getMessage());
+                ctx.status(500).result("Error");
+            }
+        });
+    }
+}
+</file>
+
+<file path="src/main/java/com/torneosflash/servidor/RutasSorteos.java">
+package com.torneosflash.servidor;
+
+import com.google.gson.*;
+import com.torneosflash.servicio.SorteoService;
+import io.javalin.Javalin;
+
+import static com.torneosflash.servidor.RutasAuth.*;
+import com.torneosflash.servicio.ServicioException;
+
+/**
+ * Rutas de sorteos: tickets, participación, admin CRUD.
+ *
+ * A3: solo parsean el request y llaman a {@link SorteoService}.
+ */
+public class RutasSorteos {
+
+    public static void register(Javalin app, SorteoService sorteos) {
+
+        // GET /api/raffle/tickets/:userId
+        app.get("/api/raffle/tickets/{userId}",
+                ctx -> ctx.json(sorteos.ticketsDeUsuario(Peticion.pathEntero(ctx, "userId"))));
+
+        // GET /api/raffle/pool
+        app.get("/api/raffle/pool", ctx -> ctx.json(sorteos.pozo()));
+
+        // GET /api/raffle/poll
+        app.get("/api/raffle/poll", ctx -> ctx.json(sorteos.encuesta(Peticion.userIdDeSesion(ctx))));
+
+        // POST /api/raffle/vote
+        app.post("/api/raffle/vote", ctx -> {
+            JsonObject body = parseBody(ctx);
+            int userId = Peticion.userIdDeSesion(ctx);
+            if (userId <= 0)
+                throw ServicioException.noAutenticado("Inicia sesión");
+            sorteos.votar(userId, Peticion.texto(body, "categoria"));
+            ctx.json(successJson("Voto registrado", 0));
+        });
+
+        // DELETE /api/admin/raffle/poll
+        app.delete("/api/admin/raffle/poll", ctx -> {
+            sorteos.reiniciarEncuesta();
+            ctx.json(successJson("Encuesta reiniciada", 0));
+        });
+
+        // GET /api/raffle/offers
+        app.get("/api/raffle/offers", ctx -> ctx.json(sorteos.ofertas(Peticion.userIdDeSesion(ctx))));
+
+        // GET /api/raffle/all
+        app.get("/api/raffle/all", ctx -> ctx.json(sorteos.todos(Peticion.userIdDeSesion(ctx))));
+
+        // POST /api/raffle/participate
+        app.post("/api/raffle/participate", ctx -> {
+            JsonObject body = parseBody(ctx);
+            int userId = Peticion.userIdDeSesion(ctx);
+            if (userId <= 0)
+                throw ServicioException.noAutenticado("Inicia sesión");
+            ctx.json(sorteos.participar(
+                    userId,
+                    Peticion.entero(body, "raffleId"),
+                    Peticion.entero(body, "ticketsDelta")));
+        });
+
+        // POST /api/admin/raffle/create
+        app.post("/api/admin/raffle/create", ctx -> {
+            JsonObject body = parseBody(ctx);
+            ctx.json(sorteos.crear(
+                    Peticion.texto(body, "nombre"),
+                    Peticion.texto(body, "categoria"),
+                    body.get("precio"),
+                    body.get("duracionMinutos")));
+        });
+
+        // DELETE /api/admin/raffle/:id
+        app.delete("/api/admin/raffle/{id}", ctx -> {
+            String mensaje = sorteos.eliminar(Peticion.pathEntero(ctx, "id"));
+            ctx.json(successJson(mensaje, 0));
+        });
+
+        // GET /api/admin/raffles
+        app.get("/api/admin/raffles", ctx -> ctx.json(sorteos.listarAdmin()));
     }
 }
 </file>
@@ -16354,8 +16421,13 @@ public class SocketHandler {
             // --- REGISTRAR SOCKET ---
             socket.on("registrar_socket", (client, data) -> {
                 try {
-                    logger.info("INTENTO DE REGISTRAR SOCKET: " + data[0]);
-                    JsonObject user = ((JsonElement) data[0]).getAsJsonObject();
+                    JsonObject user = null;
+                    if (data != null && data.length > 0 && data[0] instanceof JsonElement) {
+                        user = ((JsonElement) data[0]).getAsJsonObject();
+                    }
+                    if (user == null || !user.has("id")) {
+                        return;
+                    }
                     int userId = user.get("id").getAsInt();
                     String username = user.get("username").getAsString();
 

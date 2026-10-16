@@ -7,27 +7,32 @@ import com.torneosflash.dao.GenericDAO;
 
 import java.sql.*;
 import java.util.*;
+import java.util.regex.Pattern;
 
 /**
- * Operaciones del panel de administración de la base de datos: ver tablas, editar celdas, insertar,
+ * Operaciones del panel de administraci�n de la base de datos: ver tablas, editar celdas, insertar,
  * borrar, exportar e importar (A3). Antes todo este SQL estaba dentro de {@code RutasDbAdmin}.
  *
  * El acceso al panel (clave, bloqueo por IP, cabeceras) sigue en {@code RutasDbAdmin}: es protocolo HTTP,
- * no lógica de negocio. Aquí todo nombre de tabla/columna que venga del request se valida contra
- * {@code information_schema} antes de concatenarlo en un SQL (S10).
+ * no l�gica de negocio. Aqu� todo nombre de tabla/columna que venga del request se valida contra
+ * {@code information_schema} y contra {@link #IDENTIFICADOR_SQL} antes de citarlo en un SQL, y todas las
+ * consultas usan exclusivamente {@link PreparedStatement} (S4, S10).
  */
 public class DbAdminService {
 
-    /** Orden de inserción al importar (respeta dependencias); al borrar se recorre al revés. */
+    /** Orden de inserci�n al importar (respeta dependencias); al borrar se recorre al rev�s. */
     private static final String[] ORDEN_TABLAS_IMPORT = { "users", "messages", "matches", "transactions", "admin_wallet",
             "user_tokens", "user_tickets", "raffles", "raffle_entries" };
+
+    /** S4: patr�n estricto para identificadores SQL (tablas y columnas). */
+    private static final Pattern IDENTIFICADOR_SQL = Pattern.compile("^[a-zA-Z_][a-zA-Z0-9_]*$");
 
     private final GenericDAO db;
 
     /**
      * A5: tabla donde Flyway guarda el historial de migraciones. El panel no la muestra ni la deja tocar:
-     * editarla desde la web podría hacer que Flyway rehaga o salte migraciones. Además no tiene columna `id`,
-     * así que `ORDER BY id` (ver, exportar) fallaría con ella.
+     * editarla desde la web podr�a hacer que Flyway rehaga o salte migraciones. Adem�s no tiene columna `id`,
+     * as� que `ORDER BY id` (ver, exportar) fallar�a con ella.
      */
     private static final String TABLA_FLYWAY = "flyway_schema_history";
 
@@ -35,7 +40,7 @@ public class DbAdminService {
         this.db = db;
     }
 
-    /** Operación de BD que puede lanzar excepciones SQL. */
+    /** Operaci�n de BD que puede lanzar excepciones SQL. */
     @FunctionalInterface
     private interface Operacion<T> {
         T ejecutar() throws Exception;
@@ -56,13 +61,14 @@ public class DbAdminService {
     // Lectura
     // ------------------------------------------------------------------
 
-    /** Lista las tablas del esquema public con su número de filas. */
+    /** Lista las tablas del esquema public con su n�mero de filas. */
     public JsonArray listarTablas() {
         return conErrores(() -> {
             try (Connection conn = db.getConnection()) {
                 JsonArray tables = new JsonArray();
                 for (String tableName : nombresDeTablas(conn)) {
-                    try (PreparedStatement countPs = conn.prepareStatement("SELECT COUNT(*) as count FROM \"" + tableName + "\"");
+                    String tablaCitada = citarIdentificador(tableName);
+                    try (PreparedStatement countPs = conn.prepareStatement("SELECT COUNT(*) as count FROM " + tablaCitada);
                          ResultSet countRs = countPs.executeQuery()) {
                         countRs.next();
                         JsonObject t = new JsonObject();
@@ -114,12 +120,14 @@ public class DbAdminService {
                 exigirTablaValida(conn, tableName);
                 String dataType = tiposDeColumna(conn, tableName).get(column);
                 if (dataType == null) {
-                    throw ServicioException.solicitudInvalida("Columna no válida");
+                    throw ServicioException.solicitudInvalida("Columna no v�lida");
                 }
 
+                String tablaCitada = citarIdentificador(tableName);
+                String columnaCitada = citarIdentificador(column);
                 String finalVal = (value != null && !value.isEmpty()) ? value : null;
                 try (PreparedStatement updatePs = conn.prepareStatement(
-                        "UPDATE \"" + tableName + "\" SET \"" + column + "\" = ? WHERE id = ?")) {
+                        "UPDATE " + tablaCitada + " SET " + columnaCitada + " = ? WHERE id = ?")) {
                     setTypedParam(updatePs, 1, finalVal, dataType);
                     updatePs.setInt(2, id);
                     updatePs.executeUpdate();
@@ -133,7 +141,8 @@ public class DbAdminService {
         conErrores(() -> {
             try (Connection conn = db.getConnection()) {
                 exigirTablaValida(conn, tableName);
-                try (PreparedStatement ps = conn.prepareStatement("DELETE FROM \"" + tableName + "\" WHERE id = ?")) {
+                String tablaCitada = citarIdentificador(tableName);
+                try (PreparedStatement ps = conn.prepareStatement("DELETE FROM " + tablaCitada + " WHERE id = ?")) {
                     ps.setInt(1, id);
                     ps.executeUpdate();
                 }
@@ -159,20 +168,21 @@ public class DbAdminService {
                 List<String> types = new ArrayList<>();
                 for (String key : keys) {
                     if (!columnTypes.containsKey(key)) {
-                        throw ServicioException.solicitudInvalida("Columna no válida");
+                        throw ServicioException.solicitudInvalida("Columna no v�lida");
                     }
                     if (cols.length() > 0) {
                         cols.append(", ");
                         placeholders.append(", ");
                     }
-                    cols.append('"').append(key).append('"');
+                    cols.append(citarIdentificador(key));
                     placeholders.append("?");
                     values.add(body.get(key).isJsonNull() ? null : body.get(key).getAsString());
                     types.add(columnTypes.get(key));
                 }
 
+                String tablaCitada = citarIdentificador(tableName);
                 try (PreparedStatement ps = conn.prepareStatement(
-                        "INSERT INTO \"" + tableName + "\" (" + cols + ") VALUES (" + placeholders + ")")) {
+                        "INSERT INTO " + tablaCitada + " (" + cols + ") VALUES (" + placeholders + ")")) {
                     for (int i = 0; i < values.size(); i++) {
                         setTypedParam(ps, i + 1, values.get(i), types.get(i));
                     }
@@ -187,7 +197,7 @@ public class DbAdminService {
     // Backup
     // ------------------------------------------------------------------
 
-    /** Exporta todas las tablas (más un bloque {@code _meta}). */
+    /** Exporta todas las tablas (m�s un bloque {@code _meta}). */
     public JsonObject exportar() {
         return conErrores(() -> {
             try (Connection conn = db.getConnection()) {
@@ -207,16 +217,17 @@ public class DbAdminService {
 
     /**
      * Importa un backup: borra las tablas presentes en el archivo e inserta sus filas.
-     * Solo se aceptan columnas que existan en la tabla; las filas inválidas se omiten.
+     * Solo se aceptan columnas que existan en la tabla; las filas inv�lidas se omiten.
      *
-     * @return número de filas insertadas
+     * @return n�mero de filas insertadas
      */
     public int importar(JsonObject data) {
         return conErrores(() -> {
-            // Borrar en orden inverso
+            // Borrar en orden inverso (tablas fijas de lista blanca)
             for (int i = ORDEN_TABLAS_IMPORT.length - 1; i >= 0; i--) {
-                if (data.has(ORDEN_TABLAS_IMPORT[i])) {
-                    db.update("DELETE FROM " + ORDEN_TABLAS_IMPORT[i]);
+                String tabla = ORDEN_TABLAS_IMPORT[i];
+                if (data.has(tabla)) {
+                    db.update("DELETE FROM " + citarIdentificador(tabla));
                 }
             }
 
@@ -225,6 +236,7 @@ public class DbAdminService {
                 for (String tabla : ORDEN_TABLAS_IMPORT) {
                     if (!data.has(tabla) || !data.get(tabla).isJsonArray()) continue;
 
+                    String tablaCitada = citarIdentificador(tabla);
                     Map<String, String> columnasValidas = tiposDeColumna(conn, tabla);
                     JsonArray rows = data.getAsJsonArray(tabla);
                     for (JsonElement elem : rows) {
@@ -232,6 +244,7 @@ public class DbAdminService {
                         StringBuilder cols = new StringBuilder();
                         StringBuilder ph = new StringBuilder();
                         List<String> vals = new ArrayList<>();
+                        List<String> types = new ArrayList<>();
                         boolean columnasOk = true;
                         for (String key : row.keySet()) {
                             if (!columnasValidas.containsKey(key)) {
@@ -242,32 +255,37 @@ public class DbAdminService {
                                 cols.append(", ");
                                 ph.append(", ");
                             }
-                            cols.append('"').append(key).append('"');
+                            cols.append(citarIdentificador(key));
                             ph.append("?");
                             vals.add(row.get(key).isJsonNull() ? null : row.get(key).getAsString());
+                            types.add(columnasValidas.get(key));
                         }
                         if (!columnasOk || vals.isEmpty()) continue;
 
                         try (PreparedStatement ps = conn.prepareStatement(
-                                "INSERT INTO " + tabla + " (" + cols + ") VALUES (" + ph + ")")) {
+                                "INSERT INTO " + tablaCitada + " (" + cols + ") VALUES (" + ph + ")")) {
                             for (int j = 0; j < vals.size(); j++) {
-                                if (vals.get(j) == null) ps.setNull(j + 1, Types.VARCHAR);
-                                else ps.setString(j + 1, vals.get(j));
+                                setTypedParam(ps, j + 1, vals.get(j), types.get(j));
                             }
                             ps.executeUpdate();
                             totalInserted++;
                         } catch (Exception ignored) {
-                            // fila inválida: se omite
+                            // fila inv�lida: se omite
                         }
                     }
                 }
 
-                // Resetear secuencias
+                // S4: Resetear secuencias usando PreparedStatement en lugar de Statement.execute()
                 for (String tabla : ORDEN_TABLAS_IMPORT) {
                     if (data.has(tabla)) {
-                        try (Statement stmt = conn.createStatement()) {
-                            stmt.execute("SELECT setval(pg_get_serial_sequence('" + tabla +
-                                    "', 'id'), COALESCE((SELECT MAX(id) FROM " + tabla + "), 0) + 1, false)");
+                        String tablaCitada = citarIdentificador(tabla);
+                        try (PreparedStatement ps = conn.prepareStatement(
+                                "SELECT setval(pg_get_serial_sequence(?, 'id'), COALESCE((SELECT MAX(id) FROM " +
+                                        tablaCitada + "), 0) + 1, false)")) {
+                            ps.setString(1, tabla);
+                            try (ResultSet ignored = ps.executeQuery()) {
+                                // secuencia actualizada
+                            }
                         } catch (Exception ignored) {
                             // tabla sin secuencia
                         }
@@ -282,21 +300,37 @@ public class DbAdminService {
     // Utilidades de BD
     // ------------------------------------------------------------------
 
+    /**
+     * S4: Valida que un identificador SQL cumpla el formato permitido y lo devuelve entre comillas dobles.
+     */
+    private static String citarIdentificador(String identificador) {
+        if (identificador == null || !IDENTIFICADOR_SQL.matcher(identificador).matches()) {
+            throw ServicioException.solicitudInvalida("Identificador SQL no v�lido");
+        }
+        return "\"" + identificador + "\"";
+    }
+
     private static List<String> nombresDeTablas(Connection conn) throws SQLException {
         List<String> nombres = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name <> '" + TABLA_FLYWAY + "' ORDER BY table_name");
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) nombres.add(rs.getString("table_name"));
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name <> ? ORDER BY table_name")) {
+            ps.setString(1, TABLA_FLYWAY);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) nombres.add(rs.getString("table_name"));
+            }
         }
         return nombres;
     }
 
-    /** Todas las filas de una tabla (el nombre ya debe venir de {@code information_schema}). */
+    /**
+     * S4: Todas las filas de una tabla usando {@link PreparedStatement} (el nombre ya fue validado contra
+     * {@code information_schema} y pasa por {@link #citarIdentificador}).
+     */
     private static JsonArray filasDeTabla(Connection conn, String tableName) throws SQLException {
+        String tablaCitada = citarIdentificador(tableName);
         JsonArray rows = new JsonArray();
-        try (Statement dataStmt = conn.createStatement();
-             ResultSet dataRs = dataStmt.executeQuery("SELECT * FROM \"" + tableName + "\" ORDER BY id")) {
+        try (PreparedStatement dataPs = conn.prepareStatement("SELECT * FROM " + tablaCitada + " ORDER BY id");
+             ResultSet dataRs = dataPs.executeQuery()) {
             ResultSetMetaData meta = dataRs.getMetaData();
             while (dataRs.next()) {
                 JsonObject row = new JsonObject();
@@ -313,14 +347,18 @@ public class DbAdminService {
         return rows;
     }
 
-    /** Lanza 400 si la tabla no existe en el esquema public. Todo nombre de tabla del request pasa por aquí. */
+    /** Lanza 400 si la tabla no existe en el esquema public. Todo nombre de tabla del request pasa por aqu�. */
     private static void exigirTablaValida(Connection conn, String tableName) throws SQLException {
+        if (tableName == null || !IDENTIFICADOR_SQL.matcher(tableName).matches()) {
+            throw ServicioException.solicitudInvalida("Tabla no v�lida");
+        }
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ? AND table_name <> '" + TABLA_FLYWAY + "'")) {
+                "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ? AND table_name <> ?")) {
             ps.setString(1, tableName);
+            ps.setString(2, TABLA_FLYWAY);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) {
-                    throw ServicioException.solicitudInvalida("Tabla no válida");
+                    throw ServicioException.solicitudInvalida("Tabla no v�lida");
                 }
             }
         }
@@ -341,7 +379,7 @@ public class DbAdminService {
         return types;
     }
 
-    /** Setea un parámetro del PreparedStatement según el tipo de dato real de la columna. */
+    /** Setea un par�metro del PreparedStatement seg�n el tipo de dato real de la columna. */
     private static void setTypedParam(PreparedStatement ps, int index, String value, String dataType)
             throws SQLException {
         if (value == null || value.isEmpty()) {

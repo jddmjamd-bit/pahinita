@@ -2,22 +2,22 @@ package com.torneosflash.dao;
 
 import com.google.gson.JsonObject;
 import com.torneosflash.servicio.UsuarioVista;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.sql.*;
 import java.util.ArrayList;
-import org.slf4j.Logger; // ← NUEVO
-import org.slf4j.LoggerFactory; // ← NUEVO
 
 /**
- * CONCEPTO POO: Collection - ... - usa ArrayList para retornar listas de
- * usuarios
- * CONCEPTO POO: Encapsulamiento - lógica de BD encapsulada en métodos
- * 
+ * CONCEPTO POO: Collection - usa ArrayList para retornar listas de usuarios
+ * CONCEPTO POO: Encapsulamiento - l�gica de BD encapsulada en m�todos
+ *
  * DAO para operaciones CRUD sobre la tabla users.
- * Retorna datos como JsonObject para compatibilidad con el frontend.
+ * S4: Todas las consultas son fijas y usan exclusivamente {@link PreparedStatement} con {@code ?}.
  */
 public class UsuarioDAO {
 
-    private static final Logger logger = LoggerFactory.getLogger(UsuarioDAO.class); // ← NUEVO
+    private static final Logger logger = LoggerFactory.getLogger(UsuarioDAO.class);
 
     private final ConexionDB db;
 
@@ -29,132 +29,130 @@ public class UsuarioDAO {
     public ArrayList<JsonObject> listarTodos() {
         ArrayList<JsonObject> lista = new ArrayList<>();
         try (Connection conn = db.getConnection();
-                PreparedStatement ps = conn.prepareStatement(
-                        "SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users ORDER BY ganancia_generada DESC");
-                ResultSet rs = ps.executeQuery()) {
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users ORDER BY ganancia_generada DESC");
+             ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
                 lista.add(rowToJson(rs));
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Error listando usuarios: {}", e.getMessage());
         }
         return lista;
     }
 
     /**
-     * S6: devuelve solo las columnas de sesión (nunca el hash de la contraseña).
+     * S6: devuelve solo las columnas de sesi�n (nunca el hash de la contrase�a).
      */
     public JsonObject buscarPorId(int id) {
         try (Connection conn = db.getConnection();
-                PreparedStatement ps = conn
-                        .prepareStatement("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?")) {
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?")) {
             ps.setInt(1, id);
-            ResultSet rs = ps.executeQuery();
-            if (rs.next())
-                return rowToJson(rs);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rowToJson(rs);
+            }
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Error buscando usuario por id={}: {}", id, e.getMessage());
         }
         return null;
     }
 
     /**
-     * S6: SOLO para verificar el login. Devuelve {id, password(hash)}; ese objeto
-     * debe
-     * quedarse en el servidor y nunca serializarse hacia el cliente. Para los datos
-     * del
+     * S6: SOLO para verificar el login. Devuelve {id, password(hash)}; ese objeto debe
+     * quedarse en el servidor y nunca serializarse hacia el cliente. Para los datos del
      * usuario usar {@link #buscarPorId(int)}.
      */
     public JsonObject buscarCredencialesPorEmail(String email) {
         try (Connection conn = db.getConnection();
-                PreparedStatement ps = conn.prepareStatement("SELECT id, password FROM users WHERE email = ?")) {
+             PreparedStatement ps = conn.prepareStatement("SELECT id, password FROM users WHERE email = ?")) {
             ps.setString(1, email);
-            ResultSet rs = ps.executeQuery();
-            if (rs.next())
-                return rowToJson(rs);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rowToJson(rs);
+            }
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Error buscando credenciales por email: {}", e.getMessage());
         }
         return null;
     }
 
     public JsonObject buscarPorUsername(String username) {
         try (Connection conn = db.getConnection();
-                PreparedStatement ps = conn.prepareStatement("SELECT id FROM users WHERE LOWER(username) = LOWER(?)")) {
+             PreparedStatement ps = conn.prepareStatement("SELECT id FROM users WHERE LOWER(username) = LOWER(?)")) {
             ps.setString(1, username);
-            ResultSet rs = ps.executeQuery();
-            if (rs.next()) {
-                JsonObject obj = new JsonObject();
-                obj.addProperty("id", rs.getInt("id"));
-                return obj;
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    JsonObject obj = new JsonObject();
+                    obj.addProperty("id", rs.getInt("id"));
+                    return obj;
+                }
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Error buscando usuario por username: {}", e.getMessage());
         }
         return null;
     }
 
     public JsonObject buscarPorEmailLower(String email) {
         try (Connection conn = db.getConnection();
-                PreparedStatement ps = conn.prepareStatement("SELECT id FROM users WHERE LOWER(email) = ?")) {
+             PreparedStatement ps = conn.prepareStatement("SELECT id FROM users WHERE LOWER(email) = ?")) {
             ps.setString(1, email.toLowerCase());
-            ResultSet rs = ps.executeQuery();
-            if (rs.next()) {
-                JsonObject obj = new JsonObject();
-                obj.addProperty("id", rs.getInt("id"));
-                return obj;
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    JsonObject obj = new JsonObject();
+                    obj.addProperty("id", rs.getInt("id"));
+                    return obj;
+                }
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Error buscando usuario por email: {}", e.getMessage());
         }
         return null;
     }
 
     public JsonObject buscarPorPlayerTag(String tag) {
         try (Connection conn = db.getConnection();
-                PreparedStatement ps = conn.prepareStatement("SELECT id FROM users WHERE player_tag = ?")) {
+             PreparedStatement ps = conn.prepareStatement("SELECT id FROM users WHERE player_tag = ?")) {
             ps.setString(1, tag.toUpperCase());
-            ResultSet rs = ps.executeQuery();
-            if (rs.next()) {
-                JsonObject obj = new JsonObject();
-                obj.addProperty("id", rs.getInt("id"));
-                return obj;
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    JsonObject obj = new JsonObject();
+                    obj.addProperty("id", rs.getInt("id"));
+                    return obj;
+                }
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Error buscando usuario por player_tag: {}", e.getMessage());
         }
         return null;
     }
 
     public int registrar(String username, String email, String passwordHash, String playerTag, String telefono) {
         try (Connection conn = db.getConnection();
-                PreparedStatement ps = conn.prepareStatement(
-                        "INSERT INTO users (username, email, password, player_tag, telefono) VALUES (?, ?, ?, ?, ?) RETURNING id")) {
+             PreparedStatement ps = conn.prepareStatement(
+                     "INSERT INTO users (username, email, password, player_tag, telefono) VALUES (?, ?, ?, ?, ?) RETURNING id")) {
             ps.setString(1, username);
             ps.setString(2, email);
             ps.setString(3, passwordHash);
             ps.setString(4, playerTag.toUpperCase());
             ps.setString(5, telefono);
-            ResultSet rs = ps.executeQuery();
-            if (rs.next())
-                return rs.getInt("id");
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getInt("id");
+            }
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Error registrando usuario: {}", e.getMessage());
         }
         return -1;
     }
 
-    // ↓↓↓ NUEVO ↓↓↓
     /**
-     * Roadmap 1.6: crea el usuario y deja constancia de que aceptó los Términos de
-     * Servicio y la Política de
-     * Privacidad (tabla legal_acceptances) en UNA sola transacción: o quedan las
-     * dos cosas o ninguna.
+     * Roadmap 1.6: crea el usuario y deja constancia de que acept� los T�rminos de Servicio y la Pol�tica de
+     * Privacidad (tabla legal_acceptances) en UNA sola transacci�n: o quedan las dos cosas o ninguna.
      *
      * @return el id del usuario nuevo, o -1 si no se pudo registrar
      */
     public int registrarConAceptacionLegal(String username, String email, String passwordHash, String playerTag,
-            String telefono, String versionTerminos, String versionPrivacidad) {
+                                           String telefono, String versionTerminos, String versionPrivacidad) {
         try (Connection conn = db.getConnection()) {
             conn.setAutoCommit(false);
             try {
@@ -189,7 +187,7 @@ public class UsuarioDAO {
                     conn.rollback();
                 } catch (SQLException ignored) {
                 }
-                logger.error("Error registrando usuario con aceptación legal: {}", e.getMessage());
+                logger.error("Error registrando usuario con aceptaci�n legal: {}", e.getMessage());
                 return -1;
             } finally {
                 try {
@@ -198,15 +196,14 @@ public class UsuarioDAO {
                 }
             }
         } catch (Exception e) {
-            logger.error("Error obteniendo conexión para registrar usuario: {}", e.getMessage());
+            logger.error("Error obteniendo conexi�n para registrar usuario: {}", e.getMessage());
             return -1;
         }
     }
-    // ↑↑↑ NUEVO ↑↑↑
 
     /**
-     * @deprecated D2: todo movimiento de saldo pasa por {@code WalletService}. Este método usa
-     *             {@code double} y no es atómico. Usar {@code WalletService.depositar()} o
+     * @deprecated D2: todo movimiento de saldo pasa por {@code WalletService}. Este m�todo usa
+     *             {@code double} y no es at�mico. Usar {@code WalletService.depositar()} o
      *             {@code WalletService.retirar()} en su lugar.
      */
     @Deprecated
@@ -216,27 +213,27 @@ public class UsuarioDAO {
 
     /**
      * @deprecated D2: el saldo se obtiene con {@code WalletService.obtenerSaldo()} que retorna
-     *             {@code BigDecimal}. Este método retorna {@code double} y puede causar errores
-     *             de precisión con dinero real.
+     *             {@code BigDecimal}. Este m�todo retorna {@code double} y puede causar errores
+     *             de precisi�n con dinero real.
      */
     @Deprecated
     public double obtenerSaldo(int userId) {
         try (Connection conn = db.getConnection();
-                PreparedStatement ps = conn.prepareStatement("SELECT saldo FROM users WHERE id = ?")) {
+             PreparedStatement ps = conn.prepareStatement("SELECT saldo FROM users WHERE id = ?")) {
             ps.setInt(1, userId);
-            ResultSet rs = ps.executeQuery();
-            if (rs.next())
-                return rs.getDouble("saldo");
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getDouble("saldo");
+            }
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Error obteniendo saldo usuario id={}: {}", userId, e.getMessage());
         }
         return 0;
     }
 
     public void actualizarEstado(int userId, String estado, String salaActual, int pasoJuego) {
         try (Connection conn = db.getConnection();
-                PreparedStatement ps = conn.prepareStatement(
-                        "UPDATE users SET estado = ?, sala_actual = ?, paso_juego = ? WHERE id = ?")) {
+             PreparedStatement ps = conn.prepareStatement(
+                     "UPDATE users SET estado = ?, sala_actual = ?, paso_juego = ? WHERE id = ?")) {
             ps.setString(1, estado);
             if (salaActual == null)
                 ps.setNull(2, Types.VARCHAR);
@@ -246,7 +243,7 @@ public class UsuarioDAO {
             ps.setInt(4, userId);
             ps.executeUpdate();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Error actualizando estado usuario id={}: {}", userId, e.getMessage());
         }
     }
 
@@ -259,41 +256,25 @@ public class UsuarioDAO {
         ejecutarSQL("UPDATE users SET tipo_suscripcion = 'admin' WHERE username = ?", username);
     }
 
-    // Métodos auxiliares
+    // M�todos auxiliares privados (S4: nunca expuestos para SQL arbitrario externo)
     private void ejecutar(String sql, double param1, int param2) {
-        try (Connection conn = db.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (Connection conn = db.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setDouble(1, param1);
             ps.setInt(2, param2);
             ps.executeUpdate();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Error ejecutando actualizaci�n num�rica en UsuarioDAO: {}", e.getMessage());
         }
     }
 
     private void ejecutarSQL(String sql, String param) {
-        try (Connection conn = db.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (Connection conn = db.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, param);
             ps.executeUpdate();
         } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    public void ejecutarUpdate(String sql, Object... params) {
-        try (Connection conn = db.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
-            for (int i = 0; i < params.length; i++) {
-                if (params[i] instanceof Integer)
-                    ps.setInt(i + 1, (Integer) params[i]);
-                else if (params[i] instanceof Double)
-                    ps.setDouble(i + 1, (Double) params[i]);
-                else if (params[i] instanceof String)
-                    ps.setString(i + 1, (String) params[i]);
-                else if (params[i] == null)
-                    ps.setNull(i + 1, Types.VARCHAR);
-            }
-            ps.executeUpdate();
-        } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Error ejecutando actualizaci�n en UsuarioDAO: {}", e.getMessage());
         }
     }
 

@@ -11,6 +11,14 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-16 — S4: Sanitizar SQL Injection y eliminar usos de Statement (Gemini 3.1 Pro)
+- **`GenericDAO.java`**: Eliminado el método `execute(String sql)` que abría un `Statement` crudo y permitía ejecutar SQL sin parametrizar. Añadido soporte explícito para `BigDecimal` y `Boolean` en `setParams`, cierre garantizado de `ResultSet` con `try-with-resources` y registro de errores con SLF4J (`logger.error`).
+- **`UsuarioDAO.java`**: Eliminado el método público `ejecutarUpdate(String sql, Object... params)` que aceptaba cadenas SQL arbitrarias desde el exterior. Cerrados todos los `ResultSet` en bloques `try-with-resources` y reemplazados los `printStackTrace()` por `logger.error`.
+- **`DbAdminService.java`**: Reemplazados todos los usos de `Statement` (`createStatement()`, `executeQuery()`, `execute()`) en `filasDeTabla` y en el reseteo de secuencias de `importar` por `PreparedStatement` (`SELECT setval(pg_get_serial_sequence(?, 'id'), ...)`). Parametrizado `TABLA_FLYWAY` con `?` en `nombresDeTablas` y `exigirTablaValida`, añadido validador estricto de identificadores SQL (`citarIdentificador` con regex `^[a-zA-Z_][a-zA-Z0-9_]*$`) y tipado de parámetros (`setTypedParam`) al importar backups.
+- **`LeaderboardService.java`**: Añadida validación por lista blanca cerrada (`columnaVictoriasSegura` y `columnaPozoSegura`) en `premiarYResetear` para que ningún identificador de columna o periodo se interpole en SQL sin validación interna.
+- **Verificación manual**: (1) Ejecutar compilación con Maven; (2) Verificar que `git grep -n "createStatement"` en `src/main/java` no arroje ningún resultado; (3) Probar lectura de rankings y panel `/admin-db` (listar tablas, ver filas, editar e importar).
+Archivos: `GenericDAO.java`, `UsuarioDAO.java`, `DbAdminService.java`, `LeaderboardService.java`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-15 — S2: Obtener siempre el userId desde la sesión JWT en rutas y handshake (Gemini 3.8 Flash)
 - **Rutas HTTP (`RutasFinanzas`, `RutasSorteos`)**: Se elimina la confianza en el `userId` recibido en los cuerpos JSON de las solicitudes POST (`/api/transaction/create`, `/api/transaction/withdraw`, `/api/wompi/init`, `/api/raffle/participate`, `/api/raffle/vote`). Ahora se obtiene exclusivamente de la sesión JWT verificada mediante `Peticion.userIdDeSesion(ctx)`.
 - **Frontend (`Finance.jsx`, `Sorteos.jsx`)**: Se eliminó el envío de `userId` en el cuerpo JSON de las llamadas a la API de finanzas y sorteos, asegurando el uso de `credentials: 'include'` para enviar la cookie httpOnly del JWT.

@@ -13,8 +13,11 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 
 /**
- * Lógica del leaderboard: rankings por periodo, historial y premios periódicos con reset (A3).
- * Antes vivía en {@code RutasLeaderboard}. No conoce HTTP.
+ * L�gica del leaderboard: rankings por periodo, historial y premios peri�dicos con reset (A3).
+ * Antes viv�a en {@code RutasLeaderboard}. No conoce HTTP.
+ *
+ * S4: Todo nombre de columna/periodo que se interpola en SQL proviene exclusivamente de listas
+ * blancas cerradas dentro de esta clase.
  */
 public class LeaderboardService {
     private static final Logger logger = LoggerFactory.getLogger(LeaderboardService.class);
@@ -36,7 +39,7 @@ public class LeaderboardService {
     // Consultas
     // ------------------------------------------------------------------
 
-    /** Ranking (top 50) del periodo pedido; en los periodos con pozo incluye los premios por posición. */
+    /** Ranking (top 50) del periodo pedido; en los periodos con pozo incluye los premios por posici�n. */
     public JsonObject ranking(String periodo) {
         // La columna sale de esta lista cerrada (nunca del request), por eso es seguro concatenarla en el SQL
         String orderColumn;
@@ -48,7 +51,7 @@ public class LeaderboardService {
             case "global": orderColumn = "total_victorias"; break;
             case "monto_torneos": orderColumn = "total_monto_torneos"; break;
             case "ganado": orderColumn = "total_ganado"; break;
-            default: throw ServicioException.solicitudInvalida("Periodo no válido");
+            default: throw ServicioException.solicitudInvalida("Periodo no v�lido");
         }
 
         boolean isMoneyTab = "monto_torneos".equals(periodo) || "ganado".equals(periodo);
@@ -94,31 +97,64 @@ public class LeaderboardService {
     }
 
     // ------------------------------------------------------------------
-    // Premios periódicos
+    // Premios peri�dicos
     // ------------------------------------------------------------------
 
     /**
+     * S4: Lista blanca cerrada para los periodos premiables y su columna de victorias en {@code users}.
+     */
+    private static String columnaVictoriasSegura(String periodo, String columnaSolicitada) {
+        String esperada;
+        switch (periodo == null ? "" : periodo) {
+            case "dia": esperada = "victorias_dia"; break;
+            case "semana": esperada = "victorias_semana"; break;
+            case "mes": esperada = "victorias_mes"; break;
+            case "ano": esperada = "victorias_ano"; break;
+            default:
+                throw new IllegalArgumentException("Periodo de leaderboard no v�lido: " + periodo);
+        }
+        if (columnaSolicitada != null && !esperada.equals(columnaSolicitada)) {
+            throw new IllegalArgumentException("Columna de leaderboard no coincide con el periodo: " + columnaSolicitada);
+        }
+        return esperada;
+    }
+
+    private static String columnaPozoSegura(String periodo) {
+        switch (periodo == null ? "" : periodo) {
+            case "dia": return "dia";
+            case "semana": return "semana";
+            case "mes": return "mes";
+            case "ano": return "ano";
+            default:
+                throw new IllegalArgumentException("Periodo de pozo no v�lido: " + periodo);
+        }
+    }
+
+    /**
      * Premia al top del periodo con el pozo acumulado y resetea contadores y pozo.
-     * Lo llama el scheduler de {@code Main} (día, semana, mes, año).
+     * Lo llama el scheduler de {@code Main} (d�a, semana, mes, a�o).
      */
     public void premiarYResetear(String periodo, String columna) {
         try {
-            logger.info("🏆 Premiando leaderboard {}...", periodo);
+            String columnaSegura = columnaVictoriasSegura(periodo, columna);
+            String periodoSeguro = columnaPozoSegura(periodo);
+
+            logger.info("?? Premiando leaderboard {}...", periodoSeguro);
 
             JsonObject poolData = db.queryOne("SELECT * FROM leaderboard_pools WHERE id = 1");
             if (poolData == null) {
-                db.update("UPDATE users SET " + columna + " = 0");
+                db.update("UPDATE users SET " + columnaSegura + " = 0");
                 return;
             }
 
-            double pozoTotal = poolData.get(periodo).getAsDouble();
+            double pozoTotal = poolData.get(periodoSeguro).getAsDouble();
 
             ArrayList<JsonObject> top = db.query(
-                    "SELECT id, username, " + columna + " as victorias, ganancia_generada FROM users WHERE " +
-                    columna + " > 0 ORDER BY " + columna + " DESC, ganancia_generada DESC LIMIT 10");
+                    "SELECT id, username, " + columnaSegura + " as victorias, ganancia_generada FROM users WHERE " +
+                    columnaSegura + " > 0 ORDER BY " + columnaSegura + " DESC, ganancia_generada DESC LIMIT 10");
 
-            String configKey = "dia".equals(periodo) ? "diario" : "semana".equals(periodo) ? "semanal" :
-                    "mes".equals(periodo) ? "mensual" : "anual";
+            String configKey = "dia".equals(periodoSeguro) ? "diario" : "semana".equals(periodoSeguro) ? "semanal" :
+                    "mes".equals(periodoSeguro) ? "mensual" : "anual";
 
             String ahora = new java.util.Date().toString();
 
@@ -189,11 +225,11 @@ public class LeaderboardService {
                             premioData.addProperty("periodo", configKey);
                             premioData.addProperty("posicion", i + 1);
                             premioData.addProperty("premio", premioFinal);
-                            premioData.addProperty("mensaje", "🏆 ¡Quedaste #" + (i + 1) + " del ranking " + configKey + "! Ganaste $" + premioFinal);
+                            premioData.addProperty("mensaje", "?? �Quedaste #" + (i + 1) + " del ranking " + configKey + "! Ganaste $" + premioFinal);
                             s.emit("premio_leaderboard", premioData);
                         }
                     }
-                    logger.info("   🥇 #{} {}: +${}", i + 1, jugador.get("username").getAsString(), premioFinal);
+                    logger.info("   ?? #{} {}: +${}", i + 1, jugador.get("username").getAsString(), premioFinal);
                 }
 
                 // 4. Pagar al admin (sobrantes y decimales)
@@ -222,12 +258,12 @@ public class LeaderboardService {
             }
 
             // Resetear columna
-            db.update("UPDATE users SET " + columna + " = 0");
-            logger.info("   ✅ Columna {} reseteada", columna);
+            db.update("UPDATE users SET " + columnaSegura + " = 0");
+            logger.info("   ? Columna {} reseteada", columnaSegura);
 
             // Reiniciar el pozo para ese periodo
-            db.update("UPDATE leaderboard_pools SET " + periodo + " = 0 WHERE id = 1");
-            logger.info("   ✅ Pozo de {} reiniciado a 0", periodo);
+            db.update("UPDATE leaderboard_pools SET " + periodoSeguro + " = 0 WHERE id = 1");
+            logger.info("   ? Pozo de {} reiniciado a 0", periodoSeguro);
 
             JsonObject resetData = new JsonObject();
             resetData.addProperty("periodo", configKey);
