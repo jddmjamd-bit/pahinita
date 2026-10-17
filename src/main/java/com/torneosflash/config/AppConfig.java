@@ -33,10 +33,11 @@ public class AppConfig {
     private final String wompiXApiKey;
     private final String dbAdminSecret;
 
-    // --- Servidor / red (A7) ---
+    // --- Servidor / red (A7 / A1) ---
     private final String appBaseUrl;
     private final String bindHost;
     private final int wsMaxMessageBytes;
+    private final int socketIoPort;
 
     // --- Temporizadores y límites de partidas/chat (A7). Los usa SocketHandler. ---
     private final int busquedaTimeoutMinutos;
@@ -141,6 +142,8 @@ public class AppConfig {
         this.bindHost = hostEnv.isEmpty() ? "0.0.0.0" : hostEnv;
         // Tamaño máximo de un mensaje WebSocket (el chat envía imágenes en base64). Default 50 MB.
         this.wsMaxMessageBytes = getEnvEntero("WS_MAX_MESSAGE_BYTES", 50_000_000, 1024);
+        // A1: puerto interno de netty-socketio (Javalin redirige /socket.io/ desde PORT hacia este puerto).
+        this.socketIoPort = getEnvEntero("SOCKET_IO_PORT", 9092, 0, 65535);
 
         this.busquedaTimeoutMinutos = getEnvEntero("BUSQUEDA_TIMEOUT_MINUTOS", 10, 1, 1440);
         this.negociacionDesconexionSegundos = getEnvEntero("NEGOCIACION_DESCONEXION_SEGUNDOS", 90, 1, 3600);
@@ -340,6 +343,7 @@ public class AppConfig {
     public String getAppBaseUrl() { return appBaseUrl; }
     public String getBindHost() { return bindHost; }
     public int getWsMaxMessageBytes() { return wsMaxMessageBytes; }
+    public int getSocketIoPort() { return socketIoPort; }
     public int getBusquedaTimeoutMinutos() { return busquedaTimeoutMinutos; }
     public int getNegociacionDesconexionSegundos() { return negociacionDesconexionSegundos; }
     public int getPollingIntervaloSegundos() { return pollingIntervaloSegundos; }

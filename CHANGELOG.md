@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-17 — A1: Reemplazar adaptador Socket.IO manual por netty-socketio (Gemini 3.1 Pro)
+- **`pom.xml`**: Añadida la dependencia `com.corundumstudio.socketio:netty-socketio:2.0.12` con soporte para protocolo Engine.IO v4 / Socket.IO v4, rooms, namespaces y heartbeats automáticos.
+- **`SocketIOServer.java` y `SocketIOClient.java`**: Reemplazada la implementación manual del protocolo Engine.IO/Socket.IO por `com.corundumstudio.socketio.SocketIOServer`. Las operaciones de rooms (`join`, `leave`, `io.to(room).emit`, `client.to(room).emit`, `getClientsInRoom`), namespaces (`io.of(...)`), desconexiones y sesiones delegan directamente en `netty-socketio`. Se convierte automáticamente entre `JsonElement` de Gson y tipos nativos para mantener intacta la interfaz consumida por `SocketHandler` y los servicios.
+- **Puente en `/socket.io/` sobre el puerto único de Javalin (`SocketIOServer.java`)**: `netty-socketio` arranca en `127.0.0.1:SOCKET_IO_PORT` (default `9092`, con fallback automático a un puerto libre si está ocupado) y Javalin enlaza `/socket.io/` (WebSocket y HTTP polling, reenviando la cookie JWT `session` y `X-Forwarded-For`) hacia `netty-socketio`, funcionando en el puerto único de Render sin cambios en el frontend.
+- **`AppConfig.java` y `Main.java`**: Añadida la variable de entorno opcional `SOCKET_IO_PORT` (default `9092`) y el apagado ordenado `socketServer.stop()` en el shutdown hook de `Main`.
+Archivos: `pom.xml`, `SocketIOClient.java`, `SocketIOServer.java`, `AppConfig.java`, `Main.java`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-17 — D1: Usar BigDecimal en vez de double en todo el manejo de dinero (Gemini 3.1 Pro)
 - **DAOs y panel de BD (`GenericDAO.java`, `UsuarioDAO.java`, `DbAdminService.java`)**: `GenericDAO.rowToJson` ahora lee las columnas `NUMERIC` y `DECIMAL` con `rs.getBigDecimal(i)` en lugar de `rs.getDouble(i)`. `UsuarioDAO.rowToJson` y `DbAdminService.filasDeTabla` conservan los `BigDecimal` sin convertirlos a `double`, y `DbAdminService.setTypedParam` escribe `BigDecimal` para columnas numéricas.
 - **Finanzas y pasarela Wompi (`FinanzasService.java`, `RutasFinanzas.java`, `NotificadorUsuarios.java`)**: `calcularMontoCentavosWompi` calcula la tarifa de pasarela (`(monto + 840) / 0.964`) íntegramente con `BigDecimal` y `RoundingMode.CEILING` (eliminando `double` y `Math.ceil`). `solicitarRetiro` y `NotificadorUsuarios.notificarSaldo` operan directamente con `BigDecimal`.

@@ -10,7 +10,7 @@
 | Capa | Tecnología | Notas |
 |------|-----------|-------|
 | **Backend** | Java 17, Javalin 5 | Servidor HTTP + middleware |
-| **WebSocket** | Adaptador custom (`socketio/`) | Emula Socket.IO sobre WS nativo de Javalin. **Migrar a netty-socketio** (pendiente) |
+| **WebSocket** | `netty-socketio` 2.0.12 (`socketio/`) | Servidor Socket.IO v3/v4 con soporte nativo de rooms, namespaces y reconexión automática, enlazado en `/socket.io/` sobre el puerto de Javalin (A1 completado) |
 | **BD** | PostgreSQL (Render) | Pool: HikariCP, max 20 conexiones. Enlace de acceso endurecido (sección 11) |
 | **ORM** | Ninguno | SQL directo con `PreparedStatement` vía `GenericDAO` |
 | **Migraciones BD** | Flyway 10 | Scripts versionados en `src/main/resources/db/migration/`; se aplican al arrancar (`ConexionDB.migrar()`). Ver sección 14 |
@@ -355,6 +355,7 @@ Toda configuración de despliegue se lee en `config/AppConfig` (nada de números
 | `APP_BASE_URL` | `https://torneos-beta.onrender.com` | http(s) | URL del sitio en las push (enlace e icono `/icon-192.png`). Se quita la `/` final |
 | `BIND_HOST` | `0.0.0.0` | | Interfaz en la que escucha Javalin. No se usa `HOST` para no chocar con esa variable de sistema |
 | `WS_MAX_MESSAGE_BYTES` | `50000000` | >= 1024 | Tamaño máximo de un mensaje WebSocket (el chat manda imágenes en base64) |
+| `SOCKET_IO_PORT` | `9092` | 0 - 65535 | Puerto interno donde escucha `netty-socketio` (Javalin expone `/socket.io/` en `PORT` y redirige internamente; si está ocupado elige uno libre) |
 | `BUSQUEDA_TIMEOUT_MINUTOS` | `10` | 1 - 1440 | Minutos de búsqueda de rival antes de cancelarla (`SocketHandler`) |
 | `NEGOCIACION_DESCONEXION_SEGUNDOS` | `90` | 1 - 3600 | Segundos que se espera a un jugador desconectado durante la negociación antes de cancelar el match |
 | `POLLING_INTERVALO_SEGUNDOS` | `5` | 2 - 60 | Cada cuánto se consulta la API de Clash Royale por el resultado de una partida |

@@ -129,9 +129,9 @@ public class Main {
                 ejecutores);
 
         // ============================================
-        // 4. SOCKET.IO
+        // 4. SOCKET.IO (A1: netty-socketio)
         // ============================================
-        SocketIOServer socketServer = new SocketIOServer(ejecutores.timers());
+        SocketIOServer socketServer = new SocketIOServer(config, ejecutores.timers());
 
         // ============================================
         // 5. SERVIDOR HTTP (Javalin)
@@ -369,6 +369,11 @@ public class Main {
         // BD.
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             logger.info("🛑 Apagando servidor...");
+            try {
+                socketServer.stop();
+            } catch (Exception e) {
+                logger.warn("Error deteniendo Socket.IO: " + e.getMessage());
+            }
             try {
                 app.stop();
             } catch (Exception e) {
