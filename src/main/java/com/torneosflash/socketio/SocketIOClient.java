@@ -35,6 +35,8 @@ public class SocketIOClient {
     private JsonObject userData;
     private String currentRoom;
     private String busquedaNotifId;
+    // S2: userId verificado desde la cookie httpOnly JWT durante el handshake
+    private Integer authenticatedUserId;
 
     // --- Constructor (CONSTRUCTOR) ---
     public SocketIOClient(String sid, WsConnectContext ctx, SocketIOServer server) {
@@ -45,6 +47,7 @@ public class SocketIOClient {
         this.userData = null;
         this.currentRoom = null;
         this.busquedaNotifId = null;
+        this.authenticatedUserId = null;
     }
 
     // --- Registrar event handler para este socket ---
@@ -122,6 +125,9 @@ public class SocketIOClient {
 
     public JsonObject getUserData() { return userData; }
     public void setUserData(JsonObject userData) { this.userData = userData; }
+
+    public Integer getAuthenticatedUserId() { return authenticatedUserId; }
+    public void setAuthenticatedUserId(Integer authenticatedUserId) { this.authenticatedUserId = authenticatedUserId; }
 
     public String getCurrentRoom() { return currentRoom; }
     public void setCurrentRoom(String currentRoom) { this.currentRoom = currentRoom; }

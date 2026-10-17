@@ -330,7 +330,6 @@ export default function Match() {
             // por eso no se agrega localmente (saldría duplicado).
             socket.emit('mensaje_privado', {
                 salaId: matchState.salaId,
-                usuario: currentUser.username,
                 texto
             });
             setChatInput('');
@@ -349,7 +348,7 @@ export default function Match() {
 
     const handleBuscar = () => {
         if (!currentUser || !socket) return;
-        socket.emit('buscar_partida', currentUser); // el servidor solo usa el id y relee el saldo de la BD
+        socket.emit('buscar_partida'); // S2: el servidor identifica al jugador por la sesión JWT del socket
         setMatchState({ status: 'searching' });
     };
 

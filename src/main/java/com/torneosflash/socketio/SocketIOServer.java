@@ -44,6 +44,8 @@ public class SocketIOServer {
     // Polling sessions: sid -> pending messages queue
     private final ConcurrentHashMap<String, ConcurrentLinkedQueue<String>> pollingQueues = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Boolean> upgradedSessions = new ConcurrentHashMap<>();
+    // S2: userId autenticado en el handshake inicial de polling (sid -> userId)
+    private final ConcurrentHashMap<String, Integer> pollingAuthUsers = new ConcurrentHashMap<>();
 
     /**
      * Registrar handler para evento "connection" (cuando un nuevo cliente se
@@ -102,6 +104,10 @@ public class SocketIOServer {
                 String newSid = UUID.randomUUID().toString().replace("-", "").substring(0, 20);
                 pollingQueues.put(newSid, new ConcurrentLinkedQueue<>());
                 upgradedSessions.put(newSid, false);
+                Integer pollUserId = AuthMiddleware.userIdDesdeCookieHeader(ctx.header("Cookie"));
+                if (pollUserId != null) {
+                    pollingAuthUsers.put(newSid, pollUserId);
+                }
 
                 JsonObject openData = new JsonObject();
                 openData.addProperty("sid", newSid);
@@ -267,6 +273,7 @@ public class SocketIOServer {
             clientsBySession.remove(client.getSid());
             pollingQueues.remove(client.getSid());
             upgradedSessions.remove(client.getSid());
+            pollingAuthUsers.remove(client.getSid());
 
             // Remove from all rooms
             for (String room : client.getRooms()) {

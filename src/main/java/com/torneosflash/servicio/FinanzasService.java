@@ -45,11 +45,21 @@ public class FinanzasService {
         notificador.notificarSaldo(userId, "✅ Recarga acreditada.", result.getNuevoSaldoDouble());
     }
 
+    /** S2: Obtiene el username real desde la BD a partir del userId de la sesión JWT. */
+    private String usernameDeUsuario(int userId) {
+        JsonObject u = db.queryOne("SELECT username FROM users WHERE id = ?", userId);
+        if (u == null || !u.has("username") || u.get("username").isJsonNull()) {
+            throw ServicioException.noAutenticado("Usuario no encontrado");
+        }
+        return u.get("username").getAsString();
+    }
+
     /** Crea una solicitud de recarga pendiente (la aprueba un admin). */
-    public void crearSolicitudRecarga(int userId, String username, String metodo, String referencia,
+    public void crearSolicitudRecarga(int userId, String metodo, String referencia,
                                       com.google.gson.JsonElement montoCrudo) {
         // D5: nunca se guarda una solicitud con un monto que el servidor no haya validado
         BigDecimal monto = exigirValido(validador.deposito(montoCrudo)); // REVIEW-MONEY
+        String username = usernameDeUsuario(userId);
 
         db.update("INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia) " +
                 "VALUES (?, ?, 'deposito', ?, ?, ?)", userId, username, metodo, monto, referencia);
@@ -60,9 +70,10 @@ public class FinanzasService {
      *
      * @return el saldo nuevo, para que el frontend lo actualice sin otra petición
      */
-    public double solicitarRetiro(int userId, String username, String metodo, String referencia,
+    public double solicitarRetiro(int userId, String metodo, String referencia,
                                   com.google.gson.JsonElement montoCrudo) {
         BigDecimal monto = exigirValido(validador.retiro(montoCrudo)); // REVIEW-MONEY
+        String username = usernameDeUsuario(userId);
 
         // Descontar saldo atómicamente con verificación // REVIEW-MONEY
         WalletResult result = wallet.retirar(userId, monto, "Retiro " + metodo);
@@ -78,8 +89,9 @@ public class FinanzasService {
     }
 
     /** Prepara un pago Wompi: registra la transacción pendiente y devuelve los datos firmados para el widget. */
-    public JsonObject iniciarWompi(int userId, String username, com.google.gson.JsonElement montoCrudo) {
+    public JsonObject iniciarWompi(int userId, com.google.gson.JsonElement montoCrudo) {
         BigDecimal monto = exigirValido(validador.deposito(montoCrudo)); // REVIEW-MONEY
+        String username = usernameDeUsuario(userId);
 
         // Total con la tarifa de pasarela (el cálculo con double queda para D1; el monto ya está acotado y es entero)
         double baseCara = monto.doubleValue() + 840;

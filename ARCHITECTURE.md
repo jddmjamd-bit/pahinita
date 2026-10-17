@@ -244,7 +244,7 @@ Defensa en dos capas; ninguna confía en la otra.
 - El servidor **no** convierte a entidades HTML (`&lt;`): se guarda texto plano y cada frontend lo escapa al pintar, así no se ven entidades dobles.
 - `GET /api/media/{id}` responde con `X-Content-Type-Options: nosniff`.
 - Los usernames nuevos (3–30 caracteres) no pueden llevar `<`, `>`, `"`, `'`, `&`, el acento grave ni caracteres de control.
-- Límite conocido: `usuario` sigue llegando del cliente (se limpia pero no se verifica contra la sesión); se resuelve en S2 (identidad desde JWT en el handshake del socket).
+- **Identidad del emisor (S2 completado):** `SocketIOServer` autentica la cookie JWT en el handshake y `SocketHandler` usa siempre el `username` y rol reales de la sesión para `mensaje_chat`, `mensaje_privado`, `registrar_socket` y `buscar_partida` (y verifica en BD que solo un admin escriba en `anuncios`).
 
 ---
 
@@ -527,7 +527,7 @@ ruta ── AuthMiddleware.getUserId(ctx) / Peticion.userIdDeSesion(ctx) (0 si n
 | `COOKIE_SECURE` | `true` | Poner `false` solo para probar por `http://` en una IP de red local (en `localhost` los navegadores aceptan `Secure`) |
 
 **Límites conocidos / pendientes**
-- **S2:** muchas rutas siguen leyendo `userId` del body (finanzas, sorteos, `register-token`) y el socket no se autentica en el handshake. Para eso ya existen `AuthMiddleware.getUserId(ctx)` y `AuthMiddleware.userIdDesdeCookieHeader(cookieHeader)`.
+- **S2 (resuelto):** ninguna ruta de usuario lee `userId` ni `username` del body (`RutasFinanzas`, `RutasSorteos`, `RutasAuth.register-token`, `RutasChatbot`, `RutasSoporte` usan `Peticion.userIdDeSesion(ctx)`), y el handshake de Socket.IO extrae el `userId` de la cookie JWT con `AuthMiddleware.userIdDesdeCookieHeader(cookieHeader)` y lo fija en `SocketIOClient.authenticatedUserId`.
 - **S3 (resuelto):** el claim `rol` puede quedar viejo hasta el siguiente `/api/session` o login, por eso las rutas de admin NO lo usan: `AdminMiddleware` consulta `users.tipo_suscripcion` en la BD en cada petición (sección 18).
 - **App nativa / React en otro origen:** con `SameSite=Lax` el navegador no envía la cookie en `fetch` entre sitios (igual que antes con la cookie sin SameSite). Si la app Capacitor necesita la sesión, usar `COOKIE_SAMESITE=None` **y** cambiar CORS `anyHost()` + `allowCredentials` por una lista de orígenes permitidos; con `None` y `anyHost()` cualquier web podría hacer peticiones autenticadas.
 

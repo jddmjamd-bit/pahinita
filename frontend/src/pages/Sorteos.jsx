@@ -37,8 +37,8 @@ export default function Sorteos() {
     const cargarSorteos = async () => {
         if (!currentUser) return;
         try {
-            // Tickets
-            const ticketsRes = await fetch(`${API_BASE_URL}/api/raffle/tickets/${currentUser.id}`, { credentials: 'include' });
+            // Tickets (S2: el servidor identifica al usuario por su cookie JWT)
+            const ticketsRes = await fetch(`${API_BASE_URL}/api/raffle/tickets`, { credentials: 'include' });
             if(ticketsRes.ok) {
                 const ticketsData = await ticketsRes.json();
                 setUserTickets(ticketsData.tickets || 0);

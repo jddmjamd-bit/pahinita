@@ -24,7 +24,7 @@ export const useAppStore = create((set, get) => ({
             // el servidor rehace todo el registro (incluido reenviar restaurar_partida) en cada emisión.
             // Al conectar el socket ya se registra solo (ver 'connect' en connectSocket).
             if (socket && socket.connected && anterior?.id !== userData.id) {
-                socket.emit('registrar_socket', userData);
+                socket.emit('registrar_socket');
             }
         } else {
             localStorage.removeItem('currentUser');
@@ -84,7 +84,6 @@ export const useAppStore = create((set, get) => ({
         if (!socket || !user || !texto) return;
         socket.emit('mensaje_chat', {
             canal,
-            usuario: user.username,
             texto,
             tipo
         });
@@ -108,7 +107,7 @@ export const useAppStore = create((set, get) => ({
             console.log('Socket conectado:', newSocket.id);
             const currentUser = get().user;
             if (currentUser) {
-                newSocket.emit('registrar_socket', currentUser);
+                newSocket.emit('registrar_socket');
             }
             // En una reconexión pudo haberse aprobado una recarga mientras no había socket: se resincroniza el saldo.
             // (La primera conexión ya la cubre la sincronización al cargar la app.)

@@ -110,14 +110,16 @@ public class RutasAuth {
         // GET /api/verify-tag/:tag
         app.get("/api/verify-tag/{tag}", ctx -> ctx.json(auth.verificarTag(ctx.pathParam("tag"))));
 
-        // POST /api/register-token (FCM push tokens)
+        // POST /api/register-token (FCM push tokens) — S2: userId siempre desde sesión JWT
         app.post("/api/register-token", ctx -> {
+            int userId = Peticion.userIdDeSesion(ctx);
+            if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
             JsonObject body = parseBody(ctx);
-            if (!body.has("userId") || !body.has("token")) {
+            if (!body.has("token")) {
                 ctx.status(400).json(errorJson("Faltan datos"));
                 return;
             }
-            auth.registrarTokenPush(Peticion.entero(body, "userId"), Peticion.texto(body, "token"));
+            auth.registrarTokenPush(userId, Peticion.texto(body, "token"));
             ctx.json(successJson("Token registrado", 0));
         });
     }

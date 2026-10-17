@@ -43,7 +43,6 @@ export default function Finance() {
                 credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    username: currentUser.username,
                     tipo: 'deposito',
                     metodo: 'manual_nequi',
                     monto: manualAmount,
@@ -76,7 +75,6 @@ export default function Finance() {
                 credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    username: currentUser.username,
                     monto: Number(monto)
                 })
             });
@@ -126,7 +124,6 @@ export default function Finance() {
                 credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    username: currentUser.username,
                     monto: withdrawAmount,
                     datosCuenta: datosCuenta
                 })

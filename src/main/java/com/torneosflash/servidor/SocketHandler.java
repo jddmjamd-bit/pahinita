@@ -69,6 +69,16 @@ public class SocketHandler {
      */
     public void registrar() {
         io.onConnection((socket, args) -> {
+            // S2: Si el handshake tenía cookie JWT válida, precargar el usuario desde la BD
+            if (socket.getAuthenticatedUserId() != null) {
+                JsonObject u = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", socket.getAuthenticatedUserId());
+                if (u != null) {
+                    socket.setUserData(u);
+                } else {
+                    socket.setAuthenticatedUserId(null);
+                }
+            }
+
             // Enviar historial de chats
             for (String canal : new String[]{"anuncios", "general", "clash", "clash_logs"}) {
                 ArrayList<JsonObject> msgs = db.query(
@@ -83,15 +93,19 @@ public class SocketHandler {
             // --- REGISTRAR SOCKET ---
             socket.on("registrar_socket", (client, data) -> {
                 try {
-                    JsonObject user = null;
-                    if (data != null && data.length > 0 && data[0] instanceof JsonElement) {
-                        user = ((JsonElement) data[0]).getAsJsonObject();
-                    }
-                    if (user == null || !user.has("id")) {
+                    // S2: La identidad del socket sale SIEMPRE del JWT verificado en el handshake, nunca del payload del cliente
+                    Integer authId = client.getAuthenticatedUserId();
+                    if (authId == null || authId <= 0) {
+                        logger.warn("Intento de registrar_socket sin sesión JWT en handshake (sid={})", client.getSid());
                         return;
                     }
-                    int userId = user.get("id").getAsInt();
-                    String username = user.get("username").getAsString();
+                    JsonObject dbUser = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", authId);
+                    if (dbUser == null) {
+                        logger.warn("Usuario {} de JWT ya no existe en BD (sid={})", authId, client.getSid());
+                        return;
+                    }
+                    int userId = dbUser.get("id").getAsInt();
+                    String username = dbUser.get("username").getAsString();
 
                     // Desconectar sesiones anteriores del mismo usuario
                     for (SocketIOClient existing : io.getSockets().values()) {
@@ -110,7 +124,7 @@ public class SocketHandler {
                     colaEsperaClash.removeIf(s -> s.getUserData() != null &&
                             s.getUserData().get("id").getAsInt() == userId && !s.getSid().equals(client.getSid()));
 
-                    client.setUserData(user);
+                    client.setUserData(dbUser);
                     usuariosOnline.add(userId);
                     logger.info("✅ Usuario " + username + " (" + userId + ") está ONLINE");
 
@@ -141,7 +155,6 @@ public class SocketHandler {
                     }
 
                     // Recuperar sala si existe
-                    JsonObject dbUser = db.queryOne("SELECT sala_actual, estado, saldo FROM users WHERE id = ?", userId);
                     String salaActual = (dbUser != null && dbUser.has("sala_actual") && !dbUser.get("sala_actual").isJsonNull()) ?
                             dbUser.get("sala_actual").getAsString() : null;
                     if (salaActual != null && activeMatches.containsKey(salaActual)) {
@@ -213,15 +226,33 @@ public class SocketHandler {
             // --- MENSAJES ---
             socket.on("mensaje_chat", (client, data) -> {
                 try {
+                    // S2: Exigir sesión autenticada en el socket y tomar el username real de la sesión
+                    if (client.getUserData() == null || !client.getUserData().has("id")) {
+                        logger.warn("Mensaje de chat rechazado: socket sin sesión autenticada (sid={})", client.getSid());
+                        return;
+                    }
+                    int senderId = client.getUserData().get("id").getAsInt();
+                    String usuarioSesion = client.getUserData().get("username").getAsString();
+
                     JsonObject msg = ((JsonElement) data[0]).getAsJsonObject();
-                    // S5 (XSS): se valida y limpia todo lo que manda el cliente antes de guardar o reenviar
+                    // S5 (XSS) + S2: se valida y limpia usando el username de la sesión, nunca el del cliente
                     ChatSanitizer.MensajePublico limpio = ChatSanitizer.validarMensajePublico(
-                            str(msg, "canal"), str(msg, "usuario"), str(msg, "texto"), str(msg, "tipo"));
+                            str(msg, "canal"), usuarioSesion, str(msg, "texto"), str(msg, "tipo"));
                     if (limpio == null) {
                         logger.warn("Mensaje de chat rechazado por formato inválido (sid={})", client.getSid());
                         return;
                     }
                     String canal = limpio.canal();
+                    // S2/S3: Solo un admin (verificado en BD) puede publicar en el canal 'anuncios'
+                    if ("anuncios".equals(canal)) {
+                        JsonObject uRol = db.queryOne("SELECT tipo_suscripcion FROM users WHERE id = ?", senderId);
+                        boolean esAdmin = uRol != null && !uRol.get("tipo_suscripcion").isJsonNull()
+                                && "admin".equals(uRol.get("tipo_suscripcion").getAsString());
+                        if (!esAdmin) {
+                            logger.warn("Usuario {} intentó escribir en 'anuncios' sin ser admin", senderId);
+                            return;
+                        }
+                    }
                     String usuario = limpio.usuario();
                     String texto = limpio.texto();
                     String tipo = limpio.tipo();
@@ -255,8 +286,16 @@ public class SocketHandler {
             // --- BUSCAR PARTIDA ---
             socket.on("buscar_partida", (client, data) -> {
                 try {
-                    JsonObject usuario = ((JsonElement) data[0]).getAsJsonObject();
-                    int userId = usuario.get("id").getAsInt();
+                    // S2: El userId sale siempre del socket autenticado por JWT, nunca del objeto enviado por el cliente
+                    Integer authId = client.getAuthenticatedUserId();
+                    if (authId == null && client.getUserData() != null && client.getUserData().has("id")) {
+                        authId = client.getUserData().get("id").getAsInt();
+                    }
+                    if (authId == null || authId <= 0) {
+                        client.emit("error_busqueda", new JsonPrimitive("Sesión inválida. Vuelve a iniciar sesión."));
+                        return;
+                    }
+                    int userId = authId;
 
                     JsonObject row = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", userId);
                     // D5: el mínimo para buscar partida es el mínimo de torneo configurado (no un número fijo)
@@ -524,10 +563,15 @@ public class SocketHandler {
             // --- MENSAJE PRIVADO ---
             socket.on("mensaje_privado", (client, data) -> {
                 try {
+                    // S2: Exigir sesión autenticada y usar el username real del socket
+                    if (client.getUserData() == null || !client.getUserData().has("id")) {
+                        return;
+                    }
+                    String usuarioSesion = client.getUserData().get("username").getAsString();
                     JsonObject d = ((JsonElement) data[0]).getAsJsonObject();
-                    // S5 (XSS): se valida y limpia todo lo que manda el cliente antes de guardar o reenviar
+                    // S5 (XSS) + S2: se valida y limpia con el username de la sesión
                     ChatSanitizer.MensajePrivado limpio = ChatSanitizer.validarMensajePrivado(
-                            str(d, "salaId"), str(d, "usuario"), str(d, "texto"));
+                            str(d, "salaId"), usuarioSesion, str(d, "texto"));
                     if (limpio != null) {
                         // Se reconstruye el objeto solo con los campos permitidos
                         d = new JsonObject();

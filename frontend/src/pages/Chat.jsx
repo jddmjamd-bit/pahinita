@@ -150,7 +150,6 @@ export default function Chat() {
                 
                 socket.emit('mensaje_chat', {
                     canal: 'anuncios',
-                    usuario: currentUser.username,
                     texto: data.url,
                     tipo: 'video'
                 });
@@ -164,7 +163,6 @@ export default function Chat() {
             r.onload = (ev) => {
                 socket.emit('mensaje_chat', {
                     canal: 'anuncios',
-                    usuario: currentUser.username,
                     texto: ev.target.result,
                     tipo: 'imagen'
                 });
