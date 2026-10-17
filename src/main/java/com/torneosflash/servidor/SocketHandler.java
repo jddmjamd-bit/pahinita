@@ -195,12 +195,12 @@ public class SocketHandler {
                         }
                         rivalData = rivalDb;
                         
-                        // Calculo de maxMonto (usa el saldo real del rival, que NO se envía al cliente)
-                        // Saldo real de la BD (el que manda el cliente viene del localStorage y puede estar desactualizado)
-                        double miSaldo = dbUser != null && dbUser.has("saldo") && !dbUser.get("saldo").isJsonNull()
-                                ? dbUser.get("saldo").getAsDouble() : 0;
-                        double rivalSaldo = rivalData != null && rivalData.has("saldo") ? rivalData.get("saldo").getAsDouble() : 0;
-                        double maxMonto = Math.min(miSaldo, rivalSaldo);
+                        // Calculo de maxMonto con BigDecimal (D1: usa el saldo real del rival, que NO se envía al cliente) // REVIEW-MONEY
+                        BigDecimal miSaldo = dbUser != null && dbUser.has("saldo") && !dbUser.get("saldo").isJsonNull()
+                                ? dbUser.get("saldo").getAsBigDecimal() : BigDecimal.ZERO;
+                        BigDecimal rivalSaldo = rivalData != null && rivalData.has("saldo") && !rivalData.get("saldo").isJsonNull()
+                                ? rivalData.get("saldo").getAsBigDecimal() : BigDecimal.ZERO;
+                        BigDecimal maxMonto = miSaldo.min(rivalSaldo);
 
                         // Datos para restaurar
                         ArrayList<JsonObject> msgs = db.query("SELECT * FROM messages WHERE canal = ? ORDER BY id ASC", salaActual);
@@ -297,9 +297,10 @@ public class SocketHandler {
                     int userId = authId;
 
                     JsonObject row = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", userId);
-                    // D5: el mínimo para buscar partida es el mínimo de torneo configurado (no un número fijo)
+                    // D1 / D5: el mínimo para buscar partida se compara con BigDecimal directo de la BD // REVIEW-MONEY
                     BigDecimal minTorneo = validador.getMinTorneo();
-                    if (row == null || BigDecimal.valueOf(row.get("saldo").getAsDouble()).compareTo(minTorneo) < 0) {
+                    if (row == null || !row.has("saldo") || row.get("saldo").isJsonNull()
+                            || row.get("saldo").getAsBigDecimal().compareTo(minTorneo) < 0) {
                         client.emit("error_busqueda", new JsonPrimitive("Saldo insuficiente (mínimo " + ValidadorMonto.formatear(minTorneo) + ")"));
                         return;
                     }
@@ -403,8 +404,8 @@ public class SocketHandler {
                         client.emit("error_negociacion", new JsonPrimitive(montoVoto.getError()));
                         return;
                     }
-                    // Se guarda el voto con el monto ya normalizado (entero)
-                    d.addProperty("dinero", montoVoto.getMonto().longValueExact());
+                    // D1: se guarda el voto con el monto ya normalizado como BigDecimal // REVIEW-MONEY
+                    d.addProperty("dinero", montoVoto.getMonto());
 
                     int myId = client.getUserData().get("id").getAsInt();
                     // Un voto nuevo invalida cualquier confirmación anterior (nadie acepta un monto que cambió después)
@@ -417,9 +418,9 @@ public class SocketHandler {
                         List<Integer> ids = new ArrayList<>();
                         for (SocketIOClient p : match.players) ids.add(p.getUserData().get("id").getAsInt());
 
-                        long monto1 = match.votosInicio.get(ids.get(0)).get("dinero").getAsLong();
-                        long monto2 = match.votosInicio.get(ids.get(1)).get("dinero").getAsLong();
-                        if (monto1 != monto2) {
+                        BigDecimal monto1 = match.votosInicio.get(ids.get(0)).get("dinero").getAsBigDecimal();
+                        BigDecimal monto2 = match.votosInicio.get(ids.get(1)).get("dinero").getAsBigDecimal();
+                        if (monto1.compareTo(monto2) != 0) {
                             io.to(salaId).emit("error_negociacion", new JsonPrimitive("Montos distintos"));
                             return;
                         }
@@ -484,19 +485,18 @@ public class SocketHandler {
                         List<Integer> ids = new ArrayList<>();
                         for (SocketIOClient p : match.players) ids.add(p.getUserData().get("id").getAsInt());
                         
-                        // D5: al cobrar, ambos votos deben existir y coincidir (el monto lo acordaron los dos, no uno solo)
+                        // D1 / D5: al cobrar, ambos votos deben existir y coincidir en BigDecimal // REVIEW-MONEY
                         JsonObject voto1 = match.votosInicio.get(ids.get(0));
                         JsonObject voto2 = match.votosInicio.get(ids.get(1));
                         if (voto1 == null || voto2 == null
-                                || voto1.get("dinero").getAsLong() != voto2.get("dinero").getAsLong()) {
+                                || voto1.get("dinero").getAsBigDecimal().compareTo(voto2.get("dinero").getAsBigDecimal()) != 0) {
                             io.to(salaId).emit("error_negociacion", new JsonPrimitive("Los montos de ambos jugadores no coinciden"));
                             match.votosInicio.clear();
                             match.confirmaciones.clear();
                             return;
                         }
 
-                        long monto1 = voto1.get("dinero").getAsLong();
-                        BigDecimal montoTorneo = BigDecimal.valueOf(monto1); // REVIEW-MONEY
+                        BigDecimal montoTorneo = voto1.get("dinero").getAsBigDecimal(); // REVIEW-MONEY
                         String modo = match.votosInicio.get(ids.get(0)).has("modo") ?
                                 match.votosInicio.get(ids.get(0)).get("modo").getAsString() : "N/A";
 
@@ -514,7 +514,7 @@ public class SocketHandler {
 
                         match.iniciado = true;
                         match.matchStartTime = java.time.Instant.now().toString();
-                        match.monto = monto1;
+                        match.monto = montoTorneo;
 
                         // Obtener tags
                         JsonObject p1 = db.queryOne("SELECT player_tag FROM users WHERE id = ?", ids.get(0));
@@ -533,8 +533,8 @@ public class SocketHandler {
                                 match.iniciado = false;
                                 return;
                             }
-                            p.getUserData().addProperty("saldo", torneoResult.getNuevoSaldoDouble());
-                            p.emit("actualizar_saldo", new JsonPrimitive(torneoResult.getNuevoSaldoDouble()));
+                            p.getUserData().addProperty("saldo", torneoResult.getNuevoSaldo());
+                            p.emit("actualizar_saldo", new JsonPrimitive(torneoResult.getNuevoSaldo()));
                         }
 
                         // Crear match en BD
@@ -542,7 +542,7 @@ public class SocketHandler {
                         String j2 = match.players.get(1).getUserData().get("username").getAsString();
                         
                         int dbId = db.insertReturningId("INSERT INTO matches (jugador1, jugador2, modo, monto) VALUES (?, ?, ?, ?) RETURNING id",
-                                j1, j2, modo, (double) match.monto);
+                                j1, j2, modo, match.monto);
                         match.dbId = dbId;
 
                         JsonObject inicioData = new JsonObject();
@@ -552,7 +552,7 @@ public class SocketHandler {
                         // Roadmap 84: se avisa al bus que la partida empezó (el listener de voz prepara el canal de Discord).
                         // emit() no lanza y el listener trabaja en el pool de IO, así que no retrasa ni rompe el inicio de la partida.
                         if (dbId > 0) eventos.emit(Eventos.MATCH_STARTED, new Eventos.PartidaIniciada(dbId, ids));
-                        logClash("🎮 INICIO #" + dbId + " | $" + match.monto + " | Buscando resultado via API...");
+                        logClash("🎮 INICIO #" + dbId + " | $" + match.monto.toPlainString() + " | Buscando resultado via API...");
 
                         // Iniciar polling de la API
                         iniciarPollingApi(salaId, match, ids);
@@ -713,8 +713,11 @@ public class SocketHandler {
                 activeMatches.put(salaId, match);
 
                 JsonObject rivalData = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", rival.oderId);
-                double maxMonto = Math.min(myData.get("saldo").getAsDouble(),
-                        rivalData != null ? rivalData.get("saldo").getAsDouble() : 0);
+                BigDecimal miSaldo = myData.has("saldo") && !myData.get("saldo").isJsonNull()
+                        ? myData.get("saldo").getAsBigDecimal() : BigDecimal.ZERO;
+                BigDecimal rivalSaldo = rivalData != null && rivalData.has("saldo") && !rivalData.get("saldo").isJsonNull()
+                        ? rivalData.get("saldo").getAsBigDecimal() : BigDecimal.ZERO;
+                BigDecimal maxMonto = miSaldo.min(rivalSaldo); // REVIEW-MONEY
 
                 db.update("UPDATE users SET estado = 'partida_encontrada', sala_actual = ? WHERE id IN (?, ?)",
                         salaId, myId, rival.oderId);
@@ -799,7 +802,7 @@ public class SocketHandler {
                     // Liquidar partida atómicamente via WalletService // REVIEW-MONEY
                     int idPerdedor = (idGanador == ids.get(0)) ? ids.get(1) : ids.get(0);
                     LiquidacionResult liq = wallet.liquidar(idGanador, idPerdedor,
-                            BigDecimal.valueOf(match.monto), match.dbId, "comision_match");
+                            match.monto, match.dbId, "comision_match");
 
                     if (!liq.success) {
                         logger.error("❌ Error liquidando match #{}: {}", match.dbId, liq.error);
@@ -820,7 +823,7 @@ public class SocketHandler {
                     // emit() no lanza: un listener roto no impide liberar a los jugadores. // REVIEW-MONEY
                     eventos.emit(Eventos.MATCH_FINISHED, new Eventos.PartidaFinalizada(
                             match.dbId, Eventos.Origen.API, ids, idGanador, winnerName,
-                            BigDecimal.valueOf(match.monto), liq.premio, liq.nuevoSaldoGanador, liq.desglose));
+                            match.monto, liq.premio, liq.nuevoSaldoGanador, liq.desglose));
                     liberarJugadores(salaId, match);
 
                 } else if (match.pollCount >= MAX_POLLS) {
@@ -904,7 +907,7 @@ public class SocketHandler {
     // --- Clases internas ---
     static class ActiveMatch {
         List<SocketIOClient> players = new CopyOnWriteArrayList<>();
-        double monto = 0;
+        BigDecimal monto = BigDecimal.ZERO; // REVIEW-MONEY
         boolean iniciado = false;
         int dbId = 0;
         String playerTag1 = "", playerTag2 = "";

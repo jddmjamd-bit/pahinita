@@ -10,10 +10,11 @@ import java.util.ArrayList;
 
 /**
  * CONCEPTO POO: Collection - ArrayList para listas de datos
- * DAO gen�rico para consultas parametrizadas a PostgreSQL.
+ * DAO genérico para consultas parametrizadas a PostgreSQL.
  *
- * S4: Todas las consultas usan exclusivamente {@link PreparedStatement} con par�metros {@code ?}.
- * Se elimin� {@code execute(String sql)} para impedir la ejecuci�n de SQL arbitrario con {@link Statement}.
+ * S4: Todas las consultas usan exclusivamente {@link PreparedStatement} con parámetros {@code ?}.
+ * Se eliminó {@code execute(String sql)} para impedir la ejecución de SQL arbitrario con {@link Statement}.
+ * D1: Las columnas {@code NUMERIC}/{@code DECIMAL} se leen como {@link BigDecimal} (nunca {@code double}).
  */
 public class GenericDAO {
     private static final Logger logger = LoggerFactory.getLogger(GenericDAO.class);
@@ -91,7 +92,7 @@ public class GenericDAO {
     }
 
     /**
-     * Obtiene la conexi�n directa (para operaciones transaccionales o de metadatos con PreparedStatement).
+     * Obtiene la conexión directa (para operaciones transaccionales o de metadatos con PreparedStatement).
      */
     public Connection getConnection() throws SQLException {
         return db.getConnection();
@@ -103,8 +104,8 @@ public class GenericDAO {
             Object p = params[i];
             if (p instanceof Integer) ps.setInt(i + 1, (Integer) p);
             else if (p instanceof Long) ps.setLong(i + 1, (Long) p);
-            else if (p instanceof Double) ps.setDouble(i + 1, (Double) p);
             else if (p instanceof BigDecimal) ps.setBigDecimal(i + 1, (BigDecimal) p);
+            else if (p instanceof Double) ps.setDouble(i + 1, (Double) p);
             else if (p instanceof Boolean) ps.setBoolean(i + 1, (Boolean) p);
             else if (p instanceof String) ps.setString(i + 1, (String) p);
             else if (p instanceof byte[]) ps.setBytes(i + 1, (byte[]) p);
@@ -124,7 +125,10 @@ public class GenericDAO {
                 obj.addProperty(col, (String) null);
             } else if (type == Types.INTEGER || type == Types.BIGINT || type == Types.SMALLINT) {
                 obj.addProperty(col, rs.getLong(i));
-            } else if (type == Types.NUMERIC || type == Types.DECIMAL || type == Types.DOUBLE || type == Types.FLOAT) {
+            } else if (type == Types.NUMERIC || type == Types.DECIMAL) {
+                // D1: leer columnas monetarias/decimales con precisión exacta BigDecimal // REVIEW-MONEY
+                obj.addProperty(col, rs.getBigDecimal(i));
+            } else if (type == Types.DOUBLE || type == Types.FLOAT || type == Types.REAL) {
                 obj.addProperty(col, rs.getDouble(i));
             } else if (type == Types.BOOLEAN || type == Types.BIT) {
                 obj.addProperty(col, rs.getBoolean(i));

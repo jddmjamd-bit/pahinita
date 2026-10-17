@@ -10,17 +10,23 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Locale;
 
 /**
  * Lógica de depósitos, retiros y pagos Wompi (A3). Todo movimiento de dinero pasa por {@link WalletService};
- * todo monto que llega del cliente pasa por {@link ValidadorMonto} antes de tocar la BD (D5).
+ * todo monto que llega del cliente pasa por {@link ValidadorMonto} antes de tocar la BD (D5), y todo cálculo
+ * monetario usa {@link BigDecimal} (D1).
  * No conoce HTTP: {@code RutasFinanzas} solo parsea y responde.
  */
 public class FinanzasService {
     private static final Logger logger = LoggerFactory.getLogger(FinanzasService.class);
+
+    private static final BigDecimal TARIFA_FIJA_WOMPI = BigDecimal.valueOf(840);
+    private static final BigDecimal DIVISOR_PASARELA_WOMPI = new BigDecimal("0.964");
+    private static final BigDecimal CIEN = BigDecimal.valueOf(100);
 
     private final GenericDAO db;
     private final AppConfig config;
@@ -38,14 +44,14 @@ public class FinanzasService {
     }
 
     /** Depósito manual (acredita saldo de inmediato). */
-    public void depositoManual(int userId, com.google.gson.JsonElement montoCrudo) {
+    public void depositoManual(int userId, JsonElement montoCrudo) {
         BigDecimal monto = exigirValido(validador.deposito(montoCrudo)); // REVIEW-MONEY
 
         WalletResult result = wallet.depositar(userId, monto, "Depósito manual admin"); // REVIEW-MONEY
         if (!result.isSuccess()) {
             throw ServicioException.respuestaConError(result.getError());
         }
-        notificador.notificarSaldo(userId, "✅ Recarga acreditada.", result.getNuevoSaldoDouble());
+        notificador.notificarSaldo(userId, "✅ Recarga acreditada.", result.getNuevoSaldo());
     }
 
     /** S2: Obtiene el username real desde la BD a partir del userId de la sesión JWT. */
@@ -59,7 +65,7 @@ public class FinanzasService {
 
     /** Crea una solicitud de recarga pendiente (la aprueba un admin). */
     public void crearSolicitudRecarga(int userId, String metodo, String referencia,
-                                      com.google.gson.JsonElement montoCrudo) {
+                                      JsonElement montoCrudo) {
         // D5: nunca se guarda una solicitud con un monto que el servidor no haya validado
         BigDecimal monto = exigirValido(validador.deposito(montoCrudo)); // REVIEW-MONEY
         String username = usernameDeUsuario(userId);
@@ -71,10 +77,10 @@ public class FinanzasService {
     /**
      * Solicita un retiro: descuenta el saldo atómicamente y deja la solicitud pendiente.
      *
-     * @return el saldo nuevo, para que el frontend lo actualice sin otra petición
+     * @return el saldo nuevo como {@link BigDecimal} (D1), para que el frontend lo actualice sin otra petición
      */
-    public double solicitarRetiro(int userId, String metodo, String referencia,
-                                  com.google.gson.JsonElement montoCrudo) {
+    public BigDecimal solicitarRetiro(int userId, String metodo, String referencia,
+                                      JsonElement montoCrudo) {
         BigDecimal monto = exigirValido(validador.retiro(montoCrudo)); // REVIEW-MONEY
         String username = usernameDeUsuario(userId);
 
@@ -87,8 +93,8 @@ public class FinanzasService {
         db.update("INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia) " +
                 "VALUES (?, ?, 'retiro', ?, ?, ?)", userId, username, metodo, monto, referencia);
 
-        notificador.notificarSaldo(userId, "⏳ Retiro en proceso...", result.getNuevoSaldoDouble());
-        return result.getNuevoSaldoDouble();
+        notificador.notificarSaldo(userId, "⏳ Retiro en proceso...", result.getNuevoSaldo());
+        return result.getNuevoSaldo();
     }
 
     /** Prepara un pago Wompi: registra la transacción pendiente y devuelve los datos firmados para el widget. */
@@ -188,7 +194,7 @@ public class FinanzasService {
         // 4. Acreditar saldo atómicamente // REVIEW-MONEY
         WalletResult result = wallet.depositar(userId, monto, "Pago Wompi ref:" + reference);
         if (result.isSuccess()) {
-            notificador.notificarSaldo(userId, "✅ Pago Wompi aprobado. Saldo acreditado.", result.getNuevoSaldoDouble());
+            notificador.notificarSaldo(userId, "✅ Pago Wompi aprobado. Saldo acreditado.", result.getNuevoSaldo());
         } else {
             db.update("UPDATE transactions SET estado = 'pendiente' WHERE referencia = ?", reference);
             logger.error("Wompi {}: no se pudo acreditar, se revirtió a pendiente: {}", reference, result.getError());
@@ -306,12 +312,14 @@ public class FinanzasService {
         return MessageDigest.isEqual(a, b);
     }
 
-    /** Total en centavos de COP que cobra Wompi (incluye tarifa de pasarela). // REVIEW-MONEY */
+    /**
+     * D1: Total en centavos de COP que cobra Wompi (incluye tarifa de pasarela), calculado íntegramente
+     * con {@link BigDecimal} y {@link RoundingMode#CEILING} (sin {@code double}). // REVIEW-MONEY
+     */
     static long calcularMontoCentavosWompi(BigDecimal monto) {
-        // El cálculo con double queda para D1; el monto ya está acotado y es entero
-        double baseCara = monto.doubleValue() + 840;
-        double totalCobrado = Math.ceil(baseCara / 0.964);
-        return (long) (totalCobrado * 100);
+        BigDecimal baseCara = monto.add(TARIFA_FIJA_WOMPI);
+        BigDecimal totalCobrado = baseCara.divide(DIVISOR_PASARELA_WOMPI, 0, RoundingMode.CEILING);
+        return totalCobrado.multiply(CIEN).longValueExact();
     }
 
     private static JsonObject objeto(JsonObject padre, String campo) {

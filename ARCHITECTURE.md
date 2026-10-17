@@ -206,7 +206,7 @@ Premio (leaderboard, sorteo):
 
 > [!NOTE]
 > - Las transacciones SQL son atómicas (D2 completado). Si falla a mitad, se hace rollback.
-> - `saldo` es `NUMERIC` en BD y se lee como `BigDecimal` en Java (D1 completado en WalletService).
+> - Todas las columnas monetarias son `NUMERIC` en PostgreSQL y se leen, calculan y escriben como `BigDecimal` en todo el backend (`GenericDAO`, `UsuarioDAO`, `WalletService`, `FinanzasService`, `AdminService`, `LeaderboardService`, `SorteoService`, `SocketHandler`) sin pasar por `double` (D1 completado).
 > - `UsuarioDAO.actualizarSaldo()` y `obtenerSaldo()` están deprecados (usan `double`). Todo pasa por WalletService.
 > - **D3 completado**: cada operación de `WalletService` inserta una fila en `wallet_ledger` dentro de la misma transacción SQL (atómico). La tabla es inmutable (solo INSERT). Las comisiones de liquidación se registran con `user_id=0`.
 
@@ -263,7 +263,7 @@ Todo monto que llega del cliente pasa por `servicio/ValidadorMonto` **antes** de
 
 - Los errores de validación HTTP responden **400** con `{ "error": "..." }`; en el socket se emite `error_negociacion` solo al jugador que envió el monto.
 - Negociación de torneo: el voto de cada jugador se guarda ya validado y normalizado; un voto nuevo invalida confirmaciones previas; al cobrar se exige que ambos votos existan y coincidan y que ambos tengan saldo.
-- Fuera de alcance de D5 (siguen pendientes): `double` en la comisión de Wompi y en `match.monto` (D1), reembolso atómico si falla el cobro del segundo jugador (D2). `/api/deposit` ya exige admin (S3, sección 18).
+- Cierre con D1: el cálculo de la tarifa de pasarela Wompi (`FinanzasService.calcularMontoCentavosWompi`) y `ActiveMatch.monto` en `SocketHandler` usan `BigDecimal`. `/api/deposit` exige admin (S3, sección 18).
 
 ---
 
@@ -293,7 +293,7 @@ Cada jugador se atribuye la mitad de cada categoría (`Desglose.porJugador()`, c
 | `GET /api/comisiones/distribucion` | `{ success, distribucion: { sorteos: 20, misiones: 10, ... } }`. Lo usa `Admin.jsx` para los títulos del desglose. |
 
 - Para cambiar la política se edita **solo** `ComisionService` (constantes y enum). El panel admin y `Match.jsx` se actualizan solos.
-- Pendiente: el frontend legacy de `public/` (`app.js`, `public/js/*`) no se tocó en D4 y podría conservar su propia copia de la fórmula (no verificado); muere con la migración a React. La tarifa de pasarela Wompi (`FinanzasService.iniciarWompi`, `/ 0.964 + 840`) es otro cobro y sigue con `double` (D1).
+- Pendiente: el frontend legacy de `public/` (`app.js`, `public/js/*`) no se tocó en D4 y podría conservar su propia copia de la fórmula (no verificado); muere con la migración a React. La tarifa de pasarela Wompi (`FinanzasService.calcularMontoCentavosWompi`) ya se calcula con `BigDecimal` y `RoundingMode.CEILING` (D1).
 
 ---
 

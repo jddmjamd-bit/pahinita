@@ -7,7 +7,6 @@ import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.eventos.EventBus;
 import com.torneosflash.eventos.Eventos;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -15,22 +14,6 @@ import java.util.List;
 /**
  * Evidencias de pago (roadmap 7): cuando el admin paga un retiro por fuera (Nequi, etc.) sube la imagen del
  * comprobante y queda publicada en el canal «🧾 Pagos» del chat, que ven todos los usuarios. No conoce HTTP (A3).
- *
- * <h3>Decisiones</h3>
- * <ul>
- *   <li><b>Solo retiros.</b> Una evidencia solo se puede adjuntar a una transacción {@code tipo = 'retiro'} que el
- *       admin ya aprobó ({@code estado = 'completado'}). En una recarga quien paga es el usuario, no el admin.</li>
- *   <li><b>Solo admin, validado en el servidor.</b> Se publica por HTTP ({@code POST /api/admin/pagos/evidencias},
- *       protegido por {@code AdminMiddleware}) y el servicio vuelve a comprobar {@code tipo_suscripcion = 'admin'}.
- *       No se publica por Socket.IO a propósito: ese canal todavía no autentica al emisor y cualquiera podría
- *       falsificar un comprobante. Por eso «pagos» tampoco está en los canales públicos de {@link ChatSanitizer}.</li>
- *   <li><b>Una evidencia por retiro</b> ({@code UNIQUE (transaction_id)}). Usuario, monto y método salen de la
- *       transacción (copiados en el mismo {@code INSERT}), nunca de lo que mande el cliente.</li>
- *   <li><b>Imagen como data URI base64</b>, igual que las imágenes de anuncios (no usa {@code media_files}, que es solo
- *       para videos). Solo png/jpeg/gif/webp, con tope de {@code PAGOS_MAX_IMAGEN_CHARS}.</li>
- *   <li>El servicio guarda y emite {@link Eventos#PAGOS_EVIDENCIA_PUBLICADA}; el reparto en vivo lo hace
- *       {@code EvidenciaPagoListener} (A4).</li>
- * </ul>
  */
 public class EvidenciaPagoService {
 
@@ -110,7 +93,7 @@ public class EvidenciaPagoService {
                     fila.get("user_id").getAsInt(),
                     texto(fila, "username"),
                     texto(admin, "username"),
-                    BigDecimal.valueOf(fila.get("monto").getAsDouble()), // solo para mostrar // REVIEW-MONEY
+                    fila.get("monto").getAsBigDecimal(), // D1: BigDecimal directo // REVIEW-MONEY
                     texto(fila, "metodo"),
                     texto(fila, "nota"),
                     imagen,

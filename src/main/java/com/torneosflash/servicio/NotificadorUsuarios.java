@@ -9,6 +9,8 @@ import com.torneosflash.socketio.SocketIOServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.math.BigDecimal;
+
 /**
  * Avisa a un usuario por socket (si está conectado) y por push (llega con el navegador cerrado).
  * Antes era un método {@code static} dentro de {@code RutasFinanzas} que usaba otro {@code static} para el
@@ -27,18 +29,22 @@ public class NotificadorUsuarios {
         this.push = push;
     }
 
-    /** Notificación in-app + saldo actualizado por socket, y push. */
-    public void notificarSaldo(int userId, String mensaje, double saldo) {
+    /** Notificación in-app + saldo actualizado por socket (D1: BigDecimal), y push. // REVIEW-MONEY */
+    public void notificarSaldo(int userId, String mensaje, BigDecimal saldo) {
+        BigDecimal saldoSeguro = saldo != null ? saldo : BigDecimal.ZERO;
         JsonObject notifData = new JsonObject();
         notifData.addProperty("mensaje", mensaje);
-        notifData.addProperty("saldo", saldo);
+        notifData.addProperty("saldo", saldoSeguro);
 
         boolean encontrado = false;
         for (SocketIOClient client : io.getSockets().values()) {
             if (esUsuario(client, userId)) {
                 encontrado = true;
+                if (client.getUserData() != null) {
+                    client.getUserData().addProperty("saldo", saldoSeguro);
+                }
                 client.emit("notificacion", notifData);
-                client.emit("actualizar_saldo", new JsonPrimitive(saldo));
+                client.emit("actualizar_saldo", new JsonPrimitive(saldoSeguro));
             }
         }
         if (!encontrado) {

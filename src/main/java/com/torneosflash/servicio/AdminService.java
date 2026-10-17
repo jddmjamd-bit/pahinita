@@ -20,6 +20,7 @@ import java.util.List;
 /**
  * Lógica del panel de administración: transacciones pendientes, disputas, estadísticas y utilidades (A3).
  * Antes vivía en {@code RutasAdmin}. No conoce HTTP.
+ * D1: Todo monto y saldo se maneja con {@link BigDecimal} (nunca {@code double}).
  */
 public class AdminService {
 
@@ -56,20 +57,20 @@ public class AdminService {
     public JsonObject estadisticas() {
         JsonObject stats = new JsonObject();
 
-        // Dinero en circulación = suma de saldos de todos los usuarios
+        // Dinero en circulación = suma de saldos de todos los usuarios // REVIEW-MONEY
         JsonObject saldoSum = db.queryOne("SELECT COALESCE(SUM(saldo),0) as total FROM users");
-        stats.addProperty("totalUsuarios", saldoSum != null ? saldoSum.get("total").getAsDouble() : 0);
+        stats.addProperty("totalUsuarios", saldoSum != null ? saldoSum.get("total").getAsBigDecimal() : BigDecimal.ZERO);
 
-        // Ganancias del admin = suma de admin_wallet (histórico total)
+        // Ganancias del admin = suma de admin_wallet (histórico total) // REVIEW-MONEY
         JsonObject walletSum = db.queryOne("SELECT COALESCE(SUM(monto),0) as total FROM admin_wallet");
-        stats.addProperty("totalGanancias", walletSum != null ? walletSum.get("total").getAsDouble() : 0);
+        stats.addProperty("totalGanancias", walletSum != null ? walletSum.get("total").getAsBigDecimal() : BigDecimal.ZERO);
 
         // Desglose por categorías (Actual e Histórico - por ahora es lo mismo)
         JsonObject desglose = new JsonObject();
         for (ComisionService.Categoria categoria : ComisionService.Categoria.values()) {
             String cat = categoria.getClave();
             JsonObject catSum = db.queryOne("SELECT COALESCE(SUM(monto),0) as total FROM admin_wallet WHERE categoria = ?", cat);
-            desglose.addProperty(cat, catSum != null ? catSum.get("total").getAsDouble() : 0);
+            desglose.addProperty(cat, catSum != null ? catSum.get("total").getAsBigDecimal() : BigDecimal.ZERO);
         }
         stats.add("desglose", desglose);
 
@@ -111,17 +112,17 @@ public class AdminService {
 
         String tipo = trans.get("tipo").getAsString();
         int userId = trans.get("usuario_id").getAsNumber().intValue();
-        double monto = trans.get("monto").getAsDouble();
+        BigDecimal monto = trans.get("monto").getAsBigDecimal(); // REVIEW-MONEY
 
         if ("reject".equals(action)) {
             if ("retiro".equals(tipo)) {
                 // Devolver dinero // REVIEW-MONEY
-                WalletResult result = wallet.depositar(userId, BigDecimal.valueOf(monto), "Retiro rechazado, devolución");
-                double saldo = result.isSuccess() ? result.getNuevoSaldoDouble() : 0;
+                WalletResult result = wallet.depositar(userId, monto, "Retiro rechazado, devolución");
+                BigDecimal saldo = result.isSuccess() ? result.getNuevoSaldo() : BigDecimal.ZERO;
                 notificador.notificarSaldo(userId, "❌ Retiro rechazado. Saldo devuelto.", saldo);
             } else {
                 BigDecimal saldoActual = wallet.obtenerSaldo(userId);
-                notificador.notificarSaldo(userId, "❌ Recarga rechazada.", saldoActual.doubleValue());
+                notificador.notificarSaldo(userId, "❌ Recarga rechazada.", saldoActual);
             }
             db.update("UPDATE transactions SET estado = 'rechazado' WHERE id = ?", transId);
             return "Rechazada";
@@ -130,12 +131,12 @@ public class AdminService {
         // Aprobar
         if ("deposito".equals(tipo)) {
             // REVIEW-MONEY
-            WalletResult result = wallet.depositar(userId, BigDecimal.valueOf(monto), "Depósito aprobado por admin");
-            double saldo = result.isSuccess() ? result.getNuevoSaldoDouble() : 0;
+            WalletResult result = wallet.depositar(userId, monto, "Depósito aprobado por admin");
+            BigDecimal saldo = result.isSuccess() ? result.getNuevoSaldo() : BigDecimal.ZERO;
             notificador.notificarSaldo(userId, "✅ Recarga aprobada.", saldo);
         } else {
             BigDecimal saldoActual = wallet.obtenerSaldo(userId);
-            notificador.notificarSaldo(userId, "✅ Tu retiro ha sido enviado.", saldoActual.doubleValue());
+            notificador.notificarSaldo(userId, "✅ Tu retiro ha sido enviado.", saldoActual);
         }
         db.update("UPDATE transactions SET estado = 'completado' WHERE id = ?", transId);
         return "Aprobada";
@@ -154,7 +155,7 @@ public class AdminService {
         if (winner == null) throw ServicioException.respuestaConError("Ganador no encontrado");
 
         int winnerId = winner.get("id").getAsNumber().intValue();
-        BigDecimal monto = BigDecimal.valueOf(match.get("monto").getAsDouble()); // REVIEW-MONEY
+        BigDecimal monto = match.get("monto").getAsBigDecimal(); // REVIEW-MONEY
 
         String j1 = match.get("jugador1").getAsString();
         String j2 = match.get("jugador2").getAsString();
@@ -197,8 +198,8 @@ public class AdminService {
             if (s.getUserData() != null) {
                 int sId = s.getUserData().get("id").getAsNumber().intValue();
                 if (sId == winnerId) {
-                    s.getUserData().addProperty("saldo", liq.nuevoSaldoGanador.doubleValue());
-                    s.emit("actualizar_saldo", new JsonPrimitive(liq.nuevoSaldoGanador.doubleValue()));
+                    s.getUserData().addProperty("saldo", liq.nuevoSaldoGanador);
+                    s.emit("actualizar_saldo", new JsonPrimitive(liq.nuevoSaldoGanador));
                 }
                 String uname = s.getUserData().get("username").getAsString();
                 if (j1.equals(uname) || j2.equals(uname)) {

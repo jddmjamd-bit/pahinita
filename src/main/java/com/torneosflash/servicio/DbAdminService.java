@@ -5,34 +5,37 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.torneosflash.dao.GenericDAO;
 
+import java.math.BigDecimal;
 import java.sql.*;
 import java.util.*;
 import java.util.regex.Pattern;
 
 /**
- * Operaciones del panel de administraci�n de la base de datos: ver tablas, editar celdas, insertar,
+ * Operaciones del panel de administración de la base de datos: ver tablas, editar celdas, insertar,
  * borrar, exportar e importar (A3). Antes todo este SQL estaba dentro de {@code RutasDbAdmin}.
  *
  * El acceso al panel (clave, bloqueo por IP, cabeceras) sigue en {@code RutasDbAdmin}: es protocolo HTTP,
- * no l�gica de negocio. Aqu� todo nombre de tabla/columna que venga del request se valida contra
+ * no lógica de negocio. Aquí todo nombre de tabla/columna que venga del request se valida contra
  * {@code information_schema} y contra {@link #IDENTIFICADOR_SQL} antes de citarlo en un SQL, y todas las
  * consultas usan exclusivamente {@link PreparedStatement} (S4, S10).
  */
 public class DbAdminService {
 
-    /** Orden de inserci�n al importar (respeta dependencias); al borrar se recorre al rev�s. */
-    private static final String[] ORDEN_TABLAS_IMPORT = { "users", "messages", "matches", "transactions", "admin_wallet",
-            "user_tokens", "user_tickets", "raffles", "raffle_entries" };
+    /** Orden de inserción al importar (respeta dependencias); al borrar se recorre al revés. */
+    private static final String[] ORDEN_TABLAS_IMPORT = {
+            "users", "messages", "matches", "transactions", "admin_wallet",
+            "user_tokens", "user_tickets", "raffles", "raffle_entries"
+    };
 
-    /** S4: patr�n estricto para identificadores SQL (tablas y columnas). */
+    /** S4: patrón estricto para identificadores SQL (tablas y columnas). */
     private static final Pattern IDENTIFICADOR_SQL = Pattern.compile("^[a-zA-Z_][a-zA-Z0-9_]*$");
 
     private final GenericDAO db;
 
     /**
      * A5: tabla donde Flyway guarda el historial de migraciones. El panel no la muestra ni la deja tocar:
-     * editarla desde la web podr�a hacer que Flyway rehaga o salte migraciones. Adem�s no tiene columna `id`,
-     * as� que `ORDER BY id` (ver, exportar) fallar�a con ella.
+     * editarla desde la web podría hacer que Flyway rehaga o salte migraciones. Además no tiene columna id,
+     * así que ORDER BY id (ver, exportar) fallaría con ella.
      */
     private static final String TABLA_FLYWAY = "flyway_schema_history";
 
@@ -40,7 +43,7 @@ public class DbAdminService {
         this.db = db;
     }
 
-    /** Operaci�n de BD que puede lanzar excepciones SQL. */
+    /** Operación de BD que puede lanzar excepciones SQL. */
     @FunctionalInterface
     private interface Operacion<T> {
         T ejecutar() throws Exception;
@@ -61,7 +64,7 @@ public class DbAdminService {
     // Lectura
     // ------------------------------------------------------------------
 
-    /** Lista las tablas del esquema public con su n�mero de filas. */
+    /** Lista las tablas del esquema public con su número de filas. */
     public JsonArray listarTablas() {
         return conErrores(() -> {
             try (Connection conn = db.getConnection()) {
@@ -120,7 +123,7 @@ public class DbAdminService {
                 exigirTablaValida(conn, tableName);
                 String dataType = tiposDeColumna(conn, tableName).get(column);
                 if (dataType == null) {
-                    throw ServicioException.solicitudInvalida("Columna no v�lida");
+                    throw ServicioException.solicitudInvalida("Columna no válida");
                 }
 
                 String tablaCitada = citarIdentificador(tableName);
@@ -168,7 +171,7 @@ public class DbAdminService {
                 List<String> types = new ArrayList<>();
                 for (String key : keys) {
                     if (!columnTypes.containsKey(key)) {
-                        throw ServicioException.solicitudInvalida("Columna no v�lida");
+                        throw ServicioException.solicitudInvalida("Columna no válida");
                     }
                     if (cols.length() > 0) {
                         cols.append(", ");
@@ -197,7 +200,7 @@ public class DbAdminService {
     // Backup
     // ------------------------------------------------------------------
 
-    /** Exporta todas las tablas (m�s un bloque {@code _meta}). */
+    /** Exporta todas las tablas (más un bloque {@code _meta}). */
     public JsonObject exportar() {
         return conErrores(() -> {
             try (Connection conn = db.getConnection()) {
@@ -217,9 +220,9 @@ public class DbAdminService {
 
     /**
      * Importa un backup: borra las tablas presentes en el archivo e inserta sus filas.
-     * Solo se aceptan columnas que existan en la tabla; las filas inv�lidas se omiten.
+     * Solo se aceptan columnas que existan en la tabla; las filas inválidas se omiten.
      *
-     * @return n�mero de filas insertadas
+     * @return número de filas insertadas
      */
     public int importar(JsonObject data) {
         return conErrores(() -> {
@@ -270,7 +273,7 @@ public class DbAdminService {
                             ps.executeUpdate();
                             totalInserted++;
                         } catch (Exception ignored) {
-                            // fila inv�lida: se omite
+                            // fila inválida: se omite
                         }
                     }
                 }
@@ -297,18 +300,8 @@ public class DbAdminService {
     }
 
     // ------------------------------------------------------------------
-    // Utilidades de BD
+    // Metadatos y validación (S4 / S10)
     // ------------------------------------------------------------------
-
-    /**
-     * S4: Valida que un identificador SQL cumpla el formato permitido y lo devuelve entre comillas dobles.
-     */
-    private static String citarIdentificador(String identificador) {
-        if (identificador == null || !IDENTIFICADOR_SQL.matcher(identificador).matches()) {
-            throw ServicioException.solicitudInvalida("Identificador SQL no v�lido");
-        }
-        return "\"" + identificador + "\"";
-    }
 
     private static List<String> nombresDeTablas(Connection conn) throws SQLException {
         List<String> nombres = new ArrayList<>();
@@ -323,8 +316,8 @@ public class DbAdminService {
     }
 
     /**
-     * S4: Todas las filas de una tabla usando {@link PreparedStatement} (el nombre ya fue validado contra
-     * {@code information_schema} y pasa por {@link #citarIdentificador}).
+     * S4 / D1: Todas las filas de una tabla usando {@link PreparedStatement}, conservando {@link BigDecimal}
+     * sin convertir a {@code double}.
      */
     private static JsonArray filasDeTabla(Connection conn, String tableName) throws SQLException {
         String tablaCitada = citarIdentificador(tableName);
@@ -338,7 +331,8 @@ public class DbAdminService {
                     String colName = meta.getColumnName(i);
                     Object val = dataRs.getObject(i);
                     if (val == null) row.addProperty(colName, (String) null);
-                    else if (val instanceof Number) row.addProperty(colName, ((Number) val).doubleValue());
+                    else if (val instanceof BigDecimal) row.addProperty(colName, (BigDecimal) val); // REVIEW-MONEY
+                    else if (val instanceof Number) row.addProperty(colName, (Number) val);
                     else row.addProperty(colName, val.toString());
                 }
                 rows.add(row);
@@ -347,10 +341,10 @@ public class DbAdminService {
         return rows;
     }
 
-    /** Lanza 400 si la tabla no existe en el esquema public. Todo nombre de tabla del request pasa por aqu�. */
+    /** Lanza 400 si la tabla no existe en el esquema public. Todo nombre de tabla del request pasa por aquí. */
     private static void exigirTablaValida(Connection conn, String tableName) throws SQLException {
         if (tableName == null || !IDENTIFICADOR_SQL.matcher(tableName).matches()) {
-            throw ServicioException.solicitudInvalida("Tabla no v�lida");
+            throw ServicioException.solicitudInvalida("Tabla no válida");
         }
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ? AND table_name <> ?")) {
@@ -358,7 +352,7 @@ public class DbAdminService {
             ps.setString(2, TABLA_FLYWAY);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) {
-                    throw ServicioException.solicitudInvalida("Tabla no v�lida");
+                    throw ServicioException.solicitudInvalida("Tabla no válida");
                 }
             }
         }
@@ -379,9 +373,18 @@ public class DbAdminService {
         return types;
     }
 
-    /** Setea un par�metro del PreparedStatement seg�n el tipo de dato real de la columna. */
-    private static void setTypedParam(PreparedStatement ps, int index, String value, String dataType)
-            throws SQLException {
+    /**
+     * Cita un identificador de tabla o columna tras verificar que cumple {@link #IDENTIFICADOR_SQL}.
+     */
+    private static String citarIdentificador(String identificador) {
+        if (identificador == null || !IDENTIFICADOR_SQL.matcher(identificador).matches()) {
+            throw ServicioException.solicitudInvalida("Identificador SQL no válido");
+        }
+        return "\"" + identificador + "\"";
+    }
+
+    /** Setea un parámetro del PreparedStatement según el tipo de dato real de la columna. */
+    private static void setTypedParam(PreparedStatement ps, int index, String value, String dataType) throws SQLException {
         if (value == null || value.isEmpty()) {
             int sqlType;
             switch (dataType) {
@@ -426,13 +429,9 @@ public class DbAdminService {
                 break;
             case "numeric":
             case "decimal":
-                ps.setBigDecimal(index, new java.math.BigDecimal(value));
-                break;
             case "real":
-                ps.setFloat(index, Float.parseFloat(value));
-                break;
             case "double precision":
-                ps.setDouble(index, Double.parseDouble(value));
+                ps.setBigDecimal(index, new BigDecimal(value));
                 break;
             case "boolean":
                 ps.setBoolean(index, Boolean.parseBoolean(value) || "1".equals(value));

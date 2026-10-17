@@ -5,18 +5,19 @@ import com.torneosflash.servicio.UsuarioVista;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.math.BigDecimal;
 import java.sql.*;
 import java.util.ArrayList;
 
 /**
  * CONCEPTO POO: Collection - usa ArrayList para retornar listas de usuarios
- * CONCEPTO POO: Encapsulamiento - l�gica de BD encapsulada en m�todos
+ * CONCEPTO POO: Encapsulamiento - lógica de BD encapsulada en métodos
  *
  * DAO para operaciones CRUD sobre la tabla users.
  * S4: Todas las consultas son fijas y usan exclusivamente {@link PreparedStatement} con {@code ?}.
+ * D1: El saldo y las columnas numéricas monetarias se leen y escriben con {@link BigDecimal}.
  */
 public class UsuarioDAO {
-
     private static final Logger logger = LoggerFactory.getLogger(UsuarioDAO.class);
 
     private final ConexionDB db;
@@ -42,7 +43,7 @@ public class UsuarioDAO {
     }
 
     /**
-     * S6: devuelve solo las columnas de sesi�n (nunca el hash de la contrase�a).
+     * S6: devuelve solo las columnas de sesión (nunca el hash de la contraseña).
      */
     public JsonObject buscarPorId(int id) {
         try (Connection conn = db.getConnection();
@@ -146,8 +147,8 @@ public class UsuarioDAO {
     }
 
     /**
-     * Roadmap 1.6: crea el usuario y deja constancia de que acept� los T�rminos de Servicio y la Pol�tica de
-     * Privacidad (tabla legal_acceptances) en UNA sola transacci�n: o quedan las dos cosas o ninguna.
+     * Roadmap 1.6: crea el usuario y deja constancia de que aceptó los Términos de Servicio y la Política de
+     * Privacidad (tabla legal_acceptances) en UNA sola transacción: o quedan las dos cosas o ninguna.
      *
      * @return el id del usuario nuevo, o -1 si no se pudo registrar
      */
@@ -187,7 +188,7 @@ public class UsuarioDAO {
                     conn.rollback();
                 } catch (SQLException ignored) {
                 }
-                logger.error("Error registrando usuario con aceptaci�n legal: {}", e.getMessage());
+                logger.error("Error registrando usuario con aceptación legal: {}", e.getMessage());
                 return -1;
             } finally {
                 try {
@@ -196,38 +197,38 @@ public class UsuarioDAO {
                 }
             }
         } catch (Exception e) {
-            logger.error("Error obteniendo conexi�n para registrar usuario: {}", e.getMessage());
+            logger.error("Error obteniendo conexión para registrar usuario: {}", e.getMessage());
             return -1;
         }
     }
 
     /**
-     * @deprecated D2: todo movimiento de saldo pasa por {@code WalletService}. Este m�todo usa
-     *             {@code double} y no es at�mico. Usar {@code WalletService.depositar()} o
-     *             {@code WalletService.retirar()} en su lugar.
+     * @deprecated D2: todo movimiento de saldo pasa por {@code WalletService}.
+     *             Usar {@code WalletService.depositar()} o {@code WalletService.retirar()} en su lugar.
      */
     @Deprecated
-    public void actualizarSaldo(int userId, double monto) {
+    public void actualizarSaldo(int userId, BigDecimal monto) {
         ejecutar("UPDATE users SET saldo = saldo + ? WHERE id = ?", monto, userId);
     }
 
     /**
-     * @deprecated D2: el saldo se obtiene con {@code WalletService.obtenerSaldo()} que retorna
-     *             {@code BigDecimal}. Este m�todo retorna {@code double} y puede causar errores
-     *             de precisi�n con dinero real.
+     * @deprecated D2: el saldo se obtiene con {@code WalletService.obtenerSaldo()}.
      */
     @Deprecated
-    public double obtenerSaldo(int userId) {
+    public BigDecimal obtenerSaldo(int userId) {
         try (Connection conn = db.getConnection();
              PreparedStatement ps = conn.prepareStatement("SELECT saldo FROM users WHERE id = ?")) {
             ps.setInt(1, userId);
             try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) return rs.getDouble("saldo");
+                if (rs.next()) {
+                    BigDecimal saldo = rs.getBigDecimal("saldo");
+                    return saldo != null ? saldo : BigDecimal.ZERO;
+                }
             }
         } catch (Exception e) {
             logger.error("Error obteniendo saldo usuario id={}: {}", userId, e.getMessage());
         }
-        return 0;
+        return BigDecimal.ZERO;
     }
 
     public void actualizarEstado(int userId, String estado, String salaActual, int pasoJuego) {
@@ -235,10 +236,8 @@ public class UsuarioDAO {
              PreparedStatement ps = conn.prepareStatement(
                      "UPDATE users SET estado = ?, sala_actual = ?, paso_juego = ? WHERE id = ?")) {
             ps.setString(1, estado);
-            if (salaActual == null)
-                ps.setNull(2, Types.VARCHAR);
-            else
-                ps.setString(2, salaActual);
+            if (salaActual == null) ps.setNull(2, Types.VARCHAR);
+            else ps.setString(2, salaActual);
             ps.setInt(3, pasoJuego);
             ps.setInt(4, userId);
             ps.executeUpdate();
@@ -248,23 +247,22 @@ public class UsuarioDAO {
     }
 
     public void resetearEstado(String username) {
-        ejecutarSQL("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE username = ?",
-                username);
+        ejecutarSQL("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE username = ?", username);
     }
 
     public void hacerAdmin(String username) {
         ejecutarSQL("UPDATE users SET tipo_suscripcion = 'admin' WHERE username = ?", username);
     }
 
-    // M�todos auxiliares privados (S4: nunca expuestos para SQL arbitrario externo)
-    private void ejecutar(String sql, double param1, int param2) {
+    // Métodos auxiliares privados (S4: nunca expuestos para SQL arbitrario externo)
+    private void ejecutar(String sql, BigDecimal param1, int param2) {
         try (Connection conn = db.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setDouble(1, param1);
+            ps.setBigDecimal(1, param1);
             ps.setInt(2, param2);
             ps.executeUpdate();
         } catch (Exception e) {
-            logger.error("Error ejecutando actualizaci�n num�rica en UsuarioDAO: {}", e.getMessage());
+            logger.error("Error ejecutando actualización numérica en UsuarioDAO: {}", e.getMessage());
         }
     }
 
@@ -274,12 +272,12 @@ public class UsuarioDAO {
             ps.setString(1, param);
             ps.executeUpdate();
         } catch (Exception e) {
-            logger.error("Error ejecutando actualizaci�n en UsuarioDAO: {}", e.getMessage());
+            logger.error("Error ejecutando actualización en UsuarioDAO: {}", e.getMessage());
         }
     }
 
     /**
-     * Convierte un ResultSet row a JsonObject (compatible con el frontend JSON)
+     * Convierte un ResultSet row a JsonObject conservando BigDecimal para columnas NUMERIC/DECIMAL (D1).
      */
     private JsonObject rowToJson(ResultSet rs) throws SQLException {
         JsonObject obj = new JsonObject();
@@ -287,17 +285,20 @@ public class UsuarioDAO {
         for (int i = 1; i <= meta.getColumnCount(); i++) {
             String col = meta.getColumnName(i);
             Object val = rs.getObject(i);
-            if (val == null)
+            if (val == null) {
                 obj.addProperty(col, (String) null);
-            else if (val instanceof Number)
-                obj.addProperty(col, ((Number) val).doubleValue());
-            else
+            } else if (val instanceof BigDecimal) {
+                obj.addProperty(col, (BigDecimal) val); // REVIEW-MONEY
+            } else if (val instanceof Number) {
+                obj.addProperty(col, (Number) val);
+            } else {
                 obj.addProperty(col, val.toString());
+            }
         }
-        // Convertir saldo de string a number si existe
-        if (obj.has("saldo")) {
+        // D1: asegurar que saldo quede como BigDecimal si vino como texto
+        if (obj.has("saldo") && !obj.get("saldo").isJsonNull()) {
             try {
-                obj.addProperty("saldo", Double.parseDouble(obj.get("saldo").getAsString()));
+                obj.addProperty("saldo", new BigDecimal(obj.get("saldo").getAsString())); // REVIEW-MONEY
             } catch (Exception ignored) {
             }
         }

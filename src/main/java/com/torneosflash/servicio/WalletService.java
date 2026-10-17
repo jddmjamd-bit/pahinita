@@ -89,8 +89,9 @@ public class WalletService {
         }
 
         public boolean isSuccess() { return success; }
-        public BigDecimal getNuevoSaldo() { return nuevoSaldo; }
-        /** Retorna el nuevo saldo como double para compatibilidad con el frontend JSON. */
+        public BigDecimal getNuevoSaldo() { return nuevoSaldo != null ? nuevoSaldo : BigDecimal.ZERO; }
+        /** @deprecated D1: usar {@link #getNuevoSaldo()} con {@link BigDecimal}. */
+        @Deprecated
         public double getNuevoSaldoDouble() { return nuevoSaldo != null ? nuevoSaldo.doubleValue() : 0; }
         public String getError() { return error; }
     }

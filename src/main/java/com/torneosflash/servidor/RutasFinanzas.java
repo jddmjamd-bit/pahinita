@@ -7,6 +7,8 @@ import com.torneosflash.servicio.FinanzasService;
 import com.torneosflash.servicio.ServicioException;
 import io.javalin.Javalin;
 
+import java.math.BigDecimal;
+
 import static com.torneosflash.servidor.RutasAuth.*;
 
 /**
@@ -15,6 +17,7 @@ import static com.torneosflash.servidor.RutasAuth.*;
  * A3: solo parsean el request y llaman a {@link FinanzasService}. La validación de montos, los
  * movimientos de dinero, las notificaciones y la firma de Wompi viven en el servicio.
  * S2: el userId y el username salen siempre de la sesión JWT (nunca del body).
+ * D1: los saldos y montos se manejan como {@link BigDecimal}.
  */
 public class RutasFinanzas {
     private static final Logger logger = LoggerFactory.getLogger(RutasFinanzas.class);
@@ -48,7 +51,7 @@ public class RutasFinanzas {
             if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
             String refCuenta = Peticion.textoOpcional(body, "datosCuenta",
                     Peticion.textoOpcional(body, "referencia", ""));
-            double nuevoSaldo = finanzas.solicitarRetiro(
+            BigDecimal nuevoSaldo = finanzas.solicitarRetiro(
                     userId,
                     Peticion.textoOpcional(body, "metodo", "nequi_retiro"),
                     refCuenta,

@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Random;
 import java.util.Set;
@@ -16,6 +17,7 @@ import java.util.Set;
 /**
  * Lógica de sorteos: tickets, encuesta de categorías, participación, creación/eliminación y ejecución (A3).
  * Antes vivía dentro de {@code RutasSorteos}. No conoce HTTP.
+ * D1: El pozo y el cálculo de tickets usan {@link BigDecimal} (nunca {@code double}).
  */
 public class SorteoService {
     private static final Logger logger = LoggerFactory.getLogger(SorteoService.class);
@@ -24,6 +26,7 @@ public class SorteoService {
     private static final int DURACION_MAX_MINUTOS = 60 * 24 * 365;
     /** D5: tope de tickets que se pueden sumar o quitar en una sola participación. */
     private static final long TICKETS_DELTA_MAX = 1_000_000L;
+    private static final BigDecimal MIL = BigDecimal.valueOf(1000);
 
     private final GenericDAO db;
     private final SocketIOServer io;
@@ -55,7 +58,7 @@ public class SorteoService {
     public JsonObject pozo() {
         JsonObject poolRes = db.queryOne("SELECT COALESCE(SUM(gen_sorteos), 0) as total FROM users");
         JsonObject res = new JsonObject();
-        res.addProperty("pool", poolRes != null ? poolRes.get("total").getAsDouble() : 0);
+        res.addProperty("pool", poolRes != null ? poolRes.get("total").getAsBigDecimal() : BigDecimal.ZERO);
         return res;
     }
 
@@ -212,7 +215,8 @@ public class SorteoService {
         if (!precioValido.isValido()) {
             throw ServicioException.solicitudInvalida(precioValido.getError());
         }
-        int precio = precioValido.getMonto().intValueExact(); // REVIEW-MONEY (el validador acota a Integer.MAX_VALUE)
+        BigDecimal montoPrecio = precioValido.getMonto(); // REVIEW-MONEY (el validador acota a Integer.MAX_VALUE)
+        int precio = montoPrecio.intValueExact();
 
         int duracionMinutos;
         try {
@@ -224,7 +228,7 @@ public class SorteoService {
             throw ServicioException.solicitudInvalida(
                     "La duración debe estar entre 1 minuto y " + DURACION_MAX_MINUTOS + " minutos");
         }
-        int ticketsNecesarios = (int) Math.ceil(precio / 1000.0);
+        int ticketsNecesarios = montoPrecio.divide(MIL, 0, RoundingMode.CEILING).intValueExact();
 
         int newId = db.insertReturningId("INSERT INTO raffles (nombre, categoria, precio, tickets_necesarios, fecha_limite) " +
                 "VALUES (?, ?, ?, ?, NOW() + make_interval(mins => ?)) RETURNING id",

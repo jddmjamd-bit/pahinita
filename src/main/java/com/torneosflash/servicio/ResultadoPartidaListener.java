@@ -7,6 +7,9 @@ import com.torneosflash.eventos.Eventos;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+
 /**
  * Listener de {@link Eventos#MATCH_FINISHED}: avisa del resultado a los dos jugadores (A4). Antes este código vivía
  * dentro del sondeo de la API de Clash en {@code SocketHandler}.
@@ -33,12 +36,13 @@ public class ResultadoPartidaListener {
         Eventos.PartidaFinalizada partida = evento.datos(Eventos.PartidaFinalizada.class);
         if (partida.origen() != Eventos.Origen.API) return;
 
-        double premio = partida.premio().doubleValue(); // solo para mostrar al cliente (JSON) // REVIEW-MONEY
+        BigDecimal premio = partida.premio(); // D1: BigDecimal sin pasar por double // REVIEW-MONEY
+        String premioTexto = premio.setScale(0, RoundingMode.FLOOR).toPlainString();
 
         // Saldo nuevo del ganador
         try {
             notificador.emitirA(partida.ganadorId(), "actualizar_saldo",
-                    new JsonPrimitive(partida.nuevoSaldoGanador().doubleValue()));
+                    new JsonPrimitive(partida.nuevoSaldoGanador()));
         } catch (Exception e) {
             logger.error("Error enviando el saldo nuevo al ganador {} (match #{}): {}",
                     partida.ganadorId(), partida.matchId(), e.getMessage());
@@ -50,7 +54,7 @@ public class ResultadoPartidaListener {
             try {
                 boolean esGanador = jugadorId == partida.ganadorId();
                 String mensaje = esGanador
-                        ? "🏆 ¡GANASTE! Recibiste $" + (int) premio
+                        ? "🏆 ¡GANASTE! Recibiste $" + premioTexto
                         : "💀 Perdiste. " + partida.ganadorNombre() + " ganó la partida.";
 
                 JsonObject resultData = new JsonObject();
