@@ -271,7 +271,6 @@ public class SocketHandler {
 
                     // Push notification para mensajes de chat (a todos excepto el remitente)
                     if (client.getUserData() != null) {
-                        int senderId = client.getUserData().get("id").getAsInt();
                         String nombreCanal = canal.equals("general") ? "General" : canal.equals("clash") ? "Clash" : canal.equals("anuncios") ? "Anuncios" : canal;
                         if (tipo.equals("texto")) {
                             String preview = texto.length() > 50 ? texto.substring(0, 50) + "..." : texto;
