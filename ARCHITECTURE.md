@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — UltimateClash (TorneosFlash)
 
 > Documento de referencia para que cualquier modelo o desarrollador entienda el sistema.
-> Última actualización: 2026-10-15
+> Última actualización: 2026-10-16
 
 ---
 
@@ -79,7 +79,9 @@ TorneosFlash/
 │   │   ├── ChatbotConocimiento.java # Lógica pura: normaliza preguntas y elige qué entradas de la base ve la IA
 │   │   ├── ChatbotListener.java     # Listeners de `chatbot.*`: correo al admin y entrega de la respuesta al usuario
 │   │   ├── SoporteService.java      # "Hablar con el admin" (24.5): crear ticket, mis tickets, bandeja admin y responder. Ver sección 19
-│   │   └── SoporteListener.java     # Listeners de `soporte.*`: correo al admin al crear un ticket; aviso + correo al usuario al responderlo
+│   │   ├── SoporteListener.java     # Listeners de `soporte.*`: correo al admin al crear un ticket; aviso + correo al usuario al responderlo
+│   │   ├── EvidenciaPagoService.java # Evidencias de pago (7): el admin publica el comprobante de un retiro pagado; historial del canal «pagos». Ver sección 20
+│   │   └── EvidenciaPagoListener.java # Listener de `pagos.evidencia_publicada`: mensaje en vivo al canal «pagos» + push a quien recibió el pago
 │   ├── servidor/                    # Capa HTTP (A3): parsea el request, llama a un servicio y responde. Sin lógica de negocio ni SQL
 │   │   ├── RateLimitMiddleware.java # Rate limiting por IP (S8): clasifica cada request y responde 429. Ver sección 10
 │   │   ├── AuthMiddleware.java      # Sesión JWT (S1): lee la cookie httpOnly `session`, inyecta `userId`/`rol`, emite y borra la cookie. Ver sección 16
@@ -95,12 +97,13 @@ TorneosFlash/
 │   │   ├── RutasMedia.java          # Upload/descarga de videos
 │   │   ├── RutasChatbot.java        # `/api/chatbot/*` (usuario) y `/api/admin/chatbot/*` (admin). Ver sección 17
 │   │   ├── RutasSoporte.java        # `/api/soporte/tickets` (usuario) y `/api/admin/soporte/tickets*` (admin). Ver sección 19
+│   │   ├── RutasEvidenciaPago.java  # `/api/pagos/evidencias` (usuario) y `/api/admin/pagos/*` (admin). Ver sección 20
 │   │   └── RutasSorteos.java        # CRUD sorteos y participaciones
 │   └── socketio/                    # Adaptador custom Socket.IO
 │       ├── SocketIOServer.java      # Parseo de paquetes Engine.IO/Socket.IO
 │       └── SocketIOClient.java      # Wrapper del cliente WS
 ├── src/main/resources/
-│   └── db/migration/                # Migraciones Flyway: V1 esquema base, V2 datos antiguos, V3 chatbot IA, V4 aceptación legal, V5 wallet_ledger (D3), V6 soporte_tickets (24.5)
+│   └── db/migration/                # Migraciones Flyway: V1 esquema base, V2 datos antiguos, V3 chatbot IA, V4 aceptación legal, V5 wallet_ledger (D3), V6 soporte_tickets (24.5), V7 evidencias_pago (7)
 ├── agent/rules/                     # Reglas para modelos IA
 │   ├── auto-push.md
 │   └── project-conventions.md       # ← NUEVO
@@ -137,6 +140,7 @@ TorneosFlash/
 | `wallet_ledger` | Auditoría inmutable de movimientos de dinero (D3) | `id` (BIGSERIAL), `user_id`, `tipo` (deposito/retiro/torneo/premio/comision/liquidacion), `monto`, `saldo_anterior`, `saldo_posterior`, `referencia`, `fecha`. Solo INSERT, nunca UPDATE/DELETE. `user_id=0` para comisiones del sistema |
 | `legal_acceptances` | Registro de aceptación de documentos legales | `user_id`, `documento`, `version`, `aceptado_en` |
 | `support_tickets` | Tickets de "Hablar con el admin" (24.5) | `user_id`, `categoria` (pregunta/sugerencia/bug/cuenta/otro), `asunto`, `mensaje`, `estado` (abierto/resuelto), `respuesta`, `respondido_por`, `fecha_creacion`, `fecha_respuesta` |
+| `payment_evidences` | Comprobantes de retiros pagados que el admin publica en el canal «pagos» (7) | `transaction_id` (UNIQUE: una por retiro), `user_id` (a quien se pagó), `admin_id`, `monto`, `metodo`, `nota`, `imagen` (data URI base64), `fecha`. Usuario, monto y método se copian de la transacción |
 
 ---
 
@@ -653,3 +657,37 @@ Admin ── POST /api/admin/soporte/tickets/{id}/responder ── SoporteServic
 - El correo al usuario va a `users.email` sin verificar que sea suyo (la verificación de email es otra tarea del roadmap). Si no hay correo válido o Brevo no está configurado, el usuario igual ve la respuesta en su panel.
 - El aviso en vivo usa `NotificadorUsuarios.emitirA` (directo a los sockets del usuario, sin rooms ni namespaces), igual que el chatbot; no depende de A1.
 - Frontend: solo la app React (`pages/Soporte.jsx`, `pages/AdminSoporte.jsx`, `pages/soporteComun.js`); el frontend legacy de `public/` no lo tiene. El texto de usuarios y admin se pinta con React, nunca con `innerHTML`.
+
+---
+
+## 20. Evidencias de pago: canal «Pagos» del chat (roadmap 7)
+
+Cuando el admin paga un retiro por fuera (Nequi, etc.) y lo aprueba, sube la imagen del comprobante. Queda publicada en la pestaña «🧾 Pagos» de `Chat.jsx`, que ven todos los usuarios (solo lectura para ellos). Solo se publican **retiros**: en una recarga quien paga es el usuario, no el admin.
+
+```
+Admin ── POST /api/admin/pagos/evidencias {transaccionId, imagen, nota?} ── EvidenciaPagoService.publicar
+             ├─ exige admin (AdminMiddleware + tipo_suscripcion en el servicio) y valida la imagen (data URI png/jpeg/gif/webp, tope de largo)
+             ├─ INSERT ... SELECT desde transactions (tipo 'retiro', estado 'completado'; usuario, monto y método salen de la BD) ON CONFLICT DO NOTHING
+             └─ emit pagos.evidencia_publicada → EvidenciaPagoListener: socket `mensaje_chat` (canal 'pagos') a todos + push a quien recibió el pago
+
+Usuario ── GET /api/pagos/evidencias ── historial (las últimas, con forma de mensaje de chat); se pide al abrir la pestaña
+```
+
+| Endpoint | Quién | Qué hace |
+|---|---|---|
+| `GET /api/pagos/evidencias` | usuario (sesión JWT) | Últimas `PAGOS_HISTORIAL_LIMITE` evidencias, de vieja a nueva, como mensajes `{canal:'pagos', usuario (admin), texto (imagen), tipo:'imagen', fecha, evidencia:{id, transaccionId, para, monto, metodo, nota}}` |
+| `GET /api/admin/pagos/retiros` | admin | Retiros aprobados que todavía no tienen evidencia (máx. 50) |
+| `POST /api/admin/pagos/evidencias` `{transaccionId, imagen, nota?}` | admin | Publica la evidencia. 400 si el retiro no existe, no es retiro, no está aprobado, ya tiene evidencia o la imagen no es válida |
+
+| Variable | Default | Qué controla |
+|---|---|---|
+| `PAGOS_MAX_IMAGEN_CHARS` | 800000 (50000 - 900000) | Largo máximo del data URI de la imagen. No pasar de ~900000: Javalin rechaza cuerpos de más de 1 MB por defecto |
+| `PAGOS_HISTORIAL_LIMITE` | 20 (1 - 100) | Cuántas evidencias carga el canal al abrirlo |
+
+**Decisiones y límites conocidos**
+- **Se publica por HTTP, no por Socket.IO.** El socket todavía no autentica al emisor (S2 pendiente: el anuncio de admin solo se oculta en el frontend), y un comprobante falso es un riesgo de fraude. Por eso `pagos` NO está en `CANALES_PUBLICOS` de `ChatSanitizer`: ningún cliente puede escribir en ese canal por socket.
+- **Imagen en la BD como data URI base64** (igual que las imágenes de anuncios); no usa `media_files`, que es solo para videos. El historial NO viaja en la conexión del socket (serían hasta 20 imágenes por cada conexión): se pide por HTTP al abrir la pestaña y lo nuevo llega en vivo. El frontend reduce la imagen (máx. 1280 px, JPEG, ≤ 700000 caracteres) antes de enviarla.
+- **Una evidencia por retiro** (`UNIQUE (transaction_id)`). No se puede editar ni borrar desde la app; si hay que quitar una, se hace desde `/admin-db`.
+- **Privacidad:** el canal es público para los usuarios con sesión y muestra nombre de usuario, monto y método, además de la imagen. El admin debe tapar números de cuenta/celular y documentos antes de subirla (el formulario lo avisa); el servidor no puede detectarlo.
+- El push solo va a quien recibió el pago. Los demás usuarios ven la evidencia en vivo si están conectados, o al abrir la pestaña.
+- Frontend: solo la app React (`pages/Chat.jsx`, `Chat.css`, `store/useAppStore.js`); el frontend legacy de `public/` no lo tiene.

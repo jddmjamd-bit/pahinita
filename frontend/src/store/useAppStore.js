@@ -50,7 +50,7 @@ export const useAppStore = create((set, get) => ({
         get().disconnectSocket();
         set({ 
             user: null,
-            chatMessages: { general: [], anuncios: [], clash: [], clash_logs: [] },
+            chatMessages: { general: [], anuncios: [], clash: [], clash_logs: [], pagos: [] },
             matchState: { inMatch: false, salaId: null, rival: null, gameMode: '', monto: 0, maxMonto: 10000, status: 'idle' }
         });
     },
@@ -60,7 +60,8 @@ export const useAppStore = create((set, get) => ({
         general: [],
         anuncios: [],
         clash: [],
-        clash_logs: []
+        clash_logs: [],
+        pagos: [] // evidencias de pago (roadmap 7): el historial se pide por HTTP al abrir el canal; en vivo llega por mensaje_chat
     },
     setChatHistory: (canal, mensajes) => set(state => ({
         chatMessages: {

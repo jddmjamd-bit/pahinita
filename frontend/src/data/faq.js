@@ -407,13 +407,24 @@ export const PREGUNTAS = [
         categoria: 'chats',
         pregunta: '¿Cuáles son los canales de chat y para qué sirve cada uno?',
         respuesta: [
-            'En Chat / Anuncios hay cuatro pestañas:'
+            'En Chat / Anuncios hay cinco pestañas:'
         ],
         pasos: [
             '💬 General: conversación libre entre todos los jugadores.',
             '📢 Anuncios: avisos oficiales. Solo los administradores pueden escribir; tú solo los lees.',
             '⚔️ Clash: para hablar de partidas, buscar rivales y compartir cosas de Clash Royale.',
-            '📜 Registro: solo lectura. Muestra los eventos y partidas del sistema.'
+            '📜 Registro: solo lectura. Muestra los eventos y partidas del sistema.',
+            '🧾 Pagos: solo lectura. El administrador publica aquí los comprobantes de los retiros que ya pagó.'
+        ],
+        enlace: { texto: 'Ir al Chat', to: '/chat' }
+    },
+    {
+        id: 'comprobante-retiro',
+        categoria: 'dinero',
+        pregunta: '¿Dónde veo el comprobante de mi retiro?',
+        respuesta: [
+            'Cuando el administrador te paga un retiro, publica la imagen del comprobante en el canal «Pagos» del chat y te llega un aviso. Ahí lo puedes ver, abrir en grande y comprobar el monto.',
+            'El canal es de solo lectura y lo ven todos los jugadores, por eso el administrador tapa los datos personales antes de publicar. Solo se publican comprobantes de retiros; las recargas no aparecen ahí.'
         ],
         enlace: { texto: 'Ir al Chat', to: '/chat' }
     },

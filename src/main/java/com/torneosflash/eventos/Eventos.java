@@ -203,4 +203,34 @@ public final class Eventos {
      * @param respuesta lo que respondió el admin
      */
     public record TicketRespondido(int ticketId, int userId, String username, String categoria, String asunto, String respuesta) {}
+
+    // ═════════════════════════════════════════════
+    // EVENTOS DE EVIDENCIAS DE PAGO (roadmap 7)
+    // ═════════════════════════════════════════════
+
+    /**
+     * Un admin publicó la evidencia (comprobante) de un retiro pagado.
+     * Datos: {@link EvidenciaPublicada}. Lo emite {@code EvidenciaPagoService.publicar} DESPUÉS de guardarla; el
+     * listener {@code EvidenciaPagoListener} la reparte a todos los conectados (canal «pagos» del chat) y le avisa
+     * por push a quien recibió el pago.
+     */
+    public static final String PAGOS_EVIDENCIA_PUBLICADA = "pagos.evidencia_publicada";
+
+    /**
+     * Datos de {@link #PAGOS_EVIDENCIA_PUBLICADA}. // REVIEW-MONEY (el monto es el de la transacción, no el del cliente)
+     *
+     * @param evidenciaId   id de la fila en {@code payment_evidences}
+     * @param transaccionId retiro al que corresponde (tabla {@code transactions})
+     * @param userId        a quien se le pagó
+     * @param username      su nombre de usuario
+     * @param adminUsername admin que subió la imagen
+     * @param monto         monto del retiro
+     * @param metodo        método del retiro (nequi, etc.)
+     * @param nota          nota opcional del admin, ya limpia (puede ser "")
+     * @param imagen        data URI base64 ya validada
+     * @param fecha         fecha de publicación (ISO-8601)
+     */
+    public record EvidenciaPublicada(int evidenciaId, int transaccionId, int userId, String username,
+                                     String adminUsername, java.math.BigDecimal monto, String metodo, String nota,
+                                     String imagen, String fecha) {}
 }

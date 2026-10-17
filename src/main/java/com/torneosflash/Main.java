@@ -42,6 +42,8 @@ import com.torneosflash.servicio.ChatbotListener;
 import com.torneosflash.servicio.ChatbotService;
 import com.torneosflash.servicio.SoporteListener;
 import com.torneosflash.servicio.SoporteService;
+import com.torneosflash.servicio.EvidenciaPagoListener;
+import com.torneosflash.servicio.EvidenciaPagoService;
 
 /**
  * Punto de entrada principal de Torneos Flash.
@@ -238,6 +240,9 @@ public class Main {
         // Soporte "Hablar con el admin" (roadmap 24.5): correo al admin al crear un ticket y aviso/correo al usuario al responderlo
         SoporteService soporteService = new SoporteService(db, eventBus, config);
         new SoporteListener(correo, notificador, soporteService, config).registrar(eventBus);
+        // Evidencias de pago (roadmap 7): el admin publica el comprobante de un retiro y el listener lo reparte al canal «pagos»
+        EvidenciaPagoService evidenciaPagoService = new EvidenciaPagoService(db, eventBus, config);
+        new EvidenciaPagoListener(socketServer, notificador).registrar(eventBus);
         AdminService adminService = new AdminService(db, usuarioDAO, wallet, eventBus, notificador, socketServer);
         LeaderboardService leaderboardService = new LeaderboardService(db, socketServer, wallet);
         MediaService mediaService = new MediaService(db);
@@ -257,6 +262,7 @@ public class Main {
         RutasMedia.register(app, mediaService);
         RutasChatbot.register(app, chatbotService, config, limitadorChatbot);
         RutasSoporte.register(app, soporteService);
+        RutasEvidenciaPago.register(app, evidenciaPagoService);
 
         // ============================================
         // 8. REGISTRAR SOCKET HANDLERS

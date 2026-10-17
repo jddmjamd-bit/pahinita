@@ -98,6 +98,10 @@ public class AppConfig {
     private final int soporteMaxTicketsDia;
     private final int soporteMaxCorreosHora;
 
+    // --- Evidencias de pago (roadmap 7). Ver EvidenciaPagoService. ---
+    private final int pagosMaxImagenChars;
+    private final int pagosHistorialLimite;
+
     // --- Constructor (CONSTRUCTOR con parámetros desde env) ---
     public AppConfig() {
         this.port = Integer.parseInt(getEnv("PORT", "5000"));
@@ -201,6 +205,12 @@ public class AppConfig {
         this.soporteMaxAbiertos = getEnvEntero("SOPORTE_MAX_ABIERTOS", 5, 1, 100);
         this.soporteMaxTicketsDia = getEnvEntero("SOPORTE_MAX_TICKETS_DIA", 10, 1, 1000);
         this.soporteMaxCorreosHora = getEnvEntero("SOPORTE_MAX_CORREOS_HORA", 10, 1, 1000);
+
+        // Evidencias de pago (roadmap 7). La imagen viaja en el JSON de un POST (data URI base64): el tope de caracteres
+        // no debe pasar de ~900.000 porque Javalin rechaza cuerpos de más de 1 MB por defecto. El frontend ya la comprime.
+        this.pagosMaxImagenChars = getEnvEntero("PAGOS_MAX_IMAGEN_CHARS", 800_000, 50_000, 900_000);
+        // Cuántas evidencias recientes se cargan al abrir el canal «Pagos» (cada una pesa hasta pagosMaxImagenChars).
+        this.pagosHistorialLimite = getEnvEntero("PAGOS_HISTORIAL_LIMITE", 20, 1, 100);
     }
 
     /**
@@ -349,6 +359,10 @@ public class AppConfig {
     public int getSoporteMaxAbiertos() { return soporteMaxAbiertos; }
     public int getSoporteMaxTicketsDia() { return soporteMaxTicketsDia; }
     public int getSoporteMaxCorreosHora() { return soporteMaxCorreosHora; }
+    /** Máximo de caracteres de la imagen (data URI base64) de una evidencia de pago. */
+    public int getPagosMaxImagenChars() { return pagosMaxImagenChars; }
+    /** Cuántas evidencias recientes carga el canal «Pagos». */
+    public int getPagosHistorialLimite() { return pagosHistorialLimite; }
 
     public boolean hasClashApi() { return !clashApiToken.isEmpty(); }
     public boolean hasFirebase() { return !firebaseServiceAccount.isEmpty(); }
