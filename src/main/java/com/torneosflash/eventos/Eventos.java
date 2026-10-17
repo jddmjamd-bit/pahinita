@@ -233,4 +233,29 @@ public final class Eventos {
     public record EvidenciaPublicada(int evidenciaId, int transaccionId, int userId, String username,
                                      String adminUsername, java.math.BigDecimal monto, String metodo, String nota,
                                      String imagen, String fecha) {}
+
+    // ═════════════════════════════════════════════
+    // EVENTOS DE CHAT DE VOZ (roadmap 84)
+    // ═════════════════════════════════════════════
+
+    /**
+     * Una partida empezó: los dos jugadores aceptaron, ya se cobró el monto y la fila de {@code matches} existe.
+     * Datos: {@link PartidaIniciada}. Lo emite {@code SocketHandler} justo después de avisar {@code juego_iniciado};
+     * el listener {@code VozListener} prepara el canal de voz de Discord si algún jugador vinculó su cuenta.
+     * El canal se borra con {@link #MATCH_FINISHED} (o, si la partida termina en disputa o se alarga, con la limpieza
+     * periódica de {@code VozDiscordService}).
+     */
+    public static final String MATCH_STARTED = "match.started";
+
+    /**
+     * Datos de {@link #MATCH_STARTED}.
+     *
+     * @param matchId       id de la partida en la tabla {@code matches}
+     * @param participantes ids de los dos jugadores. Lista inmutable
+     */
+    public record PartidaIniciada(int matchId, List<Integer> participantes) {
+        public PartidaIniciada {
+            participantes = List.copyOf(participantes);
+        }
+    }
 }

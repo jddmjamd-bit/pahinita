@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — UltimateClash (TorneosFlash)
 
 > Documento de referencia para que cualquier modelo o desarrollador entienda el sistema.
-> Última actualización: 2026-10-16
+> Última actualización: 2026-10-17
 
 ---
 
@@ -691,3 +691,55 @@ Usuario ── GET /api/pagos/evidencias ── historial (las últimas, con for
 - **Privacidad:** el canal es público para los usuarios con sesión y muestra nombre de usuario, monto y método, además de la imagen. El admin debe tapar números de cuenta/celular y documentos antes de subirla (el formulario lo avisa); el servidor no puede detectarlo.
 - El push solo va a quien recibió el pago. Los demás usuarios ven la evidencia en vivo si están conectados, o al abrir la pestaña.
 - Frontend: solo la app React (`pages/Chat.jsx`, `Chat.css`, `store/useAppStore.js`); el frontend legacy de `public/` no lo tiene.
+
+---
+
+## 21. Chat de voz con Discord (roadmap 84)
+
+Chat de voz **opcional** entre los dos jugadores de una partida, sobre Discord. Cada jugador necesita su propia cuenta de Discord (gratis); quien no la vincule juega igual, sin voz. Sin las variables `DISCORD_*` la función queda desactivada y el resto de la app no cambia.
+
+```
+Usuario ── POST /api/voz/discord/vincular ── VozDiscordService.iniciarVinculacion → {url de Discord con `state` firmado}
+Discord ── GET /api/voz/discord/callback?code&state ── completarVinculacion: canjea el código, lee la cuenta, guarda discord_links,
+             mete al usuario al servidor (guilds.join) y redirige a /match?discord=<resultado>   (el token OAuth no se guarda)
+
+SocketHandler ── emit match.started ── VozListener ──(pool IO)── prepararCanal: si algún jugador vinculó Discord crea el canal privado
+                                                                  `partida-<id>` y da acceso a quien esté en el servidor
+Usuario ── GET /api/voz/mi-canal ── miCanal: crea el canal si falta, da acceso a quien lo pide y devuelve https://discord.com/channels/<servidor>/<canal>
+SocketHandler / AdminService ── emit match.finished ── VozListener ──(pool IO)── cerrarCanal: borra el canal
+Main ── cada minuto ──(pool IO)── limpiarVencidos: borra canales de partidas que ya no están `en_curso` o de más de DISCORD_VOICE_MAX_MINUTOS
+```
+
+| Tabla (`V8`) | Qué guarda |
+|---|---|
+| `discord_links` | `user_id` (PK) → `discord_id` (UNIQUE: una cuenta de Discord = un usuario) y `discord_username` |
+| `voice_channels` | Un canal por partida (`match_id` UNIQUE): jugadores, `discord_channel_id` y `estado` activo/cerrado |
+
+| Endpoint | Qué hace |
+|---|---|
+| `GET /api/voz/estado` | `{disponible, vinculado, discordUsername?, servidorUrl?}` |
+| `POST /api/voz/discord/vincular` | `{url}` de autorización de Discord |
+| `GET /api/voz/discord/callback` | Vuelta de Discord; redirige a `/match?discord=ok\|cancelado\|discord_en_uso\|estado_invalido\|no_disponible\|error` |
+| `DELETE /api/voz/discord` | Desvincula |
+| `GET /api/voz/mi-canal` | `{estado: listo\|sin_vincular\|sin_partida\|falta_servidor\|caducado, mensaje, url?, servidorUrl?}` |
+
+| Variable | Default | Qué controla |
+|---|---|---|
+| `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` | — | Aplicación OAuth2 de Discord (obligatorias) |
+| `DISCORD_BOT_TOKEN` | — | Token del bot que crea y borra canales (obligatoria) |
+| `DISCORD_GUILD_ID` | — | ID del servidor de Discord de la plataforma (obligatoria) |
+| `DISCORD_REDIRECT_URI` | `APP_BASE_URL` + `/api/voz/discord/callback` | Debe estar registrada igual en Discord Developer Portal → OAuth2 → Redirects |
+| `DISCORD_VOICE_CATEGORY_ID` | vacío | Categoría del servidor donde se crean los canales |
+| `DISCORD_INVITE_URL` | vacío | Invitación (https) que se le muestra a quien aún no está en el servidor |
+| `DISCORD_VOICE_MAX_MINUTOS` | 90 (5 - 1440) | Vida máxima de un canal aunque la partida siga abierta |
+
+Permisos del bot en el servidor: *Gestionar canales*, *Gestionar roles*, *Ver canales*, *Conectar* y *Crear invitación instantánea* (necesaria para `guilds.join`). No usa el gateway ni «Privileged Intents».
+
+**Decisiones y límites conocidos**
+- **REST desde Java, sin Discord.js ni proceso aparte** (`DiscordApiCliente`): crear y borrar canales solo requiere el token del bot por HTTPS. Un solo deploy en Render y la lógica sigue el patrón del proyecto (servicio + listener del bus + migración Flyway). Si en el futuro se quisieran comandos o presencia en Discord, ahí sí haría falta un bot conectado.
+- **Canal privado por permisos**: @everyone no puede ver ni conectarse; cada jugador recibe un permiso propio (ver, conectar, hablar). Discord solo deja dar permisos a miembros del servidor: por eso se les mete al vincular y, si aún no están, `mi-canal` responde `falta_servidor` con la invitación.
+- **El `state` de OAuth es sin estado en el servidor** (HMAC-SHA256 con una clave derivada de `JWT_SECRET`, 10 min de vigencia): no hay mapas en memoria (A2). Si `JWT_SECRET` no está definido y el servidor se reinicia en medio de una vinculación, el usuario solo debe repetirla.
+- **Un canal por partida, nunca se reabre**: si el canal se cerró (por tiempo máximo) y la partida sigue, `mi-canal` responde `caducado`.
+- **Privacidad**: el canal se llama `partida-<id>`; al rival nunca se le muestra el usuario de Discord del otro. Solo se guarda el id y el nombre de Discord de quien vincula; nunca su token.
+- Los errores de Discord no rompen la partida: `emit` no lanza, el trabajo corre en el pool de IO y la limpieza de cada minuto reintenta los borrados que fallaron.
+- Frontend: solo la app React (`components/VozDiscord.jsx`, usado en `pages/Match.jsx`); el frontend legacy de `public/` no lo tiene.

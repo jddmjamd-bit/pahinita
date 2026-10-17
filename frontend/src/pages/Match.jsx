@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import './Match.css';
+import VozDiscord from '../components/VozDiscord';
 
 const API_BASE_URL = 'https://torneos-beta.onrender.com';
 
@@ -388,6 +389,7 @@ export default function Match() {
                             <h2>¿Listo para jugar?</h2>
                             <p>Te emparejamos con otro jugador y acuerdan modo y monto en una sala privada.</p>
                             <button className="search-btn" onClick={handleBuscar} disabled={!socket || !currentUser}>🔍 Buscar partida</button>
+                            <VozDiscord enPartida={false} />
                         </>
                     )}
                 </div>
@@ -430,6 +432,8 @@ export default function Match() {
                             <button type="submit">Enviar</button>
                         </form>
 
+                        <VozDiscord enPartida={false} />
+
                         <div className="negotiation-box">
                             <h4>⚙️ Configuración</h4>
                             <div className="inputs-row">
@@ -469,6 +473,7 @@ export default function Match() {
                                 </div>
                                 <h2>{apiStatusText}</h2>
                                 <p style={{color: '#bbb', marginTop: 10}}>La API detectará automáticamente quién ganó.</p>
+                                <VozDiscord enPartida={true} />
                                 <p style={{color: '#faa61a', fontSize: '0.9rem'}}>⏱️ Tiempo límite: 10 minutos</p>
                             </>
                         ) : (

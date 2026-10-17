@@ -455,6 +455,16 @@ export const PREGUNTAS = [
             'Si alguien te molesta o ves algo raro, cuéntaselo al Asistente para que le llegue al administrador.'
         ]
     },
+    {
+        id: 'chat-de-voz',
+        categoria: 'chats',
+        pregunta: '¿Puedo hablar por voz con mi rival? ¿Necesito una cuenta de Discord?',
+        respuesta: [
+            'Sí, el chat de voz es opcional y funciona con Discord. Para usarlo necesitas una cuenta de Discord (es gratis); si no tienes o no quieres usarla, puedes jugar igual sin voz.',
+            'Vincula tu cuenta una sola vez desde la pantalla de partidas con el botón «Vincular Discord»: Discord te pide autorizar y te devuelve a la plataforma. Cuando empieza tu partida aparece el botón «Abrir chat de voz», que te lleva a un canal privado solo para ti y tu rival. El canal se borra solo cuando la partida termina.',
+            'Tu rival no ve tu usuario de Discord, y una misma cuenta de Discord solo puede estar vinculada a un usuario de la plataforma. Puedes desvincularla cuando quieras.'
+        ]
+    },
 
     // ───────────────────────── Cuenta y seguridad ─────────────────────────
     {

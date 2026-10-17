@@ -102,6 +102,16 @@ public class AppConfig {
     private final int pagosMaxImagenChars;
     private final int pagosHistorialLimite;
 
+    // --- Chat de voz con Discord (roadmap 84). Ver VozDiscordService y DiscordApiCliente. ---
+    private final String discordClientId;
+    private final String discordClientSecret;
+    private final String discordBotToken;
+    private final String discordGuildId;
+    private final String discordRedirectUri;
+    private final String discordCategoriaVozId;
+    private final String discordInviteUrl;
+    private final int discordVozMaxMinutos;
+
     // --- Constructor (CONSTRUCTOR con parámetros desde env) ---
     public AppConfig() {
         this.port = Integer.parseInt(getEnv("PORT", "5000"));
@@ -211,6 +221,21 @@ public class AppConfig {
         this.pagosMaxImagenChars = getEnvEntero("PAGOS_MAX_IMAGEN_CHARS", 800_000, 50_000, 900_000);
         // Cuántas evidencias recientes se cargan al abrir el canal «Pagos» (cada una pesa hasta pagosMaxImagenChars).
         this.pagosHistorialLimite = getEnvEntero("PAGOS_HISTORIAL_LIMITE", 20, 1, 100);
+
+        // Chat de voz (roadmap 84). Sin las cuatro primeras variables el chat de voz queda desactivado y el resto de la
+        // app no cambia. Los ids de Discord (servidor, categoria, aplicacion) son numeros de 15 a 25 cifras.
+        this.discordClientId = getEnvSnowflake("DISCORD_CLIENT_ID");
+        this.discordClientSecret = getEnv("DISCORD_CLIENT_SECRET", "").trim();
+        this.discordBotToken = getEnv("DISCORD_BOT_TOKEN", "").trim();
+        this.discordGuildId = getEnvSnowflake("DISCORD_GUILD_ID");
+        // Debe estar registrada tal cual en Discord Developer Portal > OAuth2 > Redirects
+        this.discordRedirectUri = getEnv("DISCORD_REDIRECT_URI", this.appBaseUrl + "/api/voz/discord/callback").trim();
+        // Opcional: categoria del servidor donde se crean los canales de voz de las partidas
+        this.discordCategoriaVozId = getEnvSnowflake("DISCORD_VOICE_CATEGORY_ID");
+        // Opcional: enlace de invitacion al servidor (se le muestra a quien aun no esta dentro)
+        this.discordInviteUrl = normalizarUrlHttps(getEnv("DISCORD_INVITE_URL", ""), "DISCORD_INVITE_URL");
+        // Tope de vida de un canal de voz aunque la partida siga abierta (el canal se borra solo al terminar la partida)
+        this.discordVozMaxMinutos = getEnvEntero("DISCORD_VOICE_MAX_MINUTOS", 90, 5, 1440);
     }
 
     /**
@@ -363,12 +388,47 @@ public class AppConfig {
     public int getPagosMaxImagenChars() { return pagosMaxImagenChars; }
     /** Cuántas evidencias recientes carga el canal «Pagos». */
     public int getPagosHistorialLimite() { return pagosHistorialLimite; }
+    public String getDiscordClientId() { return discordClientId; }
+    public String getDiscordClientSecret() { return discordClientSecret; }
+    public String getDiscordBotToken() { return discordBotToken; }
+    public String getDiscordGuildId() { return discordGuildId; }
+    public String getDiscordRedirectUri() { return discordRedirectUri; }
+    /** Categoria donde se crean los canales de voz (vacio = sin categoria). */
+    public String getDiscordCategoriaVozId() { return discordCategoriaVozId; }
+    /** Invitacion al servidor de Discord de la plataforma (vacio = no hay). */
+    public String getDiscordInviteUrl() { return discordInviteUrl; }
+    public int getDiscordVozMaxMinutos() { return discordVozMaxMinutos; }
 
     public boolean hasClashApi() { return !clashApiToken.isEmpty(); }
     public boolean hasFirebase() { return !firebaseServiceAccount.isEmpty(); }
     public boolean hasBrevo() { return !brevoApiKey.isEmpty() && !brevoSenderEmail.isEmpty(); }
     /** El chatbot IA necesita clave y modelo; sin alguno de los dos queda desactivado. */
     public boolean hasChatbot() { return !chatbotApiKey.isEmpty() && !chatbotModelo.isEmpty(); }
+    /** El chat de voz necesita la aplicacion OAuth2 (id + secreto), el bot (token) y el servidor (id); sin alguno queda desactivado. */
+    public boolean hasDiscord() {
+        return !discordClientId.isEmpty() && !discordClientSecret.isEmpty()
+                && !discordBotToken.isEmpty() && !discordGuildId.isEmpty();
+    }
+
+    private static final Pattern SNOWFLAKE_VALIDO = Pattern.compile("^[0-9]{15,25}$");
+
+    /** Id de Discord (solo digitos). Si no esta definido o es invalido devuelve vacio. */
+    private String getEnvSnowflake(String key) {
+        String valor = getEnv(key, "").trim();
+        if (valor.isEmpty()) return "";
+        if (SNOWFLAKE_VALIDO.matcher(valor).matches()) return valor;
+        logger.error("⚠️ {} no es un id de Discord válido (solo dígitos). Se ignora.", key);
+        return "";
+    }
+
+    /** URL https opcional. Si no empieza por https:// se ignora (vacio). */
+    private static String normalizarUrlHttps(String valor, String variable) {
+        String url = valor.trim();
+        if (url.isEmpty()) return "";
+        if (url.startsWith("https://") && !url.contains(" ")) return url;
+        logger.error("⚠️ {} debe empezar por https://. Se ignora.", variable);
+        return "";
+    }
 
     /** Nombre de modelo permitido: letras, números, punto, guion, guion bajo y dos puntos (se concatena a la URL del proveedor). */
     private static final Pattern MODELO_IA_VALIDO = Pattern.compile("^[A-Za-z0-9._:-]{1,100}$");

@@ -1,0 +1,70 @@
+/* Chat de voz con Discord (roadmap 84). Usa las variables de tema de la app; los valores tras la coma son de respaldo. */
+.voz-box {
+    margin: 12px 0;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: var(--bg-surface-elevated, #2b2d31);
+    color: var(--text-primary, #f2f3f5);
+    border: 1px solid rgba(114, 137, 218, 0.4);
+    text-align: left;
+}
+
+.voz-box h4 {
+    margin: 0 0 6px;
+}
+
+.voz-texto {
+    margin: 4px 0 8px;
+    font-size: 0.85rem;
+    opacity: 0.9;
+}
+
+.voz-btn {
+    background: #5865f2;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.voz-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.voz-link {
+    display: block;
+    margin-top: 8px;
+    padding: 0;
+    background: none;
+    border: none;
+    color: inherit;
+    opacity: 0.7;
+    font-size: 0.8rem;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.voz-aviso {
+    margin: 8px 0 0;
+    font-size: 0.85rem;
+}
+
+.voz-aviso a {
+    color: #7289da;
+    font-weight: 600;
+}
+
+.voz-aviso-ok {
+    color: #43b581;
+}
+
+.voz-aviso-error {
+    color: #ed4245;
+}
+
+.voz-aviso-info {
+    color: #faa61a;
+}

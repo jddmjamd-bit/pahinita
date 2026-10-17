@@ -549,6 +549,9 @@ public class SocketHandler {
                         inicioData.addProperty("monto", match.monto);
                         inicioData.addProperty("matchId", dbId);
                         io.to(salaId).emit("juego_iniciado", inicioData);
+                        // Roadmap 84: se avisa al bus que la partida empezó (el listener de voz prepara el canal de Discord).
+                        // emit() no lanza y el listener trabaja en el pool de IO, así que no retrasa ni rompe el inicio de la partida.
+                        if (dbId > 0) eventos.emit(Eventos.MATCH_STARTED, new Eventos.PartidaIniciada(dbId, ids));
                         logClash("🎮 INICIO #" + dbId + " | $" + match.monto + " | Buscando resultado via API...");
 
                         // Iniciar polling de la API

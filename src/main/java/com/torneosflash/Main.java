@@ -44,6 +44,9 @@ import com.torneosflash.servicio.SoporteListener;
 import com.torneosflash.servicio.SoporteService;
 import com.torneosflash.servicio.EvidenciaPagoListener;
 import com.torneosflash.servicio.EvidenciaPagoService;
+import com.torneosflash.servicio.DiscordApiCliente;
+import com.torneosflash.servicio.VozDiscordService;
+import com.torneosflash.servicio.VozListener;
 
 /**
  * Punto de entrada principal de Torneos Flash.
@@ -243,6 +246,11 @@ public class Main {
         // Evidencias de pago (roadmap 7): el admin publica el comprobante de un retiro y el listener lo reparte al canal «pagos»
         EvidenciaPagoService evidenciaPagoService = new EvidenciaPagoService(db, eventBus, config);
         new EvidenciaPagoListener(socketServer, notificador).registrar(eventBus);
+        // Chat de voz con Discord (roadmap 84): al empezar una partida se prepara el canal de voz y al terminar se borra.
+        // Sin las variables DISCORD_* queda desactivado y no hace nada.
+        DiscordApiCliente discordApi = new DiscordApiCliente(config);
+        VozDiscordService vozService = new VozDiscordService(db, discordApi, config);
+        new VozListener(vozService, ejecutores).registrar(eventBus);
         AdminService adminService = new AdminService(db, usuarioDAO, wallet, eventBus, notificador, socketServer);
         LeaderboardService leaderboardService = new LeaderboardService(db, socketServer, wallet);
         MediaService mediaService = new MediaService(db);
@@ -263,6 +271,7 @@ public class Main {
         RutasChatbot.register(app, chatbotService, config, limitadorChatbot);
         RutasSoporte.register(app, soporteService);
         RutasEvidenciaPago.register(app, evidenciaPagoService);
+        RutasVoz.register(app, vozService);
 
         // ============================================
         // 8. REGISTRAR SOCKET HANDLERS
@@ -277,6 +286,14 @@ public class Main {
         // Temporizadores cortos compartidos (A8). Nada de HTTP externo aquí: eso va al
         // pool de IO.
         ScheduledExecutorService scheduler = ejecutores.timers();
+
+        // Chat de voz (roadmap 84): cada minuto se borran los canales de voz de partidas ya terminadas o demasiado largas.
+        // El borrado habla con Discord (HTTP externo), así que se encola en el pool de IO, nunca corre en el temporizador.
+        if (config.hasDiscord()) {
+            scheduler.scheduleAtFixedRate(
+                    () -> ejecutores.ejecutarIO("limpieza de canales de voz", vozService::limpiarVencidos),
+                    1, 1, TimeUnit.MINUTES);
+        }
 
         // Verificar sorteos expirados cada minuto
         scheduler.scheduleAtFixedRate(() -> {
