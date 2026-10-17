@@ -103,7 +103,7 @@ TorneosFlash/
 │       ├── SocketIOServer.java      # Parseo de paquetes Engine.IO/Socket.IO
 │       └── SocketIOClient.java      # Wrapper del cliente WS
 ├── src/main/resources/
-│   └── db/migration/                # Migraciones Flyway: V1 esquema base, V2 datos antiguos, V3 chatbot IA, V4 aceptación legal, V5 wallet_ledger (D3), V6 soporte_tickets (24.5), V7 evidencias_pago (7)
+│   └── db/migration/                # Migraciones Flyway: V1 esquema base, V2 datos antiguos, V3 chatbot IA, V4 aceptación legal, V5 wallet_ledger (D3), V6 soporte_tickets (24.5), V7 evidencias_pago (7), V8 chat_voz_discord (84), V9 persistir_estado_partidas (A2)
 ├── agent/rules/                     # Reglas para modelos IA
 │   ├── auto-push.md
 │   └── project-conventions.md       # ← NUEVO
@@ -141,6 +141,8 @@ TorneosFlash/
 | `legal_acceptances` | Registro de aceptación de documentos legales | `user_id`, `documento`, `version`, `aceptado_en` |
 | `support_tickets` | Tickets de "Hablar con el admin" (24.5) | `user_id`, `categoria` (pregunta/sugerencia/bug/cuenta/otro), `asunto`, `mensaje`, `estado` (abierto/resuelto), `respuesta`, `respondido_por`, `fecha_creacion`, `fecha_respuesta` |
 | `payment_evidences` | Comprobantes de retiros pagados que el admin publica en el canal «pagos» (7) | `transaction_id` (UNIQUE: una por retiro), `user_id` (a quien se pagó), `admin_id`, `monto`, `metodo`, `nota`, `imagen` (data URI base64), `fecha`. Usuario, monto y método se copian de la transacción |
+| `match_queue` | Cola de búsquedas de partida activas persistidas en BD (A2) | `id`, `user_id` (UNIQUE), `username`, `creado_en`, `expira_en` |
+| `active_matches` | Salas en negociación y partidas en curso persistidas en BD (A2) | `id`, `sala_id` (UNIQUE), `player1_id`, `player2_id`, `iniciado`, `monto`, `match_db_id`, `player_tag1`, `player_tag2`, `match_start_time`, `last_modo`, `last_dinero`, `votos_json`, `confirmaciones_json`, `poll_count` |
 
 ---
 
@@ -173,8 +175,8 @@ sequenceDiagram
     end
 ```
 
-> [!CAUTION]
-> **Todo el estado de partidas activas vive en `ConcurrentHashMap` en memoria.** Si el servidor se reinicia, se pierde todo. Persistir en BD es prioridad.
+> [!NOTE]
+> **A2 completado (Persistencia de estado en BD):** Las búsquedas en cola (`match_queue`) y las salas/partidas activas (`active_matches`) se sincronizan en PostgreSQL. Al reiniciar el servidor, `SocketHandler.recuperarEstadoDesdeBD()` restaura las salas en negociación, reanuda el sondeo de la API de Clash Royale (`iniciarPollingApi`) desde el `poll_count` guardado para las partidas en curso y reprograma los temporizadores de búsqueda con el tiempo restante real.
 
 ---
 

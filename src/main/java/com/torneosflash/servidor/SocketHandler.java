@@ -28,12 +28,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Equivalente al bloque io.on('connection', ...) de index.js.
  *
  * CONCEPTO POO: Collection - ConcurrentHashMap para matches activos, colas, búsquedas
+ * A2: El estado de partidas activas (active_matches) y búsquedas en cola (match_queue)
+ * se persiste en PostgreSQL y se recupera al arrancar el servidor.
  */
 public class SocketHandler {
     private static final Logger logger = LoggerFactory.getLogger(SocketHandler.class);
 
-
-    // Estado en memoria (equivalente a las variables globales de index.js)
+    // Estado en memoria respaldado por las tablas active_matches y match_queue (A2)
     private final ConcurrentHashMap<String, ActiveMatch> activeMatches = new ConcurrentHashMap<>();
     private final CopyOnWriteArrayList<SocketIOClient> colaEsperaClash = new CopyOnWriteArrayList<>();
     private final ConcurrentHashMap<Integer, BusquedaActiva> busquedasActivas = new ConcurrentHashMap<>();
@@ -65,9 +66,11 @@ public class SocketHandler {
     }
 
     /**
-     * Registra todos los event handlers del Socket.IO server.
+     * Registra todos los event handlers del Socket.IO server y recupera el estado persistido en BD (A2).
      */
     public void registrar() {
+        recuperarEstadoDesdeBD();
+
         io.onConnection((socket, args) -> {
             // S2: Si el handshake tenía cookie JWT válida, precargar el usuario desde la BD
             if (socket.getAuthenticatedUserId() != null) {
@@ -138,7 +141,7 @@ public class SocketHandler {
                         }
                     }
 
-                    // Verificar si ESTE usuario tiene una búsqueda activa (reconexión)
+                    // Verificar si ESTE usuario tiene una búsqueda activa (reconexión o recuperación tras reinicio)
                     if (busquedasActivas.containsKey(userId)) {
                         BusquedaActiva miBusqueda = busquedasActivas.get(userId);
                         // Actualizar referencia del socket en la búsqueda activa
@@ -154,16 +157,26 @@ public class SocketHandler {
                         logger.info("🔄 " + username + " reconectado con búsqueda activa");
                     }
 
-                    // Recuperar sala si existe
+                    // Recuperar sala si existe (por sala_actual en users o buscando en activeMatches)
                     String salaActual = (dbUser != null && dbUser.has("sala_actual") && !dbUser.get("sala_actual").isJsonNull()) ?
                             dbUser.get("sala_actual").getAsString() : null;
+                    if (salaActual == null || !activeMatches.containsKey(salaActual)) {
+                        String salaEncontrada = buscarSalaDeJugador(userId);
+                        if (salaEncontrada != null) {
+                            salaActual = salaEncontrada;
+                        } else if (salaActual != null) {
+                            // Limpiar referencia huérfana si la sala ya no existe
+                            db.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id = ?", userId);
+                            salaActual = null;
+                        }
+                    }
+
                     if (salaActual != null && activeMatches.containsKey(salaActual)) {
                         ActiveMatch match = activeMatches.get(salaActual);
-                        // Cancelar timer de desconexión
-                        if (match.disconnectTimers.containsKey(userId)) {
-                            match.disconnectTimers.get(userId).cancel(false);
-                            match.disconnectTimers.remove(userId);
-                            
+                        // Cancelar timer de desconexión si estaba corriendo
+                        ScheduledFuture<?> timer = match.disconnectTimers.remove(userId);
+                        if (timer != null) {
+                            timer.cancel(false);
                             JsonObject reData = new JsonObject();
                             reData.addProperty("username", username);
                             client.to(salaActual).emit("rival_reconectado", reData);
@@ -171,30 +184,19 @@ public class SocketHandler {
                         client.join(salaActual);
                         client.setCurrentRoom(salaActual);
 
-                        // Reemplazar socket en el match y encontrar rival
-                        JsonObject rivalData = null;
-                        for (int i = 0; i < match.players.size(); i++) {
-                            SocketIOClient p = match.players.get(i);
-                            if (p.getUserData() != null) {
-                                if (p.getUserData().get("id").getAsInt() == userId) {
-                                    match.players.set(i, client);
-                                } else {
-                                    rivalData = p.getUserData();
-                                }
-                            }
-                        }
+                        // Registrar o actualizar el socket del jugador en el match
+                        match.actualizarSocketJugador(userId, client);
 
                         // S6: el rival siempre se lee de la BD con lista blanca (nunca el userData del cliente ni SELECT *)
-                        JsonObject rivalDb = null;
-                        if (rivalData != null && rivalData.has("id") && rivalData.get("id").isJsonPrimitive()) {
-                            rivalDb = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?",
-                                    rivalData.get("id").getAsInt());
+                        int rivalId = match.getRivalId(userId);
+                        JsonObject rivalData = null;
+                        if (rivalId > 0) {
+                            rivalData = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", rivalId);
                         }
-                        if (rivalDb == null) {
-                            rivalDb = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE sala_actual = ? AND id != ?", salaActual, userId);
+                        if (rivalData == null) {
+                            rivalData = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE sala_actual = ? AND id != ?", salaActual, userId);
                         }
-                        rivalData = rivalDb;
-                        
+
                         // Calculo de maxMonto con BigDecimal (D1: usa el saldo real del rival, que NO se envía al cliente) // REVIEW-MONEY
                         BigDecimal miSaldo = dbUser != null && dbUser.has("saldo") && !dbUser.get("saldo").isJsonNull()
                                 ? dbUser.get("saldo").getAsBigDecimal() : BigDecimal.ZERO;
@@ -207,14 +209,33 @@ public class SocketHandler {
                         JsonObject restoreData = new JsonObject();
                         restoreData.addProperty("salaId", salaActual);
                         restoreData.addProperty("iniciado", match.iniciado);
-                        restoreData.addProperty("estado", dbUser != null && dbUser.has("estado") ? dbUser.get("estado").getAsString() : "partida_encontrada");
+                        restoreData.addProperty("estado", match.iniciado ? "jugando" : "partida_encontrada");
                         restoreData.addProperty("maxMonto", maxMonto);
                         if (rivalData != null) restoreData.add("rival", UsuarioVista.paraRival(rivalData)); // S6
                         restoreData.add("historial", gson.toJsonTree(msgs));
                         restoreData.addProperty("lastModo", match.lastModo);
                         restoreData.addProperty("lastDinero", match.lastDinero);
-                        
+
                         client.emit("restaurar_partida", restoreData);
+
+                        // Si está en negociación y había votos/confirmaciones pendientes, restaurar estado de botones/modal
+                        if (!match.iniciado) {
+                            if (match.votosInicio.size() == 2) {
+                                if (!Boolean.TRUE.equals(match.confirmaciones.get(userId))) {
+                                    JsonObject v = match.votosInicio.get(match.player1Id);
+                                    if (v != null && v.has("dinero")) {
+                                        JsonObject confirmData = new JsonObject();
+                                        confirmData.addProperty("modo", v.has("modo") ? v.get("modo").getAsString() : "N/A");
+                                        confirmData.addProperty("monto", v.get("dinero").getAsBigDecimal());
+                                        client.emit("confirmar_partida", confirmData);
+                                    }
+                                }
+                            } else if (match.votosInicio.containsKey(userId)) {
+                                client.emit("esperando_inicio_rival");
+                            } else if (rivalId > 0 && match.votosInicio.containsKey(rivalId)) {
+                                client.emit("rival_listo_inicio");
+                            }
+                        }
                     }
 
                 } catch (Exception e) {
@@ -306,7 +327,7 @@ public class SocketHandler {
                     }
 
                     client.setUserData(row);
-                    if (busquedasActivas.containsKey(userId)) return;
+                    if (busquedasActivas.containsKey(userId) || estaEnPartidaActiva(userId)) return;
 
                     colaEsperaClash.add(client);
                     db.update("UPDATE users SET estado = 'buscando_partida' WHERE id = ?", userId);
@@ -315,28 +336,17 @@ public class SocketHandler {
                     BusquedaActiva busqueda = new BusquedaActiva(userId, username, client);
                     busquedasActivas.put(userId, busqueda);
 
-                    // Timer de búsqueda (BUSQUEDA_TIMEOUT_MINUTOS, default 10) // A7
+                    // A2: Persistir la búsqueda en match_queue con su fecha de expiración
                     final int busquedaMinutos = config.getBusquedaTimeoutMinutos();
-                    busqueda.timeoutFuture = scheduler.schedule(() -> {
-                        if (busquedasActivas.containsKey(userId)) {
-                            colaEsperaClash.removeIf(s -> s.getUserData() != null &&
-                                    s.getUserData().get("id").getAsInt() == userId);
-                            db.update("UPDATE users SET estado = 'normal' WHERE id = ?", userId);
-                            logClash("⏰ " + username + " - Búsqueda cancelada (" + busquedaMinutos + " min sin rival)");
+                    db.update(
+                            "INSERT INTO match_queue (user_id, username, creado_en, expira_en) " +
+                            "VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + make_interval(mins => ?)) " +
+                            "ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, " +
+                            "creado_en = CURRENT_TIMESTAMP, expira_en = EXCLUDED.expira_en",
+                            userId, username, busquedaMinutos);
 
-                            if (busqueda.socket != null && busqueda.socket.isConnected()) {
-                                JsonObject timeoutData = new JsonObject();
-                                timeoutData.addProperty("mensaje", "⏰ Tu búsqueda fue cancelada porque nadie respondió en " + duracionTexto(busquedaMinutos * 60L) + ".");
-                                busqueda.socket.emit("busqueda_timeout", timeoutData);
-                            }
-
-                            JsonObject cancelData = new JsonObject();
-                            cancelData.addProperty("oderId", userId);
-                            cancelData.addProperty("username", username);
-                            io.emit("busqueda_cancelada", cancelData);
-                            busquedasActivas.remove(userId);
-                        }
-                    }, busquedaMinutos, TimeUnit.MINUTES);
+                    // Timer de búsqueda (BUSQUEDA_TIMEOUT_MINUTOS, default 10) // A7
+                    programarTimeoutBusqueda(busqueda, busquedaMinutos * 60L, busquedaMinutos);
 
                     // Notificar a todos
                     JsonObject buscandoData = new JsonObject();
@@ -365,6 +375,7 @@ public class SocketHandler {
                     int userId = client.getUserData().get("id").getAsInt();
                     BusquedaActiva busqueda = busquedasActivas.remove(userId);
                     if (busqueda != null && busqueda.timeoutFuture != null) busqueda.timeoutFuture.cancel(false);
+                    db.update("DELETE FROM match_queue WHERE user_id = ?", userId);
                     db.update("UPDATE users SET estado = 'normal' WHERE id = ?", userId);
                     logClash("🚫 " + client.getUserData().get("username").getAsString() + " canceló manualmente.");
                     JsonObject cancelData = new JsonObject();
@@ -383,6 +394,8 @@ public class SocketHandler {
                         ActiveMatch match = activeMatches.get(salaId);
                         if (d.has("modo")) match.lastModo = d.get("modo").getAsString();
                         if (d.has("dinero")) match.lastDinero = d.get("dinero").getAsString();
+                        db.update("UPDATE active_matches SET last_modo = ?, last_dinero = ?, actualizado_en = CURRENT_TIMESTAMP WHERE sala_id = ?",
+                                match.lastModo, match.lastDinero, salaId);
                     }
                     client.to(salaId).emit("actualizar_negociacion", d);
                 } catch (Exception ignored) {}
@@ -408,15 +421,22 @@ public class SocketHandler {
                     d.addProperty("dinero", montoVoto.getMonto());
 
                     int myId = client.getUserData().get("id").getAsInt();
+                    if (d.has("modo") && !d.get("modo").isJsonNull()) {
+                        match.lastModo = d.get("modo").getAsString();
+                    }
+                    match.lastDinero = montoVoto.getMonto().toPlainString();
+
                     // Un voto nuevo invalida cualquier confirmación anterior (nadie acepta un monto que cambió después)
                     match.confirmaciones.clear();
                     match.votosInicio.put(myId, d);
+                    persistirMatchEnBD(salaId, match);
                     client.to(salaId).emit("rival_listo_inicio");
 
                     // Verificar si ambos votaron
-                    if (match.players.size() == 2 && match.votosInicio.size() == 2) {
-                        List<Integer> ids = new ArrayList<>();
-                        for (SocketIOClient p : match.players) ids.add(p.getUserData().get("id").getAsInt());
+                    List<Integer> ids = match.playerIds();
+                    if (ids.size() == 2 && match.votosInicio.size() == 2
+                            && match.votosInicio.containsKey(ids.get(0))
+                            && match.votosInicio.containsKey(ids.get(1))) {
 
                         BigDecimal monto1 = match.votosInicio.get(ids.get(0)).get("dinero").getAsBigDecimal();
                         BigDecimal monto2 = match.votosInicio.get(ids.get(1)).get("dinero").getAsBigDecimal();
@@ -424,7 +444,7 @@ public class SocketHandler {
                             io.to(salaId).emit("error_negociacion", new JsonPrimitive("Montos distintos"));
                             return;
                         }
-                        
+
                         String modo1 = match.votosInicio.get(ids.get(0)).has("modo") ? match.votosInicio.get(ids.get(0)).get("modo").getAsString() : "N/A";
 
                         // Emitir confirmación modal
@@ -432,9 +452,10 @@ public class SocketHandler {
                         confirmData.addProperty("modo", modo1);
                         confirmData.addProperty("monto", monto1);
                         io.to(salaId).emit("confirmar_partida", confirmData);
-                        
+
                         // Limpiar confirmaciones anteriores si las hay
                         match.confirmaciones.clear();
+                        persistirMatchEnBD(salaId, match);
                     } else {
                         client.emit("esperando_inicio_rival");
                     }
@@ -454,6 +475,8 @@ public class SocketHandler {
 
                     int myId = client.getUserData().get("id").getAsInt();
                     match.votosInicio.remove(myId);
+                    match.confirmaciones.clear();
+                    persistirMatchEnBD(salaId, match);
                     client.to(salaId).emit("rival_cancelo_inicio");
                 } catch (Exception ignored) {}
             });
@@ -469,22 +492,24 @@ public class SocketHandler {
                     if (match.iniciado) return;
 
                     int myId = client.getUserData().get("id").getAsInt();
-                    
+
                     if (!acepta) {
                         // Alguien rechazó la confirmación
                         match.votosInicio.clear();
                         match.confirmaciones.clear();
+                        persistirMatchEnBD(salaId, match);
                         io.to(salaId).emit("confirmacion_rechazada");
                         return;
                     }
 
                     match.confirmaciones.put(myId, true);
-                    
-                    if (match.players.size() == 2 && match.confirmaciones.size() == 2) {
+                    persistirMatchEnBD(salaId, match);
+
+                    List<Integer> ids = match.playerIds();
+                    if (ids.size() == 2 && match.confirmaciones.size() == 2
+                            && Boolean.TRUE.equals(match.confirmaciones.get(ids.get(0)))
+                            && Boolean.TRUE.equals(match.confirmaciones.get(ids.get(1)))) {
                         // Ambos confirmaron, iniciar el juego de verdad
-                        List<Integer> ids = new ArrayList<>();
-                        for (SocketIOClient p : match.players) ids.add(p.getUserData().get("id").getAsInt());
-                        
                         // D1 / D5: al cobrar, ambos votos deben existir y coincidir en BigDecimal // REVIEW-MONEY
                         JsonObject voto1 = match.votosInicio.get(ids.get(0));
                         JsonObject voto2 = match.votosInicio.get(ids.get(1));
@@ -493,21 +518,21 @@ public class SocketHandler {
                             io.to(salaId).emit("error_negociacion", new JsonPrimitive("Los montos de ambos jugadores no coinciden"));
                             match.votosInicio.clear();
                             match.confirmaciones.clear();
+                            persistirMatchEnBD(salaId, match);
                             return;
                         }
 
                         BigDecimal montoTorneo = voto1.get("dinero").getAsBigDecimal(); // REVIEW-MONEY
-                        String modo = match.votosInicio.get(ids.get(0)).has("modo") ?
-                                match.votosInicio.get(ids.get(0)).get("modo").getAsString() : "N/A";
+                        String modo = voto1.has("modo") ? voto1.get("modo").getAsString() : "N/A";
 
                         // D5: antes de cobrarle a alguien, los dos deben tener saldo para el monto acordado // REVIEW-MONEY
                         // (el cobro real sigue protegido por WHERE saldo >= ? dentro de WalletService)
-                        for (SocketIOClient p : match.players) {
-                            int pid = p.getUserData().get("id").getAsInt();
+                        for (int pid : ids) {
                             if (wallet.obtenerSaldo(pid).compareTo(montoTorneo) < 0) {
-                                io.to(salaId).emit("error_negociacion", new JsonPrimitive("Saldo insuficiente para " + p.getUserData().get("username").getAsString()));
+                                io.to(salaId).emit("error_negociacion", new JsonPrimitive("Saldo insuficiente para " + match.getUsername(pid)));
                                 match.votosInicio.clear();
                                 match.confirmaciones.clear();
+                                persistirMatchEnBD(salaId, match);
                                 return;
                             }
                         }
@@ -523,27 +548,36 @@ public class SocketHandler {
                         match.playerTag2 = p2 != null && p2.has("player_tag") && !p2.get("player_tag").isJsonNull() ? p2.get("player_tag").getAsString() : "";
 
                         // Descontar saldo atómicamente via WalletService // REVIEW-MONEY
-                        for (SocketIOClient p : match.players) {
-                            int pid = p.getUserData().get("id").getAsInt();
+                        for (int pid : ids) {
                             WalletResult torneoResult = wallet.realizarTorneo(pid, montoTorneo);
                             if (!torneoResult.isSuccess()) {
-                                io.to(salaId).emit("error_negociacion", new JsonPrimitive("Saldo insuficiente para " + p.getUserData().get("username").getAsString()));
+                                io.to(salaId).emit("error_negociacion", new JsonPrimitive("Saldo insuficiente para " + match.getUsername(pid)));
                                 match.votosInicio.clear();
                                 match.confirmaciones.clear();
                                 match.iniciado = false;
+                                persistirMatchEnBD(salaId, match);
                                 return;
                             }
-                            p.getUserData().addProperty("saldo", torneoResult.getNuevoSaldo());
-                            p.emit("actualizar_saldo", new JsonPrimitive(torneoResult.getNuevoSaldo()));
+                            SocketIOClient pSock = buscarSocketJugador(match, pid);
+                            if (pSock != null) {
+                                if (pSock.getUserData() != null) {
+                                    pSock.getUserData().addProperty("saldo", torneoResult.getNuevoSaldo());
+                                }
+                                pSock.emit("actualizar_saldo", new JsonPrimitive(torneoResult.getNuevoSaldo()));
+                            }
                         }
 
                         // Crear match en BD
-                        String j1 = match.players.get(0).getUserData().get("username").getAsString();
-                        String j2 = match.players.get(1).getUserData().get("username").getAsString();
-                        
+                        String j1 = match.player1Username;
+                        String j2 = match.player2Username;
+
                         int dbId = db.insertReturningId("INSERT INTO matches (jugador1, jugador2, modo, monto) VALUES (?, ?, ?, ?) RETURNING id",
                                 j1, j2, modo, match.monto);
                         match.dbId = dbId;
+
+                        db.update("UPDATE users SET estado = 'jugando', sala_actual = ? WHERE id IN (?, ?)",
+                                salaId, match.player1Id, match.player2Id);
+                        persistirMatchEnBD(salaId, match);
 
                         JsonObject inicioData = new JsonObject();
                         inicioData.addProperty("monto", match.monto);
@@ -588,18 +622,15 @@ public class SocketHandler {
                         io.to(d.get("salaId").getAsString()).emit("mensaje_privado", d);
 
                         // Push: notificar al rival sobre mensaje privado
-                        if (client.getUserData() != null) {
-                            int senderId = client.getUserData().get("id").getAsInt();
-                            String salaId = d.get("salaId").getAsString();
-                            if (activeMatches.containsKey(salaId)) {
-                                for (SocketIOClient p : activeMatches.get(salaId).players) {
-                                    if (p.getUserData() != null && p.getUserData().get("id").getAsInt() != senderId) {
-                                        String texto = d.get("texto").getAsString();
-                                        String preview = texto.length() > 50 ? texto.substring(0, 50) + "..." : texto;
-                                        pushService.enviarPush(db, p.getUserData().get("id").getAsInt(),
-                                                "💬 Mensaje privado", d.get("usuario").getAsString() + ": " + preview);
-                                    }
-                                }
+                        int senderId = client.getUserData().get("id").getAsInt();
+                        String salaId = d.get("salaId").getAsString();
+                        if (activeMatches.containsKey(salaId)) {
+                            int rivalId = activeMatches.get(salaId).getRivalId(senderId);
+                            if (rivalId > 0) {
+                                String texto = d.get("texto").getAsString();
+                                String preview = texto.length() > 50 ? texto.substring(0, 50) + "..." : texto;
+                                pushService.enviarPush(db, rivalId,
+                                        "💬 Mensaje privado", d.get("usuario").getAsString() + ": " + preview);
                             }
                         }
                     }
@@ -627,10 +658,11 @@ public class SocketHandler {
                 if (salaId != null && activeMatches.containsKey(salaId) && client.getUserData() != null) {
                     ActiveMatch match = activeMatches.get(salaId);
                     int userId = client.getUserData().get("id").getAsInt();
+                    String uname = client.getUserData().get("username").getAsString();
 
                     if (match.iniciado) {
                         // Partida activa - esperamos indefinidamente
-                        logger.info("🔌 " + client.getUserData().get("username").getAsString() + " desconectado de partida ACTIVA");
+                        logger.info("🔌 " + uname + " desconectado de partida ACTIVA");
                         JsonObject disconnData = new JsonObject();
                         disconnData.addProperty("tiempo", "indefinido");
                         disconnData.addProperty("mensaje", "Rival desconectado. Esperando...");
@@ -638,12 +670,13 @@ public class SocketHandler {
                     } else {
                         // Negociación - timer de desconexión (NEGOCIACION_DESCONEXION_SEGUNDOS, default 90) // A7
                         final int esperaSegundos = config.getNegociacionDesconexionSegundos();
-                        logger.info("🔌 " + client.getUserData().get("username").getAsString() + " se fue en negociación. Timer " + esperaSegundos + "s.");
-                        
+                        logger.info("🔌 " + uname + " se fue en negociación. Timer " + esperaSegundos + "s.");
+
                         // Cancelar su voto si lo tenía
                         if (match.votosInicio.containsKey(userId)) {
                             match.votosInicio.remove(userId);
-                            match.confirmaciones.remove(userId);
+                            match.confirmaciones.clear();
+                            persistirMatchEnBD(salaId, match);
                             client.to(salaId).emit("rival_cancelo_inicio");
                         }
 
@@ -651,32 +684,299 @@ public class SocketHandler {
                         timerData.addProperty("tiempo", esperaSegundos);
                         client.to(salaId).emit("rival_desconectado", timerData);
 
-                        ScheduledFuture<?> timer = scheduler.schedule(() -> {
-                            if (activeMatches.containsKey(salaId) && !activeMatches.get(salaId).iniciado) {
-                                String uname = client.getUserData().get("username").getAsString();
-                                db.update("UPDATE users SET salidas_chat = salidas_chat + 1, salidas_desconexion = salidas_desconexion + 1 WHERE id = ?", userId);
-                                logClash("⚠️ ABANDONO Negociación: " + uname + " no volvió (" + esperaSegundos + "s)");
-
-                                JsonObject cancelData = new JsonObject();
-                                cancelData.addProperty("motivo", uname + " abandonó por desconexión");
-                                io.to(salaId).emit("match_cancelado", cancelData);
-
-                                for (SocketIOClient p : match.players) {
-                                    if (p.getUserData() != null) {
-                                        db.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id = ?",
-                                                p.getUserData().get("id").getAsInt());
-                                    }
-                                    p.leave(salaId);
-                                    p.setCurrentRoom(null);
-                                }
-                                activeMatches.remove(salaId);
-                            }
-                        }, esperaSegundos, TimeUnit.SECONDS);
-                        match.disconnectTimers.put(userId, timer);
+                        programarTimerDesconexionNegociacion(salaId, match, userId, uname, true);
                     }
                 }
             });
         });
+    }
+
+    // --- Recuperación y persistencia en BD (A2) ---
+
+    /**
+     * A2: Al arrancar el servidor, restaura desde PostgreSQL las salas activas (active_matches)
+     * y las búsquedas en cola (match_queue), reanudando el sondeo de la API y los temporizadores.
+     */
+    private void recuperarEstadoDesdeBD() {
+        try {
+            ArrayList<JsonObject> filasMatches = db.query("SELECT * FROM active_matches ORDER BY id ASC");
+            int matchesEnJuego = 0;
+            int matchesNegociando = 0;
+
+            for (JsonObject row : filasMatches) {
+                String salaId = str(row, "sala_id");
+                if (salaId == null || salaId.isEmpty()) continue;
+
+                int p1Id = row.get("player1_id").getAsInt();
+                int p2Id = row.get("player2_id").getAsInt();
+                String p1Name = str(row, "player1_username");
+                String p2Name = str(row, "player2_username");
+
+                ActiveMatch match = new ActiveMatch(
+                        p1Id, p1Name != null ? p1Name : "Jugador 1",
+                        p2Id, p2Name != null ? p2Name : "Jugador 2");
+                match.iniciado = row.has("iniciado") && !row.get("iniciado").isJsonNull() && row.get("iniciado").getAsBoolean();
+                match.monto = row.has("monto") && !row.get("monto").isJsonNull() ? row.get("monto").getAsBigDecimal() : BigDecimal.ZERO;
+                match.dbId = row.has("match_db_id") && !row.get("match_db_id").isJsonNull() ? row.get("match_db_id").getAsInt() : 0;
+                match.playerTag1 = str(row, "player_tag1") != null ? str(row, "player_tag1") : "";
+                match.playerTag2 = str(row, "player_tag2") != null ? str(row, "player_tag2") : "";
+                match.matchStartTime = str(row, "match_start_time") != null ? str(row, "match_start_time") : "";
+                match.lastModo = str(row, "last_modo") != null ? str(row, "last_modo") : "";
+                match.lastDinero = str(row, "last_dinero") != null ? str(row, "last_dinero") : "";
+                match.pollCount = row.has("poll_count") && !row.get("poll_count").isJsonNull() ? row.get("poll_count").getAsInt() : 0;
+                restaurarVotos(str(row, "votos_json"), match.votosInicio);
+                restaurarConfirmaciones(str(row, "confirmaciones_json"), match.confirmaciones);
+
+                // Si la partida ya había sido finalizada o pasada a disputa en matches, limpiar
+                if (match.iniciado && match.dbId > 0) {
+                    JsonObject mRow = db.queryOne("SELECT estado FROM matches WHERE id = ?", match.dbId);
+                    String estadoMatch = mRow != null ? str(mRow, "estado") : null;
+                    if (estadoMatch != null && !"en_curso".equals(estadoMatch)) {
+                        eliminarMatchDeBD(salaId);
+                        db.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id IN (?, ?)", p1Id, p2Id);
+                        continue;
+                    }
+                }
+
+                activeMatches.put(salaId, match);
+                String estadoUsuario = match.iniciado ? "jugando" : "partida_encontrada";
+                db.update("UPDATE users SET estado = ?, sala_actual = ? WHERE id IN (?, ?)", estadoUsuario, salaId, p1Id, p2Id);
+
+                if (match.iniciado) {
+                    matchesEnJuego++;
+                    iniciarPollingApi(salaId, match, match.playerIds());
+                } else {
+                    matchesNegociando++;
+                    // Si tras el reinicio alguno no reconecta dentro del tiempo de negociación, se libera la sala sin penalizar
+                    programarTimerDesconexionNegociacion(salaId, match, p1Id, match.player1Username, false);
+                    programarTimerDesconexionNegociacion(salaId, match, p2Id, match.player2Username, false);
+                }
+            }
+
+            ArrayList<JsonObject> filasCola = db.query(
+                    "SELECT user_id, username, EXTRACT(EPOCH FROM (expira_en - CURRENT_TIMESTAMP)) AS segundos_restantes " +
+                    "FROM match_queue ORDER BY creado_en ASC");
+            int busquedasRecuperadas = 0;
+
+            for (JsonObject row : filasCola) {
+                int userId = row.get("user_id").getAsInt();
+                String username = str(row, "username") != null ? str(row, "username") : "Jugador";
+                long segsRestantes = row.has("segundos_restantes") && !row.get("segundos_restantes").isJsonNull()
+                        ? row.get("segundos_restantes").getAsBigDecimal().longValue() : 0L;
+
+                if (segsRestantes <= 0 || estaEnPartidaActiva(userId)) {
+                    db.update("DELETE FROM match_queue WHERE user_id = ?", userId);
+                    if (!estaEnPartidaActiva(userId)) {
+                        db.update("UPDATE users SET estado = 'normal' WHERE id = ? AND estado = 'buscando_partida'", userId);
+                    }
+                    continue;
+                }
+
+                BusquedaActiva busqueda = new BusquedaActiva(userId, username, null);
+                busquedasActivas.put(userId, busqueda);
+                db.update("UPDATE users SET estado = 'buscando_partida' WHERE id = ?", userId);
+                programarTimeoutBusqueda(busqueda, segsRestantes, config.getBusquedaTimeoutMinutos());
+                busquedasRecuperadas++;
+            }
+
+            // Limpiar estados huérfanos en users que no correspondan a ninguna búsqueda ni partida activa
+            db.update(
+                    "UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 " +
+                    "WHERE (estado <> 'normal' OR sala_actual IS NOT NULL) " +
+                    "AND id NOT IN (SELECT user_id FROM match_queue) " +
+                    "AND id NOT IN (SELECT player1_id FROM active_matches UNION SELECT player2_id FROM active_matches)");
+
+            logger.info("♻️ Estado recuperado de BD (A2): {} partida(s) en curso, {} sala(s) en negociación, {} búsqueda(s) en cola",
+                    matchesEnJuego, matchesNegociando, busquedasRecuperadas);
+        } catch (Exception e) {
+            logger.error("Error recuperando estado de partidas desde la BD: {}", e.getMessage(), e);
+        }
+    }
+
+    private void programarTimeoutBusqueda(BusquedaActiva busqueda, long delaySegundos, int busquedaMinutosTexto) {
+        final int userId = busqueda.oderId;
+        final String username = busqueda.username;
+        if (busqueda.timeoutFuture != null) {
+            busqueda.timeoutFuture.cancel(false);
+        }
+        busqueda.timeoutFuture = scheduler.schedule(() -> {
+            if (busquedasActivas.containsKey(userId)) {
+                colaEsperaClash.removeIf(s -> s.getUserData() != null &&
+                        s.getUserData().get("id").getAsInt() == userId);
+                db.update("DELETE FROM match_queue WHERE user_id = ?", userId);
+                db.update("UPDATE users SET estado = 'normal' WHERE id = ?", userId);
+                logClash("⏰ " + username + " - Búsqueda cancelada (" + busquedaMinutosTexto + " min sin rival)");
+
+                if (busqueda.socket != null && busqueda.socket.isConnected()) {
+                    JsonObject timeoutData = new JsonObject();
+                    timeoutData.addProperty("mensaje", "⏰ Tu búsqueda fue cancelada porque nadie respondió en " + duracionTexto(busquedaMinutosTexto * 60L) + ".");
+                    busqueda.socket.emit("busqueda_timeout", timeoutData);
+                }
+
+                JsonObject cancelData = new JsonObject();
+                cancelData.addProperty("oderId", userId);
+                cancelData.addProperty("username", username);
+                io.emit("busqueda_cancelada", cancelData);
+                busquedasActivas.remove(userId);
+            }
+        }, Math.max(1L, delaySegundos), TimeUnit.SECONDS);
+    }
+
+    private void programarTimerDesconexionNegociacion(String salaId, ActiveMatch match, int userId, String username, boolean penalizarSalida) {
+        final int esperaSegundos = config.getNegociacionDesconexionSegundos();
+        ScheduledFuture<?> previo = match.disconnectTimers.remove(userId);
+        if (previo != null) {
+            previo.cancel(false);
+        }
+        ScheduledFuture<?> timer = scheduler.schedule(() -> {
+            ActiveMatch actual = activeMatches.get(salaId);
+            if (actual != null && !actual.iniciado) {
+                for (ScheduledFuture<?> f : actual.disconnectTimers.values()) {
+                    f.cancel(false);
+                }
+                actual.disconnectTimers.clear();
+
+                if (penalizarSalida) {
+                    db.update("UPDATE users SET salidas_chat = salidas_chat + 1, salidas_desconexion = salidas_desconexion + 1 WHERE id = ?", userId);
+                }
+                logClash("⚠️ ABANDONO Negociación: " + username + " no volvió (" + esperaSegundos + "s)");
+
+                JsonObject cancelData = new JsonObject();
+                cancelData.addProperty("motivo", username + " abandonó por desconexión");
+                io.to(salaId).emit("match_cancelado", cancelData);
+
+                db.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id IN (?, ?)",
+                        actual.player1Id, actual.player2Id);
+                for (SocketIOClient p : actual.players) {
+                    if (p != null) {
+                        p.leave(salaId);
+                        p.setCurrentRoom(null);
+                    }
+                }
+                eliminarMatchDeBD(salaId);
+                activeMatches.remove(salaId);
+            }
+        }, esperaSegundos, TimeUnit.SECONDS);
+        match.disconnectTimers.put(userId, timer);
+    }
+
+    private void persistirMatchEnBD(String salaId, ActiveMatch match) {
+        if (salaId == null || match == null) return;
+        String votosJson = serializarVotos(match.votosInicio);
+        String confirmacionesJson = serializarConfirmaciones(match.confirmaciones);
+        db.update(
+                "UPDATE active_matches SET " +
+                "iniciado = ?, monto = ?, match_db_id = ?, player_tag1 = ?, player_tag2 = ?, " +
+                "match_start_time = ?, last_modo = ?, last_dinero = ?, votos_json = ?, " +
+                "confirmaciones_json = ?, poll_count = ?, actualizado_en = CURRENT_TIMESTAMP " +
+                "WHERE sala_id = ?",
+                match.iniciado,
+                match.monto != null ? match.monto : BigDecimal.ZERO,
+                match.dbId,
+                match.playerTag1 != null ? match.playerTag1 : "",
+                match.playerTag2 != null ? match.playerTag2 : "",
+                match.matchStartTime != null ? match.matchStartTime : "",
+                match.lastModo != null ? match.lastModo : "",
+                match.lastDinero != null ? match.lastDinero : "",
+                votosJson,
+                confirmacionesJson,
+                match.pollCount,
+                salaId);
+    }
+
+    private void eliminarMatchDeBD(String salaId) {
+        if (salaId == null) return;
+        db.update("DELETE FROM active_matches WHERE sala_id = ?", salaId);
+    }
+
+    private String serializarVotos(Map<Integer, JsonObject> votos) {
+        JsonObject root = new JsonObject();
+        for (Map.Entry<Integer, JsonObject> e : votos.entrySet()) {
+            if (e.getKey() != null && e.getValue() != null) {
+                root.add(String.valueOf(e.getKey()), e.getValue());
+            }
+        }
+        return gson.toJson(root);
+    }
+
+    private void restaurarVotos(String json, ConcurrentHashMap<Integer, JsonObject> destino) {
+        destino.clear();
+        if (json == null || json.isBlank()) return;
+        try {
+            JsonElement parsed = JsonParser.parseString(json);
+            if (parsed.isJsonObject()) {
+                for (Map.Entry<String, JsonElement> e : parsed.getAsJsonObject().entrySet()) {
+                    if (e.getValue() != null && e.getValue().isJsonObject()) {
+                        JsonObject votoObj = e.getValue().getAsJsonObject();
+                        if (votoObj.has("dinero") && !votoObj.get("dinero").isJsonNull()) {
+                            votoObj.addProperty("dinero", votoObj.get("dinero").getAsBigDecimal());
+                        }
+                        destino.put(Integer.parseInt(e.getKey()), votoObj);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("No se pudo restaurar votos_json: {}", e.getMessage());
+        }
+    }
+
+    private String serializarConfirmaciones(Map<Integer, Boolean> confirmaciones) {
+        JsonObject root = new JsonObject();
+        for (Map.Entry<Integer, Boolean> e : confirmaciones.entrySet()) {
+            if (e.getKey() != null && e.getValue() != null) {
+                root.addProperty(String.valueOf(e.getKey()), e.getValue());
+            }
+        }
+        return gson.toJson(root);
+    }
+
+    private void restaurarConfirmaciones(String json, ConcurrentHashMap<Integer, Boolean> destino) {
+        destino.clear();
+        if (json == null || json.isBlank()) return;
+        try {
+            JsonElement parsed = JsonParser.parseString(json);
+            if (parsed.isJsonObject()) {
+                for (Map.Entry<String, JsonElement> e : parsed.getAsJsonObject().entrySet()) {
+                    if (e.getValue() != null && e.getValue().isJsonPrimitive()) {
+                        destino.put(Integer.parseInt(e.getKey()), e.getValue().getAsBoolean());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("No se pudo restaurar confirmaciones_json: {}", e.getMessage());
+        }
+    }
+
+    private boolean estaEnPartidaActiva(int userId) {
+        return buscarSalaDeJugador(userId) != null;
+    }
+
+    private String buscarSalaDeJugador(int userId) {
+        for (Map.Entry<String, ActiveMatch> entry : activeMatches.entrySet()) {
+            ActiveMatch m = entry.getValue();
+            if (m.player1Id == userId || m.player2Id == userId) {
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
+
+    private SocketIOClient buscarSocketJugador(ActiveMatch match, int userId) {
+        if (match != null) {
+            for (SocketIOClient p : match.players) {
+                if (p != null && p.getUserData() != null && p.getUserData().has("id")
+                        && p.getUserData().get("id").getAsInt() == userId) {
+                    return p;
+                }
+            }
+        }
+        for (SocketIOClient s : io.getSockets().values()) {
+            if (s.getUserData() != null && s.getUserData().has("id")
+                    && s.getUserData().get("id").getAsInt() == userId) {
+                return s;
+            }
+        }
+        return null;
     }
 
     // --- Métodos auxiliares ---
@@ -702,15 +1002,30 @@ public class SocketHandler {
                 SocketIOClient rivalSocket = rival.socket;
                 boolean rivalConectado = rivalSocket != null && rivalSocket.isConnected();
 
+                String myUsername = myData.get("username").getAsString();
                 String salaId = "sala_" + System.currentTimeMillis();
                 meSocket.setCurrentRoom(salaId);
                 meSocket.join(salaId);
                 if (rivalConectado) { rivalSocket.setCurrentRoom(salaId); rivalSocket.join(salaId); }
 
-                ActiveMatch match = new ActiveMatch();
+                ActiveMatch match = new ActiveMatch(myId, myUsername, rival.oderId, rival.username);
                 match.players.add(meSocket);
-                match.players.add(rivalSocket);
+                if (rivalSocket != null) {
+                    match.players.add(rivalSocket);
+                }
                 activeMatches.put(salaId, match);
+
+                // A2: Persistir la sala en active_matches y retirar a ambos de match_queue
+                db.update(
+                        "INSERT INTO active_matches (sala_id, player1_id, player1_username, player2_id, player2_username) " +
+                        "VALUES (?, ?, ?, ?, ?) ON CONFLICT (sala_id) DO NOTHING",
+                        salaId, myId, myUsername, rival.oderId, rival.username);
+                db.update("DELETE FROM match_queue WHERE user_id IN (?, ?)", myId, rival.oderId);
+
+                // Si el rival se emparejó estando temporalmente desconectado (ej. tras un reinicio), darle margen de reconexión
+                if (!rivalConectado) {
+                    programarTimerDesconexionNegociacion(salaId, match, rival.oderId, rival.username, false);
+                }
 
                 JsonObject rivalData = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", rival.oderId);
                 BigDecimal miSaldo = myData.has("saldo") && !myData.get("saldo").isJsonNull()
@@ -721,7 +1036,7 @@ public class SocketHandler {
 
                 db.update("UPDATE users SET estado = 'partida_encontrada', sala_actual = ? WHERE id IN (?, ?)",
                         salaId, myId, rival.oderId);
-                logClash("⚔️ MATCH: " + myData.get("username").getAsString() + " vs " + rival.username);
+                logClash("⚔️ MATCH: " + myUsername + " vs " + rival.username);
 
                 JsonObject matchData = new JsonObject();
                 matchData.addProperty("salaId", salaId);
@@ -734,9 +1049,9 @@ public class SocketHandler {
 
                 // Push: notificar a ambos que se encontró partida
                 pushService.enviarPush(db, myId, "🎮 ¡Rival encontrado!", "Se encontró partida contra " + rival.username);
-                pushService.enviarPush(db, rival.oderId, "🎮 ¡Rival encontrado!", "Se encontró partida contra " + myData.get("username").getAsString());
+                pushService.enviarPush(db, rival.oderId, "🎮 ¡Rival encontrado!", "Se encontró partida contra " + myUsername);
 
-                // Limpiar búsquedas
+                // Limpiar búsquedas en memoria
                 colaEsperaClash.removeIf(s -> s.getUserData() != null &&
                         (s.getUserData().get("id").getAsInt() == myId || s.getUserData().get("id").getAsInt() == rival.oderId));
                 for (int playerId : new int[]{myId, rival.oderId}) {
@@ -765,6 +1080,8 @@ public class SocketHandler {
             try {
                 if (!activeMatches.containsKey(salaId)) { match.pollFuture.cancel(false); return; }
                 match.pollCount++;
+                db.update("UPDATE active_matches SET poll_count = ?, actualizado_en = CURRENT_TIMESTAMP WHERE sala_id = ?",
+                        match.pollCount, salaId);
                 logger.info("🔍 Buscando resultado #" + match.dbId + " (intento " + match.pollCount + "/" + MAX_POLLS + ")");
 
                 if (match.playerTag1.isEmpty() || match.playerTag2.isEmpty()) return;
@@ -777,13 +1094,15 @@ public class SocketHandler {
                     logClash("🎯 RESULTADO #" + match.dbId + ": " + battleResult.get("teamCrowns").getAsInt() + "-" + battleResult.get("opponentCrowns").getAsInt());
 
                     int idGanador = 0;
-                    SocketIOClient winnerSocket = null;
-                    for (SocketIOClient p : match.players) {
-                        if (p.getUserData() == null) continue;
-                        JsonObject pTag = db.queryOne("SELECT player_tag FROM users WHERE id = ?", p.getUserData().get("id").getAsInt());
-                        if (pTag != null && pTag.has("player_tag") && !pTag.get("player_tag").isJsonNull() && pTag.get("player_tag").getAsString().replace("#", "").toUpperCase().equals(winnerTag)) {
-                            idGanador = p.getUserData().get("id").getAsInt();
-                            winnerSocket = p;
+                    String winnerName = "Ganador";
+                    for (int pid : ids) {
+                        JsonObject pTag = db.queryOne("SELECT username, player_tag FROM users WHERE id = ?", pid);
+                        if (pTag != null && pTag.has("player_tag") && !pTag.get("player_tag").isJsonNull()
+                                && pTag.get("player_tag").getAsString().replace("#", "").toUpperCase().equals(winnerTag)) {
+                            idGanador = pid;
+                            winnerName = pTag.has("username") && !pTag.get("username").isJsonNull()
+                                    ? pTag.get("username").getAsString()
+                                    : match.getUsername(pid);
                             break;
                         }
                     }
@@ -814,7 +1133,11 @@ public class SocketHandler {
                         return;
                     }
 
-                    String winnerName = winnerSocket != null ? winnerSocket.getUserData().get("username").getAsString() : "Ganador";
+                    SocketIOClient winnerSocket = buscarSocketJugador(match, idGanador);
+                    if (winnerSocket != null && winnerSocket.getUserData() != null) {
+                        winnerSocket.getUserData().addProperty("saldo", liq.nuevoSaldoGanador);
+                    }
+
                     db.update("UPDATE matches SET estado = 'finalizada', ganador = ? WHERE id = ?", winnerName, match.dbId);
                     logClash("🏆 GANADOR API #" + match.dbId + ": " + winnerName);
 
@@ -848,13 +1171,15 @@ public class SocketHandler {
     }
 
     private void liberarJugadores(String salaId, ActiveMatch match) {
-        for (SocketIOClient p : match.players) {
-            if (p.getUserData() != null) {
-                db.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id = ?",
-                        p.getUserData().get("id").getAsInt());
+        db.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id IN (?, ?)",
+                match.player1Id, match.player2Id);
+        for (int pid : match.playerIds()) {
+            SocketIOClient s = buscarSocketJugador(match, pid);
+            if (s != null) {
+                s.emit("flujo_completado");
             }
-            p.emit("flujo_completado");
         }
+        eliminarMatchDeBD(salaId);
         activeMatches.remove(salaId);
     }
 
@@ -864,6 +1189,11 @@ public class SocketHandler {
         ActiveMatch match = activeMatches.get(salaId);
         if (match.iniciado) return;
 
+        for (ScheduledFuture<?> f : match.disconnectTimers.values()) {
+            f.cancel(false);
+        }
+        match.disconnectTimers.clear();
+
         if (socket.getUserData() != null) {
             int uid = socket.getUserData().get("id").getAsInt();
             db.update("UPDATE users SET salidas_chat = salidas_chat + 1 WHERE id = ?", uid);
@@ -871,23 +1201,22 @@ public class SocketHandler {
             else if ("Salió del chat".equals(motivo)) db.update("UPDATE users SET salidas_canal = salidas_canal + 1 WHERE id = ?", uid);
         }
 
-        String usersStr = match.players.stream()
-                .map(p -> p.getUserData() != null ? p.getUserData().get("username").getAsString() : "???")
-                .reduce((a, b) -> a + " vs " + b).orElse("???");
+        String usersStr = match.player1Username + " vs " + match.player2Username;
         logClash("⚠️ Cancelada (" + usersStr + "): " + motivo);
 
         JsonObject cancelData = new JsonObject();
         cancelData.addProperty("motivo", motivo);
         io.to(salaId).emit("match_cancelado", cancelData);
 
+        db.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id IN (?, ?)",
+                match.player1Id, match.player2Id);
         for (SocketIOClient p : match.players) {
-            p.leave(salaId);
-            p.setCurrentRoom(null);
-            if (p.getUserData() != null) {
-                db.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id = ?",
-                        p.getUserData().get("id").getAsInt());
+            if (p != null) {
+                p.leave(salaId);
+                p.setCurrentRoom(null);
             }
         }
+        eliminarMatchDeBD(salaId);
         activeMatches.remove(salaId);
     }
 
@@ -907,6 +1236,10 @@ public class SocketHandler {
     // --- Clases internas ---
     static class ActiveMatch {
         List<SocketIOClient> players = new CopyOnWriteArrayList<>();
+        int player1Id;
+        int player2Id;
+        String player1Username;
+        String player2Username;
         BigDecimal monto = BigDecimal.ZERO; // REVIEW-MONEY
         boolean iniciado = false;
         int dbId = 0;
@@ -919,6 +1252,50 @@ public class SocketHandler {
         String lastDinero = "";
         int pollCount = 0;
         ScheduledFuture<?> pollFuture;
+
+        ActiveMatch(int player1Id, String player1Username, int player2Id, String player2Username) {
+            this.player1Id = player1Id;
+            this.player1Username = player1Username != null ? player1Username : "";
+            this.player2Id = player2Id;
+            this.player2Username = player2Username != null ? player2Username : "";
+        }
+
+        List<Integer> playerIds() {
+            if (player1Id > 0 && player2Id > 0) {
+                return List.of(player1Id, player2Id);
+            }
+            List<Integer> ids = new ArrayList<>();
+            for (SocketIOClient p : players) {
+                if (p != null && p.getUserData() != null && p.getUserData().has("id")) {
+                    ids.add(p.getUserData().get("id").getAsInt());
+                }
+            }
+            return ids;
+        }
+
+        int getRivalId(int myId) {
+            if (myId == player1Id) return player2Id;
+            if (myId == player2Id) return player1Id;
+            return 0;
+        }
+
+        String getUsername(int userId) {
+            if (userId == player1Id) return player1Username;
+            if (userId == player2Id) return player2Username;
+            return "Jugador";
+        }
+
+        void actualizarSocketJugador(int userId, SocketIOClient client) {
+            for (int i = 0; i < players.size(); i++) {
+                SocketIOClient p = players.get(i);
+                if (p != null && p.getUserData() != null && p.getUserData().has("id")
+                        && p.getUserData().get("id").getAsInt() == userId) {
+                    players.set(i, client);
+                    return;
+                }
+            }
+            players.add(client);
+        }
     }
 
     static class BusquedaActiva {

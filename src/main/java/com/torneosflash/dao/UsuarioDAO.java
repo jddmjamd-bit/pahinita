@@ -247,6 +247,7 @@ public class UsuarioDAO {
     }
 
     public void resetearEstado(String username) {
+        ejecutarSQL("DELETE FROM match_queue WHERE LOWER(username) = LOWER(?)", username);
         ejecutarSQL("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE username = ?", username);
     }
 
