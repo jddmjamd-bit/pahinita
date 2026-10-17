@@ -17,7 +17,7 @@
 | **Auth** | JWT HS256 en cookie httpOnly `session` (S1) | `AuthMiddleware` verifica e inyecta `ctx.attribute("userId")`/`("rol")`. Rutas de admin protegidas por `AdminMiddleware` (S3, sección 18). Pendiente: S2 (userId del body y socket). Ver secciones 16 y 18 |
 | **Frontend** | Vanilla JS (`app.js`, 120 KB) | SPA monolítica sin framework. **Migrar a React + Vite** (pendiente, en progreso bajo `frontend/`) |
 | **Mobile App** | Capacitor | Genera builds nativos para Android e iOS encapsulando la app React. Gestiona Splash Screen y permisos |
-| **Pagos** | Wompi (tarjeta), Nequi (manual) | Webhook Wompi no verifica firma |
+| **Pagos** | Wompi (tarjeta), Nequi (manual) | Webhook Wompi verifica firma SHA-256, monto y moneda (S7) |
 | **Notificaciones** | Firebase Cloud Messaging (FCM) | Push via `NotificacionPushServicio` y `@capacitor/push-notifications` en cliente |
 | **Email** | Brevo (Sendinblue) | Vía `CorreoServicio` |
 | **Deploy** | Render (Docker) | UTC timezone, free tier |
@@ -307,7 +307,7 @@ Middleware global (`servidor/RateLimitMiddleware`, registrado en `Main` antes de
 | Financiero | `RATE_LIMIT_FINANCIAL_PER_MIN` = 10 | `/api/deposit`, `/api/transaction/create`, `/api/transaction/withdraw`, `/api/wompi/init`, `/api/admin/transaction/process`, `/api/admin/resolve-dispute`. Cuentan aquí **y** en el general |
 | Media | `RATE_LIMIT_MEDIA_PER_MIN` = 300 | `GET /api/media/*` (los videos hacen muchas peticiones Range; el chat carga varias imágenes a la vez) |
 
-- **Exentos:** `OPTIONS` (preflight CORS), archivos estáticos del frontend, WebSocket (Socket.IO) y `POST /api/wompi/webhook` (lo llama Wompi, no un usuario; limitarlo podría perder pagos reales. Su defensa es verificar la firma, tarea S7).
+- **Exentos:** `OPTIONS` (preflight CORS), archivos estáticos del frontend, WebSocket (Socket.IO) y `POST /api/wompi/webhook` (lo llama Wompi, no un usuario; limitarlo podría perder pagos reales. Su defensa es verificar la firma SHA-256 en `FinanzasService`, S7).
 - **IP del cliente:** detrás de Render `ctx.ip()` es la IP del proxy. Se lee `X-Forwarded-For` contando desde la **derecha** con `RATE_LIMIT_PROXY_HOPS` (default 1): lo que está a la izquierda lo escribe el cliente y es falsificable. `0` ignora el header. Si Render/Cloudflare añaden más de una entrada y varios usuarios caen en la misma clave, subir a 2 (se comprueba con `/check-ip`).
 - **Apagar (solo para pruebas locales):** `RATE_LIMIT_ENABLED=false`.
 - **CORS en la 429:** el middleware corre antes que el plugin CORS de Javalin y al rechazar se saltan los handlers restantes, así que `RateLimitMiddleware` añade a mano `Access-Control-Allow-Origin` (refleja el `Origin`), `Allow-Credentials` y `Expose-Headers: Retry-After, X-RateLimit-*`. Sin eso la app React/Capacitor (otro origen que el backend) no podría leer el mensaje de la 429.
@@ -491,7 +491,7 @@ RutasX (servidor/)                        XService (servicio/)
 **Pendiente / fuera de A3**
 - `SocketHandler` (~50 KB) sigue mezclando protocolo de sockets con lógica de negocio (matchmaking, negociación, chat); es candidato a su propia tarea.
 - La lógica de decisión del scheduler de `Main` (qué día se premia) sigue en `Main`.
-- Webhook sin firma (S7) y `userId` desde el body (S2) siguen abiertos; no son parte de A3. `/secret-admin/{username}` ya fue eliminada (S3).
+- `/secret-admin/{username}` fue eliminada (S3), la identidad sale siempre del JWT (S2) y el webhook de Wompi verifica firma SHA-256 y monto (S7).
 
 ---
 

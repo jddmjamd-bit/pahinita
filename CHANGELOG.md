@@ -11,6 +11,14 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-17 — S7: Verificar firma SHA-256, monto e idempotencia en el webhook de Wompi (Gemini 3.1 Pro)
+- **`AppConfig.java`**: Añadida la variable de entorno `WOMPI_EVENTS_SECRET` (secreto de eventos del dashboard de Wompi para firmar webhooks) con su getter `getWompiEventsSecret()`.
+- **`FinanzasService.java`**: Implementada la validación criptográfica SHA-256 en `procesarWebhookWompi(body, headerChecksum)` siguiendo la especificación oficial de eventos de Wompi: extrae en orden los valores indicados en `signature.properties` desde `data`, concatena `timestamp` y el secreto (`WOMPI_EVENTS_SECRET`, con fallback a `WOMPI_INTEGRITY_SECRET` si no se definió), y compara el hash en tiempo constante (`MessageDigest.isEqual`) contra `signature.checksum` y `X-Event-Checksum`. Rechaza cualquier intento si no hay secreto configurado o si la firma no coincide (401/503).
+- **Validación de monto, moneda e idempotencia (`FinanzasService.java`)**: Verifica que `currency` sea `COP` y que `transaction.amount_in_cents` coincida con el monto en centavos calculado por el servidor (`calcularMontoCentavosWompi`), cerrando el vector donde un atacante pagaba menos con la misma referencia. Además, actualiza el estado a `completado` con `WHERE estado = 'pendiente'` antes de acreditar en `WalletService` para evitar doble acreditación ante entregas simultáneas del webhook.
+- **`RutasFinanzas.java`**: `POST /api/wompi/webhook` pasa la cabecera `X-Event-Checksum` a `FinanzasService` y devuelve el código HTTP de `ServicioException` (`401`/`400`/`503`) cuando un webhook es rechazado.
+- **Verificación manual**: (1) Compilar con `mvnw.cmd test-compile`; (2) Definir `WOMPI_EVENTS_SECRET` en Render con el Secreto de Eventos de Wompi; (3) Enviar un POST sin firma o con firma alterada a `/api/wompi/webhook` y comprobar que responde 401 sin acreditar saldo.
+Archivos: `AppConfig.java`, `FinanzasService.java`, `RutasFinanzas.java`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-17 — Prioridad 84: Chat de voz con Discord (Claude Sonnet 5.5)
 - **¿Hace falta una cuenta de Discord?** Sí: para entrar a un canal de voz de Discord cada jugador necesita su propia cuenta (gratis). Por eso el chat de voz es **opcional**: quien no vincule Discord juega igual, sin voz, y no se le exige nada. Si se quisiera voz sin cuenta de ningún servicio externo habría que hacer voz propia con WebRTC (otra tarea: necesita señalización por Socket.IO, bloqueada por A1, y servidores TURN).
 - **Migración Flyway `V8__chat_voz_discord.sql`**: `discord_links` (`user_id` PK, `discord_id` UNIQUE → una cuenta de Discord no puede estar en dos usuarios, `discord_username`) y `voice_channels` (`match_id` UNIQUE → un canal por partida, `user1_id`, `user2_id`, `discord_channel_id`, `estado` activo/cerrado, fechas). El estado de los canales está en la BD, no en memoria (A2).

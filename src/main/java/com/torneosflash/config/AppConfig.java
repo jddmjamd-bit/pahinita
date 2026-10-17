@@ -28,6 +28,7 @@ public class AppConfig {
     private final String wompiPublicKey;
     private final String wompiPrivateKey;
     private final String wompiIntegritySecret;
+    private final String wompiEventsSecret;
     private final String wompiUserPrincipalId;
     private final String wompiXApiKey;
     private final String dbAdminSecret;
@@ -125,6 +126,8 @@ public class AppConfig {
         this.wompiPublicKey = getEnv("WOMPI_PUBLIC_KEY", "");
         this.wompiPrivateKey = getEnv("WOMPI_PRIVATE_KEY", "");
         this.wompiIntegritySecret = getEnv("WOMPI_INTEGRITY_SECRET", "");
+        // S7: secreto de eventos para verificar la firma SHA-256 del webhook de Wompi
+        this.wompiEventsSecret = getEnv("WOMPI_EVENTS_SECRET", "").trim();
         this.wompiUserPrincipalId = getEnv("WOMPI_USER_PRINCIPAL_ID", "");
         this.wompiXApiKey = getEnv("WOMPI_X_API_KEY", "");
         // A7: sin valor por defecto. Antes caía a una clave escrita en el código ("torneos2024"); RutasDbAdmin
@@ -330,6 +333,7 @@ public class AppConfig {
     public String getWompiPublicKey() { return wompiPublicKey; }
     public String getWompiPrivateKey() { return wompiPrivateKey; }
     public String getWompiIntegritySecret() { return wompiIntegritySecret; }
+    public String getWompiEventsSecret() { return wompiEventsSecret; }
     public String getWompiUserPrincipalId() { return wompiUserPrincipalId; }
     public String getWompiXApiKey() { return wompiXApiKey; }
     public String getDbAdminSecret() { return dbAdminSecret; }

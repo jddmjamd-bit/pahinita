@@ -70,11 +70,13 @@ public class RutasFinanzas {
             ctx.json(finanzas.iniciarWompi(userId, body.get("monto")));
         });
 
-        // POST /api/wompi/webhook (lo llama Wompi: respuesta en texto plano)
+        // POST /api/wompi/webhook (lo llama Wompi: verifica firma SHA-256 S7; respuesta en texto plano)
         app.post("/api/wompi/webhook", ctx -> {
             try {
-                finanzas.procesarWebhookWompi(parseBody(ctx));
-                ctx.result("OK");
+                finanzas.procesarWebhookWompi(parseBody(ctx), ctx.header("X-Event-Checksum"));
+                ctx.status(200).result("OK");
+            } catch (ServicioException e) {
+                ctx.status(e.getStatus()).result(e.getMessage());
             } catch (Exception e) {
                 logger.error("Error webhook Wompi: " + e.getMessage());
                 ctx.status(500).result("Error");
