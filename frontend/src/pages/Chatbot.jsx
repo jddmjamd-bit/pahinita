@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { API_BASE_URL } from '../store/llamarApi';
 import './Chat.css';
 import './Chatbot.css';
-
-const API_BASE_URL = 'https://torneos-beta.onrender.com';
 
 // Tonos que el usuario puede elegir. "defecto" = el que fijó el administrador.
 const TONOS = [

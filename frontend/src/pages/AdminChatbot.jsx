@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { API_BASE_URL } from '../store/llamarApi';
 import './AdminChatbot.css';
-
-const API_BASE_URL = 'https://torneos-beta.onrender.com';
 
 const TONOS_ADMIN = [
     { id: 'adaptativo', etiqueta: '🪄 Adaptativo', ayuda: 'Imita cómo escribe cada usuario' },

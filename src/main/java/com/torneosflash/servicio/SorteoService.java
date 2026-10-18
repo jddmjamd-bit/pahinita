@@ -479,8 +479,6 @@ public class SorteoService {
 
             correo.notificarAdmin("SORTEO COMPLETADO: " + nombre,
                     "Ganador: " + ganadorNombre + " | Email: " + emailGanador);
-            correo.notificarAdmin("SORTEO COMPLETADO: " + nombre,
-                    "Ganador: " + ganadorNombre + " | Email: " + emailGanador);
 
             JsonObject ganadorData = new JsonObject();
             ganadorData.addProperty("raffleId", raffleId);

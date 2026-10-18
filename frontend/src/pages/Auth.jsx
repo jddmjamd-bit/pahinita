@@ -144,8 +144,9 @@ export default function Auth() {
         try {
             const res = await fetch(API_BASE_URL + '/api/register', {
                 method: 'POST',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, email, password, playerTag, telefono, aceptaTerminos: true })   // ← CAMBIA (antes sin `aceptaTerminos: true`)
+                body: JSON.stringify({ username, email, password, playerTag, telefono, aceptaTerminos: true })
             });
             const data = await res.json();
             if (res.ok) {
@@ -165,13 +166,14 @@ export default function Auth() {
         try {
             const res = await fetch(API_BASE_URL + '/api/login', {
                 method: 'POST',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password })
             });
             const data = await res.json();
             if (res.ok) {
                 setUser(data.user);
-                navigate('/lobby');
+                navigate('/chat');
             } else {
                 alert(data.error);
             }
