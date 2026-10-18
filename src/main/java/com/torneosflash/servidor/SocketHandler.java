@@ -11,10 +11,10 @@ import com.torneosflash.eventos.Eventos;
 import com.torneosflash.servicio.ChatSanitizer;
 import com.torneosflash.servicio.ClashApiServicio;
 import com.torneosflash.servicio.NotificacionPushServicio;
+import com.torneosflash.servicio.RateLimiter;
 import com.torneosflash.servicio.UsuarioVista;
 import com.torneosflash.servicio.ValidadorMonto;
 import com.torneosflash.servicio.WalletService;
-import com.torneosflash.servicio.WalletService.WalletResult;
 import com.torneosflash.servicio.WalletService.LiquidacionResult;
 import com.torneosflash.socketio.SocketIOClient;
 import com.torneosflash.socketio.SocketIOServer;
@@ -50,6 +50,9 @@ public class SocketHandler {
     private final AppConfig config; // A7: timeouts y límites configurables por variable de entorno
     private final ScheduledExecutorService scheduler; // A8: temporizadores cortos (Ejecutores.timers()), nunca HTTP externo
     private final Ejecutores ejecutores; // A8: pool de IO para el sondeo de la API de Clash
+    private final RateLimiter socketRateLimiter = new RateLimiter(); // A3: límite por usuario para eventos de socket
+    private static final int LIMITE_CHAT_SOCKET_POR_MIN = 25;
+    private static final int LIMITE_BUSQUEDA_SOCKET_POR_MIN = 6;
     private final Gson gson = new Gson();
 
     public SocketHandler(GenericDAO db, SocketIOServer io, ClashApiServicio clashApi, NotificacionPushServicio pushService, WalletService wallet, ValidadorMonto validador, EventBus eventos, AppConfig config, Ejecutores ejecutores) {
@@ -252,6 +255,10 @@ public class SocketHandler {
                         return;
                     }
                     int senderId = client.getUserData().get("id").getAsInt();
+                    if (!socketRateLimiter.intentar("chat_pub|" + senderId, LIMITE_CHAT_SOCKET_POR_MIN).isPermitido()) {
+                        logger.warn("🚦 Rate limit de chat público superado por userId={}", senderId);
+                        return;
+                    }
                     String usuarioSesion = client.getUserData().get("username").getAsString();
 
                     JsonObject msg = ((JsonElement) data[0]).getAsJsonObject();
@@ -315,6 +322,10 @@ public class SocketHandler {
                         return;
                     }
                     int userId = authId;
+                    if (!socketRateLimiter.intentar("buscar|" + userId, LIMITE_BUSQUEDA_SOCKET_POR_MIN).isPermitido()) {
+                        client.emit("error_busqueda", new JsonPrimitive("Estás buscando demasiado rápido. Espera unos segundos."));
+                        return;
+                    }
 
                     JsonObject row = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", userId);
                     // D1 / D5: el mínimo para buscar partida se compara con BigDecimal directo de la BD // REVIEW-MONEY
@@ -386,27 +397,41 @@ public class SocketHandler {
             // --- NEGOCIACIÓN EN VIVO ---
             socket.on("negociacion_live", (client, data) -> {
                 try {
+                    // M1: Exigir sesión autenticada y pertenencia real a la sala activa
+                    if (client.getUserData() == null || !client.getUserData().has("id")) return;
+                    int myId = client.getUserData().get("id").getAsInt();
+                    String salaId = client.getCurrentRoom();
+                    if (salaId == null || !activeMatches.containsKey(salaId)) return;
+                    ActiveMatch match = activeMatches.get(salaId);
+                    if (match.iniciado || (myId != match.player1Id && myId != match.player2Id)) return;
+
                     JsonObject d = ((JsonElement) data[0]).getAsJsonObject();
-                    String salaId = d.get("salaId").getAsString();
-                    if (activeMatches.containsKey(salaId)) {
-                        ActiveMatch match = activeMatches.get(salaId);
-                        if (d.has("modo")) match.lastModo = d.get("modo").getAsString();
-                        if (d.has("dinero")) match.lastDinero = d.get("dinero").getAsString();
-                        db.update("UPDATE active_matches SET last_modo = ?, last_dinero = ?, actualizado_en = CURRENT_TIMESTAMP WHERE sala_id = ?",
-                                match.lastModo, match.lastDinero, salaId);
+                    JsonObject limpio = new JsonObject();
+                    limpio.addProperty("salaId", salaId);
+                    if (d.has("modo") && !d.get("modo").isJsonNull()) {
+                        match.lastModo = ChatSanitizer.limpiarTexto(d.get("modo").getAsString(), 50);
+                        limpio.addProperty("modo", match.lastModo);
                     }
-                    client.to(salaId).emit("actualizar_negociacion", d);
+                    if (d.has("dinero") && !d.get("dinero").isJsonNull()) {
+                        match.lastDinero = ChatSanitizer.limpiarTexto(d.get("dinero").getAsString(), 20);
+                        limpio.addProperty("dinero", match.lastDinero);
+                    }
+                    db.update("UPDATE active_matches SET last_modo = ?, last_dinero = ?, actualizado_en = CURRENT_TIMESTAMP WHERE sala_id = ?",
+                            match.lastModo, match.lastDinero, salaId);
+                    client.to(salaId).emit("actualizar_negociacion", limpio);
                 } catch (Exception ignored) {}
             });
 
             // --- INICIAR JUEGO ---
             socket.on("iniciar_juego", (client, data) -> {
                 try {
+                    if (client.getUserData() == null || !client.getUserData().has("id")) return;
+                    int myId = client.getUserData().get("id").getAsInt();
                     JsonObject d = ((JsonElement) data[0]).getAsJsonObject();
                     String salaId = client.getCurrentRoom();
                     if (salaId == null || !activeMatches.containsKey(salaId)) return;
                     ActiveMatch match = activeMatches.get(salaId);
-                    if (match.iniciado) return;
+                    if (match.iniciado || (myId != match.player1Id && myId != match.player2Id)) return;
 
                     // D5: el monto lo valida el servidor (número, positivo, entero, dentro del rango de torneo).
                     // Un voto inválido no se guarda y solo se le avisa a quien lo envió.
@@ -415,18 +440,25 @@ public class SocketHandler {
                         client.emit("error_negociacion", new JsonPrimitive(montoVoto.getError()));
                         return;
                     }
-                    // D1: se guarda el voto con el monto ya normalizado como BigDecimal // REVIEW-MONEY
-                    d.addProperty("dinero", montoVoto.getMonto());
-
-                    int myId = client.getUserData().get("id").getAsInt();
-                    if (d.has("modo") && !d.get("modo").isJsonNull()) {
-                        match.lastModo = d.get("modo").getAsString();
+                    String modoLimpio = (d.has("modo") && !d.get("modo").isJsonNull())
+                            ? ChatSanitizer.limpiarTexto(d.get("modo").getAsString(), 50)
+                            : "";
+                    if (modoLimpio.length() < 3) {
+                        client.emit("error_negociacion", new JsonPrimitive("El modo de juego debe tener al menos 3 caracteres"));
+                        return;
                     }
+
+                    // M2: Construir objeto de voto limpio (solo modo y dinero) sin guardar propiedades arbitrarias del cliente
+                    JsonObject votoLimpio = new JsonObject();
+                    votoLimpio.addProperty("modo", modoLimpio);
+                    votoLimpio.addProperty("dinero", montoVoto.getMonto()); // REVIEW-MONEY
+
+                    match.lastModo = modoLimpio;
                     match.lastDinero = montoVoto.getMonto().toPlainString();
 
                     // Un voto nuevo invalida cualquier confirmación anterior (nadie acepta un monto que cambió después)
                     match.confirmaciones.clear();
-                    match.votosInicio.put(myId, d);
+                    match.votosInicio.put(myId, votoLimpio);
                     persistirMatchEnBD(salaId, match);
                     client.to(salaId).emit("rival_listo_inicio");
 
@@ -592,17 +624,24 @@ public class SocketHandler {
             // --- MENSAJE PRIVADO ---
             socket.on("mensaje_privado", (client, data) -> {
                 try {
-                    // S2: Exigir sesión autenticada y usar el username real del socket
+                    // S2 + M1: Exigir sesión autenticada y comprobar que pertenezca a la partida activa de esa sala
                     if (client.getUserData() == null || !client.getUserData().has("id")) {
+                        return;
+                    }
+                    int senderId = client.getUserData().get("id").getAsInt();
+                    if (!socketRateLimiter.intentar("chat_priv|" + senderId, LIMITE_CHAT_SOCKET_POR_MIN).isPermitido()) {
                         return;
                     }
                     String usuarioSesion = client.getUserData().get("username").getAsString();
                     JsonObject d = ((JsonElement) data[0]).getAsJsonObject();
-                    // S5 (XSS) + S2: se valida y limpia con el username de la sesión
                     ChatSanitizer.MensajePrivado limpio = ChatSanitizer.validarMensajePrivado(
                             str(d, "salaId"), usuarioSesion, str(d, "texto"));
                     if (limpio != null) {
-                        // Se reconstruye el objeto solo con los campos permitidos
+                        ActiveMatch match = activeMatches.get(limpio.salaId());
+                        if (match == null || (senderId != match.player1Id && senderId != match.player2Id)) {
+                            logger.warn("⛔ Usuario {} intentó enviar mensaje_privado a sala ajena {}", senderId, limpio.salaId());
+                            return;
+                        }
                         d = new JsonObject();
                         d.addProperty("salaId", limpio.salaId());
                         d.addProperty("usuario", limpio.usuario());
@@ -612,19 +651,14 @@ public class SocketHandler {
                         db.update("INSERT INTO messages (canal, usuario, texto, tipo) VALUES (?, ?, ?, 'texto')",
                                 limpio.salaId(), limpio.usuario(), limpio.texto());
                         d.addProperty("fecha", fecha);
-                        io.to(d.get("salaId").getAsString()).emit("mensaje_privado", d);
+                        io.to(limpio.salaId()).emit("mensaje_privado", d);
 
-                        // Push: notificar al rival sobre mensaje privado
-                        int senderId = client.getUserData().get("id").getAsInt();
-                        String salaId = d.get("salaId").getAsString();
-                        if (activeMatches.containsKey(salaId)) {
-                            int rivalId = activeMatches.get(salaId).getRivalId(senderId);
-                            if (rivalId > 0) {
-                                String texto = d.get("texto").getAsString();
-                                String preview = texto.length() > 50 ? texto.substring(0, 50) + "..." : texto;
-                                pushService.enviarPush(db, rivalId,
-                                        "💬 Mensaje privado", d.get("usuario").getAsString() + ": " + preview);
-                            }
+                        int rivalId = match.getRivalId(senderId);
+                        if (rivalId > 0) {
+                            String texto = limpio.texto();
+                            String preview = texto.length() > 50 ? texto.substring(0, 50) + "..." : texto;
+                            pushService.enviarPush(db, rivalId,
+                                    "💬 Mensaje privado", limpio.usuario() + ": " + preview);
                         }
                     }
                 } catch (Exception ignored) {}
@@ -988,15 +1022,18 @@ public class SocketHandler {
         return segundos + (segundos == 1 ? " segundo" : " segundos");
     }
 
-    private void intentarMatcheo(SocketIOClient meSocket, int myId, JsonObject myData) {
+    private synchronized void intentarMatcheo(SocketIOClient meSocket, int myId, JsonObject myData) {
+        if (!busquedasActivas.containsKey(myId) || estaEnPartidaActiva(myId)) return;
         for (Map.Entry<Integer, BusquedaActiva> entry : busquedasActivas.entrySet()) {
             if (entry.getKey() != myId) {
                 BusquedaActiva rival = entry.getValue();
+                if (estaEnPartidaActiva(rival.oderId)) continue;
                 SocketIOClient rivalSocket = rival.socket;
                 boolean rivalConectado = rivalSocket != null && rivalSocket.isConnected();
 
                 String myUsername = myData.get("username").getAsString();
-                String salaId = "sala_" + System.currentTimeMillis();
+                // M1: Sufijo aleatorio de 4 cifras para evitar predecibilidad y colisiones en el mismo milisegundo (cumple ^sala_\d{1,20}$)
+                String salaId = "sala_" + System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(1000, 10000);
                 meSocket.setCurrentRoom(salaId);
                 meSocket.join(salaId);
                 if (rivalConectado) { rivalSocket.setCurrentRoom(salaId); rivalSocket.join(salaId); }
@@ -1185,11 +1222,15 @@ public class SocketHandler {
         activeMatches.remove(salaId);
     }
 
-    private void handleCancelMatch(SocketIOClient socket, String motivo) {
+    private void handleCancelMatch(SocketIOClient socket, String motivoCrudo) {
         String salaId = socket.getCurrentRoom();
         if (salaId == null || !activeMatches.containsKey(salaId)) return;
         ActiveMatch match = activeMatches.get(salaId);
         if (match.iniciado) return;
+
+        // M2: Sanitizar el motivo antes de guardarlo en clash_logs o reenviarlo a la sala
+        String motivo = ChatSanitizer.limpiarTexto(motivoCrudo, 60);
+        if (motivo.isEmpty()) motivo = "Abandonado";
 
         for (ScheduledFuture<?> f : match.disconnectTimers.values()) {
             f.cancel(false);

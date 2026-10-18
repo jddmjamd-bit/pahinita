@@ -48,10 +48,21 @@ public class RutasAdmin {
             ctx.json(successJson("Disputa resuelta", 0));
         });
 
-        // GET /admin-fix-status/:targetUser/:adminUser (resetear estado)
-        // S3: AdminMiddleware exige sesión de admin. El segmento {adminUser} se conserva solo para no romper la URL
-        // que ya usan los clientes: se IGNORA (antes bastaba con escribir el nombre de cualquier admin).
+        // POST /api/admin/fix-status (ruta segura contra CSRF para resetear el estado de un jugador)
+        app.post("/api/admin/fix-status", ctx -> {
+            JsonObject body = parseBody(ctx);
+            String targetUser = Peticion.texto(body, "targetUser");
+            admin.resetearEstado(targetUser);
+            ctx.json(successJson("Estado de " + targetUser + " reseteado a normal", 0));
+        });
+
+        // GET /admin-fix-status/:targetUser/:adminUser (compatibilidad; bloquea peticiones cross-site contra CSRF)
         app.get("/admin-fix-status/{targetUser}/{adminUser}", ctx -> {
+            String fetchSite = ctx.header("Sec-Fetch-Site");
+            if ("cross-site".equalsIgnoreCase(fetchSite)) {
+                ctx.status(403).result("Petición cruzada no permitida");
+                return;
+            }
             String targetUser = ctx.pathParam("targetUser");
             admin.resetearEstado(targetUser);
             ctx.result("✅ Estado de " + targetUser + " reseteado a normal");

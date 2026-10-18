@@ -8,7 +8,6 @@ import com.torneosflash.dao.UsuarioDAO;
 import com.torneosflash.eventos.EventBus;
 import com.torneosflash.eventos.Eventos;
 import com.torneosflash.servicio.WalletService.LiquidacionResult;
-import com.torneosflash.servicio.WalletService.WalletResult;
 import com.torneosflash.socketio.SocketIOClient;
 import com.torneosflash.socketio.SocketIOServer;
 

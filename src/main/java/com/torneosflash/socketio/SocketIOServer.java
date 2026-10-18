@@ -59,7 +59,8 @@ public class SocketIOServer {
     private static final int PING_INTERVAL_MS = 25_000;
     private static final int PING_TIMEOUT_MS = 20_000;
     private static final int DEFAULT_NETTY_PORT = 9092;
-    private static final int DEFAULT_MAX_BYTES = 50_000_000;
+    private static final int DEFAULT_MAX_BYTES = 8_000_000;
+    private static final int MAX_POLLING_CONCURRENTE = 16;
 
     private static final String[] EVENTOS_BASE = {
             "registrar_socket",
@@ -75,9 +76,11 @@ public class SocketIOServer {
             "reportar_resultado"
     };
 
+    private final AppConfig appConfig;
     private final int configuredPort;
     private final int httpPort;
     private final int maxPayloadBytes;
+    private final java.util.concurrent.Semaphore pollingSemaphore = new java.util.concurrent.Semaphore(MAX_POLLING_CONCURRENTE);
     private int activeNettyPort;
     private com.corundumstudio.socketio.SocketIOServer nettyServer;
 
@@ -95,12 +98,14 @@ public class SocketIOServer {
             .build();
 
     public SocketIOServer(ScheduledExecutorService scheduler) {
+        this.appConfig = null;
         this.configuredPort = DEFAULT_NETTY_PORT;
         this.httpPort = 5000;
         this.maxPayloadBytes = DEFAULT_MAX_BYTES;
     }
 
     public SocketIOServer(AppConfig config, ScheduledExecutorService scheduler) {
+        this.appConfig = config;
         this.configuredPort = config != null ? config.getSocketIoPort() : DEFAULT_NETTY_PORT;
         this.httpPort = config != null ? config.getPort() : 5000;
         this.maxPayloadBytes = config != null ? config.getWsMaxMessageBytes() : DEFAULT_MAX_BYTES;
@@ -380,12 +385,16 @@ public class SocketIOServer {
 
     private void proxyHttpPolling(Context ctx) {
         aplicarCors(ctx);
+        if (!pollingSemaphore.tryAcquire()) {
+            ctx.status(503).result("Servidor ocupado");
+            return;
+        }
         String query = ctx.queryString();
         String uriStr = "http://127.0.0.1:" + activeNettyPort + "/socket.io/" + (query != null && !query.isEmpty() ? "?" + query : "");
         try {
             HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
                     .uri(URI.create(uriStr))
-                    .timeout(Duration.ofSeconds(30));
+                    .timeout(Duration.ofSeconds(10));
 
             String cookie = ctx.header("Cookie");
             if (cookie != null && !cookie.isEmpty()) {
@@ -413,10 +422,18 @@ public class SocketIOServer {
         } catch (Exception e) {
             logger.debug("Error en proxy HTTP polling de Socket.IO: {}", e.getMessage());
             ctx.status(502).result("Bad Gateway");
+        } finally {
+            pollingSemaphore.release();
         }
     }
 
     private void handleBridgeConnect(WsConnectContext ctx) {
+        String origin = ctx.header("Origin");
+        if (origin != null && !origin.isBlank() && appConfig != null && !appConfig.esOrigenPermitido(origin)) {
+            logger.warn("⛔ Conexión WebSocket rechazada por Origin no permitido: {}", origin);
+            try { ctx.closeSession(); } catch (Exception ignored) {}
+            return;
+        }
         String query = ctx.queryString();
         String uriStr = "ws://127.0.0.1:" + activeNettyPort + "/socket.io/" + (query != null && !query.isEmpty() ? "?" + query : "");
         PuenteWs puente = new PuenteWs(ctx);
@@ -459,10 +476,13 @@ public class SocketIOServer {
         }
     }
 
-    private static void aplicarCors(Context ctx) {
+    private void aplicarCors(Context ctx) {
         String origin = ctx.header("Origin");
-        ctx.header("Access-Control-Allow-Origin", origin != null && !origin.isEmpty() ? origin : "*");
-        ctx.header("Access-Control-Allow-Credentials", "true");
+        if (origin != null && !origin.isBlank() && (appConfig == null || appConfig.esOrigenPermitido(origin))) {
+            ctx.header("Access-Control-Allow-Origin", origin);
+            ctx.header("Access-Control-Allow-Credentials", "true");
+            ctx.header("Vary", "Origin");
+        }
         ctx.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
         ctx.header("Access-Control-Allow-Headers", "Content-Type,Authorization,Cookie");
     }

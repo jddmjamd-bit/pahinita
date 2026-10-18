@@ -75,9 +75,10 @@ public class LeaderboardService {
         boolean isMoneyTab = "monto_torneos".equals(periodo) || "ganado".equals(periodo);
         String selectAlias = isMoneyTab ? orderColumn + " as monto" : orderColumn + " as victorias";
 
+        // S6 / M5: no exponer tipo_suscripcion (quién es admin) ni ganancia_generada en el ranking público
         ArrayList<JsonObject> rows = db.query(
                 "SELECT id, username, " + selectAlias + ", total_partidas, total_victorias, total_derrotas, " +
-                "ganancia_generada, tipo_suscripcion, total_monto_torneos, total_ganado FROM users WHERE " +
+                "total_monto_torneos, total_ganado FROM users WHERE " +
                 orderColumn + " > 0 ORDER BY " + orderColumn + " DESC LIMIT 50");
 
         JsonArray ranking = new JsonArray();

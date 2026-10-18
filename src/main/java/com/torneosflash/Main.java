@@ -35,7 +35,6 @@ import io.javalin.json.JsonMapper;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import java.lang.reflect.Type;
-import java.util.*;
 import java.util.concurrent.*;
 import com.torneosflash.servicio.ChatbotIaCliente;
 import com.torneosflash.servicio.ChatbotListener;
@@ -164,10 +163,12 @@ public class Main {
                 }
             });
 
-            // CORS
+            // A4: CORS con lista blanca de orígenes permitidos (nunca anyHost con allowCredentials)
             javalinConfig.bundledPlugins.enableCors(cors -> {
                 cors.addRule(rule -> {
-                    rule.anyHost();
+                    for (String origen : config.getCorsAllowedOrigins()) {
+                        rule.allowHost(origen);
+                    }
                     rule.allowCredentials = true;
                 });
             });
@@ -188,6 +189,13 @@ public class Main {
                     break;
                 }
             }
+        });
+
+        // Cabeceras de seguridad globales para toda respuesta HTTP
+        app.before(ctx -> {
+            ctx.header("X-Content-Type-Options", "nosniff");
+            ctx.header("X-Frame-Options", "DENY");
+            ctx.header("Referrer-Policy", "strict-origin-when-cross-origin");
         });
 
         // ============================================

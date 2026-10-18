@@ -37,7 +37,9 @@ public final class AdminMiddleware {
     private static final String[] RUTAS_ADMIN = {
             "/api/admin/*",
             "/api/deposit",
-            "/admin-fix-status/*"
+            "/api/upload",
+            "/admin-fix-status/*",
+            "/check-ip"
     };
 
     private AdminMiddleware() {

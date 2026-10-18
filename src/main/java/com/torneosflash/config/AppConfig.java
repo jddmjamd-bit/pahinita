@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.math.BigDecimal;
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Pattern;
 /**
  * Configuración de la aplicación.
@@ -38,6 +39,7 @@ public class AppConfig {
     private final String bindHost;
     private final int wsMaxMessageBytes;
     private final int socketIoPort;
+    private final Set<String> corsAllowedOrigins;
 
     // --- Temporizadores y límites de partidas/chat (A7). Los usa SocketHandler. ---
     private final int busquedaTimeoutMinutos;
@@ -66,6 +68,7 @@ public class AppConfig {
     private final boolean rateLimitEnabled;
     private final int rateLimitGeneralPorMin;
     private final int rateLimitFinancieroPorMin;
+    private final int rateLimitAuthPorMin;
     private final int rateLimitMediaPorMin;
     private final int rateLimitProxyHops;
 
@@ -140,10 +143,12 @@ public class AppConfig {
         // Interfaz en la que escucha el servidor. 0.0.0.0 = todas (necesario en Docker/Render).
         String hostEnv = getEnv("BIND_HOST", "0.0.0.0").trim();
         this.bindHost = hostEnv.isEmpty() ? "0.0.0.0" : hostEnv;
-        // Tamaño máximo de un mensaje WebSocket (el chat envía imágenes en base64). Default 50 MB.
-        this.wsMaxMessageBytes = getEnvEntero("WS_MAX_MESSAGE_BYTES", 50_000_000, 1024);
+        // A2: Tamaño máximo de un mensaje WebSocket (ChatSanitizer permite hasta 7 MB en base64). Default 8 MB.
+        this.wsMaxMessageBytes = getEnvEntero("WS_MAX_MESSAGE_BYTES", 8_000_000, 1024, 50_000_000);
         // A1: puerto interno de netty-socketio (Javalin redirige /socket.io/ desde PORT hacia este puerto).
         this.socketIoPort = getEnvEntero("SOCKET_IO_PORT", 9092, 0, 65535);
+        // A4: lista blanca de orígenes permitidos para CORS con credenciales (web en Render + Capacitor + dev local)
+        this.corsAllowedOrigins = construirOrigenesCors(this.appBaseUrl, getEnv("CORS_ALLOWED_ORIGINS", ""));
 
         this.busquedaTimeoutMinutos = getEnvEntero("BUSQUEDA_TIMEOUT_MINUTOS", 10, 1, 1440);
         this.negociacionDesconexionSegundos = getEnvEntero("NEGOCIACION_DESCONEXION_SEGUNDOS", 90, 1, 3600);
@@ -172,6 +177,7 @@ public class AppConfig {
         this.rateLimitEnabled = Boolean.parseBoolean(getEnv("RATE_LIMIT_ENABLED", "true"));
         this.rateLimitGeneralPorMin = getEnvEntero("RATE_LIMIT_GENERAL_PER_MIN", 60, 1);
         this.rateLimitFinancieroPorMin = getEnvEntero("RATE_LIMIT_FINANCIAL_PER_MIN", 10, 1);
+        this.rateLimitAuthPorMin = getEnvEntero("RATE_LIMIT_AUTH_PER_MIN", 10, 1);
         this.rateLimitMediaPorMin = getEnvEntero("RATE_LIMIT_MEDIA_PER_MIN", 300, 1);
         // Cuántos proxies de confianza hay delante del servidor (Render = 1). 0 = ignorar X-Forwarded-For.
         this.rateLimitProxyHops = getEnvEntero("RATE_LIMIT_PROXY_HOPS", 1, 0);
@@ -272,6 +278,30 @@ public class AppConfig {
         return DEFAULT_APP_BASE_URL;
     }
 
+    private static Set<String> construirOrigenesCors(String appBaseUrl, String extraEnv) {
+        java.util.LinkedHashSet<String> origenes = new java.util.LinkedHashSet<>();
+        origenes.add(appBaseUrl.toLowerCase(Locale.ROOT));
+        origenes.add("https://localhost");
+        origenes.add("http://localhost");
+        origenes.add("capacitor://localhost");
+        origenes.add("http://localhost:5173");
+        origenes.add("http://localhost:5000");
+        origenes.add("http://127.0.0.1:5173");
+        origenes.add("http://127.0.0.1:5000");
+        if (extraEnv != null && !extraEnv.isBlank()) {
+            for (String parte : extraEnv.split(",")) {
+                String limpio = parte.trim().toLowerCase(Locale.ROOT);
+                while (limpio.endsWith("/")) {
+                    limpio = limpio.substring(0, limpio.length() - 1);
+                }
+                if (!limpio.isEmpty()) {
+                    origenes.add(limpio);
+                }
+            }
+        }
+        return java.util.Collections.unmodifiableSet(origenes);
+    }
+
     private static String normalizarSameSite(String value) {
         switch (value.trim().toLowerCase()) {
             case "strict": return "Strict";
@@ -361,9 +391,20 @@ public class AppConfig {
     public BigDecimal getMontoMaxTorneo() { return montoMaxTorneo; }
     public BigDecimal getMontoMinSorteo() { return montoMinSorteo; }
     public BigDecimal getMontoMaxSorteo() { return montoMaxSorteo; }
+    public Set<String> getCorsAllowedOrigins() { return corsAllowedOrigins; }
+    /** Comprueba si un header Origin está en la lista blanca de CORS. */
+    public boolean esOrigenPermitido(String origin) {
+        if (origin == null || origin.isBlank()) return false;
+        String normalizado = origin.trim();
+        while (normalizado.endsWith("/")) {
+            normalizado = normalizado.substring(0, normalizado.length() - 1);
+        }
+        return corsAllowedOrigins.contains(normalizado.toLowerCase(Locale.ROOT));
+    }
     public boolean isRateLimitEnabled() { return rateLimitEnabled; }
     public int getRateLimitGeneralPorMin() { return rateLimitGeneralPorMin; }
     public int getRateLimitFinancieroPorMin() { return rateLimitFinancieroPorMin; }
+    public int getRateLimitAuthPorMin() { return rateLimitAuthPorMin; }
     public int getRateLimitMediaPorMin() { return rateLimitMediaPorMin; }
     public int getRateLimitProxyHops() { return rateLimitProxyHops; }
     public int getHttpMaxThreads() { return httpMaxThreads; }

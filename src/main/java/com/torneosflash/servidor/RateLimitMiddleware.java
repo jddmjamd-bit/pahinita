@@ -38,7 +38,7 @@ import static com.torneosflash.servidor.RutasAuth.errorJson;
 public class RateLimitMiddleware {
     private static final Logger logger = LoggerFactory.getLogger(RateLimitMiddleware.class);
 
-    enum Categoria { EXENTO, GENERAL, FINANCIERO, MEDIA }
+    enum Categoria { EXENTO, GENERAL, FINANCIERO, AUTH, MEDIA }
 
     /** Rutas que mueven dinero (en minúsculas, sin "/" final). */
     private static final Set<String> RUTAS_FINANCIERAS = Set.of(
@@ -49,9 +49,14 @@ public class RateLimitMiddleware {
             "/api/admin/transaction/process",
             "/api/admin/resolve-dispute");
 
-    /** Solo se limita lo que es API o panel admin; el frontend estático no (cada carga pide decenas de archivos). */
+    /** A3: Rutas de autenticación y verificación externa sujetas a un límite más estricto contra fuerza bruta. */
+    private static final Set<String> RUTAS_AUTH = Set.of(
+            "/api/login",
+            "/api/register");
+
+    /** Solo se limita lo que es API, socket polling o panel admin; el frontend estático no. */
     private static final String[] PREFIJOS_PROTEGIDOS = {
-            "/api/", "/admin-db", "/secret-admin/", "/admin-fix-status/", "/check-ip"
+            "/api/", "/socket.io", "/admin-db", "/secret-admin/", "/admin-fix-status/", "/check-ip"
     };
 
     private static final String RUTA_WEBHOOK_WOMPI = "/api/wompi/webhook";
@@ -63,11 +68,12 @@ public class RateLimitMiddleware {
     public static void register(Javalin app, AppConfig config, RateLimiter limiter) {
         final int limiteGeneral = config.getRateLimitGeneralPorMin();
         final int limiteFinanciero = config.getRateLimitFinancieroPorMin();
+        final int limiteAuth = config.getRateLimitAuthPorMin();
         final int limiteMedia = config.getRateLimitMediaPorMin();
         final int saltosProxy = config.getRateLimitProxyHops();
 
-        logger.info("🚦 Rate limiting activo: general {}/min, financiero {}/min, media {}/min por IP (saltos de proxy: {})",
-                limiteGeneral, limiteFinanciero, limiteMedia, saltosProxy);
+        logger.info("🚦 Rate limiting activo: general {}/min, financiero {}/min, auth {}/min, media {}/min por IP (saltos de proxy: {})",
+                limiteGeneral, limiteFinanciero, limiteAuth, limiteMedia, saltosProxy);
 
         app.before(ctx -> {
             String metodo = ctx.req().getMethod();
@@ -80,27 +86,37 @@ public class RateLimitMiddleware {
             if (categoria == Categoria.MEDIA) {
                 RateLimiter.Resultado media = limiter.intentar("media|" + ip, limiteMedia);
                 if (!media.isPermitido()) {
-                    rechazar(ctx, media, categoria, ip, metodo, ruta);
+                    rechazar(ctx, config, media, categoria, ip, metodo, ruta);
                     return;
                 }
                 encabezados(ctx, media);
                 return;
             }
 
-            // Todo lo demás cuenta en el cubo general (incluidas las rutas financieras)
+            // Todo lo demás cuenta en el cubo general (incluidas las rutas financieras y de auth)
             RateLimiter.Resultado general = limiter.intentar("general|" + ip, limiteGeneral);
             if (!general.isPermitido()) {
-                rechazar(ctx, general, Categoria.GENERAL, ip, metodo, ruta);
+                rechazar(ctx, config, general, Categoria.GENERAL, ip, metodo, ruta);
                 return;
             }
 
             if (categoria == Categoria.FINANCIERO) {
                 RateLimiter.Resultado financiero = limiter.intentar("financiero|" + ip, limiteFinanciero);
                 if (!financiero.isPermitido()) {
-                    rechazar(ctx, financiero, Categoria.FINANCIERO, ip, metodo, ruta);
+                    rechazar(ctx, config, financiero, Categoria.FINANCIERO, ip, metodo, ruta);
                     return;
                 }
                 encabezados(ctx, financiero);
+                return;
+            }
+
+            if (categoria == Categoria.AUTH) {
+                RateLimiter.Resultado auth = limiter.intentar("auth|" + ip, limiteAuth);
+                if (!auth.isPermitido()) {
+                    rechazar(ctx, config, auth, Categoria.AUTH, ip, metodo, ruta);
+                    return;
+                }
+                encabezados(ctx, auth);
                 return;
             }
 
@@ -118,6 +134,7 @@ public class RateLimitMiddleware {
         if (lectura && ruta.startsWith(PREFIJO_MEDIA)) return Categoria.MEDIA;
 
         if (RUTAS_FINANCIERAS.contains(ruta)) return Categoria.FINANCIERO;
+        if (RUTAS_AUTH.contains(ruta) || ruta.startsWith("/api/verify-tag/")) return Categoria.AUTH;
         return Categoria.GENERAL;
     }
 
@@ -173,9 +190,9 @@ public class RateLimitMiddleware {
      * en vez del mensaje. Replica la regla de {@code Main} (anyHost + credenciales: se refleja el Origin)
      * y expone {@code Retry-After} para que el frontend pueda leerlo.
      */
-    private static void cabecerasCors(Context ctx) {
+    private static void cabecerasCors(Context ctx, AppConfig config) {
         String origen = ctx.header("Origin");
-        if (origen != null && !origen.isBlank()) {
+        if (origen != null && !origen.isBlank() && (config == null || config.esOrigenPermitido(origen))) {
             ctx.header("Access-Control-Allow-Origin", origen);
             ctx.header("Access-Control-Allow-Credentials", "true");
             ctx.header("Vary", "Origin");
@@ -183,7 +200,7 @@ public class RateLimitMiddleware {
         ctx.header("Access-Control-Expose-Headers", "Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining");
     }
 
-    private static void rechazar(Context ctx, RateLimiter.Resultado r, Categoria categoria,
+    private static void rechazar(Context ctx, AppConfig config, RateLimiter.Resultado r, Categoria categoria,
                                  String ip, String metodo, String ruta) {
         if (r.isPrimerBloqueo()) {
             logger.warn("🚦 Rate limit ({}): IP {} superó {}/min en {} {}",
@@ -194,7 +211,7 @@ public class RateLimitMiddleware {
         cuerpo.addProperty("retryAfter", segundos);
 
         ctx.status(429);
-        cabecerasCors(ctx);
+        cabecerasCors(ctx, config);
         ctx.header("Retry-After", String.valueOf(segundos));
         ctx.header("X-RateLimit-Limit", String.valueOf(r.getLimite()));
         ctx.header("X-RateLimit-Remaining", "0");

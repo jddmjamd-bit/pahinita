@@ -40,9 +40,10 @@ public class MediaService {
             throw ServicioException.solicitudInvalida("Solo se permiten archivos de video");
         }
 
+        // A1: leer como máximo LIMITE_BYTES + 1 para cortar de inmediato si supera 50 MB sin agotar la RAM
         byte[] bytes;
         try {
-            bytes = contenido.readAllBytes();
+            bytes = contenido.readNBytes(LIMITE_BYTES + 1);
         } catch (IOException e) {
             throw ServicioException.interno("Error interno al subir archivo", e);
         }

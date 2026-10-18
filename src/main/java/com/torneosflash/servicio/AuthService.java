@@ -172,21 +172,30 @@ public class AuthService {
     }
 
     /**
-     * Verifica que el Player Tag no esté registrado y que exista en la API de Clash
-     * Royale.
+     * Verifica que el Player Tag tenga formato válido, no esté registrado y exista en la API de Clash Royale.
+     * M5: nunca devuelve al cliente el mensaje crudo de error de Clash API (que puede incluir la IP del servidor).
      */
     public JsonObject verificarTag(String tag) {
         JsonObject res = new JsonObject();
+        String normalizado = tag == null ? "" : tag.trim().toUpperCase();
+        if (!normalizado.startsWith("#")) {
+            normalizado = "#" + normalizado;
+        }
+        if (!PLAYER_TAG_VALIDO.matcher(normalizado).matches()) {
+            res.addProperty("found", false);
+            res.addProperty("message", "Formato de Player Tag inválido");
+            return res;
+        }
 
-        if (usuarioDAO.buscarPorPlayerTag(tag) != null) {
+        if (usuarioDAO.buscarPorPlayerTag(normalizado) != null) {
             res.addProperty("found", false);
             res.addProperty("message", "Este Player Tag ya está registrado");
             return res;
         }
 
-        logger.info("🔍 Buscando Player Tag en la API: {}", tag);
+        logger.info("🔍 Buscando Player Tag en la API: {}", normalizado);
         try {
-            JsonObject apiResult = clashApi.verificarTag(tag);
+            JsonObject apiResult = clashApi.verificarTag(normalizado);
             String name = apiResult.has("name") ? apiResult.get("name").getAsString() : "";
             int trophies = apiResult.has("trophies") ? apiResult.get("trophies").getAsInt() : 0;
             res.addProperty("found", true);
@@ -194,16 +203,28 @@ public class AuthService {
             res.addProperty("trophies", trophies);
             logger.info("✅ Player Tag encontrado. Usuario: {} (Trophies: {})", name, trophies);
         } catch (Exception e) {
-            logger.info("❌ Fallo al buscar Player Tag: {}", e.getMessage());
+            logger.warn("❌ Fallo al buscar Player Tag {}: {}", normalizado, e.getMessage());
             res.addProperty("found", false);
-            res.addProperty("message", e.getMessage());
+            res.addProperty("message", "No se encontró el Player Tag en Clash Royale");
         }
         return res;
     }
 
-    /** Guarda el token FCM del dispositivo (idempotente). */
+    /**
+     * A3: Guarda el token FCM del dispositivo validando su longitud y manteniendo como máximo
+     * 10 tokens por usuario para evitar saturar el pool de IO en envíos broadcast.
+     */
     public void registrarTokenPush(int userId, String token) {
+        if (token == null) {
+            throw ServicioException.solicitudInvalida("Token inválido");
+        }
+        String limpio = token.trim();
+        if (limpio.length() < 20 || limpio.length() > 512) {
+            throw ServicioException.solicitudInvalida("Token push inválido");
+        }
         db.update("INSERT INTO user_tokens (user_id, fcm_token) VALUES (?, ?) " +
-                "ON CONFLICT (user_id, fcm_token) DO NOTHING", userId, token);
+                "ON CONFLICT (user_id, fcm_token) DO NOTHING", userId, limpio);
+        db.update("DELETE FROM user_tokens WHERE user_id = ? AND id NOT IN (" +
+                "SELECT id FROM user_tokens WHERE user_id = ? ORDER BY id DESC LIMIT 10)", userId, userId);
     }
 }

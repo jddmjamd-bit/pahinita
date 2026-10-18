@@ -38,6 +38,9 @@ public class DbAdminService {
      * así que ORDER BY id (ver, exportar) fallaría con ella.
      */
     private static final String TABLA_FLYWAY = "flyway_schema_history";
+    /** D3 / M4: El ledger financiero es inmutable; solo se permite lectura en el panel DB. */
+    private static final String TABLA_LEDGER = "wallet_ledger";
+    private static final String MASCARA_PASSWORD = "[HASH_PROTEGIDO]";
 
     public DbAdminService(GenericDAO db) {
         this.db = db;
@@ -119,6 +122,13 @@ public class DbAdminService {
 
     public void actualizarCelda(String tableName, int id, String column, String value) {
         conErrores(() -> {
+            if (TABLA_LEDGER.equalsIgnoreCase(tableName)) {
+                throw ServicioException.prohibido("La tabla wallet_ledger es inmutable y no se puede editar");
+            }
+            if ("users".equalsIgnoreCase(tableName) && "password".equalsIgnoreCase(column)
+                    && MASCARA_PASSWORD.equals(value)) {
+                return null; // No sobrescribir el hash real con la máscara visual
+            }
             try (Connection conn = db.getConnection()) {
                 exigirTablaValida(conn, tableName);
                 String dataType = tiposDeColumna(conn, tableName).get(column);
@@ -142,6 +152,9 @@ public class DbAdminService {
 
     public void eliminarFila(String tableName, int id) {
         conErrores(() -> {
+            if (TABLA_LEDGER.equalsIgnoreCase(tableName)) {
+                throw ServicioException.prohibido("La tabla wallet_ledger es inmutable y no permite borrar registros");
+            }
             try (Connection conn = db.getConnection()) {
                 exigirTablaValida(conn, tableName);
                 String tablaCitada = citarIdentificador(tableName);
@@ -155,6 +168,9 @@ public class DbAdminService {
     }
 
     public void insertarFila(String tableName, JsonObject body) {
+        if (TABLA_LEDGER.equalsIgnoreCase(tableName)) {
+            throw ServicioException.prohibido("La tabla wallet_ledger solo admite registros generados por WalletService");
+        }
         Set<String> keys = body.keySet();
         if (keys.isEmpty()) {
             throw ServicioException.solicitudInvalida("Sin datos");
@@ -226,17 +242,21 @@ public class DbAdminService {
      */
     public int importar(JsonObject data) {
         return conErrores(() -> {
-            // Borrar en orden inverso (tablas fijas de lista blanca)
-            for (int i = ORDEN_TABLAS_IMPORT.length - 1; i >= 0; i--) {
-                String tabla = ORDEN_TABLAS_IMPORT[i];
-                if (data.has(tabla)) {
-                    db.update("DELETE FROM " + citarIdentificador(tabla));
-                }
-            }
-
             int totalInserted = 0;
             try (Connection conn = db.getConnection()) {
-                for (String tabla : ORDEN_TABLAS_IMPORT) {
+                conn.setAutoCommit(false);
+                try {
+                    // M4: Borrar e insertar dentro de UNA sola transacción SQL para no dejar tablas vacías si algo falla
+                    for (int i = ORDEN_TABLAS_IMPORT.length - 1; i >= 0; i--) {
+                        String tabla = ORDEN_TABLAS_IMPORT[i];
+                        if (data.has(tabla)) {
+                            try (PreparedStatement delPs = conn.prepareStatement("DELETE FROM " + citarIdentificador(tabla))) {
+                                delPs.executeUpdate();
+                            }
+                        }
+                    }
+
+                    for (String tabla : ORDEN_TABLAS_IMPORT) {
                     if (!data.has(tabla) || !data.get(tabla).isJsonArray()) continue;
 
                     String tablaCitada = citarIdentificador(tabla);
@@ -278,21 +298,28 @@ public class DbAdminService {
                     }
                 }
 
-                // S4: Resetear secuencias usando PreparedStatement en lugar de Statement.execute()
-                for (String tabla : ORDEN_TABLAS_IMPORT) {
-                    if (data.has(tabla)) {
-                        String tablaCitada = citarIdentificador(tabla);
-                        try (PreparedStatement ps = conn.prepareStatement(
-                                "SELECT setval(pg_get_serial_sequence(?, 'id'), COALESCE((SELECT MAX(id) FROM " +
-                                        tablaCitada + "), 0) + 1, false)")) {
-                            ps.setString(1, tabla);
-                            try (ResultSet ignored = ps.executeQuery()) {
-                                // secuencia actualizada
+                    // S4: Resetear secuencias usando PreparedStatement en lugar de Statement.execute()
+                    for (String tabla : ORDEN_TABLAS_IMPORT) {
+                        if (data.has(tabla)) {
+                            String tablaCitada = citarIdentificador(tabla);
+                            try (PreparedStatement ps = conn.prepareStatement(
+                                    "SELECT setval(pg_get_serial_sequence(?, 'id'), COALESCE((SELECT MAX(id) FROM " +
+                                            tablaCitada + "), 0) + 1, false)")) {
+                                ps.setString(1, tabla);
+                                try (ResultSet ignored = ps.executeQuery()) {
+                                    // secuencia actualizada
+                                }
+                            } catch (Exception ignored) {
+                                // tabla sin secuencia
                             }
-                        } catch (Exception ignored) {
-                            // tabla sin secuencia
                         }
                     }
+                    conn.commit();
+                } catch (Exception e) {
+                    try { conn.rollback(); } catch (SQLException ignored) {}
+                    throw e;
+                } finally {
+                    try { conn.setAutoCommit(true); } catch (SQLException ignored) {}
                 }
             }
             return totalInserted;
@@ -316,23 +343,35 @@ public class DbAdminService {
     }
 
     /**
-     * S4 / D1: Todas las filas de una tabla usando {@link PreparedStatement}, conservando {@link BigDecimal}
-     * sin convertir a {@code double}.
+     * S4 / D1 / M4: Todas las filas de una tabla usando {@link PreparedStatement}, conservando {@link BigDecimal},
+     * ordenando por {@code id} si la tabla lo tiene (o por su primera columna en tablas como {@code raffle_votes}
+     * o {@code discord_links}) y enmascarando el hash {@code password} de {@code users}.
      */
     private static JsonArray filasDeTabla(Connection conn, String tableName) throws SQLException {
         String tablaCitada = citarIdentificador(tableName);
+        Map<String, String> columnas = tiposDeColumna(conn, tableName);
+        String colOrden = columnas.containsKey("id")
+                ? "\"id\""
+                : (columnas.isEmpty() ? "1" : citarIdentificador(columnas.keySet().iterator().next()));
+        boolean esTablaUsers = "users".equalsIgnoreCase(tableName);
+
         JsonArray rows = new JsonArray();
-        try (PreparedStatement dataPs = conn.prepareStatement("SELECT * FROM " + tablaCitada + " ORDER BY id");
+        try (PreparedStatement dataPs = conn.prepareStatement("SELECT * FROM " + tablaCitada + " ORDER BY " + colOrden);
              ResultSet dataRs = dataPs.executeQuery()) {
             ResultSetMetaData meta = dataRs.getMetaData();
             while (dataRs.next()) {
                 JsonObject row = new JsonObject();
                 for (int i = 1; i <= meta.getColumnCount(); i++) {
                     String colName = meta.getColumnName(i);
+                    if (esTablaUsers && "password".equalsIgnoreCase(colName)) {
+                        row.addProperty(colName, MASCARA_PASSWORD);
+                        continue;
+                    }
                     Object val = dataRs.getObject(i);
                     if (val == null) row.addProperty(colName, (String) null);
                     else if (val instanceof BigDecimal) row.addProperty(colName, (BigDecimal) val); // REVIEW-MONEY
                     else if (val instanceof Number) row.addProperty(colName, (Number) val);
+                    else if (val instanceof byte[]) row.addProperty(colName, "[BYTEA " + ((byte[]) val).length + " bytes]");
                     else row.addProperty(colName, val.toString());
                 }
                 rows.add(row);

@@ -16,9 +16,19 @@ public class RutasSorteos {
 
     public static void register(Javalin app, SorteoService sorteos) {
 
-        // GET /api/raffle/tickets/:userId
-        app.get("/api/raffle/tickets/{userId}",
-                ctx -> ctx.json(sorteos.ticketsDeUsuario(Peticion.pathEntero(ctx, "userId"))));
+        // F1 / S2: GET /api/raffle/tickets (toma siempre el userId de la sesión JWT; usado por Sorteos.jsx)
+        app.get("/api/raffle/tickets", ctx -> {
+            int userId = Peticion.userIdDeSesion(ctx);
+            if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
+            ctx.json(sorteos.ticketsDeUsuario(userId));
+        });
+
+        // GET /api/raffle/tickets/:userId (compatibilidad: exige sesión y devuelve solo los tickets propios)
+        app.get("/api/raffle/tickets/{userId}", ctx -> {
+            int userId = Peticion.userIdDeSesion(ctx);
+            if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
+            ctx.json(sorteos.ticketsDeUsuario(userId));
+        });
 
         // GET /api/raffle/pool
         app.get("/api/raffle/pool", ctx -> ctx.json(sorteos.pozo()));
