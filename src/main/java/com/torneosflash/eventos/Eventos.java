@@ -105,7 +105,7 @@ public final class Eventos {
      * Se descontó el monto de un torneo al iniciar una partida.
      * Datos: {@link MovimientoWallet}. Lo emite {@code WalletService.realizarTorneo()}.
      */
-    public static final String WALLET_BET = "wallet.bet";
+    public static final String WALLET_BET = "wallet.torneo";
 
     /**
      * Se premió a un usuario (leaderboard, sorteo, etc.).

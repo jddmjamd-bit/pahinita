@@ -2,7 +2,7 @@
 FROM node:22-alpine AS frontend-build
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-RUN npm install
+RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
 
@@ -27,5 +27,5 @@ COPY public/admin-db.html ./admin-db.html
 # Puerto por defecto
 EXPOSE 10000
 
-# Ejecutar
-CMD ["java", "-jar", "app.jar"]
+# Ejecutar acotando la memoria máxima de la JVM para instancias de 512 MB en Render
+CMD ["java", "-XX:MaxRAMPercentage=75.0", "-jar", "app.jar"]
