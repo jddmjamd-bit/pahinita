@@ -163,15 +163,9 @@ public class Main {
                 }
             });
 
-            // A4: CORS con lista blanca de orígenes permitidos (nunca anyHost con allowCredentials)
-            javalinConfig.bundledPlugins.enableCors(cors -> {
-                cors.addRule(rule -> {
-                    for (String origen : config.getCorsAllowedOrigins()) {
-                        rule.allowHost(origen);
-                    }
-                    rule.allowCredentials = true;
-                });
-            });
+            // A4: el CORS con lista blanca se aplica más abajo en un app.before propio (ver "CORS").
+            // El plugin de Javalin devolvía 500 en los archivos estáticos (/assets/*) porque esas peticiones traen
+            // Origin/Referer, y dejaba la página en blanco.
 
             // Servir archivos estáticos (frontend)
             // Buscar carpeta public/ en varios lugares
@@ -188,6 +182,34 @@ public class Main {
                     logger.info("📁 Sirviendo archivos estáticos desde: " + resolvedPath);
                     break;
                 }
+            }
+        });
+
+        // CORS con lista blanca (AppConfig.esOrigenPermitido). Solo se reflejan las cabeceras para un Origin permitido
+        // (nunca anyHost con credenciales) y NUNCA se rechaza ni se lanza excepción: una petición del mismo sitio
+        // (estáticos, fetch al mismo origen) pasa siempre. Va primero para que el preflight no toque nada más.
+        app.before(ctx -> {
+            String origen = ctx.header("Origin");
+            boolean permitido = origen != null && config.esOrigenPermitido(origen);
+            if (permitido) {
+                ctx.header("Access-Control-Allow-Origin", origen);
+                ctx.header("Access-Control-Allow-Credentials", "true");
+                ctx.header("Vary", "Origin");
+                ctx.header("Access-Control-Expose-Headers", "Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining");
+            }
+            // Preflight: solo se responde si es un preflight real (trae Access-Control-Request-Method)
+            if ("OPTIONS".equalsIgnoreCase(ctx.req().getMethod()) && ctx.header("Access-Control-Request-Method") != null) {
+                if (permitido) {
+                    String pedidas = ctx.header("Access-Control-Request-Headers");
+                    ctx.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+                    ctx.header("Access-Control-Allow-Headers",
+                            pedidas != null && !pedidas.isBlank() ? pedidas : "Content-Type,Authorization,X-DB-Admin-Key");
+                    ctx.header("Access-Control-Max-Age", "600");
+                    ctx.status(204);
+                } else {
+                    ctx.status(403);
+                }
+                ctx.skipRemainingHandlers();
             }
         });
 
