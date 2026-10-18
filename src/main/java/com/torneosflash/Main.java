@@ -185,10 +185,12 @@ public class Main {
             }
         });
 
-        // CORS con lista blanca (AppConfig.esOrigenPermitido). Solo se reflejan las cabeceras para un Origin permitido
-        // (nunca anyHost con credenciales) y NUNCA se rechaza ni se lanza excepción: una petición del mismo sitio
-        // (estáticos, fetch al mismo origen) pasa siempre. Va primero para que el preflight no toque nada más.
+        // CORS con lista blanca (AppConfig.esOrigenPermitido) + defensa CSRF para peticiones cross-site.
+        // Si una petición que modifica estado (POST/PUT/PATCH/DELETE, salvo el webhook servidor-a-servidor de Wompi)
+        // viene de un Origin no permitido o con Sec-Fetch-Site: cross-site sin Origin permitido, se bloquea con 403
+        // incluso si el navegador no hizo preflight OPTIONS (protege cuando COOKIE_SAMESITE=None en Capacitor).
         app.before(ctx -> {
+            String metodo = ctx.req().getMethod();
             String origen = ctx.header("Origin");
             boolean permitido = origen != null && config.esOrigenPermitido(origen);
             if (permitido) {
@@ -198,7 +200,7 @@ public class Main {
                 ctx.header("Access-Control-Expose-Headers", "Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining");
             }
             // Preflight: solo se responde si es un preflight real (trae Access-Control-Request-Method)
-            if ("OPTIONS".equalsIgnoreCase(ctx.req().getMethod()) && ctx.header("Access-Control-Request-Method") != null) {
+            if ("OPTIONS".equalsIgnoreCase(metodo) && ctx.header("Access-Control-Request-Method") != null) {
                 if (permitido) {
                     String pedidas = ctx.header("Access-Control-Request-Headers");
                     ctx.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
@@ -210,6 +212,23 @@ public class Main {
                     ctx.status(403);
                 }
                 ctx.skipRemainingHandlers();
+                return;
+            }
+            boolean modificaEstado = "POST".equalsIgnoreCase(metodo)
+                    || "PUT".equalsIgnoreCase(metodo)
+                    || "PATCH".equalsIgnoreCase(metodo)
+                    || "DELETE".equalsIgnoreCase(metodo);
+            if (modificaEstado && !"/api/wompi/webhook".equalsIgnoreCase(ctx.path())) {
+                if (origen != null && !permitido) {
+                    ctx.status(403).result("{\"error\":\"Origen no permitido\"}");
+                    ctx.skipRemainingHandlers();
+                    return;
+                }
+                String fetchSite = ctx.header("Sec-Fetch-Site");
+                if (origen == null && "cross-site".equalsIgnoreCase(fetchSite)) {
+                    ctx.status(403).result("{\"error\":\"Petición cruzada no permitida\"}");
+                    ctx.skipRemainingHandlers();
+                }
             }
         });
 

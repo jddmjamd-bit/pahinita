@@ -9,10 +9,17 @@ import com.torneosflash.servicio.WalletService.WalletResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.gson.JsonParser;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
@@ -30,6 +37,10 @@ public class FinanzasService {
     private static final BigDecimal TARIFA_FIJA_WOMPI = BigDecimal.valueOf(840);
     private static final BigDecimal DIVISOR_PASARELA_WOMPI = new BigDecimal("0.964");
     private static final BigDecimal CIEN = BigDecimal.valueOf(100);
+
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
 
     private final GenericDAO db;
     private final AppConfig config;
@@ -206,7 +217,7 @@ public class FinanzasService {
      * S7: Verifica el checksum SHA-256 de Wompi concatenando los valores de {@code signature.properties}
      * (en orden), {@code timestamp} y el secreto de eventos.
      */
-    private void verificarFirmaWebhookWompi(JsonObject body, String headerChecksum) {
+    private Set<String> verificarFirmaWebhookWompi(JsonObject body, String headerChecksum) {
         String secreto = obtenerSecretoWebhookWompi();
         if (secreto.isEmpty()) {
             logger.error("❌ Webhook Wompi rechazado: ni WOMPI_EVENTS_SECRET ni WOMPI_INTEGRITY_SECRET están configurados");
@@ -284,6 +295,64 @@ public class FinanzasService {
         if (!checksumHeader.isEmpty() && !hashIgual(hashCalculado, checksumHeader)) {
             logger.warn("⚠️ Webhook Wompi rechazado: X-Event-Checksum no coincide");
             throw ServicioException.noAutenticado("Firma de webhook inválida");
+        }
+        return propiedadesFirmadas;
+    }
+
+    /**
+     * S7: Cuando el webhook no incluye {@code transaction.reference} ni {@code transaction.currency} dentro de
+     * {@code signature.properties}, consulta la transacción por su {@code transaction.id} (que sí viene firmado)
+     * en la API de Wompi para impedir que se reutilice un evento válido cambiando la referencia.
+     */
+    private void verificarCorrelacionEnApiWompi(String transactionId, String referenceEsperada,
+                                                 String statusEsperado, String currencyEsperada,
+                                                 long centavosEsperados) {
+        String pubKey = config.getWompiPublicKey() != null ? config.getWompiPublicKey().trim() : "";
+        String eventsSecret = config.getWompiEventsSecret() != null ? config.getWompiEventsSecret().trim() : "";
+        boolean usarSandbox = pubKey.startsWith("pub_test_") || eventsSecret.startsWith("test_");
+        String baseUrl = usarSandbox
+                ? "https://sandbox.wompi.co/v1/transactions/"
+                : "https://production.wompi.co/v1/transactions/";
+
+        try {
+            String url = baseUrl + URLEncoder.encode(transactionId, StandardCharsets.UTF_8);
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(10))
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+            HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (resp.statusCode() != 200) {
+                logger.warn("⚠️ Verificación API Wompi falló para id {} (HTTP {})", transactionId, resp.statusCode());
+                throw ServicioException.noAutenticado("No se pudo verificar la transacción en Wompi");
+            }
+            JsonObject root = JsonParser.parseString(resp.body()).getAsJsonObject();
+            JsonObject txApi = objeto(root, "data");
+            if (txApi == null) {
+                throw ServicioException.noAutenticado("Respuesta inválida de Wompi al verificar transacción");
+            }
+            String apiId = texto(txApi, "id");
+            String apiRef = texto(txApi, "reference");
+            String apiStatus = texto(txApi, "status");
+            String apiCurrency = texto(txApi, "currency");
+            long apiCentavos = txApi.has("amount_in_cents") && txApi.get("amount_in_cents").isJsonPrimitive()
+                    ? txApi.get("amount_in_cents").getAsLong() : -1L;
+
+            if (!transactionId.equals(apiId)
+                    || !referenceEsperada.equals(apiRef)
+                    || !statusEsperado.equals(apiStatus)
+                    || !currencyEsperada.equalsIgnoreCase(apiCurrency)
+                    || centavosEsperados != apiCentavos) {
+                logger.error("⛔ Discrepancia entre webhook y API Wompi para id {}: ref webhook='{}' vs api='{}'",
+                        transactionId, referenceEsperada, apiRef);
+                throw ServicioException.noAutenticado("Los datos del webhook no coinciden con la transacción en Wompi");
+            }
+        } catch (ServicioException e) {
+            throw e;
+        } catch (Exception e) {
+            logger.error("Error consultando API de Wompi para id {}: {}", transactionId, e.getMessage());
+            throw ServicioException.noDisponible("Error temporal verificando transacción con Wompi");
         }
     }
 

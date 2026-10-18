@@ -16,7 +16,7 @@ export default function Auth() {
     const [password, setPassword] = useState('');
     const [playerTag, setPlayerTag] = useState('');
     const [telefono, setTelefono] = useState('');
-    const [acepta, setAcepta] = useState(false);     // ← NUEVO
+    const [acepta, setAcepta] = useState(false);
 
     // Estados de validación
     const [usernameStatus, setUsernameStatus] = useState({ text: '', className: 'tag-status' });
@@ -39,7 +39,7 @@ export default function Auth() {
             setUsernameStatus({ text: '🔍 Verificando...', className: 'tag-status visible searching' });
             try {
                 const res = await fetch(`${API_BASE_URL}/api/check-username/${encodeURIComponent(username)}`);
-                if (res.status === 429) { // S8: rate limit, no tratarlo como "usuario ocupado"
+                if (res.status === 429) {
                     setUsernameStatus({ text: '⏳ Demasiadas solicitudes, espera unos segundos', className: 'tag-status visible error' });
                     setUsernameValid(false);
                     return;
@@ -72,7 +72,7 @@ export default function Auth() {
             setEmailStatus({ text: '🔍 Verificando...', className: 'tag-status visible searching' });
             try {
                 const res = await fetch(`${API_BASE_URL}/api/check-email/${encodeURIComponent(email)}`);
-                if (res.status === 429) { // S8: rate limit, no tratarlo como "correo ya registrado"
+                if (res.status === 429) {
                     setEmailStatus({ text: '⏳ Demasiadas solicitudes, espera unos segundos', className: 'tag-status visible error' });
                     setEmailValid(false);
                     return;
@@ -111,7 +111,7 @@ export default function Auth() {
             setPlayerTagStatus({ text: '🔍 Verificando...', className: 'tag-status visible searching' });
             try {
                 const res = await fetch(`${API_BASE_URL}/api/verify-tag/${encodeURIComponent(tag)}`);
-                if (res.status === 429) { // S8: rate limit, no tratarlo como "usuario no encontrado"
+                if (res.status === 429) {
                     setPlayerTagStatus({ text: '⏳ Demasiadas solicitudes, espera unos segundos', className: 'tag-status visible error' });
                     setPlayerTagValid(false);
                     return;
@@ -133,13 +133,12 @@ export default function Auth() {
         return () => clearTimeout(delayDebounceFn);
     }, [playerTag, isLogin]);
 
-
     const handleRegister = async (e) => {
         e.preventDefault();
         if (!usernameValid) return alert('❌ El nombre de usuario no es válido o ya está en uso');
         if (!emailValid) return alert('❌ El correo no es válido o ya está registrado');
         if (!playerTagValid) return alert('❌ El Player Tag no es válido. Debe mostrar tu nombre de Clash Royale');
-        if (!acepta) return alert('❌ Debes aceptar los Términos de Servicio y la Política de Privacidad');   // ← NUEVO
+        if (!acepta) return alert('❌ Debes aceptar los Términos de Servicio y la Política de Privacidad');
 
         try {
             const res = await fetch(API_BASE_URL + '/api/register', {
@@ -209,7 +208,7 @@ export default function Auth() {
                             title="Ingresa tu número para contactarte si ganas un sorteo"
                             value={telefono} onChange={e => setTelefono(e.target.value)} />
 
-                        <AceptacionLegal acepta={acepta} onChange={setAcepta} />     {/* ← NUEVO */}
+                        <AceptacionLegal acepta={acepta} onChange={setAcepta} />
                         <button type="submit">Registrarse</button>
                     </form>
                     <p className="switch-text">¿Ya tienes cuenta? <a href="#" onClick={(e) => { e.preventDefault(); setIsLogin(true); }}>Entrar</a></p>

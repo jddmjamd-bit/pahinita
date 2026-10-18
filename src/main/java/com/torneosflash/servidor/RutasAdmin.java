@@ -12,9 +12,9 @@ import static com.torneosflash.servidor.RutasAuth.*;
  * A3: solo parsean el request y llaman a {@link AdminService}.
  *
  * S3: el acceso lo controla {@link AdminMiddleware} (sesión JWT + rol admin leído de la BD) para todo
- * {@code /api/admin/*}, {@code /api/deposit} y {@code /admin-fix-status/*}; las rutas de aquí ya no verifican nada.
- * La ruta {@code /secret-admin/{username}}, que convertía en admin a cualquiera sin autenticación, fue eliminada:
- * para hacer admin a alguien se edita {@code users.tipo_suscripcion} desde el panel {@code /admin-db}.
+ * {@code /api/admin/*}, {@code /api/deposit}, {@code /api/upload} y {@code /check-ip}.
+ * La ruta {@code /secret-admin/{username}} y la ruta GET {@code /admin-fix-status/...} (vulnerable a CSRF por ser GET)
+ * fueron eliminadas: para resetear el estado de un jugador se usa {@code POST /api/admin/fix-status}.
  */
 public class RutasAdmin {
 
@@ -56,19 +56,7 @@ public class RutasAdmin {
             ctx.json(successJson("Estado de " + targetUser + " reseteado a normal", 0));
         });
 
-        // GET /admin-fix-status/:targetUser/:adminUser (compatibilidad; bloquea peticiones cross-site contra CSRF)
-        app.get("/admin-fix-status/{targetUser}/{adminUser}", ctx -> {
-            String fetchSite = ctx.header("Sec-Fetch-Site");
-            if ("cross-site".equalsIgnoreCase(fetchSite)) {
-                ctx.status(403).result("Petición cruzada no permitida");
-                return;
-            }
-            String targetUser = ctx.pathParam("targetUser");
-            admin.resetearEstado(targetUser);
-            ctx.result("✅ Estado de " + targetUser + " reseteado a normal");
-        });
-
-        // GET /check-ip (mostrar IP del cliente y del servidor)
+        // GET /check-ip (mostrar IP del cliente y del servidor; protegida por AdminMiddleware)
         app.get("/check-ip", ctx -> {
             String clientIp = ctx.header("x-forwarded-for");
             if (clientIp == null || clientIp.isEmpty()) clientIp = ctx.ip();

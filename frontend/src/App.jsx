@@ -1,20 +1,21 @@
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, lazy, Suspense } from 'react'
 import { useAppStore } from './store/useAppStore'
+import { useCapacitor } from './hooks/useCapacitor'
 import Auth from './pages/Auth'
 import Lobby from './pages/Lobby'
-import Admin from './pages/Admin'
-import Match from './pages/Match'
-import Chat from './pages/Chat'
-import Finance from './pages/Finance'
-import Leaderboard from './pages/Leaderboard'
-import Sorteos from './pages/Sorteos'
-import Chatbot from './pages/Chatbot'
-import Soporte from './pages/Soporte'
-import Legal from './pages/Legal'      // ← NUEVO
-import Faq from './pages/Faq'
 
-import { useCapacitor } from './hooks/useCapacitor'
+// F6: Code splitting por ruta (React.lazy) para reducir el bundle inicial
+const Admin = lazy(() => import('./pages/Admin'))
+const Match = lazy(() => import('./pages/Match'))
+const Chat = lazy(() => import('./pages/Chat'))
+const Finance = lazy(() => import('./pages/Finance'))
+const Leaderboard = lazy(() => import('./pages/Leaderboard'))
+const Sorteos = lazy(() => import('./pages/Sorteos'))
+const Chatbot = lazy(() => import('./pages/Chatbot'))
+const Soporte = lazy(() => import('./pages/Soporte'))
+const Legal = lazy(() => import('./pages/Legal'))
+const Faq = lazy(() => import('./pages/Faq'))
 
 const RUTAS_PUBLICAS = ['/auth', '/terminos', '/privacidad'];
 
@@ -47,8 +48,8 @@ function App() {
 
   return (
     <>
-      <button
-        onClick={toggleTheme}
+      <button 
+        onClick={toggleTheme} 
         style={{
           position: 'fixed',
           bottom: '20px',
@@ -70,24 +71,26 @@ function App() {
       >
         {theme === 'dark' ? '☀️' : '🌙'}
       </button>
-      <Routes>
-        <Route path="/auth" element={<Auth />} />
-        <Route path="/terminos" element={<Legal tipo="terminos" />} />        {/* ← NUEVO */}
-        <Route path="/privacidad" element={<Legal tipo="privacidad" />} />   {/* ← NUEVO */}
-        <Route path="/" element={<Lobby />}>
-          <Route index element={<Navigate to="/chat" replace />} />
-          <Route path="chat" element={<Chat />} />
-          <Route path="match" element={<Match />} />
-          <Route path="finance" element={<Finance />} />
-          <Route path="leaderboard" element={<Leaderboard />} />
-          <Route path="sorteos" element={<Sorteos />} />
-          <Route path="chatbot" element={<Chatbot />} />
-          <Route path="soporte" element={<Soporte />} />
-          <Route path="faq" element={<Faq />} />
-          <Route path="admin" element={<Admin />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <Suspense fallback={<div style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)' }}>Cargando...</div>}>
+        <Routes>
+          <Route path="/auth" element={<Auth />} />
+          <Route path="/terminos" element={<Legal tipo="terminos" />} />
+          <Route path="/privacidad" element={<Legal tipo="privacidad" />} />
+          <Route path="/" element={<Lobby />}>
+            <Route index element={<Navigate to="/chat" replace />} />
+            <Route path="chat" element={<Chat />} />
+            <Route path="match" element={<Match />} />
+            <Route path="finance" element={<Finance />} />
+            <Route path="leaderboard" element={<Leaderboard />} />
+            <Route path="sorteos" element={<Sorteos />} />
+            <Route path="chatbot" element={<Chatbot />} />
+            <Route path="soporte" element={<Soporte />} />
+            <Route path="faq" element={<Faq />} />
+            <Route path="admin" element={<Admin />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
     </>
   )
 }

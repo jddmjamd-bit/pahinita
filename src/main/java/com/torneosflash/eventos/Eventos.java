@@ -123,7 +123,7 @@ public final class Eventos {
 
     /** Tipo de movimiento de wallet. */
     public enum TipoMovimiento {
-        DEPOSITO, RETIRO, TORNEO, PREMIO
+        DEPOSITO, RETIRO, REEMBOLSO, TORNEO, PREMIO
     }
 
     /**

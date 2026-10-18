@@ -12,12 +12,12 @@ import org.slf4j.LoggerFactory;
  *
  * Corre ANTES de cada ruta que solo debe usar un admin y corta la petición si quien la hace no lo es:
  * <ul>
- *   <li><b>401</b> si no hay sesión JWT válida ({@link AuthMiddleware} no inyectó {@code userId}).</li>
- *   <li><b>403</b> si hay sesión pero el usuario no es admin.</li>
+ *   <li>Sin sesión JWT válida → 401</li>
+ *   <li>Con sesión pero sin rol {@code admin} en la BD → 403</li>
  * </ul>
  * La respuesta es el {@code {"error": "..."}} de siempre (lo arma {@link ManejadorErrores}).
  *
- * <h3>Por qué el rol se consulta en la BD y no se confía en el claim {@code rol} del JWT</h3>
+ * <b>Por qué se consulta la BD y no el claim {@code rol} del JWT:</b>
  * El claim se escribe al iniciar sesión y puede quedar viejo hasta 30 días (ver sección 16 de ARCHITECTURE.md):
  * un admin al que se le quitó el rol seguiría pasando con su token. El JWT solo sirve para saber QUIÉN es el
  * usuario; si es admin lo dice {@code users.tipo_suscripcion} en el momento de la petición (misma regla que
@@ -30,15 +30,14 @@ public final class AdminMiddleware {
     private static final Logger logger = LoggerFactory.getLogger(AdminMiddleware.class);
 
     /**
-     * Rutas que exige admin. {@code /api/admin/*} cubre todo lo que cuelga de ese prefijo (incluidas las rutas
-     * de admin del chatbot y de sorteos). Las otras dos NO llevan el prefijo pero son acciones de admin:
-     * acreditar saldo a mano y resetear el estado de un jugador.
+     * Rutas que exigen admin. {@code /api/admin/*} cubre todo lo que cuelga de ese prefijo (incluidas las rutas
+     * de admin del chatbot, soporte, evidencias, sorteos y fix-status). Las otras tres NO llevan el prefijo pero
+     * son acciones exclusivas de admin: acreditar saldo manual, subir videos de anuncios y consultar la IP de salida.
      */
     private static final String[] RUTAS_ADMIN = {
             "/api/admin/*",
             "/api/deposit",
             "/api/upload",
-            "/admin-fix-status/*",
             "/check-ip"
     };
 

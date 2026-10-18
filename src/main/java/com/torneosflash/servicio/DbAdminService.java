@@ -125,6 +125,10 @@ public class DbAdminService {
             if (TABLA_LEDGER.equalsIgnoreCase(tableName)) {
                 throw ServicioException.prohibido("La tabla wallet_ledger es inmutable y no se puede editar");
             }
+            if ("users".equalsIgnoreCase(tableName) && "saldo".equalsIgnoreCase(column)) {
+                throw ServicioException.prohibido(
+                        "El saldo no se puede editar directamente en la BD (rompe wallet_ledger). Usa /api/deposit");
+            }
             if ("users".equalsIgnoreCase(tableName) && "password".equalsIgnoreCase(column)
                     && MASCARA_PASSWORD.equals(value)) {
                 return null; // No sobrescribir el hash real con la máscara visual
@@ -170,6 +174,13 @@ public class DbAdminService {
     public void insertarFila(String tableName, JsonObject body) {
         if (TABLA_LEDGER.equalsIgnoreCase(tableName)) {
             throw ServicioException.prohibido("La tabla wallet_ledger solo admite registros generados por WalletService");
+        }
+        if ("users".equalsIgnoreCase(tableName) && body != null && body.has("saldo") && !body.get("saldo").isJsonNull()) {
+            String rawSaldo = body.get("saldo").getAsString().trim();
+            if (!rawSaldo.isEmpty() && new BigDecimal(rawSaldo).compareTo(BigDecimal.ZERO) != 0) {
+                throw ServicioException.prohibido(
+                        "No se puede crear un usuario con saldo inicial distinto de 0 sin pasar por WalletService");
+            }
         }
         Set<String> keys = body.keySet();
         if (keys.isEmpty()) {

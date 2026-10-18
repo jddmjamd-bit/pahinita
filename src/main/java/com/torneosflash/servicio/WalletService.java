@@ -34,6 +34,7 @@ public class WalletService {
     // Tipos de movimiento para wallet_ledger (D3). Coinciden con la columna tipo VARCHAR(20).
     private static final String TIPO_DEPOSITO     = "deposito";
     private static final String TIPO_RETIRO       = "retiro";
+    private static final String TIPO_REEMBOLSO    = "reembolso";
     private static final String TIPO_TORNEO       = "torneo";
     private static final String TIPO_PREMIO        = "premio";
     private static final String TIPO_COMISION      = "comision";
@@ -557,6 +558,7 @@ public class WalletService {
             BigDecimal nuevoSaldo;
             boolean movioSaldo = false;
             String motivoLedger = null;
+            Eventos.TipoMovimiento tipoEvento = Eventos.TipoMovimiento.DEPOSITO;
 
             if (aprobar && "deposito".equals(tipo)) {
                 BigDecimal saldoAnterior = leerSaldoBloqueando(conn, userId);
@@ -594,7 +596,8 @@ public class WalletService {
                 }
                 nuevoSaldo = saldoAnterior.add(monto);
                 motivoLedger = "Retiro rechazado, devolución #" + transId;
-                insertarLedger(conn, userId, TIPO_DEPOSITO, monto, saldoAnterior, nuevoSaldo, motivoLedger);
+                insertarLedger(conn, userId, TIPO_REEMBOLSO, monto, saldoAnterior, nuevoSaldo, motivoLedger);
+                tipoEvento = Eventos.TipoMovimiento.REEMBOLSO;
                 movioSaldo = true;
             } else {
                 nuevoSaldo = leerSaldo(conn, userId);
@@ -605,7 +608,7 @@ public class WalletService {
                 logger.info("💰 TRANSACCIÓN ADMIN #{} ({}) userId={} monto={} nuevoSaldo={}",
                         transId, nuevoEstado, userId, monto, nuevoSaldo);
                 emitirEvento(Eventos.WALLET_DEPOSITED, new Eventos.MovimientoWallet(
-                        Eventos.TipoMovimiento.DEPOSITO, userId, monto, nuevoSaldo, motivoLedger));
+                        tipoEvento, userId, monto, nuevoSaldo, motivoLedger));
             }
             return new ResultadoTransaccionAdmin(userId, tipo, aprobar, monto, nuevoSaldo);
 
@@ -627,6 +630,11 @@ public class WalletService {
      */
     public WalletResult acreditarDepositoWompi(String reference, long pagadoCentavos,
                                                java.util.function.Function<BigDecimal, Long> calculadorCentavos) {
+        return acreditarDepositoWompi(reference, null, pagadoCentavos, calculadorCentavos);
+    }
+
+    public WalletResult acreditarDepositoWompi(String reference, String wompiTransactionId, long pagadoCentavos,
+                                               java.util.function.Function<BigDecimal, Long> calculadorCentavos) {
         Connection conn = null;
         try {
             conn = db.getConnection();
@@ -635,9 +643,10 @@ public class WalletService {
             int userId;
             BigDecimal monto;
             String estado;
+            String externalIdExistente;
 
             try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT usuario_id, monto, estado FROM transactions WHERE referencia = ? AND tipo = 'deposito' FOR UPDATE")) {
+                    "SELECT usuario_id, monto, estado, external_id FROM transactions WHERE referencia = ? AND tipo = 'deposito' FOR UPDATE")) {
                 ps.setString(1, reference);
                 try (ResultSet rs = ps.executeQuery()) {
                     if (!rs.next()) {
@@ -647,12 +656,36 @@ public class WalletService {
                     userId = rs.getInt("usuario_id");
                     monto = rs.getBigDecimal("monto");
                     estado = rs.getString("estado");
+                    externalIdExistente = rs.getString("external_id");
                 }
             }
 
             if (!"pendiente".equals(estado)) {
                 conn.rollback();
+                if (wompiTransactionId != null && externalIdExistente != null
+                        && !wompiTransactionId.equals(externalIdExistente)) {
+                    logger.error("⛔ Intento de asociar wompiId={} a ref={} ya completada con external_id={}",
+                            wompiTransactionId, reference, externalIdExistente);
+                    throw ServicioException.solicitudInvalida("La referencia ya fue acreditada con otra transacción");
+                }
                 return null; // Idempotente: ya fue acreditada antes
+            }
+
+            // S7: Verificar que este transaction.id de Wompi no haya sido usado en ninguna otra referencia
+            if (wompiTransactionId != null && !wompiTransactionId.isBlank()) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT referencia FROM transactions WHERE external_id = ?")) {
+                    ps.setString(1, wompiTransactionId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next()) {
+                            String otraRef = rs.getString("referencia");
+                            conn.rollback();
+                            logger.error("⛔ Reutilización de transaction.id Wompi '{}' detectada (ya usado en ref '{}', intentado en '{}')",
+                                    wompiTransactionId, otraRef, reference);
+                            throw ServicioException.solicitudInvalida("El identificador de pago Wompi ya fue utilizado");
+                        }
+                    }
+                }
             }
 
             long esperadoCentavos = calculadorCentavos.apply(monto);
@@ -664,8 +697,13 @@ public class WalletService {
             }
 
             try (PreparedStatement ps = conn.prepareStatement(
-                    "UPDATE transactions SET estado = 'completado' WHERE referencia = ? AND tipo = 'deposito' AND estado = 'pendiente'")) {
-                ps.setString(1, reference);
+                    "UPDATE transactions SET estado = 'completado', external_id = ? WHERE referencia = ? AND tipo = 'deposito' AND estado = 'pendiente'")) {
+                if (wompiTransactionId != null && !wompiTransactionId.isBlank()) {
+                    ps.setString(1, wompiTransactionId);
+                } else {
+                    ps.setNull(1, Types.VARCHAR);
+                }
+                ps.setString(2, reference);
                 if (ps.executeUpdate() == 0) {
                     conn.rollback();
                     return null;
@@ -689,7 +727,9 @@ public class WalletService {
             }
 
             BigDecimal nuevoSaldo = saldoAnterior.add(monto);
-            String motivo = "Pago Wompi ref:" + reference;
+            String motivo = (wompiTransactionId != null && !wompiTransactionId.isBlank())
+                    ? "Pago Wompi ref:" + reference + " id:" + wompiTransactionId
+                    : "Pago Wompi ref:" + reference;
             insertarLedger(conn, userId, TIPO_DEPOSITO, monto, saldoAnterior, nuevoSaldo, motivo);
 
             conn.commit();
