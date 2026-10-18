@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { llamarApi } from '../store/llamarApi';
+import { API_BASE_URL, llamarApi } from '../store/llamarApi';
 import AdminChatbot from './AdminChatbot';
 import AdminSoporte from './AdminSoporte';
 import './Admin.css';
-
-const API_BASE_URL = 'https://torneos-beta.onrender.com';
 
 export default function Admin() {
     const [view, setView] = useState('transactions'); // 'transactions', 'stats', 'chatbot' o 'soporte'

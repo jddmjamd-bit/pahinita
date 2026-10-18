@@ -1,8 +1,16 @@
 import { create } from 'zustand';
 import { io } from 'socket.io-client';
-import { llamarApi } from './llamarApi';
+import { API_BASE_URL, llamarApi } from './llamarApi';
 
-const API_BASE_URL = 'https://torneos-beta.onrender.com'; // TODO: use env variables
+const leerUsuarioGuardado = () => {
+    try {
+        const raw = localStorage.getItem('currentUser');
+        return raw ? JSON.parse(raw) : null;
+    } catch {
+        localStorage.removeItem('currentUser');
+        return null;
+    }
+};
 
 export const useAppStore = create((set, get) => ({
     // Modo Claro/Oscuro
@@ -14,7 +22,7 @@ export const useAppStore = create((set, get) => ({
     },
 
     // Estado del usuario
-    user: JSON.parse(localStorage.getItem('currentUser')) || null,
+    user: leerUsuarioGuardado(),
     setUser: (userData) => {
         if (userData) {
             const anterior = get().user;
@@ -48,6 +56,8 @@ export const useAppStore = create((set, get) => ({
     logout: () => {
         localStorage.removeItem('currentUser');
         get().disconnectSocket();
+        // S1 / F3: pedir al servidor que borre la cookie httpOnly "session"
+        llamarApi('/api/logout', { method: 'POST' });
         set({ 
             user: null,
             chatMessages: { general: [], anuncios: [], clash: [], clash_logs: [], pagos: [] },
@@ -93,11 +103,8 @@ export const useAppStore = create((set, get) => ({
     socket: null,
     connectSocket: () => {
         if (get().socket) return; // Ya está conectado
-        
-        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        const url = isLocal ? 'http://localhost:7070' : API_BASE_URL;
 
-        const newSocket = io(url, {
+        const newSocket = io(API_BASE_URL, {
             transports: ['websocket'],
             withCredentials: true
         });

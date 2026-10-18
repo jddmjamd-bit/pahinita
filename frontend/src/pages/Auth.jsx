@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
-import AceptacionLegal from '../components/AceptacionLegal';    // ← NUEVO
+import { API_BASE_URL } from '../store/llamarApi';
+import AceptacionLegal from '../components/AceptacionLegal';
 import './Auth.css';
-
-const API_BASE_URL = 'https://torneos-beta.onrender.com'; // TODO: use env variables later
 
 export default function Auth() {
     const [isLogin, setIsLogin] = useState(false);

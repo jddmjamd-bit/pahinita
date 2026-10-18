@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { API_BASE_URL } from '../store/llamarApi';
 import './Match.css';
 import VozDiscord from '../components/VozDiscord';
-
-const API_BASE_URL = 'https://torneos-beta.onrender.com';
 
 export default function Match() {
     // Si el usuario sale de esta pantalla y vuelve a mitad de partida, el estado sale del store (no se pierde la sala)
@@ -32,6 +31,7 @@ export default function Match() {
     const [apiStatusText, setApiStatusText] = useState('Buscando resultado en Clash Royale...');
     const [apiResult, setApiResult] = useState(() => useAppStore.getState().matchState.resultado || null); // { esGanador, premio, ganador, mensaje } o { disputa: true, mensaje }
     const [flujoCompletado, setFlujoCompletado] = useState(() => useAppStore.getState().matchState.status === 'finished');
+    const [rivalDesconectadoMsg, setRivalDesconectadoMsg] = useState('');
 
     const currentUser = useAppStore(state => state.user);
     const socket = useAppStore(state => state.socket);
@@ -54,6 +54,7 @@ export default function Match() {
         setWinText('Ganancia: $0');
         setBtnState({ text: '🎮 COMENZAR', disabled: true, cssClass: '' });
         setShowConfirmModal(false);
+        setRivalDesconectadoMsg('');
     }, [clearMatchState]);
 
     const chatEndRef = useRef(null);
@@ -207,6 +208,17 @@ export default function Match() {
             setApiResult(resultado);
             setMatchState({ status: 'finished', resultado });
         };
+        const onRivalDesconectado = (data) => {
+            if (data?.tiempo === 'indefinido') {
+                setRivalDesconectadoMsg('⚠️ Rival desconectado. Esperando resultado de la API...');
+            } else {
+                const segs = data?.tiempo || 90;
+                setRivalDesconectadoMsg(`⚠️ Rival desconectado. Tiene ${segs}s para reconectarse.`);
+            }
+        };
+        const onRivalReconectado = () => {
+            setRivalDesconectadoMsg('');
+        };
 
         socket.on('partida_encontrada', onPartidaEncontrada);
         socket.on('actualizar_negociacion', onActualizarNegociacion);
@@ -227,6 +239,8 @@ export default function Match() {
         socket.on('flujo_completado', onFlujoCompletado);
         socket.on('disputa_creada', onDisputa);
         socket.on('disputa_timeout', onDisputa);
+        socket.on('rival_desconectado', onRivalDesconectado);
+        socket.on('rival_reconectado', onRivalReconectado);
 
         return () => {
             socket.off('partida_encontrada', onPartidaEncontrada);
@@ -248,6 +262,8 @@ export default function Match() {
             socket.off('flujo_completado', onFlujoCompletado);
             socket.off('disputa_creada', onDisputa);
             socket.off('disputa_timeout', onDisputa);
+            socket.off('rival_desconectado', onRivalDesconectado);
+            socket.off('rival_reconectado', onRivalReconectado);
         };
     }, [socket, currentUser, gameMode, monto, maxMontoPermitido, setMatchState, resetMatch]);
 
@@ -410,11 +426,22 @@ export default function Match() {
                         <div className="match-info">
                             <h2 style={{margin:0}}>VS {rivalData?.username || 'Rival'}</h2>
                             <div className="rival-stats-box">
-                                <span title="Win Rate" style={{color: '#43b581'}}>🏆 50%</span>
-                                <span title="Culpable Disputas" style={{color: '#bbb'}}>💀 0</span>
-                                <span title="Huidas">🏃 0</span>
+                                <span title="Porcentaje de victorias" style={{color: '#43b581'}}>
+                                    🏆 {rivalData?.total_partidas > 0 ? Math.round(((rivalData.total_victorias || 0) / rivalData.total_partidas) * 100) : 0}%
+                                </span>
+                                <span title="Culpable en disputas" style={{color: '#bbb'}}>
+                                    💀 {rivalData?.faltas ?? 0}
+                                </span>
+                                <span title="Salidas de sala">
+                                    🏃 {rivalData?.salidas_chat ?? 0}
+                                </span>
                             </div>
                             <span style={{fontSize: '0.8rem', color: '#faa61a', display: 'block', marginTop: 5}}>Tope: ${maxMontoPermitido.toLocaleString()}</span>
+                            {rivalDesconectadoMsg && (
+                                <span style={{fontSize: '0.82rem', color: '#ed4245', display: 'block', marginTop: 6, fontWeight: 'bold'}}>
+                                    {rivalDesconectadoMsg}
+                                </span>
+                            )}
                         </div>
 
                         <div className="mini-chat">

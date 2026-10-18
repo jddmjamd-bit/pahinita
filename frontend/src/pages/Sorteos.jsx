@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { API_BASE_URL } from '../store/llamarApi';
 import './Sorteos.css';
-
-const API_BASE_URL = 'https://torneos-beta.onrender.com';
 
 export default function Sorteos() {
     const [userTickets, setUserTickets] = useState(0);
@@ -110,6 +109,9 @@ export default function Sorteos() {
         const onTicketsGanados = (data) => {
             if (data?.cantidad) {
                 setUserTickets(prev => prev + data.cantidad);
+            }
+            if (data?.acumulado !== undefined) {
+                setUserAcumulado(data.acumulado);
             }
         };
 

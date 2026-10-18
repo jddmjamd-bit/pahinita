@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { llamarApi } from '../store/llamarApi';
+import { API_BASE_URL, llamarApi } from '../store/llamarApi';
 import './Chat.css';
-
-const API_BASE_URL = 'https://torneos-beta.onrender.com';
 
 // S5 (XSS): un src multimedia solo es válido si es un archivo propio (/api/media/ID) o, para imágenes,
 // un data URI base64 de formato raster (nunca SVG ni javascript:). Devuelve la URL final o null.

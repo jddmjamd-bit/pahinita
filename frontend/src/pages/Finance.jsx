@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { API_BASE_URL } from '../store/llamarApi';
 import './Finance.css';
-
-const API_BASE_URL = 'https://torneos-beta.onrender.com';
 
 export default function Finance() {
     const [activeTab, setActiveTab] = useState('deposit'); // 'deposit' or 'withdraw'
@@ -67,7 +66,11 @@ export default function Finance() {
     const handleAutoDeposit = async () => {
         const monto = autoAmount;
         if (!monto || monto < 1000 || !currentUser) return;
-        
+        if (typeof window.WidgetCheckout !== 'function') {
+            alert("El widget de pagos de Wompi aún no ha terminado de cargar o fue bloqueado por el navegador. Recarga la página e inténtalo de nuevo.");
+            return;
+        }
+
         setIsProcessing(true);
         try {
             const res = await fetch(API_BASE_URL + '/api/wompi/init', {

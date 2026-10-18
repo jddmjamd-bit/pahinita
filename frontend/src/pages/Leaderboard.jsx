@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { API_BASE_URL } from '../store/llamarApi';
 import './Leaderboard.css';
-
-const API_BASE_URL = 'https://torneos-beta.onrender.com';
 
 export default function Leaderboard() {
     const [period, setPeriod] = useState('dia');
