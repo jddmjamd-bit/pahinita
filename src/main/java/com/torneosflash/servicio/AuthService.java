@@ -8,6 +8,8 @@ import org.mindrot.jbcrypt.BCrypt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.regex.Pattern;
+
 /**
  * Lógica de autenticación y cuentas: registro, login, sesión, disponibilidad de
  * datos y tokens push (A3).
@@ -15,6 +17,9 @@ import org.slf4j.LoggerFactory;
  */
 public class AuthService {
     private static final Logger logger = LoggerFactory.getLogger(AuthService.class);
+
+    private static final Pattern PLAYER_TAG_VALIDO = Pattern.compile("^#[0289PYLQGRJCUV]{3,15}$");
+    private static final Pattern EMAIL_VALIDO = Pattern.compile("^[^\\s@<>\",;]+@[^\\s@<>\",;]+\\.[^\\s@<>\",;]+$");
 
     /**
      * Resultado de un login correcto: el id (para la cookie) y los datos públicos
@@ -67,13 +72,22 @@ public class AuthService {
         username = username.trim();
         email = email.trim().toLowerCase();
         playerTag = playerTag == null ? "" : playerTag.trim().toUpperCase();
-        telefono = telefono == null ? "" : telefono.trim();
+        if (!playerTag.isEmpty() && !playerTag.startsWith("#")) {
+            playerTag = "#" + playerTag;
+        }
+        telefono = telefono == null ? "" : ChatSanitizer.limpiarTexto(telefono.trim(), 30);
 
-        if (username.isEmpty() || email.isEmpty() || password.isEmpty()) {
+        if (username.isEmpty() || email.isEmpty() || password.isEmpty() || playerTag.isEmpty()) {
             throw ServicioException.solicitudInvalida("Campos obligatorios vacíos");
         }
-        if (password.length() < 6) {
-            throw ServicioException.solicitudInvalida("La contraseña debe tener al menos 6 caracteres");
+        if (email.length() > 120 || !EMAIL_VALIDO.matcher(email).matches()) {
+            throw ServicioException.solicitudInvalida("El formato del correo no es válido");
+        }
+        if (!PLAYER_TAG_VALIDO.matcher(playerTag).matches()) {
+            throw ServicioException.solicitudInvalida("El Player Tag no tiene un formato válido de Clash Royale (#XXXXXXX)");
+        }
+        if (password.length() < 6 || password.length() > 128) {
+            throw ServicioException.solicitudInvalida("La contraseña debe tener entre 6 y 128 caracteres");
         }
         // S5 (XSS): el username se muestra en chat, rankings y paneles de admin
         if (!ChatSanitizer.esNombreUsuarioSeguro(username)) {
@@ -88,7 +102,7 @@ public class AuthService {
         if (usuarioDAO.buscarPorEmailLower(email) != null) {
             throw ServicioException.solicitudInvalida("Este correo ya está registrado");
         }
-        if (!playerTag.isEmpty() && usuarioDAO.buscarPorPlayerTag(playerTag) != null) {
+        if (usuarioDAO.buscarPorPlayerTag(playerTag) != null) {
             throw ServicioException.solicitudInvalida("Este Player Tag ya está registrado");
         }
 

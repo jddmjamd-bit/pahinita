@@ -95,50 +95,27 @@ public class AdminService {
     // ------------------------------------------------------------------
 
     /**
-     * Aprueba o rechaza una transacción pendiente.
+     * C3: Aprueba ("approve") o rechaza ("reject") una transacción pendiente de forma atómica.
      *
-     * @param action "reject" rechaza; cualquier otro valor aprueba (comportamiento heredado)
      * @return el mensaje para el cliente ("Rechazada" / "Aprobada")
      */
     public String procesarTransaccion(int transId, String action) {
-        JsonObject trans = db.queryOne("SELECT * FROM transactions WHERE id = ?", transId);
-        if (trans == null) throw ServicioException.respuestaConError("No existe");
+        WalletService.ResultadoTransaccionAdmin res = wallet.procesarTransaccionAdmin(transId, action);
 
-        // Evitar procesar transacciones que ya fueron aprobadas/rechazadas
-        String estadoActual = trans.get("estado").getAsString();
-        if (!"pendiente".equals(estadoActual)) {
-            throw ServicioException.respuestaConError("Esta transacción ya fue procesada (" + estadoActual + ")");
-        }
-
-        String tipo = trans.get("tipo").getAsString();
-        int userId = trans.get("usuario_id").getAsNumber().intValue();
-        BigDecimal monto = trans.get("monto").getAsBigDecimal(); // REVIEW-MONEY
-
-        if ("reject".equals(action)) {
-            if ("retiro".equals(tipo)) {
-                // Devolver dinero // REVIEW-MONEY
-                WalletResult result = wallet.depositar(userId, monto, "Retiro rechazado, devolución");
-                BigDecimal saldo = result.isSuccess() ? result.getNuevoSaldo() : BigDecimal.ZERO;
-                notificador.notificarSaldo(userId, "❌ Retiro rechazado. Saldo devuelto.", saldo);
+        if (!res.aprobada) {
+            if ("retiro".equals(res.tipo)) {
+                notificador.notificarSaldo(res.userId, "❌ Retiro rechazado. Saldo devuelto.", res.nuevoSaldo);
             } else {
-                BigDecimal saldoActual = wallet.obtenerSaldo(userId);
-                notificador.notificarSaldo(userId, "❌ Recarga rechazada.", saldoActual);
+                notificador.notificarSaldo(res.userId, "❌ Recarga rechazada.", res.nuevoSaldo);
             }
-            db.update("UPDATE transactions SET estado = 'rechazado' WHERE id = ?", transId);
             return "Rechazada";
         }
 
-        // Aprobar
-        if ("deposito".equals(tipo)) {
-            // REVIEW-MONEY
-            WalletResult result = wallet.depositar(userId, monto, "Depósito aprobado por admin");
-            BigDecimal saldo = result.isSuccess() ? result.getNuevoSaldo() : BigDecimal.ZERO;
-            notificador.notificarSaldo(userId, "✅ Recarga aprobada.", saldo);
+        if ("deposito".equals(res.tipo)) {
+            notificador.notificarSaldo(res.userId, "✅ Recarga aprobada.", res.nuevoSaldo);
         } else {
-            BigDecimal saldoActual = wallet.obtenerSaldo(userId);
-            notificador.notificarSaldo(userId, "✅ Tu retiro ha sido enviado.", saldoActual);
+            notificador.notificarSaldo(res.userId, "✅ Tu retiro ha sido enviado.", res.nuevoSaldo);
         }
-        db.update("UPDATE transactions SET estado = 'completado' WHERE id = ?", transId);
         return "Aprobada";
     }
 
@@ -146,10 +123,30 @@ public class AdminService {
     // Disputas
     // ------------------------------------------------------------------
 
-    /** Resuelve una disputa: liquida la partida a favor del ganador, suma la falta al culpable y libera a los jugadores. */
+    /**
+     * C2: Resuelve una disputa de forma atómica e idempotente.
+     * Exige que la partida esté en estado {@code disputa}, que el ganador sea uno de los dos jugadores
+     * de la partida y cierra el match dentro de la misma transacción SQL de {@link WalletService#liquidar}.
+     */
     public void resolverDisputa(int matchId, String ganadorNombre, String culpableNombre) {
         JsonObject match = db.queryOne("SELECT * FROM matches WHERE id = ?", matchId);
         if (match == null) throw ServicioException.respuestaConError("No existe");
+
+        String estadoActual = match.has("estado") && !match.get("estado").isJsonNull()
+                ? match.get("estado").getAsString() : "";
+        if (!"disputa".equals(estadoActual)) {
+            throw ServicioException.respuestaConError("Esta disputa ya fue resuelta (" + estadoActual + ")");
+        }
+
+        String j1 = match.get("jugador1").getAsString();
+        String j2 = match.get("jugador2").getAsString();
+        if (ganadorNombre == null || (!ganadorNombre.equals(j1) && !ganadorNombre.equals(j2))) {
+            throw ServicioException.respuestaConError("El ganador debe ser uno de los dos jugadores de la partida");
+        }
+        String culpableSeguro = (culpableNombre == null || culpableNombre.isBlank()) ? "nadie" : culpableNombre;
+        if (!"nadie".equals(culpableSeguro) && !culpableSeguro.equals(j1) && !culpableSeguro.equals(j2)) {
+            throw ServicioException.respuestaConError("El culpable debe ser uno de los dos jugadores o 'nadie'");
+        }
 
         JsonObject winner = db.queryOne("SELECT id, saldo FROM users WHERE username = ?", ganadorNombre);
         if (winner == null) throw ServicioException.respuestaConError("Ganador no encontrado");
@@ -157,28 +154,19 @@ public class AdminService {
         int winnerId = winner.get("id").getAsNumber().intValue();
         BigDecimal monto = match.get("monto").getAsBigDecimal(); // REVIEW-MONEY
 
-        String j1 = match.get("jugador1").getAsString();
-        String j2 = match.get("jugador2").getAsString();
         String perdedor = ganadorNombre.equals(j1) ? j2 : j1;
         JsonObject perdedorData = db.queryOne("SELECT id FROM users WHERE username = ?", perdedor);
         int perdedorId = perdedorData != null ? perdedorData.get("id").getAsNumber().intValue() : 0;
 
-        // Liquidar partida atómicamente via WalletService // REVIEW-MONEY
-        LiquidacionResult liq = wallet.liquidar(winnerId, perdedorId, monto, matchId, "comision_disputa");
+        // C2: Liquidar partida y cerrarla (WHERE id = ? AND estado = 'disputa') en UNA sola transacción // REVIEW-MONEY
+        LiquidacionResult liq = wallet.liquidar(winnerId, perdedorId, monto, matchId,
+                "comision_disputa", "disputa", ganadorNombre, culpableSeguro);
         if (!liq.success) {
             throw ServicioException.respuestaConError("Error al liquidar: " + liq.error);
         }
 
-        // liquidar() ya puso victorias_normales/derrotas_normales; para disputas queremos las de disputa
-        db.update("UPDATE users SET victorias_normales = victorias_normales - 1, victorias_disputa = victorias_disputa + 1 WHERE id = ?", winnerId);
-        db.update("UPDATE users SET derrotas_normales = derrotas_normales - 1, derrotas_disputa = derrotas_disputa + 1 WHERE username = ?", perdedor);
-
-        if (culpableNombre != null && !"nadie".equals(culpableNombre)) {
-            db.update("UPDATE users SET faltas = faltas + 1 WHERE username = ?", culpableNombre);
-        }
-
-        // Cerrar match y liberar jugadores
-        db.update("UPDATE matches SET estado = 'finalizada', ganador = ? WHERE id = ?", ganadorNombre, matchId);
+        // Liberar jugadores y limpiar cualquier sala activa residual
+        db.update("DELETE FROM active_matches WHERE match_db_id = ?", matchId);
         db.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE username IN (?, ?)", j1, j2);
 
         // A4: la liquidación y el match ya están confirmados; se avisa al bus (los listeners acreditan los tickets de sorteo

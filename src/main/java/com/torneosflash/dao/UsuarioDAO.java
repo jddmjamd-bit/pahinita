@@ -66,7 +66,7 @@ public class UsuarioDAO {
      */
     public JsonObject buscarCredencialesPorEmail(String email) {
         try (Connection conn = db.getConnection();
-             PreparedStatement ps = conn.prepareStatement("SELECT id, password FROM users WHERE email = ?")) {
+             PreparedStatement ps = conn.prepareStatement("SELECT id, password FROM users WHERE LOWER(email) = LOWER(?)")) {
             ps.setString(1, email);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) return rowToJson(rs);
@@ -202,35 +202,6 @@ public class UsuarioDAO {
         }
     }
 
-    /**
-     * @deprecated D2: todo movimiento de saldo pasa por {@code WalletService}.
-     *             Usar {@code WalletService.depositar()} o {@code WalletService.retirar()} en su lugar.
-     */
-    @Deprecated
-    public void actualizarSaldo(int userId, BigDecimal monto) {
-        ejecutar("UPDATE users SET saldo = saldo + ? WHERE id = ?", monto, userId);
-    }
-
-    /**
-     * @deprecated D2: el saldo se obtiene con {@code WalletService.obtenerSaldo()}.
-     */
-    @Deprecated
-    public BigDecimal obtenerSaldo(int userId) {
-        try (Connection conn = db.getConnection();
-             PreparedStatement ps = conn.prepareStatement("SELECT saldo FROM users WHERE id = ?")) {
-            ps.setInt(1, userId);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    BigDecimal saldo = rs.getBigDecimal("saldo");
-                    return saldo != null ? saldo : BigDecimal.ZERO;
-                }
-            }
-        } catch (Exception e) {
-            logger.error("Error obteniendo saldo usuario id={}: {}", userId, e.getMessage());
-        }
-        return BigDecimal.ZERO;
-    }
-
     public void actualizarEstado(int userId, String estado, String salaActual, int pasoJuego) {
         try (Connection conn = db.getConnection();
              PreparedStatement ps = conn.prepareStatement(
@@ -249,22 +220,6 @@ public class UsuarioDAO {
     public void resetearEstado(String username) {
         ejecutarSQL("DELETE FROM match_queue WHERE LOWER(username) = LOWER(?)", username);
         ejecutarSQL("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE username = ?", username);
-    }
-
-    public void hacerAdmin(String username) {
-        ejecutarSQL("UPDATE users SET tipo_suscripcion = 'admin' WHERE username = ?", username);
-    }
-
-    // Métodos auxiliares privados (S4: nunca expuestos para SQL arbitrario externo)
-    private void ejecutar(String sql, BigDecimal param1, int param2) {
-        try (Connection conn = db.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setBigDecimal(1, param1);
-            ps.setInt(2, param2);
-            ps.executeUpdate();
-        } catch (Exception e) {
-            logger.error("Error ejecutando actualización numérica en UsuarioDAO: {}", e.getMessage());
-        }
     }
 
     private void ejecutarSQL(String sql, String param) {

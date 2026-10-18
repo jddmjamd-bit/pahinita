@@ -13,7 +13,10 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Lógica de depósitos, retiros y pagos Wompi (A3). Todo movimiento de dinero pasa por {@link WalletService};
@@ -68,30 +71,40 @@ public class FinanzasService {
                                       JsonElement montoCrudo) {
         // D5: nunca se guarda una solicitud con un monto que el servidor no haya validado
         BigDecimal monto = exigirValido(validador.deposito(montoCrudo)); // REVIEW-MONEY
+        String metodoLimpio = ChatSanitizer.limpiarTexto(metodo, 40);
+        String refLimpia = ChatSanitizer.limpiarTexto(referencia, 120);
+        if (metodoLimpio.isEmpty() || refLimpia.isEmpty()) {
+            throw ServicioException.solicitudInvalida("El método y la referencia son obligatorios");
+        }
         String username = usernameDeUsuario(userId);
 
-        db.update("INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia) " +
-                "VALUES (?, ?, 'deposito', ?, ?, ?)", userId, username, metodo, monto, referencia);
+        int rows = db.update("INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia) " +
+                "VALUES (?, ?, 'deposito', ?, ?, ?)", userId, username, metodoLimpio, monto, refLimpia);
+        if (rows == 0) {
+            throw ServicioException.interno("No se pudo registrar la solicitud de recarga", null);
+        }
     }
 
     /**
-     * Solicita un retiro: descuenta el saldo atómicamente y deja la solicitud pendiente.
+     * C3: Solicita un retiro descontando el saldo e insertando la solicitud en UNA sola transacción SQL atómica.
      *
      * @return el saldo nuevo como {@link BigDecimal} (D1), para que el frontend lo actualice sin otra petición
      */
     public BigDecimal solicitarRetiro(int userId, String metodo, String referencia,
                                       JsonElement montoCrudo) {
         BigDecimal monto = exigirValido(validador.retiro(montoCrudo)); // REVIEW-MONEY
+        String metodoLimpio = ChatSanitizer.limpiarTexto(metodo != null ? metodo : "nequi_retiro", 40);
+        String refLimpia = ChatSanitizer.limpiarTexto(referencia, 160);
+        if (refLimpia.isEmpty()) {
+            throw ServicioException.solicitudInvalida("Los datos de la cuenta de destino son obligatorios");
+        }
         String username = usernameDeUsuario(userId);
 
-        // Descontar saldo atómicamente con verificación // REVIEW-MONEY
-        WalletResult result = wallet.retirar(userId, monto, "Retiro " + metodo);
+        // Descontar saldo e insertar en transactions dentro de la misma transacción SQL // REVIEW-MONEY
+        WalletResult result = wallet.solicitarRetiroTransaccional(userId, username, metodoLimpio, refLimpia, monto);
         if (!result.isSuccess()) {
             throw ServicioException.respuestaConError(result.getError());
         }
-
-        db.update("INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia) " +
-                "VALUES (?, ?, 'retiro', ?, ?, ?)", userId, username, metodo, monto, referencia);
 
         notificador.notificarSaldo(userId, "⏳ Retiro en proceso...", result.getNuevoSaldo());
         return result.getNuevoSaldo();
@@ -103,11 +116,15 @@ public class FinanzasService {
         String username = usernameDeUsuario(userId);
 
         long montoCentavos = calcularMontoCentavosWompi(monto);
-        String reference = "TF-" + System.currentTimeMillis();
+        String reference = "TF-" + userId + "-" + System.currentTimeMillis() + "-"
+                + ThreadLocalRandom.current().nextInt(1000, 10000);
 
-        db.update("INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado) " +
+        int rows = db.update("INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado) " +
                 "VALUES (?, ?, 'deposito', 'wompi', ?, ?, 'pendiente')",
                 userId, username, monto, reference);
+        if (rows == 0) {
+            throw ServicioException.interno("No se pudo iniciar la transacción Wompi", null);
+        }
 
         // Firma de integridad
         String toSign = reference + montoCentavos + "COP" + config.getWompiIntegritySecret();
@@ -146,25 +163,18 @@ public class FinanzasService {
             throw ServicioException.solicitudInvalida("Falta data.transaction en el webhook");
         }
 
+        String transactionId = texto(transaction, "id");
         String status = texto(transaction, "status");
         String reference = texto(transaction, "reference");
-        if (status.isEmpty() || reference.isEmpty()) {
-            throw ServicioException.solicitudInvalida("Faltan status o reference en el webhook");
+        if (transactionId.isEmpty() || status.isEmpty() || reference.isEmpty()) {
+            throw ServicioException.solicitudInvalida("Faltan id, status o reference en el webhook");
         }
 
         if (!"APPROVED".equals(status)) return;
 
-        JsonObject trans = db.queryOne(
-                "SELECT * FROM transactions WHERE referencia = ? AND tipo = 'deposito' AND estado = 'pendiente'",
-                reference);
-        if (trans == null) return;
-
-        int userId = trans.get("usuario_id").getAsNumber().intValue();
-        BigDecimal monto = trans.get("monto").getAsBigDecimal(); // REVIEW-MONEY
-
-        // 2. Verificar moneda y monto cobrado en centavos contra lo esperado para esta transacción (D5 / S7)
+        // 2. Verificar moneda ("COP" obligatoria) y monto cobrado en centavos (D5 / S7 / C4)
         String currency = texto(transaction, "currency");
-        if (!currency.isEmpty() && !"COP".equalsIgnoreCase(currency)) {
+        if (!"COP".equalsIgnoreCase(currency)) {
             logger.error("⚠️ Webhook Wompi rechazado ref {}: moneda inválida '{}'", reference, currency);
             throw ServicioException.solicitudInvalida("Moneda de transacción Wompi no válida");
         }
@@ -178,27 +188,15 @@ public class FinanzasService {
         } catch (Exception e) {
             throw ServicioException.solicitudInvalida("amount_in_cents inválido en el webhook");
         }
-        long esperadoCentavos = calcularMontoCentavosWompi(monto);
-        if (pagadoCentavos != esperadoCentavos) {
-            logger.error("⚠️ Webhook Wompi rechazado ref {}: monto en centavos recibido ({}) != esperado ({})",
-                    reference, pagadoCentavos, esperadoCentavos);
-            throw ServicioException.solicitudInvalida("El monto pagado no coincide con la transacción registrada");
-        }
 
-        // 3. Marcar como completada atómicamente antes de depositar para evitar doble acreditación en reintentos
-        int actualizadas = db.update(
-                "UPDATE transactions SET estado = 'completado' WHERE referencia = ? AND tipo = 'deposito' AND estado = 'pendiente'",
-                reference);
-        if (actualizadas == 0) return;
-
-        // 4. Acreditar saldo atómicamente // REVIEW-MONEY
-        WalletResult result = wallet.depositar(userId, monto, "Pago Wompi ref:" + reference);
-        if (result.isSuccess()) {
-            notificador.notificarSaldo(userId, "✅ Pago Wompi aprobado. Saldo acreditado.", result.getNuevoSaldo());
-        } else {
-            db.update("UPDATE transactions SET estado = 'pendiente' WHERE referencia = ?", reference);
-            logger.error("Wompi {}: no se pudo acreditar, se revirtió a pendiente: {}", reference, result.getError());
-            throw ServicioException.interno("No se pudo acreditar el pago Wompi", null);
+        // 3. Marcar como completada y acreditar saldo en UNA sola transacción SQL atómica (C4) // REVIEW-MONEY
+        WalletResult result = wallet.acreditarDepositoWompi(reference, pagadoCentavos, FinanzasService::calcularMontoCentavosWompi);
+        if (result != null && result.isSuccess()) {
+            JsonObject trans = db.queryOne("SELECT usuario_id FROM transactions WHERE referencia = ?", reference);
+            if (trans != null && trans.has("usuario_id")) {
+                int userId = trans.get("usuario_id").getAsInt();
+                notificador.notificarSaldo(userId, "✅ Pago Wompi aprobado. Saldo acreditado.", result.getNuevoSaldo());
+            }
         }
     }
 
@@ -233,17 +231,28 @@ public class FinanzasService {
             throw ServicioException.noAutenticado("Firma de webhook inválida");
         }
 
+        Set<String> propiedadesFirmadas = new HashSet<>();
         StringBuilder aFirmar = new StringBuilder();
         for (JsonElement propElem : properties) {
             if (propElem == null || !propElem.isJsonPrimitive()) {
                 throw ServicioException.noAutenticado("Firma de webhook inválida");
             }
-            String valor = extraerPropiedadEvento(data, propElem.getAsString());
+            String nombreProp = propElem.getAsString().trim();
+            String valor = extraerPropiedadEvento(data, nombreProp);
             if (valor == null) {
-                logger.warn("⚠️ Webhook Wompi rechazado: no se encontró la propiedad '{}' en data", propElem.getAsString());
+                logger.warn("⚠️ Webhook Wompi rechazado: no se encontró la propiedad '{}' en data", nombreProp);
                 throw ServicioException.noAutenticado("Firma de webhook inválida");
             }
+            propiedadesFirmadas.add(nombreProp);
             aFirmar.append(valor);
+        }
+
+        // C4 / S7: exigir que la firma cubra como mínimo id, status y amount_in_cents de la transacción
+        if (!propiedadesFirmadas.contains("transaction.id")
+                || !propiedadesFirmadas.contains("transaction.status")
+                || !propiedadesFirmadas.contains("transaction.amount_in_cents")) {
+            logger.warn("⚠️ Webhook Wompi rechazado: signature.properties no cubre id, status y amount_in_cents ({})", propiedadesFirmadas);
+            throw ServicioException.noAutenticado("Firma de webhook incompleta");
         }
 
         String timestamp = texto(body, "timestamp");
@@ -278,17 +287,13 @@ public class FinanzasService {
         }
     }
 
-    /** Usa WOMPI_EVENTS_SECRET; si no está definida, cae a WOMPI_INTEGRITY_SECRET. */
+    /**
+     * C4 / S7: Exige exclusivamente WOMPI_EVENTS_SECRET. Nunca cae a WOMPI_INTEGRITY_SECRET
+     * (el secreto de integridad firma datos que se entregan al cliente en /api/wompi/init y son secretos distintos).
+     */
     private String obtenerSecretoWebhookWompi() {
         String eventsSecret = config.getWompiEventsSecret();
-        if (eventsSecret != null && !eventsSecret.isBlank()) {
-            return eventsSecret.trim();
-        }
-        String integritySecret = config.getWompiIntegritySecret();
-        if (integritySecret != null && !integritySecret.isBlank()) {
-            return integritySecret.trim();
-        }
-        return "";
+        return (eventsSecret != null && !eventsSecret.isBlank()) ? eventsSecret.trim() : "";
     }
 
     /** Resuelve una ruta con puntos (ej. "transaction.amount_in_cents") dentro del objeto {@code data}. */

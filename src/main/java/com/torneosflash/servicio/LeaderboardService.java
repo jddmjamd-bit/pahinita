@@ -11,6 +11,14 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 
 /**
@@ -32,6 +40,8 @@ public class LeaderboardService {
             new BigDecimal("0.03")
     };
     private static final BigDecimal DOS = BigDecimal.valueOf(2);
+    /** C7: Zona horaria oficial de los cortes diarios/semanales/mensuales/anuales (Colombia, UTC-5). */
+    private static final ZoneId ZONA_COLOMBIA = ZoneId.of("America/Bogota");
 
     private final GenericDAO db;
     private final SocketIOServer io;
@@ -137,25 +147,91 @@ public class LeaderboardService {
         }
     }
 
+    private static String columnaUltimoCorteSegura(String periodo) {
+        switch (periodo == null ? "" : periodo) {
+            case "dia": return "ultimo_corte_dia";
+            case "semana": return "ultimo_corte_semana";
+            case "mes": return "ultimo_corte_mes";
+            case "ano": return "ultimo_corte_ano";
+            default: throw new IllegalArgumentException("Periodo de corte no válido: " + periodo);
+        }
+    }
+
     /**
-     * Premia al top del periodo con el pozo acumulado y resetea contadores y pozo.
-     * Lo llama el scheduler de {@code Main} (día, semana, mes, año).
+     * C7: Verifica cada minuto si cambió el día, semana, mes o año en hora de Colombia (America/Bogota)
+     * comparando contra {@code leaderboard_pools.ultimo_corte_*}. Si el servidor estuvo dormido o reinició
+     * justo a medianoche, ejecuta el corte en cuanto despierta sin perder premios ni pagar dos veces.
      */
+    public void verificarYCerrarPeriodos() {
+        try {
+            LocalDate hoy = LocalDate.now(ZONA_COLOMBIA);
+            String claveDia = hoy.toString();
+            String claveSemana = hoy.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).toString();
+            String claveMes = hoy.withDayOfMonth(1).toString();
+            String claveAno = hoy.withDayOfYear(1).toString();
+
+            verificarPeriodo("dia", "victorias_dia", claveDia);
+            verificarPeriodo("semana", "victorias_semana", claveSemana);
+            verificarPeriodo("mes", "victorias_mes", claveMes);
+            verificarPeriodo("ano", "victorias_ano", claveAno);
+        } catch (Exception e) {
+            logger.error("Error verificando cierres de leaderboard: {}", e.getMessage());
+        }
+    }
+
+    private void verificarPeriodo(String periodo, String columnaVictorias, String claveActual) {
+        String colCorte = columnaUltimoCorteSegura(periodo);
+        JsonObject row = db.queryOne("SELECT " + colCorte + " FROM leaderboard_pools WHERE id = 1");
+        if (row == null) return;
+
+        String ultimoCorte = row.has(colCorte) && !row.get(colCorte).isJsonNull()
+                ? row.get(colCorte).getAsString() : null;
+        if (ultimoCorte == null || ultimoCorte.isEmpty()) {
+            // Primera ejecución tras la migración: registrar el periodo en curso sin resetear a mitad del día
+            db.update("UPDATE leaderboard_pools SET " + colCorte + " = ? WHERE id = 1 AND " + colCorte + " IS NULL", claveActual);
+            return;
+        }
+        if (!claveActual.equals(ultimoCorte)) {
+            premiarYResetear(periodo, columnaVictorias, claveActual);
+        }
+    }
+
     public void premiarYResetear(String periodo, String columna) {
+        String clave = LocalDate.now(ZONA_COLOMBIA).toString();
+        premiarYResetear(periodo, columna, clave);
+    }
+
+    /**
+     * C7: Reclama atómicamente el pozo y la marca de corte en {@code leaderboard_pools}, premia al top 10
+     * y resetea la columna de victorias. Un reinicio o doble invocación nunca paga el mismo pozo dos veces.
+     */
+    public void premiarYResetear(String periodo, String columna, String claveCorte) {
         try {
             String columnaSegura = columnaVictoriasSegura(periodo, columna);
             String periodoSeguro = columnaPozoSegura(periodo);
+            String colCorte = columnaUltimoCorteSegura(periodo);
 
-            logger.info("🏆 Premiando leaderboard {}...", periodoSeguro);
-
-            JsonObject poolData = db.queryOne("SELECT * FROM leaderboard_pools WHERE id = 1");
-            if (poolData == null) {
-                db.update("UPDATE users SET " + columnaSegura + " = 0");
+            BigDecimal pozoTotal;
+            try (Connection conn = db.getConnection();
+                 PreparedStatement ps = conn.prepareStatement(
+                         "UPDATE leaderboard_pools SET " + periodoSeguro + " = 0, " + colCorte + " = ? " +
+                         "WHERE id = 1 AND (" + colCorte + " IS NULL OR " + colCorte + " <> ?) " +
+                         "RETURNING (SELECT " + periodoSeguro + " FROM leaderboard_pools WHERE id = 1) AS pozo_reclamado")) {
+                ps.setString(1, claveCorte);
+                ps.setString(2, claveCorte);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        return; // Otro hilo o instancia ya procesó este corte
+                    }
+                    BigDecimal p = rs.getBigDecimal("pozo_reclamado");
+                    pozoTotal = p != null ? p : BigDecimal.ZERO; // REVIEW-MONEY
+                }
+            } catch (SQLException e) {
+                logger.error("Error reclamando pozo de leaderboard {}: {}", periodoSeguro, e.getMessage());
                 return;
             }
 
-            BigDecimal pozoTotal = poolData.has(periodoSeguro) && !poolData.get(periodoSeguro).isJsonNull()
-                    ? poolData.get(periodoSeguro).getAsBigDecimal() : BigDecimal.ZERO; // REVIEW-MONEY
+            logger.info("🏆 Premiando leaderboard {} (corte {}, pozo={})...", periodoSeguro, claveCorte, pozoTotal);
 
             ArrayList<JsonObject> top = db.query(
                     "SELECT id, username, " + columnaSegura + " as victorias, ganancia_generada FROM users WHERE " +
@@ -275,13 +351,9 @@ public class LeaderboardService {
                         pozoTotal.negate(), "Cierre leaderboard " + configKey);
             }
 
-            // Resetear columna
+            // Resetear columna (el pozo ya quedó en 0 al reclamarlo atómicamente al inicio)
             db.update("UPDATE users SET " + columnaSegura + " = 0");
-            logger.info("   ✅ Columna {} reseteada", columnaSegura);
-
-            // Reiniciar el pozo para ese periodo
-            db.update("UPDATE leaderboard_pools SET " + periodoSeguro + " = 0 WHERE id = 1");
-            logger.info("   ✅ Pozo de {} reiniciado a 0", periodoSeguro);
+            logger.info("   ✅ Columna {} reseteada y pozo de {} cerrado", columnaSegura, periodoSeguro);
 
             JsonObject resetData = new JsonObject();
             resetData.addProperty("periodo", configKey);

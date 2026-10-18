@@ -90,10 +90,50 @@ public class WalletService {
 
         public boolean isSuccess() { return success; }
         public BigDecimal getNuevoSaldo() { return nuevoSaldo != null ? nuevoSaldo : BigDecimal.ZERO; }
-        /** @deprecated D1: usar {@link #getNuevoSaldo()} con {@link BigDecimal}. */
-        @Deprecated
-        public double getNuevoSaldoDouble() { return nuevoSaldo != null ? nuevoSaldo.doubleValue() : 0; }
         public String getError() { return error; }
+    }
+
+    /** Resultado atómico del inicio de una partida entre dos jugadores (C1). */
+    public static final class InicioPartidaResult {
+        public final boolean success;
+        public final int matchId;
+        public final BigDecimal nuevoSaldoJugador1;
+        public final BigDecimal nuevoSaldoJugador2;
+        public final String error;
+
+        private InicioPartidaResult(boolean success, int matchId, BigDecimal nuevoSaldoJugador1,
+                                    BigDecimal nuevoSaldoJugador2, String error) {
+            this.success = success;
+            this.matchId = matchId;
+            this.nuevoSaldoJugador1 = nuevoSaldoJugador1;
+            this.nuevoSaldoJugador2 = nuevoSaldoJugador2;
+            this.error = error;
+        }
+
+        public static InicioPartidaResult ok(int matchId, BigDecimal saldo1, BigDecimal saldo2) {
+            return new InicioPartidaResult(true, matchId, saldo1, saldo2, null);
+        }
+
+        public static InicioPartidaResult fail(String error) {
+            return new InicioPartidaResult(false, -1, null, null, error);
+        }
+    }
+
+    /** Resultado atómico de aprobar o rechazar una transacción en el panel admin (C3). */
+    public static final class ResultadoTransaccionAdmin {
+        public final int userId;
+        public final String tipo;
+        public final boolean aprobada;
+        public final BigDecimal monto;
+        public final BigDecimal nuevoSaldo;
+
+        public ResultadoTransaccionAdmin(int userId, String tipo, boolean aprobada, BigDecimal monto, BigDecimal nuevoSaldo) {
+            this.userId = userId;
+            this.tipo = tipo;
+            this.aprobada = aprobada;
+            this.monto = monto;
+            this.nuevoSaldo = nuevoSaldo;
+        }
     }
 
     // ═══════════════════════════════════════════
@@ -120,8 +160,12 @@ public class WalletService {
             conn = db.getConnection();
             conn.setAutoCommit(false);
 
-            // Leer saldo anterior (D3: antes de modificar)
-            BigDecimal saldoAnterior = leerSaldo(conn, userId);
+            // Leer y bloquear saldo anterior (D3 / M3: FOR UPDATE evita lecturas sucias bajo concurrencia)
+            BigDecimal saldoAnterior = leerSaldoBloqueando(conn, userId);
+            if (saldoAnterior == null) {
+                conn.rollback();
+                return WalletResult.fail("Usuario no encontrado");
+            }
 
             // Acreditar saldo
             try (PreparedStatement ps = conn.prepareStatement(
@@ -135,8 +179,7 @@ public class WalletService {
                 }
             }
 
-            // Leer nuevo saldo
-            BigDecimal nuevoSaldo = leerSaldo(conn, userId);
+            BigDecimal nuevoSaldo = saldoAnterior.add(monto);
 
             // D3: registrar en ledger (inmutable, dentro de la transacción)
             insertarLedger(conn, userId, TIPO_DEPOSITO, monto, saldoAnterior, nuevoSaldo, motivo);
@@ -181,8 +224,12 @@ public class WalletService {
             conn = db.getConnection();
             conn.setAutoCommit(false);
 
-            // Leer saldo anterior (D3: antes de modificar)
-            BigDecimal saldoAnterior = leerSaldo(conn, userId);
+            // Leer y bloquear saldo anterior (D3 / M3)
+            BigDecimal saldoAnterior = leerSaldoBloqueando(conn, userId);
+            if (saldoAnterior == null || saldoAnterior.compareTo(monto) < 0) {
+                conn.rollback();
+                return WalletResult.fail("Saldo insuficiente");
+            }
 
             // Descontar con guarda atómica
             try (PreparedStatement ps = conn.prepareStatement(
@@ -197,8 +244,7 @@ public class WalletService {
                 }
             }
 
-            // Leer nuevo saldo
-            BigDecimal nuevoSaldo = leerSaldo(conn, userId);
+            BigDecimal nuevoSaldo = saldoAnterior.subtract(monto);
 
             // D3: registrar en ledger (inmutable, dentro de la transacción)
             insertarLedger(conn, userId, TIPO_RETIRO, monto, saldoAnterior, nuevoSaldo, motivo);
@@ -242,8 +288,12 @@ public class WalletService {
             conn = db.getConnection();
             conn.setAutoCommit(false);
 
-            // Leer saldo anterior (D3: antes de modificar)
-            BigDecimal saldoAnterior = leerSaldo(conn, userId);
+            // Leer y bloquear saldo anterior (D3 / M3)
+            BigDecimal saldoAnterior = leerSaldoBloqueando(conn, userId);
+            if (saldoAnterior == null || saldoAnterior.compareTo(monto) < 0) {
+                conn.rollback();
+                return WalletResult.fail("Saldo insuficiente para realizar el torneo");
+            }
 
             // Descontar monto y actualizar estado + total_monto_torneos atómicamente
             try (PreparedStatement ps = conn.prepareStatement(
@@ -261,7 +311,7 @@ public class WalletService {
                 }
             }
 
-            BigDecimal nuevoSaldo = leerSaldo(conn, userId);
+            BigDecimal nuevoSaldo = saldoAnterior.subtract(monto);
 
             // D3: registrar en ledger (inmutable, dentro de la transacción)
             insertarLedger(conn, userId, TIPO_TORNEO, monto, saldoAnterior, nuevoSaldo, "Torneo");
@@ -276,6 +326,386 @@ public class WalletService {
             rollbackSilencioso(conn);
             logger.error("❌ Error en realizarTorneo userId={}: {}", userId, e.getMessage());
             return WalletResult.fail("Error interno al realizar el torneo");
+        } finally {
+            cerrarConexion(conn);
+        }
+    }
+
+    /**
+     * C1: Inicia una partida descontando el monto a AMBOS jugadores y creando la fila en {@code matches}
+     * dentro de UNA sola transacción SQL atómica. Si el segundo jugador no tiene saldo o falla cualquier
+     * paso, el rollback devuelve automáticamente todo al estado inicial (nadie pierde dinero). // REVIEW-MONEY
+     */
+    public InicioPartidaResult iniciarPartidaTorneo(int player1Id, String player1Username,
+                                                    int player2Id, String player2Username,
+                                                    String salaId, String modo, BigDecimal monto) {
+        if (monto == null || monto.compareTo(BigDecimal.ZERO) <= 0) {
+            return InicioPartidaResult.fail("El monto debe ser positivo");
+        }
+        if (player1Id <= 0 || player2Id <= 0 || player1Id == player2Id) {
+            return InicioPartidaResult.fail("Jugadores inválidos para iniciar la partida");
+        }
+
+        Connection conn = null;
+        try {
+            conn = db.getConnection();
+            conn.setAutoCommit(false);
+
+            // Bloquear siempre en orden ascendente de ID para evitar deadlocks entre transacciones concurrentes
+            int primeroId = Math.min(player1Id, player2Id);
+            int segundoId = Math.max(player1Id, player2Id);
+            BigDecimal saldoPrimero = leerSaldoBloqueando(conn, primeroId);
+            BigDecimal saldoSegundo = leerSaldoBloqueando(conn, segundoId);
+
+            BigDecimal saldoAntesP1 = (player1Id == primeroId) ? saldoPrimero : saldoSegundo;
+            BigDecimal saldoAntesP2 = (player2Id == primeroId) ? saldoPrimero : saldoSegundo;
+
+            if (saldoAntesP1 == null || saldoAntesP1.compareTo(monto) < 0) {
+                conn.rollback();
+                return InicioPartidaResult.fail("Saldo insuficiente para " + player1Username);
+            }
+            if (saldoAntesP2 == null || saldoAntesP2.compareTo(monto) < 0) {
+                conn.rollback();
+                return InicioPartidaResult.fail("Saldo insuficiente para " + player2Username);
+            }
+
+            // 1. Crear el registro del match en BD dentro de la misma transacción
+            int matchId = -1;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "INSERT INTO matches (jugador1, jugador2, modo, monto, estado) VALUES (?, ?, ?, ?, 'en_curso') RETURNING id")) {
+                ps.setString(1, player1Username);
+                ps.setString(2, player2Username);
+                ps.setString(3, modo != null ? modo : "N/A");
+                ps.setBigDecimal(4, monto);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        matchId = rs.getInt(1);
+                    }
+                }
+            }
+            if (matchId <= 0) {
+                conn.rollback();
+                return InicioPartidaResult.fail("No se pudo registrar la partida");
+            }
+
+            // 2. Descontar a ambos jugadores y actualizar su estado y sala_actual
+            int[] jugadores = { player1Id, player2Id };
+            String[] nombres = { player1Username, player2Username };
+            for (int i = 0; i < 2; i++) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE users SET saldo = saldo - ?, total_monto_torneos = total_monto_torneos + ?, " +
+                        "estado = 'jugando', sala_actual = ?, paso_juego = 0 " +
+                        "WHERE id = ? AND saldo >= ?")) {
+                    ps.setBigDecimal(1, monto);
+                    ps.setBigDecimal(2, monto);
+                    ps.setString(3, salaId);
+                    ps.setInt(4, jugadores[i]);
+                    ps.setBigDecimal(5, monto);
+                    int rows = ps.executeUpdate();
+                    if (rows == 0) {
+                        conn.rollback();
+                        return InicioPartidaResult.fail("Saldo insuficiente para " + nombres[i]);
+                    }
+                }
+            }
+
+            BigDecimal nuevoSaldoP1 = saldoAntesP1.subtract(monto);
+            BigDecimal nuevoSaldoP2 = saldoAntesP2.subtract(monto);
+            String refMatch = "Torneo Match #" + matchId;
+
+            // 3. Registrar ambos descuentos en wallet_ledger
+            insertarLedger(conn, player1Id, TIPO_TORNEO, monto, saldoAntesP1, nuevoSaldoP1, refMatch);
+            insertarLedger(conn, player2Id, TIPO_TORNEO, monto, saldoAntesP2, nuevoSaldoP2, refMatch);
+
+            conn.commit();
+            logger.info("🎲 PARTIDA INICIADA match#{} p1={} (nuevoSaldo={}) p2={} (nuevoSaldo={}) monto={}",
+                    matchId, player1Id, nuevoSaldoP1, player2Id, nuevoSaldoP2, monto);
+
+            emitirEvento(Eventos.WALLET_BET, new Eventos.MovimientoWallet(
+                    Eventos.TipoMovimiento.TORNEO, player1Id, monto, nuevoSaldoP1, refMatch));
+            emitirEvento(Eventos.WALLET_BET, new Eventos.MovimientoWallet(
+                    Eventos.TipoMovimiento.TORNEO, player2Id, monto, nuevoSaldoP2, refMatch));
+
+            return InicioPartidaResult.ok(matchId, nuevoSaldoP1, nuevoSaldoP2);
+
+        } catch (SQLException e) {
+            rollbackSilencioso(conn);
+            logger.error("❌ Error en iniciarPartidaTorneo ({} vs {}): {}", player1Id, player2Id, e.getMessage());
+            return InicioPartidaResult.fail("Error interno al iniciar la partida");
+        } finally {
+            cerrarConexion(conn);
+        }
+    }
+
+    /**
+     * C3: Solicita un retiro descontando el saldo e insertando la fila en {@code transactions}
+     * dentro de UNA sola transacción SQL atómica. Si el INSERT falla, el saldo no se descuenta. // REVIEW-MONEY
+     */
+    public WalletResult solicitarRetiroTransaccional(int userId, String username, String metodo,
+                                                     String referencia, BigDecimal monto) {
+        if (monto == null || monto.compareTo(BigDecimal.ZERO) <= 0) {
+            return WalletResult.fail("El monto debe ser positivo");
+        }
+
+        Connection conn = null;
+        try {
+            conn = db.getConnection();
+            conn.setAutoCommit(false);
+
+            BigDecimal saldoAnterior = leerSaldoBloqueando(conn, userId);
+            if (saldoAnterior == null || saldoAnterior.compareTo(monto) < 0) {
+                conn.rollback();
+                return WalletResult.fail("Saldo insuficiente");
+            }
+
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE users SET saldo = saldo - ? WHERE id = ? AND saldo >= ?")) {
+                ps.setBigDecimal(1, monto);
+                ps.setInt(2, userId);
+                ps.setBigDecimal(3, monto);
+                if (ps.executeUpdate() == 0) {
+                    conn.rollback();
+                    return WalletResult.fail("Saldo insuficiente");
+                }
+            }
+
+            BigDecimal nuevoSaldo = saldoAnterior.subtract(monto);
+            String motivo = "Retiro " + (metodo != null ? metodo : "nequi_retiro");
+            insertarLedger(conn, userId, TIPO_RETIRO, monto, saldoAnterior, nuevoSaldo, motivo);
+
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado) " +
+                    "VALUES (?, ?, 'retiro', ?, ?, ?, 'pendiente')")) {
+                ps.setInt(1, userId);
+                ps.setString(2, username);
+                ps.setString(3, metodo);
+                ps.setBigDecimal(4, monto);
+                ps.setString(5, referencia);
+                if (ps.executeUpdate() == 0) {
+                    conn.rollback();
+                    return WalletResult.fail("No se pudo registrar la solicitud de retiro");
+                }
+            }
+
+            conn.commit();
+            logger.info("💸 RETIRO SOLICITADO userId={} monto={} metodo='{}' nuevoSaldo={}",
+                    userId, monto, metodo, nuevoSaldo);
+            emitirEvento(Eventos.WALLET_WITHDRAWN, new Eventos.MovimientoWallet(
+                    Eventos.TipoMovimiento.RETIRO, userId, monto, nuevoSaldo, motivo));
+            return WalletResult.ok(nuevoSaldo);
+
+        } catch (SQLException e) {
+            rollbackSilencioso(conn);
+            logger.error("❌ Error en solicitarRetiroTransaccional userId={}: {}", userId, e.getMessage());
+            return WalletResult.fail("Error interno al solicitar el retiro");
+        } finally {
+            cerrarConexion(conn);
+        }
+    }
+
+    /**
+     * C3: Aprueba o rechaza una transacción pendiente de forma 100% atómica (FOR UPDATE sobre transactions +
+     * movimiento de saldo + wallet_ledger en la misma transacción SQL). Impide dobles pagos por doble clic. // REVIEW-MONEY
+     */
+    public ResultadoTransaccionAdmin procesarTransaccionAdmin(int transId, String action) {
+        if (!"approve".equals(action) && !"reject".equals(action)) {
+            throw ServicioException.solicitudInvalida("La acción debe ser 'approve' o 'reject'");
+        }
+        boolean aprobar = "approve".equals(action);
+
+        Connection conn = null;
+        try {
+            conn = db.getConnection();
+            conn.setAutoCommit(false);
+
+            int userId;
+            String tipo;
+            BigDecimal monto;
+            String estadoActual;
+
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT usuario_id, tipo, monto, estado FROM transactions WHERE id = ? FOR UPDATE")) {
+                ps.setInt(1, transId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        throw ServicioException.respuestaConError("No existe");
+                    }
+                    userId = rs.getInt("usuario_id");
+                    tipo = rs.getString("tipo");
+                    monto = rs.getBigDecimal("monto");
+                    estadoActual = rs.getString("estado");
+                }
+            }
+
+            if (!"pendiente".equals(estadoActual)) {
+                conn.rollback();
+                throw ServicioException.respuestaConError("Esta transacción ya fue procesada (" + estadoActual + ")");
+            }
+
+            String nuevoEstado = aprobar ? "completado" : "rechazado";
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE transactions SET estado = ? WHERE id = ? AND estado = 'pendiente'")) {
+                ps.setString(1, nuevoEstado);
+                ps.setInt(2, transId);
+                if (ps.executeUpdate() == 0) {
+                    conn.rollback();
+                    throw ServicioException.respuestaConError("Esta transacción ya fue procesada");
+                }
+            }
+
+            BigDecimal nuevoSaldo;
+            boolean movioSaldo = false;
+            String motivoLedger = null;
+
+            if (aprobar && "deposito".equals(tipo)) {
+                BigDecimal saldoAnterior = leerSaldoBloqueando(conn, userId);
+                if (saldoAnterior == null) {
+                    conn.rollback();
+                    throw ServicioException.respuestaConError("Usuario no encontrado");
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE users SET saldo = saldo + ? WHERE id = ?")) {
+                    ps.setBigDecimal(1, monto);
+                    ps.setInt(2, userId);
+                    if (ps.executeUpdate() == 0) {
+                        conn.rollback();
+                        throw ServicioException.respuestaConError("Usuario no encontrado");
+                    }
+                }
+                nuevoSaldo = saldoAnterior.add(monto);
+                motivoLedger = "Depósito aprobado por admin #" + transId;
+                insertarLedger(conn, userId, TIPO_DEPOSITO, monto, saldoAnterior, nuevoSaldo, motivoLedger);
+                movioSaldo = true;
+            } else if (!aprobar && "retiro".equals(tipo)) {
+                BigDecimal saldoAnterior = leerSaldoBloqueando(conn, userId);
+                if (saldoAnterior == null) {
+                    conn.rollback();
+                    throw ServicioException.respuestaConError("Usuario no encontrado");
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE users SET saldo = saldo + ? WHERE id = ?")) {
+                    ps.setBigDecimal(1, monto);
+                    ps.setInt(2, userId);
+                    if (ps.executeUpdate() == 0) {
+                        conn.rollback();
+                        throw ServicioException.respuestaConError("Usuario no encontrado");
+                    }
+                }
+                nuevoSaldo = saldoAnterior.add(monto);
+                motivoLedger = "Retiro rechazado, devolución #" + transId;
+                insertarLedger(conn, userId, TIPO_DEPOSITO, monto, saldoAnterior, nuevoSaldo, motivoLedger);
+                movioSaldo = true;
+            } else {
+                nuevoSaldo = leerSaldo(conn, userId);
+            }
+
+            conn.commit();
+            if (movioSaldo) {
+                logger.info("💰 TRANSACCIÓN ADMIN #{} ({}) userId={} monto={} nuevoSaldo={}",
+                        transId, nuevoEstado, userId, monto, nuevoSaldo);
+                emitirEvento(Eventos.WALLET_DEPOSITED, new Eventos.MovimientoWallet(
+                        Eventos.TipoMovimiento.DEPOSITO, userId, monto, nuevoSaldo, motivoLedger));
+            }
+            return new ResultadoTransaccionAdmin(userId, tipo, aprobar, monto, nuevoSaldo);
+
+        } catch (ServicioException e) {
+            rollbackSilencioso(conn);
+            throw e;
+        } catch (SQLException e) {
+            rollbackSilencioso(conn);
+            logger.error("❌ Error en procesarTransaccionAdmin id={}: {}", transId, e.getMessage());
+            throw ServicioException.respuestaConError("Error interno al procesar la transacción");
+        } finally {
+            cerrarConexion(conn);
+        }
+    }
+
+    /**
+     * C4: Acredita un pago de Wompi y marca su transacción como {@code completado} en UNA sola transacción SQL.
+     * Si la transacción ya fue completada por un webhook previo, retorna {@code null} sin duplicar ni fallar. // REVIEW-MONEY
+     */
+    public WalletResult acreditarDepositoWompi(String reference, long pagadoCentavos,
+                                               java.util.function.Function<BigDecimal, Long> calculadorCentavos) {
+        Connection conn = null;
+        try {
+            conn = db.getConnection();
+            conn.setAutoCommit(false);
+
+            int userId;
+            BigDecimal monto;
+            String estado;
+
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT usuario_id, monto, estado FROM transactions WHERE referencia = ? AND tipo = 'deposito' FOR UPDATE")) {
+                ps.setString(1, reference);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        return null;
+                    }
+                    userId = rs.getInt("usuario_id");
+                    monto = rs.getBigDecimal("monto");
+                    estado = rs.getString("estado");
+                }
+            }
+
+            if (!"pendiente".equals(estado)) {
+                conn.rollback();
+                return null; // Idempotente: ya fue acreditada antes
+            }
+
+            long esperadoCentavos = calculadorCentavos.apply(monto);
+            if (pagadoCentavos != esperadoCentavos) {
+                conn.rollback();
+                logger.error("⚠️ Webhook Wompi rechazado ref {}: monto en centavos recibido ({}) != esperado ({})",
+                        reference, pagadoCentavos, esperadoCentavos);
+                throw ServicioException.solicitudInvalida("El monto pagado no coincide con la transacción registrada");
+            }
+
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE transactions SET estado = 'completado' WHERE referencia = ? AND tipo = 'deposito' AND estado = 'pendiente'")) {
+                ps.setString(1, reference);
+                if (ps.executeUpdate() == 0) {
+                    conn.rollback();
+                    return null;
+                }
+            }
+
+            BigDecimal saldoAnterior = leerSaldoBloqueando(conn, userId);
+            if (saldoAnterior == null) {
+                conn.rollback();
+                throw ServicioException.interno("Usuario de transacción Wompi no encontrado", null);
+            }
+
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE users SET saldo = saldo + ? WHERE id = ?")) {
+                ps.setBigDecimal(1, monto);
+                ps.setInt(2, userId);
+                if (ps.executeUpdate() == 0) {
+                    conn.rollback();
+                    throw ServicioException.interno("No se pudo acreditar el saldo Wompi", null);
+                }
+            }
+
+            BigDecimal nuevoSaldo = saldoAnterior.add(monto);
+            String motivo = "Pago Wompi ref:" + reference;
+            insertarLedger(conn, userId, TIPO_DEPOSITO, monto, saldoAnterior, nuevoSaldo, motivo);
+
+            conn.commit();
+            logger.info("💰 WOMPI ACREDITADO userId={} monto={} ref='{}' nuevoSaldo={}",
+                    userId, monto, reference, nuevoSaldo);
+            emitirEvento(Eventos.WALLET_DEPOSITED, new Eventos.MovimientoWallet(
+                    Eventos.TipoMovimiento.DEPOSITO, userId, monto, nuevoSaldo, motivo));
+            return WalletResult.ok(nuevoSaldo);
+
+        } catch (ServicioException e) {
+            rollbackSilencioso(conn);
+            throw e;
+        } catch (SQLException e) {
+            rollbackSilencioso(conn);
+            logger.error("❌ Error SQL en acreditarDepositoWompi ref={}: {}", reference, e.getMessage());
+            throw ServicioException.interno("Error de base de datos al procesar pago Wompi", e);
         } finally {
             cerrarConexion(conn);
         }
@@ -345,6 +775,18 @@ public class WalletService {
     // REVIEW-MONEY
     public LiquidacionResult liquidar(int idGanador, int idPerdedor, BigDecimal monto,
                                        int matchDbId, String razonComision) {
+        return liquidar(idGanador, idPerdedor, monto, matchDbId, razonComision, null, null, null);
+    }
+
+    /**
+     * C2: Liquida el resultado de una partida de forma idempotente: si se indica {@code estadoEsperadoMatch}
+     * ('en_curso' para API, 'disputa' para resolución de admin), cambia {@code matches.estado = 'finalizada'}
+     * con {@code WHERE id = ? AND estado = ?} DENTRO de la misma transacción SQL antes de pagar.
+     * Si la partida ya había sido liquidada antes, hace rollback inmediato evitando cualquier doble pago. // REVIEW-MONEY
+     */
+    public LiquidacionResult liquidar(int idGanador, int idPerdedor, BigDecimal monto,
+                                       int matchDbId, String razonComision,
+                                       String estadoEsperadoMatch, String ganadorNombre, String culpableNombre) {
         if (monto == null || monto.compareTo(BigDecimal.ZERO) <= 0) {
             return LiquidacionResult.fail("Monto inválido");
         }
@@ -353,6 +795,22 @@ public class WalletService {
         try {
             conn = db.getConnection();
             conn.setAutoCommit(false);
+
+            // 0. Guarda atómica de idempotencia sobre la fila de matches (C2)
+            if (matchDbId > 0 && estadoEsperadoMatch != null) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE matches SET estado = 'finalizada', ganador = COALESCE(?, ganador) " +
+                        "WHERE id = ? AND estado = ?")) {
+                    ps.setString(1, ganadorNombre);
+                    ps.setInt(2, matchDbId);
+                    ps.setString(3, estadoEsperadoMatch);
+                    int updated = ps.executeUpdate();
+                    if (updated == 0) {
+                        conn.rollback();
+                        return LiquidacionResult.fail("La partida #" + matchDbId + " ya fue procesada o no está en estado '" + estadoEsperadoMatch + "'");
+                    }
+                }
+            }
 
             // --- Cálculo de comisiones: única fuente de verdad en ComisionService (D4) ---
             ComisionService.Desglose desglose = comisiones.calcular(monto);
@@ -370,8 +828,12 @@ public class WalletService {
 
             String detalle = "Match #" + matchDbId;
 
-            // D3: leer saldo del ganador ANTES del pago
-            BigDecimal saldoAnteriorGanador = leerSaldo(conn, idGanador);
+            // D3 / M3: leer y bloquear saldo del ganador ANTES del pago
+            BigDecimal saldoAnteriorGanador = leerSaldoBloqueando(conn, idGanador);
+            if (saldoAnteriorGanador == null) {
+                conn.rollback();
+                return LiquidacionResult.fail("Ganador no encontrado");
+            }
 
             // 1. Pagar al ganador
             try (PreparedStatement ps = conn.prepareStatement(
@@ -401,10 +863,14 @@ public class WalletService {
                 ps.executeUpdate();
             }
 
-            // 3. Estadísticas de victoria/derrota
+            // 3. Estadísticas de victoria/derrota (normales o por disputa dentro de la misma transacción)
+            boolean esDisputa = "disputa".equals(estadoEsperadoMatch) || "comision_disputa".equals(razonComision);
+            String colVictoria = esDisputa ? "victorias_disputa" : "victorias_normales";
+            String colDerrota = esDisputa ? "derrotas_disputa" : "derrotas_normales";
+
             try (PreparedStatement ps = conn.prepareStatement(
                     "UPDATE users SET total_victorias = total_victorias + 1, " +
-                    "victorias_normales = victorias_normales + 1, total_partidas = total_partidas + 1, " +
+                    colVictoria + " = " + colVictoria + " + 1, total_partidas = total_partidas + 1, " +
                     "victorias_dia = victorias_dia + 1, victorias_semana = victorias_semana + 1, " +
                     "victorias_mes = victorias_mes + 1, victorias_ano = victorias_ano + 1 WHERE id = ?")) {
                 ps.setInt(1, idGanador);
@@ -412,9 +878,17 @@ public class WalletService {
             }
             try (PreparedStatement ps = conn.prepareStatement(
                     "UPDATE users SET total_derrotas = total_derrotas + 1, " +
-                    "derrotas_normales = derrotas_normales + 1, total_partidas = total_partidas + 1 WHERE id = ?")) {
+                    colDerrota + " = " + colDerrota + " + 1, total_partidas = total_partidas + 1 WHERE id = ?")) {
                 ps.setInt(1, idPerdedor);
                 ps.executeUpdate();
+            }
+
+            if (esDisputa && culpableNombre != null && !"nadie".equals(culpableNombre)) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE users SET faltas = faltas + 1 WHERE username = ?")) {
+                    ps.setString(1, culpableNombre);
+                    ps.executeUpdate();
+                }
             }
 
             // 4. Registrar comisiones en admin_wallet (una fila por categoría del desglose)
@@ -434,8 +908,8 @@ public class WalletService {
                 ps.executeUpdate();
             }
 
-            // 6. Leer saldo final del ganador
-            BigDecimal nuevoSaldoGanador = leerSaldo(conn, idGanador);
+            // 6. Calcular saldo final exacto del ganador
+            BigDecimal nuevoSaldoGanador = saldoAnteriorGanador.add(premio);
 
             // D3: registrar en ledger — premio del ganador
             insertarLedger(conn, idGanador, TIPO_LIQUIDACION, premio,
@@ -493,8 +967,12 @@ public class WalletService {
             conn = db.getConnection();
             conn.setAutoCommit(false);
 
-            // Leer saldo anterior (D3: antes de modificar)
-            BigDecimal saldoAnterior = leerSaldo(conn, userId);
+            // Leer y bloquear saldo anterior (D3 / M3)
+            BigDecimal saldoAnterior = leerSaldoBloqueando(conn, userId);
+            if (saldoAnterior == null) {
+                conn.rollback();
+                return WalletResult.fail("Usuario no encontrado");
+            }
 
             try (PreparedStatement ps = conn.prepareStatement(
                     "UPDATE users SET saldo = saldo + ? WHERE id = ?")) {
@@ -507,7 +985,7 @@ public class WalletService {
                 }
             }
 
-            BigDecimal nuevoSaldo = leerSaldo(conn, userId);
+            BigDecimal nuevoSaldo = saldoAnterior.add(monto);
 
             // D3: registrar en ledger (inmutable, dentro de la transacción)
             insertarLedger(conn, userId, TIPO_PREMIO, monto, saldoAnterior, nuevoSaldo, motivo);
@@ -546,10 +1024,10 @@ public class WalletService {
             conn = db.getConnection();
             conn.setAutoCommit(false);
 
-            // D3: leer IDs y saldos de los admins ANTES del pago para registrar en el ledger
+            // D3 / M3: leer y bloquear IDs y saldos de los admins ANTES del pago
             List<Object[]> adminsInfo = new java.util.ArrayList<>(); // {id, saldoAnterior}
             try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT id, saldo FROM users WHERE tipo_suscripcion = 'admin'")) {
+                    "SELECT id, saldo FROM users WHERE tipo_suscripcion = 'admin' ORDER BY id ASC FOR UPDATE")) {
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
                         int adminId = rs.getInt("id");
@@ -576,6 +1054,12 @@ public class WalletService {
 
             conn.commit();
             logger.info("🎁 PREMIO ADMINS monto={} motivo='{}' admins={}", montoPorAdmin, motivo, adminsInfo.size());
+            for (Object[] info : adminsInfo) {
+                int adminId = (int) info[0];
+                BigDecimal saldoDespues = ((BigDecimal) info[1]).add(montoPorAdmin);
+                emitirEvento(Eventos.WALLET_AWARDED, new Eventos.MovimientoWallet(
+                        Eventos.TipoMovimiento.PREMIO, adminId, montoPorAdmin, saldoDespues, motivo));
+            }
             return WalletResult.ok(montoPorAdmin); // No hay un saldo específico para "todos los admins"
 
         } catch (SQLException e) {
@@ -638,7 +1122,7 @@ public class WalletService {
     // ═══════════════════════════════════════════
 
     /**
-     * Lee el saldo actual de un usuario usando una conexión existente (dentro de transacción).
+     * Lee el saldo actual de un usuario (solo lectura).
      */
     private BigDecimal leerSaldo(Connection conn, int userId) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement("SELECT saldo FROM users WHERE id = ?")) {
@@ -651,6 +1135,23 @@ public class WalletService {
             }
         }
         return BigDecimal.ZERO;
+    }
+
+    /**
+     * M3: Lee el saldo de un usuario bloqueando la fila con FOR UPDATE dentro de la transacción activa.
+     * Devuelve {@code null} si el usuario no existe.
+     */
+    private BigDecimal leerSaldoBloqueando(Connection conn, int userId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement("SELECT saldo FROM users WHERE id = ? FOR UPDATE")) {
+            ps.setInt(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    BigDecimal saldo = rs.getBigDecimal("saldo");
+                    return saldo != null ? saldo : BigDecimal.ZERO;
+                }
+            }
+        }
+        return null;
     }
 
     /**

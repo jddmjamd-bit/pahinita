@@ -10,8 +10,12 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.security.SecureRandom;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Random;
 import java.util.Set;
 
 /**
@@ -27,6 +31,9 @@ public class SorteoService {
     /** D5: tope de tickets que se pueden sumar o quitar en una sola participación. */
     private static final long TICKETS_DELTA_MAX = 1_000_000L;
     private static final BigDecimal MIL = BigDecimal.valueOf(1000);
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+    private static final Set<String> CATEGORIAS_VALIDAS = Set.of(
+            "gemas", "pass", "evoluciones", "emotes", "cartas", "comodines", "especial");
 
     private final GenericDAO db;
     private final SocketIOServer io;
@@ -114,8 +121,12 @@ public class SorteoService {
     // ------------------------------------------------------------------
 
     public void votar(int userId, String categoria) {
+        String cat = categoria == null ? "" : categoria.trim().toLowerCase();
+        if (!CATEGORIAS_VALIDAS.contains(cat)) {
+            throw ServicioException.solicitudInvalida("Categoría de encuesta no válida");
+        }
         db.update("INSERT INTO raffle_votes (user_id, categoria) VALUES (?, ?) " +
-                "ON CONFLICT (user_id) DO UPDATE SET categoria = ?", userId, categoria, categoria);
+                "ON CONFLICT (user_id) DO UPDATE SET categoria = ?", userId, cat, cat);
         io.emit("poll_updated", new JsonObject());
     }
 
@@ -132,60 +143,150 @@ public class SorteoService {
     // Participación
     // ------------------------------------------------------------------
 
-    /** Suma (delta > 0) o quita (delta < 0) tickets del usuario en un sorteo. Si se completa, ejecuta el sorteo. */
+    /**
+     * C6: Suma (delta > 0) o quita (delta < 0) tickets del usuario en un sorteo dentro de UNA sola transacción SQL
+     * con bloqueo FOR UPDATE sobre {@code raffles} y {@code user_tickets}, impidiendo fabricar o gastar tickets dobles.
+     */
     public JsonObject participar(int userId, int raffleId, int delta) {
-        // D5: la cantidad de tickets la valida el servidor (no puede ser 0 ni absurda)
         if (delta == 0 || Math.abs((long) delta) > TICKETS_DELTA_MAX) {
             throw ServicioException.solicitudInvalida("La cantidad de tickets no es válida");
         }
 
-        JsonObject raffle = db.queryOne("SELECT * FROM raffles WHERE id = ? AND estado = 'activo'", raffleId);
-        if (raffle == null) throw ServicioException.solicitudInvalida("Sorteo no disponible");
+        int nuevoTotal;
+        int tActuales;
+        int tNecesarios;
+        int ticketsUsuarioFinal;
 
-        JsonObject ticketsRes = db.queryOne("SELECT cantidad FROM user_tickets WHERE user_id = ?", userId);
-        int ticketsDisponibles = ticketsRes != null ? (int) ticketsRes.get("cantidad").getAsLong() : 0;
+        Connection conn = null;
+        try {
+            conn = db.getConnection();
+            conn.setAutoCommit(false);
 
-        JsonObject entryRes = db.queryOne("SELECT tickets_asignados FROM raffle_entries WHERE raffle_id = ? AND user_id = ?", raffleId, userId);
-        int ticketsActuales = entryRes != null ? (int) entryRes.get("tickets_asignados").getAsLong() : 0;
+            // 1. Bloquear el sorteo activo
+            int ticketsActualesSorteo;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT tickets_necesarios, tickets_actuales FROM raffles WHERE id = ? AND estado = 'activo' FOR UPDATE")) {
+                ps.setInt(1, raffleId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        throw ServicioException.solicitudInvalida("Sorteo no disponible");
+                    }
+                    tNecesarios = rs.getInt("tickets_necesarios");
+                    ticketsActualesSorteo = rs.getInt("tickets_actuales");
+                }
+            }
 
-        int nuevoTotal = ticketsActuales + delta;
+            // 2. Asegurar y bloquear fila de tickets del usuario
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "INSERT INTO user_tickets (user_id, cantidad, acumulado) VALUES (?, 0, 0) ON CONFLICT (user_id) DO NOTHING")) {
+                ps.setInt(1, userId);
+                ps.executeUpdate();
+            }
+            int ticketsDisponibles;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT cantidad FROM user_tickets WHERE user_id = ? FOR UPDATE")) {
+                ps.setInt(1, userId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    ticketsDisponibles = rs.next() ? rs.getInt("cantidad") : 0;
+                }
+            }
 
-        if (nuevoTotal < 0) {
-            throw ServicioException.solicitudInvalida("No puedes quitar más tickets de los que tienes asignados");
+            // 3. Leer participación actual bloqueando si existe
+            int ticketsEnEntrada = 0;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT tickets_asignados FROM raffle_entries WHERE raffle_id = ? AND user_id = ? FOR UPDATE")) {
+                ps.setInt(1, raffleId);
+                ps.setInt(2, userId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        ticketsEnEntrada = rs.getInt("tickets_asignados");
+                    }
+                }
+            }
+
+            nuevoTotal = ticketsEnEntrada + delta;
+            if (nuevoTotal < 0) {
+                conn.rollback();
+                throw ServicioException.solicitudInvalida("No puedes quitar más tickets de los que tienes asignados");
+            }
+            if (delta > 0 && ticketsDisponibles < delta) {
+                conn.rollback();
+                throw ServicioException.solicitudInvalida("No tienes suficientes tickets disponibles");
+            }
+
+            int ticketsRestantes = tNecesarios - ticketsActualesSorteo;
+            if (delta > ticketsRestantes) {
+                conn.rollback();
+                throw ServicioException.solicitudInvalida("Solo quedan " + ticketsRestantes + " espacios");
+            }
+
+            // 4. Actualizar tickets del usuario con guarda WHERE cantidad >= ?
+            if (delta > 0) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE user_tickets SET cantidad = cantidad - ? WHERE user_id = ? AND cantidad >= ?")) {
+                    ps.setInt(1, delta);
+                    ps.setInt(2, userId);
+                    ps.setInt(3, delta);
+                    if (ps.executeUpdate() == 0) {
+                        conn.rollback();
+                        throw ServicioException.solicitudInvalida("No tienes suficientes tickets disponibles");
+                    }
+                }
+                ticketsUsuarioFinal = ticketsDisponibles - delta;
+            } else {
+                int devolver = Math.abs(delta);
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE user_tickets SET cantidad = cantidad + ? WHERE user_id = ?")) {
+                    ps.setInt(1, devolver);
+                    ps.setInt(2, userId);
+                    ps.executeUpdate();
+                }
+                ticketsUsuarioFinal = ticketsDisponibles + devolver;
+            }
+
+            // 5. Actualizar participación en raffle_entries
+            if (nuevoTotal == 0) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM raffle_entries WHERE raffle_id = ? AND user_id = ?")) {
+                    ps.setInt(1, raffleId);
+                    ps.setInt(2, userId);
+                    ps.executeUpdate();
+                }
+            } else {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO raffle_entries (raffle_id, user_id, tickets_asignados) VALUES (?, ?, ?) " +
+                        "ON CONFLICT (raffle_id, user_id) DO UPDATE SET tickets_asignados = EXCLUDED.tickets_asignados")) {
+                    ps.setInt(1, raffleId);
+                    ps.setInt(2, userId);
+                    ps.setInt(3, nuevoTotal);
+                    ps.executeUpdate();
+                }
+            }
+
+            // 6. Actualizar conteo del sorteo
+            tActuales = ticketsActualesSorteo + delta;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE raffles SET tickets_actuales = ? WHERE id = ?")) {
+                ps.setInt(1, tActuales);
+                ps.setInt(2, raffleId);
+                ps.executeUpdate();
+            }
+
+            conn.commit();
+        } catch (ServicioException e) {
+            if (conn != null) { try { conn.rollback(); } catch (SQLException ignored) {} }
+            throw e;
+        } catch (SQLException e) {
+            if (conn != null) { try { conn.rollback(); } catch (SQLException ignored) {} }
+            logger.error("Error SQL en participar sorteo #{}: {}", raffleId, e.getMessage());
+            throw ServicioException.interno("Error al actualizar participación en el sorteo", e);
+        } finally {
+            if (conn != null) {
+                try { conn.setAutoCommit(true); conn.close(); } catch (SQLException ignored) {}
+            }
         }
-        if (delta > 0 && ticketsDisponibles < delta) {
-            throw ServicioException.solicitudInvalida("No tienes suficientes tickets disponibles");
-        }
 
-        int ticketsRestantes = (int) raffle.get("tickets_necesarios").getAsLong() - (int) raffle.get("tickets_actuales").getAsLong();
-        if (delta > ticketsRestantes) {
-            throw ServicioException.solicitudInvalida("Solo quedan " + ticketsRestantes + " espacios");
-        }
-
-        // Tickets del usuario
-        if (delta > 0) {
-            db.update("UPDATE user_tickets SET cantidad = cantidad - ? WHERE user_id = ?", delta, userId);
-        } else {
-            db.update("INSERT INTO user_tickets (user_id, cantidad) VALUES (?, ?) " +
-                    "ON CONFLICT (user_id) DO UPDATE SET cantidad = user_tickets.cantidad + ?",
-                    userId, Math.abs(delta), Math.abs(delta));
-        }
-
-        // Participación
-        if (nuevoTotal == 0) {
-            db.update("DELETE FROM raffle_entries WHERE raffle_id = ? AND user_id = ?", raffleId, userId);
-        } else {
-            db.update("INSERT INTO raffle_entries (raffle_id, user_id, tickets_asignados) VALUES (?, ?, ?) " +
-                    "ON CONFLICT (raffle_id, user_id) DO UPDATE SET tickets_asignados = ?",
-                    raffleId, userId, nuevoTotal, nuevoTotal);
-        }
-
-        db.update("UPDATE raffles SET tickets_actuales = tickets_actuales + ? WHERE id = ?", delta, raffleId);
-
-        // ¿Se completó?
-        JsonObject updated = db.queryOne("SELECT tickets_actuales, tickets_necesarios FROM raffles WHERE id = ?", raffleId);
-        int tActuales = (int) updated.get("tickets_actuales").getAsLong();
-        int tNecesarios = (int) updated.get("tickets_necesarios").getAsLong();
         if (tActuales >= tNecesarios) {
             ejecutarSorteo(raffleId);
         } else {
@@ -195,10 +296,9 @@ public class SorteoService {
             io.emit("sorteo_actualizado", updateData);
         }
 
-        JsonObject newTickets = db.queryOne("SELECT cantidad FROM user_tickets WHERE user_id = ?", userId);
         JsonObject res = new JsonObject();
         res.addProperty("success", true);
-        res.addProperty("ticketsUsuario", newTickets != null ? newTickets.get("cantidad").getAsLong() : 0);
+        res.addProperty("ticketsUsuario", ticketsUsuarioFinal);
         res.addProperty("misTicketsEnSorteo", nuevoTotal);
         res.addProperty("ticketsEnSorteo", tActuales);
         return res;
@@ -292,51 +392,93 @@ public class SorteoService {
         }
     }
 
-    /** Elige al ganador (ponderado por tickets; los espacios vacíos cuentan para el admin) y avisa a todos. */
+    /**
+     * C6: Elige al ganador con {@link SecureRandom} bloqueando la fila del sorteo con {@code FOR UPDATE}
+     * para impedir que el scheduler y el último ticket ejecuten el mismo sorteo dos veces.
+     */
     public void ejecutarSorteo(int raffleId) {
+        String nombre;
+        int ganadorId;
+        String ganadorNombre = "Admin (Vacío)";
+        String emailGanador = "N/A";
+
+        Connection conn = null;
         try {
-            JsonObject raffle = db.queryOne("SELECT * FROM raffles WHERE id = ? AND estado = 'activo'", raffleId);
-            if (raffle == null) return;
+            conn = db.getConnection();
+            conn.setAutoCommit(false);
 
-            ArrayList<JsonObject> entries = db.query("SELECT * FROM raffle_entries WHERE raffle_id = ?", raffleId);
-
-            // Pool ponderado
-            ArrayList<Integer> pool = new ArrayList<>();
-            for (JsonObject entry : entries) {
-                int uid = (int) entry.get("user_id").getAsLong();
-                int tickets = (int) entry.get("tickets_asignados").getAsLong();
-                for (int i = 0; i < tickets; i++) pool.add(uid);
-            }
-
-            int tNecesarios = (int) raffle.get("tickets_necesarios").getAsLong();
-            int tActuales = (int) raffle.get("tickets_actuales").getAsLong();
-            int ticketsFaltantes = tNecesarios - tActuales;
-            for (int i = 0; i < ticketsFaltantes; i++) pool.add(-1);
-
-            if (pool.isEmpty()) return;
-
-            int ganadorId = pool.get(new Random().nextInt(pool.size()));
-
-            String ganadorNombre = "Admin (Vacío)";
-            String emailGanador = "N/A";
-
-            if (ganadorId != -1) {
-                JsonObject ganador = db.queryOne("SELECT username, email, telefono, player_tag FROM users WHERE id = ?", ganadorId);
-                if (ganador != null) {
-                    ganadorNombre = ganador.get("username").getAsString();
-                    emailGanador = ganador.get("email").getAsString();
+            int tNecesarios;
+            int tActuales;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT nombre, tickets_necesarios, tickets_actuales FROM raffles WHERE id = ? AND estado = 'activo' FOR UPDATE")) {
+                ps.setInt(1, raffleId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        return;
+                    }
+                    nombre = rs.getString("nombre");
+                    tNecesarios = rs.getInt("tickets_necesarios");
+                    tActuales = rs.getInt("tickets_actuales");
                 }
             }
 
-            if (ganadorId == -1) {
-                db.update("UPDATE raffles SET estado = 'completado', ganador_id = NULL, ganador_nombre = ?, fecha_completado = NOW() WHERE id = ?",
-                        ganadorNombre, raffleId);
-            } else {
-                db.update("UPDATE raffles SET estado = 'completado', ganador_id = ?, ganador_nombre = ?, fecha_completado = NOW() WHERE id = ?",
-                        ganadorId, ganadorNombre, raffleId);
+            ArrayList<Integer> pool = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT user_id, tickets_asignados FROM raffle_entries WHERE raffle_id = ? ORDER BY id ASC")) {
+                ps.setInt(1, raffleId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        int uid = rs.getInt("user_id");
+                        int tickets = rs.getInt("tickets_asignados");
+                        for (int i = 0; i < tickets; i++) pool.add(uid);
+                    }
+                }
             }
 
-            String nombre = raffle.get("nombre").getAsString();
+            int ticketsFaltantes = Math.max(0, tNecesarios - tActuales);
+            for (int i = 0; i < ticketsFaltantes; i++) pool.add(-1);
+
+            if (pool.isEmpty()) {
+                conn.rollback();
+                return;
+            }
+
+            ganadorId = pool.get(SECURE_RANDOM.nextInt(pool.size()));
+
+            if (ganadorId != -1) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT username, email FROM users WHERE id = ?")) {
+                    ps.setInt(1, ganadorId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next()) {
+                            ganadorNombre = rs.getString("username");
+                            emailGanador = rs.getString("email");
+                        }
+                    }
+                }
+            }
+
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE raffles SET estado = 'completado', ganador_id = ?, ganador_nombre = ?, fecha_completado = NOW() " +
+                    "WHERE id = ? AND estado = 'activo'")) {
+                if (ganadorId == -1) {
+                    ps.setNull(1, java.sql.Types.INTEGER);
+                } else {
+                    ps.setInt(1, ganadorId);
+                }
+                ps.setString(2, ganadorNombre);
+                ps.setInt(3, raffleId);
+                if (ps.executeUpdate() == 0) {
+                    conn.rollback();
+                    return;
+                }
+            }
+
+            conn.commit();
+
+            correo.notificarAdmin("SORTEO COMPLETADO: " + nombre,
+                    "Ganador: " + ganadorNombre + " | Email: " + emailGanador);
             correo.notificarAdmin("SORTEO COMPLETADO: " + nombre,
                     "Ganador: " + ganadorNombre + " | Email: " + emailGanador);
 
@@ -353,7 +495,12 @@ public class SorteoService {
 
             logger.info("🏆 Sorteo #{} completado. Ganador: {}", raffleId, ganadorNombre);
         } catch (Exception e) {
+            if (conn != null) { try { conn.rollback(); } catch (SQLException ignored) {} }
             logger.error("Error ejecutando sorteo: " + e.getMessage());
+        } finally {
+            if (conn != null) {
+                try { conn.setAutoCommit(true); conn.close(); } catch (SQLException ignored) {}
+            }
         }
     }
 

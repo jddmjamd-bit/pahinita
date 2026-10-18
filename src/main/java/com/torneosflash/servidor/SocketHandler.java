@@ -239,8 +239,7 @@ public class SocketHandler {
                     }
 
                 } catch (Exception e) {
-                    logger.error("Error registrar_socket: " + e.getMessage());
-                    e.printStackTrace();
+                    logger.error("Error registrar_socket: {}", e.getMessage(), e);
                 }
             });
 
@@ -363,8 +362,7 @@ public class SocketHandler {
                     intentarMatcheo(client, userId, row);
 
                 } catch (Exception e) {
-                    logger.error("Error buscar_partida: " + e.getMessage());
-                    e.printStackTrace();
+                    logger.error("Error buscar_partida: {}", e.getMessage(), e);
                 }
             });
 
@@ -460,8 +458,7 @@ public class SocketHandler {
                         client.emit("esperando_inicio_rival");
                     }
                 } catch (Exception e) {
-                    logger.error("Error iniciar_juego: " + e.getMessage());
-                    e.printStackTrace();
+                    logger.error("Error iniciar_juego: {}", e.getMessage(), e);
                 }
             });
 
@@ -484,115 +481,111 @@ public class SocketHandler {
             // --- RESPUESTA DE CONFIRMACION ---
             socket.on("confirmar_partida_resp", (client, data) -> {
                 try {
+                    if (client.getUserData() == null || !client.getUserData().has("id")) return;
                     JsonObject d = ((JsonElement) data[0]).getAsJsonObject();
                     boolean acepta = d.get("acepta").getAsBoolean();
                     String salaId = client.getCurrentRoom();
                     if (salaId == null || !activeMatches.containsKey(salaId)) return;
                     ActiveMatch match = activeMatches.get(salaId);
-                    if (match.iniciado) return;
 
                     int myId = client.getUserData().get("id").getAsInt();
+                    if (myId != match.player1Id && myId != match.player2Id) return;
 
-                    if (!acepta) {
-                        // Alguien rechazó la confirmación
-                        match.votosInicio.clear();
-                        match.confirmaciones.clear();
-                        persistirMatchEnBD(salaId, match);
-                        io.to(salaId).emit("confirmacion_rechazada");
-                        return;
-                    }
+                    // C1: Candado por partida para impedir doble inicio y doble cobro si ambos confirman a la vez
+                    synchronized (match) {
+                        if (match.iniciado) return;
 
-                    match.confirmaciones.put(myId, true);
-                    persistirMatchEnBD(salaId, match);
-
-                    List<Integer> ids = match.playerIds();
-                    if (ids.size() == 2 && match.confirmaciones.size() == 2
-                            && Boolean.TRUE.equals(match.confirmaciones.get(ids.get(0)))
-                            && Boolean.TRUE.equals(match.confirmaciones.get(ids.get(1)))) {
-                        // Ambos confirmaron, iniciar el juego de verdad
-                        // D1 / D5: al cobrar, ambos votos deben existir y coincidir en BigDecimal // REVIEW-MONEY
-                        JsonObject voto1 = match.votosInicio.get(ids.get(0));
-                        JsonObject voto2 = match.votosInicio.get(ids.get(1));
-                        if (voto1 == null || voto2 == null
-                                || voto1.get("dinero").getAsBigDecimal().compareTo(voto2.get("dinero").getAsBigDecimal()) != 0) {
-                            io.to(salaId).emit("error_negociacion", new JsonPrimitive("Los montos de ambos jugadores no coinciden"));
+                        if (!acepta) {
                             match.votosInicio.clear();
                             match.confirmaciones.clear();
                             persistirMatchEnBD(salaId, match);
+                            io.to(salaId).emit("confirmacion_rechazada");
                             return;
                         }
 
-                        BigDecimal montoTorneo = voto1.get("dinero").getAsBigDecimal(); // REVIEW-MONEY
-                        String modo = voto1.has("modo") ? voto1.get("modo").getAsString() : "N/A";
-
-                        // D5: antes de cobrarle a alguien, los dos deben tener saldo para el monto acordado // REVIEW-MONEY
-                        // (el cobro real sigue protegido por WHERE saldo >= ? dentro de WalletService)
-                        for (int pid : ids) {
-                            if (wallet.obtenerSaldo(pid).compareTo(montoTorneo) < 0) {
-                                io.to(salaId).emit("error_negociacion", new JsonPrimitive("Saldo insuficiente para " + match.getUsername(pid)));
-                                match.votosInicio.clear();
-                                match.confirmaciones.clear();
-                                persistirMatchEnBD(salaId, match);
-                                return;
-                            }
-                        }
-
-                        match.iniciado = true;
-                        match.matchStartTime = java.time.Instant.now().toString();
-                        match.monto = montoTorneo;
-
-                        // Obtener tags
-                        JsonObject p1 = db.queryOne("SELECT player_tag FROM users WHERE id = ?", ids.get(0));
-                        JsonObject p2 = db.queryOne("SELECT player_tag FROM users WHERE id = ?", ids.get(1));
-                        match.playerTag1 = p1 != null && p1.has("player_tag") && !p1.get("player_tag").isJsonNull() ? p1.get("player_tag").getAsString() : "";
-                        match.playerTag2 = p2 != null && p2.has("player_tag") && !p2.get("player_tag").isJsonNull() ? p2.get("player_tag").getAsString() : "";
-
-                        // Descontar saldo atómicamente via WalletService // REVIEW-MONEY
-                        for (int pid : ids) {
-                            WalletResult torneoResult = wallet.realizarTorneo(pid, montoTorneo);
-                            if (!torneoResult.isSuccess()) {
-                                io.to(salaId).emit("error_negociacion", new JsonPrimitive("Saldo insuficiente para " + match.getUsername(pid)));
-                                match.votosInicio.clear();
-                                match.confirmaciones.clear();
-                                match.iniciado = false;
-                                persistirMatchEnBD(salaId, match);
-                                return;
-                            }
-                            SocketIOClient pSock = buscarSocketJugador(match, pid);
-                            if (pSock != null) {
-                                if (pSock.getUserData() != null) {
-                                    pSock.getUserData().addProperty("saldo", torneoResult.getNuevoSaldo());
-                                }
-                                pSock.emit("actualizar_saldo", new JsonPrimitive(torneoResult.getNuevoSaldo()));
-                            }
-                        }
-
-                        // Crear match en BD
-                        String j1 = match.player1Username;
-                        String j2 = match.player2Username;
-
-                        int dbId = db.insertReturningId("INSERT INTO matches (jugador1, jugador2, modo, monto) VALUES (?, ?, ?, ?) RETURNING id",
-                                j1, j2, modo, match.monto);
-                        match.dbId = dbId;
-
-                        db.update("UPDATE users SET estado = 'jugando', sala_actual = ? WHERE id IN (?, ?)",
-                                salaId, match.player1Id, match.player2Id);
+                        match.confirmaciones.put(myId, true);
                         persistirMatchEnBD(salaId, match);
 
-                        JsonObject inicioData = new JsonObject();
-                        inicioData.addProperty("monto", match.monto);
-                        inicioData.addProperty("matchId", dbId);
-                        io.to(salaId).emit("juego_iniciado", inicioData);
-                        // Roadmap 84: se avisa al bus que la partida empezó (el listener de voz prepara el canal de Discord).
-                        // emit() no lanza y el listener trabaja en el pool de IO, así que no retrasa ni rompe el inicio de la partida.
-                        if (dbId > 0) eventos.emit(Eventos.MATCH_STARTED, new Eventos.PartidaIniciada(dbId, ids));
-                        logClash("🎮 INICIO #" + dbId + " | $" + match.monto.toPlainString() + " | Buscando resultado via API...");
+                        List<Integer> ids = match.playerIds();
+                        if (ids.size() == 2 && match.confirmaciones.size() == 2
+                                && Boolean.TRUE.equals(match.confirmaciones.get(ids.get(0)))
+                                && Boolean.TRUE.equals(match.confirmaciones.get(ids.get(1)))) {
+                            // Ambos confirmaron, iniciar el juego de verdad
+                            JsonObject voto1 = match.votosInicio.get(ids.get(0));
+                            JsonObject voto2 = match.votosInicio.get(ids.get(1));
+                            if (voto1 == null || voto2 == null
+                                    || voto1.get("dinero").getAsBigDecimal().compareTo(voto2.get("dinero").getAsBigDecimal()) != 0) {
+                                io.to(salaId).emit("error_negociacion", new JsonPrimitive("Los montos de ambos jugadores no coinciden"));
+                                match.votosInicio.clear();
+                                match.confirmaciones.clear();
+                                persistirMatchEnBD(salaId, match);
+                                return;
+                            }
 
-                        // Iniciar polling de la API
-                        iniciarPollingApi(salaId, match, ids);
+                            BigDecimal montoTorneo = voto1.get("dinero").getAsBigDecimal(); // REVIEW-MONEY
+                            String modo = voto1.has("modo") ? ChatSanitizer.limpiarTexto(voto1.get("modo").getAsString(), 50) : "N/A";
+                            if (modo.isEmpty()) modo = "N/A";
+
+                            // Obtener tags antes de cobrar (C5: ambos deben tener Player Tag configurado)
+                            JsonObject p1 = db.queryOne("SELECT player_tag FROM users WHERE id = ?", match.player1Id);
+                            JsonObject p2 = db.queryOne("SELECT player_tag FROM users WHERE id = ?", match.player2Id);
+                            String tag1 = p1 != null && p1.has("player_tag") && !p1.get("player_tag").isJsonNull() ? p1.get("player_tag").getAsString().trim() : "";
+                            String tag2 = p2 != null && p2.has("player_tag") && !p2.get("player_tag").isJsonNull() ? p2.get("player_tag").getAsString().trim() : "";
+                            if (tag1.isEmpty() || tag2.isEmpty()) {
+                                io.to(salaId).emit("error_negociacion", new JsonPrimitive("Ambos jugadores deben tener un Player Tag válido para iniciar la partida"));
+                                match.votosInicio.clear();
+                                match.confirmaciones.clear();
+                                persistirMatchEnBD(salaId, match);
+                                return;
+                            }
+
+                            // C1: Cobrar a ambos jugadores y crear el registro en matches en UNA sola transacción SQL // REVIEW-MONEY
+                            WalletService.InicioPartidaResult inicioResult = wallet.iniciarPartidaTorneo(
+                                    match.player1Id, match.player1Username,
+                                    match.player2Id, match.player2Username,
+                                    salaId, modo, montoTorneo);
+                            if (!inicioResult.success) {
+                                io.to(salaId).emit("error_negociacion", new JsonPrimitive(inicioResult.error));
+                                match.votosInicio.clear();
+                                match.confirmaciones.clear();
+                                persistirMatchEnBD(salaId, match);
+                                return;
+                            }
+
+                            match.iniciado = true;
+                            match.matchStartTime = java.time.Instant.now().toString();
+                            match.monto = montoTorneo;
+                            match.playerTag1 = tag1;
+                            match.playerTag2 = tag2;
+                            match.dbId = inicioResult.matchId;
+
+                            persistirMatchEnBD(salaId, match);
+
+                            // Notificar saldos actualizados a ambos jugadores
+                            SocketIOClient sock1 = buscarSocketJugador(match, match.player1Id);
+                            if (sock1 != null) {
+                                if (sock1.getUserData() != null) sock1.getUserData().addProperty("saldo", inicioResult.nuevoSaldoJugador1);
+                                sock1.emit("actualizar_saldo", new JsonPrimitive(inicioResult.nuevoSaldoJugador1));
+                            }
+                            SocketIOClient sock2 = buscarSocketJugador(match, match.player2Id);
+                            if (sock2 != null) {
+                                if (sock2.getUserData() != null) sock2.getUserData().addProperty("saldo", inicioResult.nuevoSaldoJugador2);
+                                sock2.emit("actualizar_saldo", new JsonPrimitive(inicioResult.nuevoSaldoJugador2));
+                            }
+
+                            JsonObject inicioData = new JsonObject();
+                            inicioData.addProperty("monto", match.monto);
+                            inicioData.addProperty("matchId", match.dbId);
+                            io.to(salaId).emit("juego_iniciado", inicioData);
+                            if (match.dbId > 0) eventos.emit(Eventos.MATCH_STARTED, new Eventos.PartidaIniciada(match.dbId, ids));
+                            logClash("🎮 INICIO #" + match.dbId + " | $" + match.monto.toPlainString() + " | Buscando resultado via API...");
+
+                            // Iniciar polling de la API
+                            iniciarPollingApi(salaId, match, ids);
+                        }
                     }
                 } catch (Exception e) {
-                    logger.error("Error confirmar_partida_resp: " + e.getMessage());
+                    logger.error("Error confirmar_partida_resp: {}", e.getMessage(), e);
                 }
             });
 
@@ -1084,7 +1077,17 @@ public class SocketHandler {
                         match.pollCount, salaId);
                 logger.info("🔍 Buscando resultado #" + match.dbId + " (intento " + match.pollCount + "/" + MAX_POLLS + ")");
 
-                if (match.playerTag1.isEmpty() || match.playerTag2.isEmpty()) return;
+                // C5: Si falta algún Player Tag, no dejar la partida colgada: pasar a disputa de inmediato
+                if (match.playerTag1.isEmpty() || match.playerTag2.isEmpty()) {
+                    match.pollFuture.cancel(false);
+                    db.update("UPDATE matches SET estado = 'disputa' WHERE id = ? AND estado = 'en_curso'", match.dbId);
+                    logClash("🚨 DISPUTA #" + match.dbId + " (Player Tag faltante)");
+                    JsonObject disputaData = new JsonObject();
+                    disputaData.addProperty("mensaje", "Falta el Player Tag de un jugador. Disputa creada para revisión.");
+                    io.to(salaId).emit("disputa_creada", disputaData);
+                    liberarJugadores(salaId, match);
+                    return;
+                }
 
                 JsonObject battleResult = clashApi.findMatchingBattle(match.playerTag1, match.playerTag2, match.matchStartTime);
 
@@ -1109,7 +1112,7 @@ public class SocketHandler {
 
                     if (idGanador == 0) {
                         // Disputa
-                        db.update("UPDATE matches SET estado = 'disputa' WHERE id = ?", match.dbId);
+                        db.update("UPDATE matches SET estado = 'disputa' WHERE id = ? AND estado = 'en_curso'", match.dbId);
                         logClash("🚨 DISPUTA #" + match.dbId);
                         JsonObject disputaData = new JsonObject();
                         disputaData.addProperty("mensaje", "Resultado no claro, disputa creada.");
@@ -1118,14 +1121,14 @@ public class SocketHandler {
                         return;
                     }
 
-                    // Liquidar partida atómicamente via WalletService // REVIEW-MONEY
+                    // C2: Liquidar partida y marcarla 'finalizada' (WHERE estado = 'en_curso') en UNA sola transacción // REVIEW-MONEY
                     int idPerdedor = (idGanador == ids.get(0)) ? ids.get(1) : ids.get(0);
                     LiquidacionResult liq = wallet.liquidar(idGanador, idPerdedor,
-                            match.monto, match.dbId, "comision_match");
+                            match.monto, match.dbId, "comision_match", "en_curso", winnerName, null);
 
                     if (!liq.success) {
                         logger.error("❌ Error liquidando match #{}: {}", match.dbId, liq.error);
-                        db.update("UPDATE matches SET estado = 'disputa' WHERE id = ?", match.dbId);
+                        db.update("UPDATE matches SET estado = 'disputa' WHERE id = ? AND estado = 'en_curso'", match.dbId);
                         JsonObject errData = new JsonObject();
                         errData.addProperty("mensaje", "Error al liquidar. Disputa creada.");
                         io.to(salaId).emit("disputa_creada", errData);
@@ -1138,7 +1141,6 @@ public class SocketHandler {
                         winnerSocket.getUserData().addProperty("saldo", liq.nuevoSaldoGanador);
                     }
 
-                    db.update("UPDATE matches SET estado = 'finalizada', ganador = ? WHERE id = ?", winnerName, match.dbId);
                     logClash("🏆 GANADOR API #" + match.dbId + ": " + winnerName);
 
                     // A4: la liquidación y el match ya están confirmados en la BD; se avisa al bus y los listeners hacen el resto

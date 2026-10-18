@@ -306,34 +306,8 @@ public class Main {
             }
         }, 1, 1, TimeUnit.MINUTES);
 
-        // Leaderboard reset check cada minuto
-        final String[] ultimoReset = { null, null, null, null }; // dia, semana, mes, año
-        scheduler.scheduleAtFixedRate(() -> {
-            Calendar cal = Calendar.getInstance();
-            int hora = cal.get(Calendar.HOUR_OF_DAY);
-            int minuto = cal.get(Calendar.MINUTE);
-            int diaSemana = cal.get(Calendar.DAY_OF_WEEK);
-            int diaDelMes = cal.get(Calendar.DAY_OF_MONTH);
-            int mes = cal.get(Calendar.MONTH);
-            String hoy = new java.text.SimpleDateFormat("yyyy-MM-dd").format(cal.getTime());
-
-            if (hora == 0 && minuto == 0 && !hoy.equals(ultimoReset[0])) {
-                ultimoReset[0] = hoy;
-                leaderboardService.premiarYResetear("dia", "victorias_dia");
-            }
-            if (hora == 0 && minuto == 0 && diaSemana == Calendar.MONDAY && !hoy.equals(ultimoReset[1])) {
-                ultimoReset[1] = hoy;
-                leaderboardService.premiarYResetear("semana", "victorias_semana");
-            }
-            if (hora == 0 && minuto == 0 && diaDelMes == 1 && !hoy.equals(ultimoReset[2])) {
-                ultimoReset[2] = hoy;
-                leaderboardService.premiarYResetear("mes", "victorias_mes");
-            }
-            if (hora == 0 && minuto == 0 && diaDelMes == 1 && mes == Calendar.JANUARY && !hoy.equals(ultimoReset[3])) {
-                ultimoReset[3] = hoy;
-                leaderboardService.premiarYResetear("ano", "victorias_ano");
-            }
-        }, 1, 1, TimeUnit.MINUTES);
+        // C7: Verificar cierres del leaderboard cada minuto (hora Colombia America/Bogota, persistido en BD)
+        scheduler.scheduleAtFixedRate(leaderboardService::verificarYCerrarPeriodos, 1, 1, TimeUnit.MINUTES);
 
         // ============================================
         // SPA Fallback (Para React Router)
