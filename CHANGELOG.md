@@ -11,6 +11,14 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Añadir backup y restauración completa de PostgreSQL (GPT-6)
+- **Backup nativo**: el panel crea un archivo custom de `pg_dump` con esquema y datos completos, incluidos hashes, tokens y finanzas; lo transmite sin mantenerlo en el contenedor después de descargarlo.
+- **Restore validado**: la ruta comprueba formato y tablas financieras requeridas antes de pausar el tráfico, usa advisory locks de PostgreSQL para coordinar todas las instancias y serializar backups/restores, y restaura con `pg_restore --single-transaction`; luego aplica migraciones Flyway. Si Flyway falla, deja la API bloqueada hasta corregir y reiniciar.
+- **Seguridad y límites**: frase de confirmación validada en cliente y servidor, archivos temporales privados, límite `DB_ADMIN_MAX_BACKUP_BYTES` (default 1 GiB, rango 1 MiB–10 GiB) y advertencia para aceptar únicamente archivos de confianza. El backup cubre la base de la aplicación, no roles ni tablespaces globales.
+- **Docker y documentación**: runtime incluye Java 17 y herramientas PostgreSQL 18; documentados permisos requeridos, alcance y operación en `ARCHITECTURE.md`.
+- **Verificación**: `mvnw clean compile -DskipTests` terminó con `BUILD SUCCESS` y el JavaScript inline del panel pasó `node --check`. No se ejecutaron pruebas ni un restore contra una base real.
+Archivos: `PostgresBackupService.java`, `DbAdminService.java`, `ConexionDB.java`, `AppConfig.java`, `RutasDbAdmin.java`, `Main.java`, `admin-db.html`, `Dockerfile`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-19 — Evitar referencias duplicadas en recargas Wompi (GPT-6)
 - **Migración Flyway `V12__referencias_wompi_unicas.sql`**: agrega un índice único parcial para las referencias de depósitos Wompi. Si ya hay duplicados históricos, la migración se detiene y muestra referencias para conciliarlas; no reasigna ni elimina pagos automáticamente.
 - **`FinanzasService.java`**: inserta la recarga con `ON CONFLICT` y vuelve a generar la referencia hasta cinco veces si otra solicitud ganó la misma referencia. Los intentos en conflicto no crean transacciones pendientes; si no logra una referencia única, responde con error reintentable.

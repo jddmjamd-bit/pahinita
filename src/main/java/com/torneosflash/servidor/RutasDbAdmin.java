@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.ConcurrentHashMap;
@@ -117,6 +118,14 @@ public class RutasDbAdmin {
             verificarClave(ctx, huellaClave, saltosProxy);
         });
 
+        // Una restauración bloquea las consultas HTTP normales mientras reemplaza el esquema y los datos.
+        app.before("/api/*", ctx -> {
+            if (!dbAdmin.isRestauracionActiva() || "OPTIONS".equalsIgnoreCase(ctx.req().getMethod())) return;
+            ctx.status(503).header("Retry-After", "60")
+                    .json(errorJson("La base de datos está en mantenimiento por una restauración completa."));
+            ctx.skipRemainingHandlers();
+        });
+
         // GET /api/db-admin/tables
         app.get("/api/db-admin/tables", ctx -> ctx.json(dbAdmin.listarTablas()));
 
@@ -147,6 +156,30 @@ public class RutasDbAdmin {
 
         // GET /api/db-admin/export
         app.get("/api/db-admin/export", ctx -> ctx.json(dbAdmin.exportar()));
+
+        // GET /api/db-admin/backup/full — archivo nativo PostgreSQL custom, descargado sin cargarlo en memoria.
+        app.get("/api/db-admin/backup/full", ctx -> {
+            try (var backup = dbAdmin.crearBackupCompleto()) {
+                ctx.status(200);
+                ctx.contentType("application/octet-stream");
+                ctx.header("Cache-Control", "no-store");
+                ctx.header("Content-Disposition", "attachment; filename=\"" + backup.getNombre() + "\"");
+                ctx.res().setContentLengthLong(backup.getBytes());
+                try (InputStream entrada = Files.newInputStream(backup.getArchivo());
+                     OutputStream salida = ctx.res().getOutputStream()) {
+                    entrada.transferTo(salida);
+                    salida.flush();
+                }
+            }
+        });
+
+        // POST /api/db-admin/restore/full — el archivo se valida antes de entrar en mantenimiento.
+        app.post("/api/db-admin/restore/full", ctx -> {
+            JsonObject resultado = dbAdmin.restaurarBackupCompleto(
+                    ctx.req().getInputStream(), ctx.req().getContentLengthLong(),
+                    ctx.header("X-DB-Admin-Confirm"));
+            ctx.json(resultado);
+        });
 
         // POST /api/db-admin/import
         app.post("/api/db-admin/import", ctx -> {

@@ -73,7 +73,8 @@ TorneosFlash/
 │   │   ├── SorteoService.java       # Tickets, encuesta, participar, crear/eliminar y ejecutar sorteos, tickets por partida (A3)
 │   │   ├── LeaderboardService.java  # Rankings, historial y premiar/resetear por periodo (A3)
 │   │   ├── MediaService.java        # Subida de videos y descarga con soporte Range (A3)
-│   │   ├── DbAdminService.java      # Todo el SQL del panel `/admin-db` (tablas, celdas, import/export) (A3)
+│   │   ├── DbAdminService.java      # Panel `/admin-db`; tabla, edición y export/import parcial
+│   │   ├── PostgresBackupService.java # Backup y restore PostgreSQL completo, temporal y transaccional
 │   │   ├── ChatbotService.java      # Chatbot IA: conversación, base de conocimiento, entrenamiento (la IA le pregunta al admin), dudas sin respuesta y tono. Ver sección 17
 │   │   ├── ChatbotIaCliente.java    # Cliente HTTP de la IA (Gemini u OpenAI) con timeout y tope de llamadas simultáneas
 │   │   ├── ChatbotConocimiento.java # Lógica pura: normaliza preguntas y elige qué entradas de la base ve la IA
@@ -346,10 +347,18 @@ Middleware global (`servidor/RateLimitMiddleware`, registrado en `Main` antes de
 | URL | `/admin-db` (sin clave). `/admin-db/<algo>` redirige a `/admin-db` |
 | Clave | `DB_ADMIN_SECRET`. Se escribe en la pantalla de acceso de `public/admin-db.html`, queda en `sessionStorage` (solo esa pestaña) y viaja en el header `X-DB-Admin-Key` |
 | API | `/api/db-admin/tables`, `/table/{name}[/update\|/delete\|/insert]`, `/export`, `/import` (antes llevaban la clave en la ruta) |
+| Backup completo | `GET /api/db-admin/backup/full` genera y transmite un archivo PostgreSQL custom (`pg_dump`) |
+| Restore completo | `POST /api/db-admin/restore/full` valida un `.dump`, exige `X-DB-Admin-Confirm: RESTAURAR BASE DE DATOS` y restaura en mantenimiento |
 | Sin clave configurada | Si está vacía o es la antigua `torneos2024`, el panel y su API responden 404 y se loguea un error |
 | Fuerza bruta | Comparación SHA-256 en tiempo constante; 5 fallos desde una IP → 429 durante 15 min (en memoria). Sin header = 401, no cuenta |
 | Cabeceras | `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `X-Robots-Tag: noindex`, CSP `frame-ancestors 'none'` |
 | SQL | Todo nombre de tabla/columna se valida contra `information_schema` y se cita con comillas dobles; los valores van siempre por `PreparedStatement` |
+
+El export/import JSON sigue siendo **parcial** y solo cubre tablas editables no financieras. El backup completo se genera con `pg_dump` en formato custom y conserva esquema y datos de la base de la aplicación, incluidos hashes de usuarios, tokens, transacciones, saldos y `wallet_ledger`. El servidor transmite el archivo y borra su copia temporal al terminar; descarga los respaldos a un almacenamiento externo al contenedor. El valor por defecto de `DB_ADMIN_MAX_BACKUP_BYTES` es 1 GiB (rango 1 MiB–10 GiB) y limita el archivo temporal de backup y el tamaño de subida.
+
+Para restaurar, `pg_restore --list` valida el formato y la presencia de tablas de identidad/finanzas antes de pausar el tráfico. Un segundo advisory lock serializa backups y restores entre instancias. `ConexionDB` usa locks compartidos por todas las instancias: las conexiones activas terminan antes de que la instancia restauradora adquiera el lock exclusivo, y las consultas nuevas reciben mantenimiento durante el restore. Luego ejecuta `pg_restore --clean --if-exists --single-transaction --exit-on-error`; cualquier error de PostgreSQL revierte el restore completo, manteniendo juntos usuarios/saldos, transacciones y ledger del snapshot. Después se aplican migraciones Flyway pendientes. Si Flyway falla luego de que PostgreSQL confirmó el restore, el servicio permanece bloqueado en mantenimiento para evitar servir con un esquema incompatible; corregir el error y reiniciar la aplicación.
+
+La imagen de ejecución contiene Java 17 y cliente PostgreSQL 18 (`pg_dump`/`pg_restore`). `DATABASE_URL` debe dar al rol de la aplicación permisos para crear/eliminar los objetos restaurados; se restaura como el rol actual, sin propietarios ni ACL del origen. Los roles globales y tablespaces del clúster no forman parte del backup. Solo se deben restaurar archivos propios y confiables. No se hizo una restauración contra la base de datos desplegada como parte de la implementación.
 
 ---
 
@@ -368,6 +377,7 @@ Toda configuración de despliegue se lee en `config/AppConfig` (nada de números
 | `POLLING_INTERVALO_SEGUNDOS` | `5` | 2 - 60 | Cada cuánto se consulta la API de Clash Royale por el resultado de una partida |
 | `POLLING_MAX_INTENTOS` | `120` | 1 - 10000 | Intentos máximos; espera total = intervalo x intentos (default 10 min) y luego se crea la disputa |
 | `CHAT_HISTORIAL_LIMITE` | `50` | 1 - 500 | Mensajes de historial que recibe cada canal al conectarse |
+| `DB_ADMIN_MAX_BACKUP_BYTES` | `1073741824` | 1048576–10737418240 | Límite de bytes para los archivos temporales de backup y restore completos del panel DB |
 
 - Los mensajes que ven los jugadores ("...nadie respondió en 10 minutos", "No se encontró el resultado en 10 minutos") y el campo `tiempo` de `rival_desconectado` se calculan con estos valores.
 - `DB_ADMIN_SECRET` ya no tiene valor por defecto: sin ella el panel `/admin-db` queda deshabilitado (ver docstring de `RutasDbAdmin`).

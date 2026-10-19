@@ -10,23 +10,25 @@
         
         .top-bar {
             background: #16213e; padding: 12px 20px; display: flex; align-items: center;
-            justify-content: space-between; border-bottom: 2px solid #0f3460;
+            justify-content: space-between; flex-wrap: wrap; gap: 8px; border-bottom: 2px solid #0f3460;
             position: sticky; top: 0; z-index: 100;
         }
         .top-bar h1 { font-size: 1.2rem; color: #e94560; }
-        .top-bar .actions { display: flex; gap: 8px; }
+        .top-bar .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
         .btn {
             padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer;
             font-size: 0.85rem; font-weight: 600; transition: 0.2s;
         }
         .btn:hover { transform: scale(1.03); }
         .btn-export { background: #43b581; color: #fff; }
+        .btn-backup { background: #2d9cdb; color: #fff; }
+        .btn-restore { background: #c0392b; color: #fff; }
         .btn-import { background: #faa61a; color: #000; }
         .btn-danger { background: #ed4245; color: #fff; }
         .btn-primary { background: #5865f2; color: #fff; }
         .btn-sm { padding: 4px 10px; font-size: 0.75rem; }
 
-        .layout { display: flex; height: calc(100vh - 52px); }
+        .layout { display: flex; min-height: calc(100vh - 52px); }
 
         /* Sidebar */
         .sidebar {
@@ -122,6 +124,8 @@
         }
 
         @media (max-width: 768px) {
+            .top-bar { align-items: flex-start; }
+            .top-bar .actions { justify-content: flex-start; }
             .sidebar { width: 100%; height: auto; max-height: 150px; }
             .layout { flex-direction: column; }
         }
@@ -143,6 +147,9 @@
             background: #202540; color: #fff; font-size: 0.95rem; margin-bottom: 12px;
         }
         .login-box .login-error { color: #ed4245; font-size: 0.85rem; min-height: 1.2em; margin-bottom: 10px; }
+        .confirm-phrase { width: 100%; padding: 10px; border: 1px solid #0f3460; border-radius: 6px; background: #202540; color: #fff; margin-top: 6px; }
+        .restore-warning { color: #ff7675 !important; }
+        .modal-actions .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
     </style>
 </head>
 <body>
@@ -160,6 +167,8 @@
     <div class="top-bar">
         <h1>🗄️ Panel DB</h1>
         <div class="actions">
+            <button class="btn btn-backup" onclick="backupCompleto()">💾 Backup completo</button>
+            <button class="btn btn-restore" onclick="abrirRestoreCompleto()">♻️ Restaurar PostgreSQL</button>
             <button class="btn btn-export" onclick="exportarDB()">📥 Exportar JSON</button>
             <button class="btn btn-import" onclick="abrirImport()">📤 Importar JSON</button>
             <button class="btn btn-danger" onclick="cerrarSesion('')">🔒 Salir</button>
@@ -183,7 +192,7 @@
     <div class="modal-bg" id="import-modal">
         <div class="modal">
             <h3>📤 Importar Base de Datos</h3>
-            <p>⚠️ <strong>ESTO REEMPLAZARÁ TODOS LOS DATOS</strong> con el archivo que subas. Exporta primero si quieres un backup.</p>
+            <p>Este JSON solo reemplaza las tablas editables que admite el panel. No contiene usuarios ni datos financieros.</p>
             <div class="file-drop" id="file-drop" onclick="document.getElementById('file-input').click()">
                 📁 Haz clic para seleccionar archivo JSON<br>
                 <span style="font-size:0.75rem;">o arrastra y suelta aquí</span>
@@ -195,6 +204,23 @@
             <div class="modal-actions">
                 <button class="btn btn-danger btn-sm" onclick="cerrarImport()">Cancelar</button>
                 <button class="btn btn-primary btn-sm" id="btn-confirmar-import" onclick="importarDB()" disabled>Importar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Restauración completa de PostgreSQL -->
+    <div class="modal-bg" id="full-restore-modal">
+        <div class="modal">
+            <h3>♻️ Restaurar backup completo</h3>
+            <p class="restore-warning"><strong>Se reemplazará la base de datos actual y se perderán los cambios posteriores a la fecha del backup.</strong> La API quedará en mantenimiento durante la restauración.</p>
+            <p>El backup incluye usuarios y hashes, tokens, transacciones, saldos y ledger en el mismo archivo. Si PostgreSQL encuentra un error, revierte la restauración completa.</p>
+            <p>Selecciona un archivo <code>.dump</code> creado por este panel. Solo restaura archivos de confianza: un backup puede contener instrucciones SQL. El rol de conexión debe poder reemplazar los objetos de la base.</p>
+            <input type="file" id="full-restore-file" accept=".dump,application/octet-stream">
+            <p style="margin-top:12px; margin-bottom:4px;">Escribe <strong>RESTAURAR BASE DE DATOS</strong> para confirmar:</p>
+            <input class="confirm-phrase" type="text" id="full-restore-confirm" autocomplete="off">
+            <div class="modal-actions">
+                <button class="btn btn-danger btn-sm" onclick="cerrarRestoreCompleto()">Cancelar</button>
+                <button class="btn btn-restore btn-sm" id="btn-confirmar-full-restore" onclick="restaurarCompleto()" disabled>Reemplazar base de datos</button>
             </div>
         </div>
     </div>
@@ -470,6 +496,109 @@
             } catch (e) {
                 console.error(e);
                 toast('❌ Error exportando', true);
+            }
+        }
+
+        async function backupCompleto() {
+            if (!confirm('El backup contiene datos personales, hashes de contraseña, tokens y movimientos financieros. Descárgalo y guárdalo en un lugar privado fuera del servidor. ¿Continuar?')) return;
+            toast('💾 Creando backup completo de PostgreSQL...');
+            try {
+                let destino = null;
+                if (window.showSaveFilePicker) {
+                    destino = await window.showSaveFilePicker({
+                        suggestedName: `torneosflash-postgresql-${new Date().toISOString().replace(/[:.]/g, '-')}.dump`,
+                        types: [{ description: 'Backup PostgreSQL', accept: { 'application/octet-stream': ['.dump'] } }]
+                    });
+                }
+                const res = await apiFetch('/backup/full');
+                if (!res.ok) throw new Error(await errorDeRespuesta(res));
+                const nombre = nombreArchivo(res) || `torneosflash-postgresql-${new Date().toISOString().slice(0, 10)}.dump`;
+                if (destino && res.body) {
+                    const escritura = await destino.createWritable();
+                    await res.body.pipeTo(escritura);
+                } else {
+                    const bytes = Number(res.headers.get('Content-Length') || 0);
+                    if (bytes > 256 * 1024 * 1024) {
+                        throw new Error('Este navegador no permite guardar el backup grande por streaming. Usa Chrome o Edge para evitar cargarlo completo en memoria.');
+                    }
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = nombre;
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                }
+                toast('✅ Backup completo descargado. Guárdalo fuera del servidor.');
+            } catch (e) {
+                if (e.name !== 'AbortError') {
+                    console.error(e);
+                    toast('❌ ' + (e.message || 'Error creando el backup completo'), true);
+                }
+            }
+        }
+
+        function nombreArchivo(res) {
+            const valor = res.headers.get('Content-Disposition') || '';
+            const coincidencia = valor.match(/filename="?([^";]+)"?/i);
+            return coincidencia ? coincidencia[1] : null;
+        }
+
+        async function errorDeRespuesta(res) {
+            try { const cuerpo = await res.json(); return cuerpo.error || `Error HTTP ${res.status}`; }
+            catch (e) { return `Error HTTP ${res.status}`; }
+        }
+
+        function abrirRestoreCompleto() {
+            document.getElementById('full-restore-file').value = '';
+            document.getElementById('full-restore-confirm').value = '';
+            document.getElementById('full-restore-modal').classList.add('open');
+            actualizarConfirmacionRestore();
+        }
+
+        function cerrarRestoreCompleto() {
+            document.getElementById('full-restore-modal').classList.remove('open');
+        }
+
+        function actualizarConfirmacionRestore() {
+            const archivo = document.getElementById('full-restore-file').files[0];
+            const frase = document.getElementById('full-restore-confirm').value;
+            document.getElementById('btn-confirmar-full-restore').disabled =
+                !archivo || !archivo.name.toLowerCase().endsWith('.dump') || frase !== 'RESTAURAR BASE DE DATOS';
+        }
+
+        document.getElementById('full-restore-file').addEventListener('change', actualizarConfirmacionRestore);
+        document.getElementById('full-restore-confirm').addEventListener('input', actualizarConfirmacionRestore);
+
+        async function restaurarCompleto() {
+            const archivo = document.getElementById('full-restore-file').files[0];
+            const boton = document.getElementById('btn-confirmar-full-restore');
+            if (!archivo || document.getElementById('full-restore-confirm').value !== 'RESTAURAR BASE DE DATOS') return;
+            if (!confirm('La restauración reemplazará la base actual. ¿Continuar?')) return;
+
+            boton.disabled = true;
+            boton.textContent = 'Restaurando...';
+            try {
+                const res = await apiFetch('/restore/full', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/octet-stream',
+                        'X-DB-Admin-Confirm': 'RESTAURAR BASE DE DATOS'
+                    },
+                    body: archivo
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.error || `Error HTTP ${res.status}`);
+                cerrarRestoreCompleto();
+                toast('✅ Base de datos restaurada; Flyway terminó correctamente.');
+                document.getElementById('main-content').innerHTML = '<div class="welcome"><h2>✅</h2><p>Base de datos restaurada</p></div>';
+                await cargarTablas();
+            } catch (e) {
+                console.error(e);
+                toast('❌ ' + (e.message || 'Error restaurando la base de datos'), true);
+            } finally {
+                boton.textContent = 'Reemplazar base de datos';
+                actualizarConfirmacionRestore();
             }
         }
 

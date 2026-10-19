@@ -303,10 +303,13 @@ public class Main {
         AdminService adminService = new AdminService(db, usuarioDAO, wallet, eventBus, notificador, socketServer);
         LeaderboardService leaderboardService = new LeaderboardService(db, socketServer, wallet);
         MediaService mediaService = new MediaService(db);
-        DbAdminService dbAdminService = new DbAdminService(db);
+        DbAdminService dbAdminService = new DbAdminService(db, conexion, config);
 
+        // La guardia global del panel de DB se registra antes de AdminMiddleware para cubrir también
+        // las peticiones administrativas de otras instancias durante el mantenimiento.
+        RutasDbAdmin.register(app, dbAdminService, config);
         // S3: exige admin (sesión JWT + rol leído de la BD) en /api/admin/*, /api/deposit y /admin-fix-status/*.
-        // Va DESPUÉS de AuthMiddleware (necesita el userId de la sesión) y ANTES de registrar las rutas.
+        // Va DESPUÉS de AuthMiddleware (necesita el userId de la sesión) y ANTES de registrar el resto de rutas.
         AdminMiddleware.register(app, adminService);
 
         RutasAuth.register(app, authService);
@@ -315,7 +318,6 @@ public class Main {
         RutasSorteos.register(app, sorteoService);
         RutasLeaderboard.register(app, leaderboardService);
         RutasComisiones.register(app, comisiones, validadorMonto);
-        RutasDbAdmin.register(app, dbAdminService, config);
         RutasMedia.register(app, mediaService);
         RutasChatbot.register(app, chatbotService, config, limitadorChatbot);
         RutasSoporte.register(app, soporteService);

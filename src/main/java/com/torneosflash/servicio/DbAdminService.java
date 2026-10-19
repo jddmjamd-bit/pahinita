@@ -3,6 +3,8 @@ package com.torneosflash.servicio;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.torneosflash.config.AppConfig;
+import com.torneosflash.dao.ConexionDB;
 import com.torneosflash.dao.GenericDAO;
 
 import java.math.BigDecimal;
@@ -31,6 +33,7 @@ public class DbAdminService {
     private static final Pattern IDENTIFICADOR_SQL = Pattern.compile("^[a-zA-Z_][a-zA-Z0-9_]*$");
 
     private final GenericDAO db;
+    private final PostgresBackupService backups;
 
     /**
      * A5: tabla donde Flyway guarda el historial de migraciones. El panel no la muestra ni la deja tocar:
@@ -44,8 +47,21 @@ public class DbAdminService {
     private static final Set<String> TABLAS_NO_IMPORTABLES =
             Set.of("users", "transactions", "admin_wallet", "wallet_ledger", "user_tokens");
 
-    public DbAdminService(GenericDAO db) {
+    public DbAdminService(GenericDAO db, ConexionDB conexion, AppConfig config) {
         this.db = db;
+        this.backups = new PostgresBackupService(conexion, config);
+    }
+
+    public PostgresBackupService.ArchivoBackup crearBackupCompleto() {
+        return backups.crearBackupCompleto();
+    }
+
+    public JsonObject restaurarBackupCompleto(java.io.InputStream archivo, long bytes, String confirmacion) {
+        return backups.restaurarBackupCompleto(archivo, bytes, confirmacion);
+    }
+
+    public boolean isRestauracionActiva() {
+        return backups.isRestauracionActiva();
     }
 
     /** Operación de BD que puede lanzar excepciones SQL. */

@@ -33,6 +33,7 @@ public class AppConfig {
     private final String wompiUserPrincipalId;
     private final String wompiXApiKey;
     private final String dbAdminSecret;
+    private final long dbAdminMaxBackupBytes;
 
     // --- Servidor / red (A7 / A1) ---
     private final String appBaseUrl;
@@ -137,6 +138,8 @@ public class AppConfig {
         // A7: sin valor por defecto. Antes caía a una clave escrita en el código ("torneos2024"); RutasDbAdmin
         // ya deshabilita el panel si la clave está vacía, así que el comportamiento no cambia, solo desaparece el literal.
         this.dbAdminSecret = getEnv("DB_ADMIN_SECRET", "");
+        this.dbAdminMaxBackupBytes = getEnvLong(
+                "DB_ADMIN_MAX_BACKUP_BYTES", 1_073_741_824L, 1_048_576L, 10_737_418_240L);
 
         // A7: URL pública del sitio (icono y enlace de las push). Antes estaba escrita en Main.
         this.appBaseUrl = normalizarUrlBase(getEnv("APP_BASE_URL", DEFAULT_APP_BASE_URL));
@@ -349,6 +352,19 @@ public class AppConfig {
         return defaultValue;
     }
 
+    /** Límite en bytes para los archivos temporales de backup y restauración del panel DB. */
+    private long getEnvLong(String key, long defaultValue, long minimo, long maximo) {
+        String raw = getEnv(key, String.valueOf(defaultValue)).trim();
+        try {
+            long valor = Long.parseLong(raw);
+            if (valor >= minimo && valor <= maximo) return valor;
+        } catch (NumberFormatException ignored) {
+            // cae al log de abajo
+        }
+        logger.error("⚠️ {} no es válido (bytes entre {} y {}). Se usa el valor por defecto.", key, minimo, maximo);
+        return defaultValue;
+    }
+
     // Método auxiliar para leer variables de entorno con valor por defecto
     private String getEnv(String key, String defaultValue) {
         String value = System.getenv(key);
@@ -370,6 +386,7 @@ public class AppConfig {
     public String getWompiUserPrincipalId() { return wompiUserPrincipalId; }
     public String getWompiXApiKey() { return wompiXApiKey; }
     public String getDbAdminSecret() { return dbAdminSecret; }
+    public long getDbAdminMaxBackupBytes() { return dbAdminMaxBackupBytes; }
     public String getAppBaseUrl() { return appBaseUrl; }
     public String getBindHost() { return bindHost; }
     public int getWsMaxMessageBytes() { return wsMaxMessageBytes; }

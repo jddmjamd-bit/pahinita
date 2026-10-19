@@ -6,13 +6,23 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.output.MigrateResult;
+import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 
 /**
  * CONCEPTO POO: Encapsulamiento - Singleton pattern
@@ -34,14 +44,25 @@ public class ConexionDB {
     private static ConexionDB instancia;
     /** Tamano del pool si no se indica otro (A8: Main lo toma de DB_POOL_MAX_SIZE). */
     private static final int POOL_MAX_POR_DEFECTO = 20;
+    /** Par de claves reservado a los bloqueos compartidos de la aplicación durante un restore. */
+    private static final int LOCK_RESTAURACION_CLAVE_1 = 0x54464C53;
+    private static final int LOCK_RESTAURACION_CLAVE_2 = 1;
+    private static final int LOCK_OPERACION_COMPLETA_CLAVE_2 = 2;
+    private static final long CACHE_ESTADO_RESTAURACION_MS = 500L;
     /** A5: carpeta (en el classpath) con los scripts V1__..., V2__... de Flyway. */
     private static final String UBICACION_MIGRACIONES = "classpath:db/migration";
     private HikariDataSource dataSource;
+    private EnlaceBD enlaceBD;
+    private final AtomicBoolean restauracionActiva = new AtomicBoolean(false);
+    private BloqueoOperacion bloqueoRestauracionActual;
+    private volatile boolean restauracionGlobalCache;
+    private volatile long restauracionGlobalCacheHasta;
 
     // --- Constructor privado (ENCAPSULAMIENTO) ---
     private ConexionDB(String databaseUrl, String sslMode, int maxPoolSize) {
         try {
             EnlaceBD enlace = EnlaceBD.desde(databaseUrl, sslMode);
+            this.enlaceBD = enlace;
             HikariConfig config = new HikariConfig();
             config.setPoolName("torneos-db"); // A8: los hilos internos de Hikari se ven con este nombre
             config.setJdbcUrl(enlace.jdbcUrl);
@@ -76,13 +97,20 @@ public class ConexionDB {
         /** host[:puerto], sin credenciales: es lo único que se puede mostrar en logs. */
         final String host;
         final String sslMode;
+        final String nombreBase;
+        final String hostProceso;
+        final String puertoProceso;
 
-        private EnlaceBD(String jdbcUrl, String usuario, String password, String host, String sslMode) {
+        private EnlaceBD(String jdbcUrl, String usuario, String password, String host, String sslMode,
+                         String nombreBase, String hostProceso, String puertoProceso) {
             this.jdbcUrl = jdbcUrl;
             this.usuario = usuario;
             this.password = password;
             this.host = host;
             this.sslMode = sslMode;
+            this.nombreBase = nombreBase;
+            this.hostProceso = hostProceso;
+            this.puertoProceso = puertoProceso;
         }
 
         static EnlaceBD desde(String url, String sslModeSolicitado) {
@@ -125,6 +153,21 @@ public class ConexionDB {
                 throw new IllegalArgumentException("DATABASE_URL debe incluir host y nombre de la base de datos");
             }
             String host = resto.substring(0, barra);
+            String nombreBase = decodificar(resto.substring(barra + 1));
+            URI autoridad;
+            try {
+                autoridad = URI.create("postgresql://" + host + "/");
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Host de DATABASE_URL no válido", e);
+            }
+            String hostProceso = autoridad.getHost();
+            if (hostProceso == null || hostProceso.isBlank() || nombreBase.isBlank()) {
+                throw new IllegalArgumentException("DATABASE_URL no incluye un host y nombre de base válidos");
+            }
+            if (hostProceso.startsWith("[") && hostProceso.endsWith("]")) {
+                hostProceso = hostProceso.substring(1, hostProceso.length() - 1);
+            }
+            String puertoProceso = String.valueOf(autoridad.getPort() > 0 ? autoridad.getPort() : 5432);
 
             // Parámetros extra: user/password (si venían en la query) salen de la URL; ssl* se descartan.
             List<String> params = new ArrayList<>();
@@ -144,7 +187,19 @@ public class ConexionDB {
             params.add("sslmode=" + modo);
 
             String jdbcUrl = "jdbc:postgresql://" + resto + "?" + String.join("&", params);
-            return new EnlaceBD(jdbcUrl, usuario, password, host, modo);
+            return new EnlaceBD(jdbcUrl, usuario, password, host, modo,
+                    nombreBase, hostProceso, puertoProceso);
+        }
+
+        Map<String, String> variablesProcesoPostgres() {
+            Map<String, String> env = new HashMap<>();
+            env.put("PGHOST", hostProceso);
+            env.put("PGPORT", puertoProceso);
+            env.put("PGDATABASE", nombreBase);
+            env.put("PGSSLMODE", sslMode);
+            env.put("PGCONNECT_TIMEOUT", "15");
+            if (usuario != null && !usuario.isBlank()) env.put("PGUSER", usuario);
+            return env;
         }
 
         private static String normalizarSslMode(String solicitado) {
@@ -188,7 +243,281 @@ public class ConexionDB {
 
     // --- Obtener conexión del pool ---
     public Connection getConnection() throws SQLException {
-        return dataSource.getConnection();
+        if (restauracionActiva.get()) {
+            throw new SQLException("La base de datos está en restauración; intenta de nuevo en unos minutos");
+        }
+        Connection conn = dataSource.getConnection();
+        boolean bloqueoAdquirido = false;
+        try {
+            if (!intentarBloqueoCompartido(conn)) {
+                conn.close();
+                throw new SQLException("La base de datos está en restauración; intenta de nuevo en unos minutos");
+            }
+            bloqueoAdquirido = true;
+            // Cubre la carrera entre la primera comprobación y la obtención del bloqueo global.
+            if (restauracionActiva.get()) {
+                liberarBloqueoCompartido(conn);
+                bloqueoAdquirido = false;
+                conn.close();
+                throw new SQLException("La base de datos está en restauración; intenta de nuevo en unos minutos");
+            }
+            return envolverConexionConBloqueo(conn);
+        } catch (SQLException | RuntimeException e) {
+            if (bloqueoAdquirido) descartarConexion(conn);
+            cerrarSinError(conn);
+            throw e;
+        }
+    }
+
+    /** Evita nuevas consultas y espera a que terminen las conexiones activas antes de restaurar. */
+    public void iniciarModoRestauracion(long esperaMaximaMs, BloqueoOperacion operacion) throws SQLException {
+        if (operacion == null) throw new SQLException("No se reservó el bloqueo global de backup/restore");
+        if (!restauracionActiva.compareAndSet(false, true)) {
+            throw new SQLException("Ya hay una restauración de base de datos en curso");
+        }
+
+        long limite = System.currentTimeMillis() + esperaMaximaMs;
+        try {
+            while (dataSource.getHikariPoolMXBean().getActiveConnections() > 0) {
+                if (System.currentTimeMillis() >= limite) {
+                    throw new SQLException("Hay operaciones activas en la base de datos; no se inició la restauración");
+                }
+                Thread.sleep(100L);
+            }
+            while (!operacion.intentarBloqueoExclusivoRestauracion()) {
+                if (System.currentTimeMillis() >= limite) {
+                    throw new SQLException("Hay operaciones activas en otra instancia; no se inició la restauración");
+                }
+                Thread.sleep(100L);
+            }
+            bloqueoRestauracionActual = operacion;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            restauracionActiva.set(false);
+            throw new SQLException("Se interrumpió la espera de operaciones de base de datos", e);
+        } catch (SQLException | RuntimeException e) {
+            restauracionActiva.set(false);
+            throw e;
+        }
+    }
+
+    /** Cierra conexiones JDBC inactivas (pueden conservar planes previos al restore) y reabre el acceso. */
+    public void terminarModoRestauracion() {
+        try {
+            BloqueoOperacion bloqueo = bloqueoRestauracionActual;
+            bloqueoRestauracionActual = null;
+            if (bloqueo != null) {
+                try {
+                    bloqueo.liberarBloqueoExclusivoRestauracion();
+                } catch (SQLException | RuntimeException e) {
+                    logger.warn("No se pudo liberar explícitamente el bloqueo de restauración; se cerrará al liberar el bloqueo global");
+                }
+            }
+            try {
+                if (dataSource != null && dataSource.getHikariPoolMXBean() != null) {
+                    dataSource.getHikariPoolMXBean().softEvictConnections();
+                }
+            } catch (RuntimeException e) {
+                logger.warn("No se pudieron renovar las conexiones inactivas luego de la restauración");
+            }
+        } finally {
+            restauracionActiva.set(false);
+        }
+    }
+
+    public synchronized boolean isRestauracionActiva() {
+        if (restauracionActiva.get()) return true;
+        if (dataSource == null) return false;
+        long ahora = System.currentTimeMillis();
+        if (ahora < restauracionGlobalCacheHasta) return restauracionGlobalCache;
+        Connection conn = null;
+        boolean bloqueoAdquirido = false;
+        try {
+            conn = dataSource.getConnection();
+            if (!intentarBloqueoCompartido(conn)) {
+                restauracionGlobalCache = true;
+                restauracionGlobalCacheHasta = ahora + CACHE_ESTADO_RESTAURACION_MS;
+                return true;
+            }
+            bloqueoAdquirido = true;
+            liberarBloqueoCompartido(conn);
+            bloqueoAdquirido = false;
+            restauracionGlobalCache = false;
+            restauracionGlobalCacheHasta = ahora + CACHE_ESTADO_RESTAURACION_MS;
+            return false;
+        } catch (SQLException e) {
+            if (bloqueoAdquirido && conn != null) descartarConexion(conn);
+            // Una caída de BD sigue su manejo normal; no se presenta como una restauración activa.
+            restauracionGlobalCache = false;
+            restauracionGlobalCacheHasta = ahora + CACHE_ESTADO_RESTAURACION_MS;
+            return false;
+        } finally {
+            cerrarSinError(conn);
+        }
+    }
+
+    private boolean intentarBloqueoCompartido(Connection conn) throws SQLException {
+        return intentarBloqueo(conn, "SELECT pg_try_advisory_lock_shared(?, ?)", LOCK_RESTAURACION_CLAVE_2);
+    }
+
+    private boolean intentarBloqueo(Connection conn, String sql, int clave2) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, LOCK_RESTAURACION_CLAVE_1);
+            ps.setInt(2, clave2);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && rs.getBoolean(1);
+            }
+        }
+    }
+
+    private void liberarBloqueoCompartido(Connection conn) throws SQLException {
+        ejecutarLiberacion(conn, "SELECT pg_advisory_unlock_shared(?, ?)", LOCK_RESTAURACION_CLAVE_2);
+    }
+
+    private void ejecutarLiberacion(Connection conn, String sql, int clave2) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, LOCK_RESTAURACION_CLAVE_1);
+            ps.setInt(2, clave2);
+            ps.execute();
+        }
+    }
+
+    /** Reserva un único backup/restore en todas las instancias sin detener el tráfico durante la validación. */
+    public BloqueoOperacion intentarBloqueoOperacionCompleta() throws SQLException {
+        if (enlaceBD == null) throw new SQLException("No está configurado el enlace de PostgreSQL");
+        Properties propiedades = new Properties();
+        if (enlaceBD.usuario != null && !enlaceBD.usuario.isBlank()) propiedades.setProperty("user", enlaceBD.usuario);
+        if (enlaceBD.password != null) propiedades.setProperty("password", enlaceBD.password);
+        Connection conn = DriverManager.getConnection(enlaceBD.jdbcUrl, propiedades);
+        try {
+            if (!intentarBloqueo(conn, "SELECT pg_try_advisory_lock(?, ?)", LOCK_OPERACION_COMPLETA_CLAVE_2)) {
+                conn.close();
+                return null;
+            }
+            return new BloqueoOperacion(conn);
+        } catch (SQLException | RuntimeException e) {
+            cerrarSinError(conn);
+            throw e;
+        }
+    }
+
+    public final class BloqueoOperacion implements AutoCloseable {
+        private final Connection conexion;
+        private final AtomicBoolean cerrado = new AtomicBoolean(false);
+        private boolean bloqueoCompartido;
+        private boolean bloqueoExclusivoRestauracion;
+
+        private BloqueoOperacion(Connection conexion) {
+            this.conexion = conexion;
+        }
+
+        public synchronized boolean intentarBloqueoCompartidoRestauracion() throws SQLException {
+            if (cerrado.get()) throw new SQLException("El bloqueo global de backup/restore ya está cerrado");
+            if (bloqueoCompartido) return true;
+            bloqueoCompartido = intentarBloqueoCompartido(conexion);
+            return bloqueoCompartido;
+        }
+
+        private synchronized boolean intentarBloqueoExclusivoRestauracion() throws SQLException {
+            if (cerrado.get()) throw new SQLException("El bloqueo global de backup/restore ya está cerrado");
+            if (bloqueoExclusivoRestauracion) return true;
+            bloqueoExclusivoRestauracion = intentarBloqueo(conexion,
+                    "SELECT pg_try_advisory_lock(?, ?)", LOCK_RESTAURACION_CLAVE_2);
+            return bloqueoExclusivoRestauracion;
+        }
+
+        private synchronized void liberarBloqueoExclusivoRestauracion() throws SQLException {
+            if (!bloqueoExclusivoRestauracion) return;
+            ejecutarLiberacion(conexion, "SELECT pg_advisory_unlock(?, ?)", LOCK_RESTAURACION_CLAVE_2);
+            bloqueoExclusivoRestauracion = false;
+        }
+
+        @Override
+        public void close() {
+            if (!cerrado.compareAndSet(false, true)) return;
+            try {
+                if (bloqueoExclusivoRestauracion) {
+                    ejecutarLiberacion(conexion, "SELECT pg_advisory_unlock(?, ?)", LOCK_RESTAURACION_CLAVE_2);
+                    bloqueoExclusivoRestauracion = false;
+                }
+                if (bloqueoCompartido) {
+                    liberarBloqueoCompartido(conexion);
+                    bloqueoCompartido = false;
+                }
+                ejecutarLiberacion(conexion, "SELECT pg_advisory_unlock(?, ?)", LOCK_OPERACION_COMPLETA_CLAVE_2);
+            } catch (SQLException | RuntimeException e) {
+                logger.warn("No se pudieron liberar todos los advisory locks; la conexión de control se cerrará al finalizar el proceso");
+            } finally {
+                try {
+                    conexion.close();
+                } catch (SQLException | RuntimeException e) {
+                    logger.warn("No se pudo cerrar la conexión de control de backup/restore");
+                }
+            }
+        }
+    }
+
+    /** El lock compartido vive en la sesión PostgreSQL hasta que el caller cierre su conexión lógica. */
+    private Connection envolverConexionConBloqueo(Connection conn) {
+        AtomicBoolean cerrada = new AtomicBoolean(false);
+        return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(),
+                new Class<?>[]{Connection.class}, (proxy, method, args) -> {
+                    if ("close".equals(method.getName()) && method.getParameterCount() == 0) {
+                        if (!cerrada.compareAndSet(false, true)) return null;
+                        SQLException error = null;
+                        try {
+                            // Hikari también revierte una transacción abierta al cerrar; hacerlo antes del unlock
+                            // impide que un restore exclusivo adelante una transacción aún no finalizada.
+                            if (!conn.getAutoCommit()) conn.rollback();
+                            liberarBloqueoCompartido(conn);
+                        } catch (SQLException e) {
+                            error = e;
+                            descartarConexion(conn);
+                        }
+                        try {
+                            conn.close();
+                        } catch (SQLException e) {
+                            if (error == null) error = e;
+                            else error.addSuppressed(e);
+                        }
+                        if (error != null) throw error;
+                        return null;
+                    }
+                    try {
+                        return method.invoke(conn, args);
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                });
+    }
+
+    private static void cerrarSinError(Connection conn) {
+        if (conn == null) return;
+        try {
+            conn.close();
+        } catch (SQLException ignored) {
+            // El error principal se propaga; el cierre es best-effort.
+        }
+    }
+
+    private void descartarConexion(Connection conn) {
+        if (conn == null || dataSource == null) return;
+        try {
+            dataSource.evictConnection(conn);
+        } catch (Exception e) {
+            logger.warn("No se pudo descartar una conexión PostgreSQL que conservaba un advisory lock");
+        }
+    }
+
+    /** Variables libpq sin credenciales en argumentos de proceso; la clave se entrega con un archivo pgpass temporal. */
+    public Map<String, String> variablesProcesoPostgres() {
+        if (enlaceBD == null) throw new IllegalStateException("No está configurado el enlace de PostgreSQL");
+        return enlaceBD.variablesProcesoPostgres();
+    }
+
+    public String passwordProcesoPostgres() {
+        if (enlaceBD == null) throw new IllegalStateException("No está configurado el enlace de PostgreSQL");
+        return enlaceBD.password;
     }
 
     /**
@@ -231,6 +560,9 @@ public class ConexionDB {
     }
 
     public void cerrar() {
+        BloqueoOperacion bloqueo = bloqueoRestauracionActual;
+        bloqueoRestauracionActual = null;
+        if (bloqueo != null) bloqueo.close();
         if (dataSource != null) dataSource.close();
     }
 }

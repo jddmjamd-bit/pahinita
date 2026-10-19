@@ -14,8 +14,11 @@ COPY src ./src
 # Compilar y empaquetar
 RUN mvn clean package -DskipTests
 
-# Etapa 3: Run
-FROM eclipse-temurin:17-jre
+# Etapa 3: Runtime con Java y herramientas oficiales de PostgreSQL (pg_dump/pg_restore)
+FROM postgres:18-bookworm
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openjdk-17-jre-headless \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # Copiar el JAR generado
 COPY --from=backend-build /app/target/TorneosFlash-1.0.jar ./app.jar
@@ -23,6 +26,12 @@ COPY --from=backend-build /app/target/TorneosFlash-1.0.jar ./app.jar
 COPY --from=frontend-build /app/frontend/dist ./public
 # Copiar admin-db.html (fuente única: public/admin-db.html) a la raíz de trabajo, donde RutasDbAdmin lo busca
 COPY public/admin-db.html ./admin-db.html
+
+# Ejecuta el servidor de aplicación sin privilegios; pg_dump y pg_restore usan las credenciales via PGPASSFILE.
+USER postgres
+
+# El contenedor ejecuta la aplicación Java; no arranca el servidor PostgreSQL de la imagen base.
+ENTRYPOINT []
 
 # Puerto por defecto
 EXPOSE 10000
