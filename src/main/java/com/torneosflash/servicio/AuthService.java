@@ -9,6 +9,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.regex.Pattern;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
 
 /**
  * Lógica de autenticación y cuentas: registro, login, sesión, disponibilidad de
@@ -212,9 +215,15 @@ public class AuthService {
 
     /**
      * A3: Guarda el token FCM del dispositivo validando su longitud y manteniendo como máximo
-     * 10 tokens por usuario para evitar saturar el pool de IO en envíos broadcast.
+     * 10 tokens por usuario para evitar acumular dispositivos obsoletos y saturar entregas push.
      */
     public void registrarTokenPush(int userId, String token) {
+        registrarTokenPush(userId, token, "");
+    }
+
+    /** Guarda el token nuevo y reemplaza el anterior de este dispositivo dentro de una transacción. */
+    public void registrarTokenPush(int userId, String token, String tokenAnterior) {
+        if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
         if (token == null) {
             throw ServicioException.solicitudInvalida("Token inválido");
         }
@@ -222,9 +231,50 @@ public class AuthService {
         if (limpio.length() < 20 || limpio.length() > 512) {
             throw ServicioException.solicitudInvalida("Token push inválido");
         }
-        db.update("INSERT INTO user_tokens (user_id, fcm_token) VALUES (?, ?) " +
-                "ON CONFLICT (user_id, fcm_token) DO NOTHING", userId, limpio);
-        db.update("DELETE FROM user_tokens WHERE user_id = ? AND id NOT IN (" +
-                "SELECT id FROM user_tokens WHERE user_id = ? ORDER BY id DESC LIMIT 10)", userId, userId);
+
+        String anterior = tokenAnterior == null ? "" : tokenAnterior.trim();
+        if (anterior.length() < 20 || anterior.length() > 512 || anterior.equals(limpio)) anterior = "";
+
+        try (Connection conn = db.getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                if (!anterior.isEmpty()) {
+                    try (PreparedStatement borrar = conn.prepareStatement(
+                            "DELETE FROM user_tokens WHERE user_id = ? AND fcm_token = ?")) {
+                        borrar.setInt(1, userId);
+                        borrar.setString(2, anterior);
+                        borrar.executeUpdate();
+                    }
+                }
+                try (PreparedStatement insertar = conn.prepareStatement(
+                        "INSERT INTO user_tokens (user_id, fcm_token) VALUES (?, ?) " +
+                                "ON CONFLICT (user_id, fcm_token) DO NOTHING")) {
+                    insertar.setInt(1, userId);
+                    insertar.setString(2, limpio);
+                    insertar.executeUpdate();
+                }
+                try (PreparedStatement limitar = conn.prepareStatement(
+                        "DELETE FROM user_tokens WHERE user_id = ? AND id NOT IN (" +
+                                "SELECT id FROM user_tokens WHERE user_id = ? ORDER BY id DESC LIMIT 10)")) {
+                    limitar.setInt(1, userId);
+                    limitar.setInt(2, userId);
+                    limitar.executeUpdate();
+                }
+                conn.commit();
+            } catch (SQLException e) {
+                try { conn.rollback(); } catch (SQLException rollbackError) { e.addSuppressed(rollbackError); }
+                throw e;
+            }
+        } catch (SQLException e) {
+            throw ServicioException.interno("No se pudo registrar el token push", e);
+        }
+    }
+
+    /** Desasocia el token de este usuario (logout); no afecta registros de otros usuarios/dispositivos. */
+    public void eliminarTokenPush(int userId, String token) {
+        if (userId <= 0 || token == null) return;
+        String limpio = token.trim();
+        if (limpio.length() < 20 || limpio.length() > 512) return;
+        db.update("DELETE FROM user_tokens WHERE user_id = ? AND fcm_token = ?", userId, limpio);
     }
 }

@@ -16,7 +16,7 @@
 | **Migraciones BD** | Flyway 10 | Scripts versionados en `src/main/resources/db/migration/`; se aplican al arrancar (`ConexionDB.migrar()`). Ver sección 14 |
 | **Auth** | JWT HS256 en cookie httpOnly `session` (S1) | `AuthMiddleware` verifica e inyecta `ctx.attribute("userId")`/`("rol")`. Rutas de admin protegidas por `AdminMiddleware` (S3, sección 18). Pendiente: S2 (userId del body y socket). Ver secciones 16 y 18 |
 | **Frontend** | Vanilla JS (`app.js`, 120 KB) | SPA monolítica sin framework. **Migrar a React + Vite** (pendiente, en progreso bajo `frontend/`) |
-| **Mobile App** | Capacitor | Genera builds nativos para Android e iOS encapsulando la app React. Gestiona Splash Screen y permisos |
+| **Mobile App** | Capacitor | Genera builds nativos para Android e iOS encapsulando React. El hook mantiene los permisos y el ciclo del token push |
 | **Pagos** | Wompi (tarjeta), Nequi (manual) | Webhook Wompi verifica firma SHA-256, monto y moneda (S7) |
 | **Notificaciones** | Firebase Cloud Messaging (FCM) | Push via `NotificacionPushServicio` y `@capacitor/push-notifications` en cliente |
 | **Email** | Brevo (Sendinblue) | Vía `CorreoServicio` |
@@ -38,7 +38,7 @@ TorneosFlash/
 │   ├── android/                     # Proyecto nativo Android (Capacitor)
 │   ├── ios/                         # Proyecto nativo iOS (Capacitor)
 │   ├── src/
-│   │   ├── hooks/useCapacitor.js    # Inicializa Capacitor, permisos y Push Notifications
+│   │   ├── hooks/useCapacitor.js    # Permisos, registro/renovación FCM y asociación tras login
 │   │   └── App.jsx                  # Raíz de React
 │   └── vite.config.js               # Configuración del empaquetador
 ├── src/main/java/com/torneosflash/
@@ -146,6 +146,8 @@ TorneosFlash/
 | `payment_evidences` | Comprobantes de retiros pagados que el admin publica en el canal «pagos» (7) | `transaction_id` (UNIQUE: una por retiro), `user_id` (a quien se pagó), `admin_id`, `monto`, `metodo`, `nota`, `imagen` (data URI base64), `fecha`. Usuario, monto y método se copian de la transacción |
 | `match_queue` | Cola de búsquedas de partida activas persistidas en BD (A2) | `id`, `user_id` (UNIQUE), `username`, `creado_en`, `expira_en` |
 | `active_matches` | Salas en negociación y partidas en curso persistidas en BD (A2) | `id`, `sala_id` (UNIQUE), `player1_id`, `player2_id`, `iniciado`, `inicio_revision`, `monto`, `match_db_id`, `player_tag1`, `player_tag2`, `match_start_time`, `last_modo`, `last_dinero`, `votos_json`, `confirmaciones_json`, `poll_count` |
+
+**Tokens FCM en Capacitor:** `useCapacitor` escucha el evento nativo `registration`, conserva el token solo en memoria y lo registra en `POST /api/register-token` cuando existe una sesión; una renovación envía el token anterior para reemplazarlo en la misma transacción. Al cerrar sesión, el cliente incluye los tokens de este dispositivo en `POST /api/logout`, que los elimina por usuario antes de borrar la cookie. Los tokens que FCM invalide se eliminan al recibir el error correspondiente del proveedor.
 
 ---
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
 import { API_BASE_URL } from '../store/llamarApi';
+import { esperarSolicitudesPush } from '../services/pushTokens';
 import AceptacionLegal from '../components/AceptacionLegal';
 import './Auth.css';
 
@@ -141,6 +142,7 @@ export default function Auth() {
         if (!acepta) return alert('❌ Debes aceptar los Términos de Servicio y la Política de Privacidad');
 
         try {
+            await esperarSolicitudesPush();
             const res = await fetch(API_BASE_URL + '/api/register', {
                 method: 'POST',
                 credentials: 'include',
@@ -163,6 +165,7 @@ export default function Auth() {
     const handleLogin = async (e) => {
         e.preventDefault();
         try {
+            await esperarSolicitudesPush();
             const res = await fetch(API_BASE_URL + '/api/login', {
                 method: 'POST',
                 credentials: 'include',

@@ -97,6 +97,17 @@ public class RutasAuth {
 
         // POST /api/logout
         app.post("/api/logout", ctx -> {
+            int userId = Peticion.userIdDeSesion(ctx);
+            JsonObject body = parseBody(ctx);
+            if (userId > 0 && body.has("pushTokens") && body.get("pushTokens").isJsonArray()) {
+                JsonArray tokens = body.getAsJsonArray("pushTokens");
+                for (int i = 0; i < Math.min(tokens.size(), 10); i++) {
+                    JsonElement token = tokens.get(i);
+                    if (token != null && token.isJsonPrimitive()) {
+                        auth.eliminarTokenPush(userId, token.getAsString());
+                    }
+                }
+            }
             AuthMiddleware.cerrarSesion(ctx);
             ctx.json(successJson("Sesión cerrada", 0));
         });
@@ -119,7 +130,8 @@ public class RutasAuth {
                 ctx.status(400).json(errorJson("Faltan datos"));
                 return;
             }
-            auth.registrarTokenPush(userId, Peticion.texto(body, "token"));
+            auth.registrarTokenPush(userId, Peticion.texto(body, "token"),
+                    Peticion.textoOpcional(body, "previousToken", ""));
             ctx.json(successJson("Token registrado", 0));
         });
     }

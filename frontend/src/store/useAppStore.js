@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { io } from 'socket.io-client';
 import { API_BASE_URL, llamarApi } from './llamarApi';
+import { cerrarSesionConPush } from '../services/pushTokens';
 
 const leerUsuarioGuardado = () => {
     try {
@@ -23,6 +24,21 @@ export const useAppStore = create((set, get) => ({
 
     // Estado del usuario
     user: leerUsuarioGuardado(),
+    // Token nativo FCM solo en memoria; no se persiste junto con los datos del usuario.
+    pushToken: null,
+    pushTokenAnterior: null,
+    setPushToken: (token) => {
+        const limpio = typeof token === 'string' ? token.trim() : '';
+        if (!limpio) return;
+        set(state => {
+            if (state.pushToken === limpio) return state;
+            return { pushToken: limpio, pushTokenAnterior: state.pushToken };
+        });
+    },
+    limpiarPushTokenAnterior: (tokenActual, tokenAnterior) => set(state => {
+        if (state.pushToken !== tokenActual || state.pushTokenAnterior !== tokenAnterior) return state;
+        return { pushTokenAnterior: null };
+    }),
     setUser: (userData) => {
         if (userData) {
             const anterior = get().user;
@@ -54,12 +70,15 @@ export const useAppStore = create((set, get) => ({
         return { ok, status };
     },
     logout: () => {
+        const { pushToken, pushTokenAnterior } = get();
         localStorage.removeItem('currentUser');
         get().disconnectSocket();
-        // S1 / F3: pedir al servidor que borre la cookie httpOnly "session"
-        llamarApi('/api/logout', { method: 'POST' });
+        // El servidor desasocia los tokens de este dispositivo antes de borrar la cookie httpOnly.
+        const tokens = [pushToken, pushTokenAnterior].filter(Boolean);
+        void cerrarSesionConPush(tokens);
         set({ 
             user: null,
+            pushTokenAnterior: null,
             chatMessages: { general: [], anuncios: [], clash: [], clash_logs: [], pagos: [] },
             matchState: { inMatch: false, salaId: null, rival: null, gameMode: '', monto: 0, maxMonto: 10000, status: 'idle' }
         });

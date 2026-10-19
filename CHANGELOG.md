@@ -11,6 +11,14 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Completar el ciclo de tokens push en Capacitor (GPT-6)
+- **`useCapacitor.js`**: guarda el token nativo solo en memoria, lo registra al tener sesión, vuelve a enviarlo cuando rota y reintenta fallos de red/servidor con pausas acotadas. Quitó logs que exponían el token y el contenido de notificaciones.
+- **`pushTokens.js`, `useAppStore.js` y `Auth.jsx`**: serializan registros/logout para que una petición de alta pendiente no vuelva a asociar el dispositivo después de cerrar sesión; login/registro esperan el logout anterior y el logout manda los tokens antes de borrar la cookie.
+- **`RutasAuth.java` y `AuthService.java`**: eliminan los tokens asociados exclusivamente al usuario autenticado. Al rotar, reemplazan el token anterior y guardan el nuevo en una transacción; el límite de 10 dispositivos se conserva.
+- **`ARCHITECTURE.md`**: documenta el registro, renovación y baja de tokens FCM.
+- **Verificación**: `npm.cmd run build` terminó correctamente; `oxlint` sobre los archivos frontend modificados terminó con código 0 y señaló tres parámetros `catch` sin usar que ya existían en `Auth.jsx`; `mvnw.cmd clean compile -DskipTests` terminó con `BUILD SUCCESS` usando JDK 26 para generar bytecode objetivo 17; `actualizar-txt.bat` terminó y exportó 128 archivos. No se ejecutaron pruebas automatizadas.
+Archivos: `useCapacitor.js`, `pushTokens.js`, `useAppStore.js`, `Auth.jsx`, `RutasAuth.java`, `AuthService.java`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-19 — Aislar y limitar los push provocados por actividad (GPT-6)
 - **`Ejecutores` y `AppConfig`**: agregan un pool FCM separado, con hilos y cola acotados configurables (`PUSH_POOL_THREADS`, `PUSH_POOL_QUEUE`) y límite móvil por destinatario (`PUSH_MAX_PER_USER_PER_MIN`).
 - **`NotificacionPushServicio`**: los broadcasts recorren usuarios en páginas y encolan una tarea por usuario; se detienen al llenarse la cola, consultan como máximo los 10 tokens registrados por persona y comparten el límite por usuario entre avisos directos y broadcasts.
