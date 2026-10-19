@@ -56,7 +56,8 @@ export const PREGUNTAS = [
         categoria: 'inicio',
         pregunta: '¿Cómo creo mi cuenta?',
         respuesta: [
-            'En la pantalla de entrada elige «Crear cuenta» y llena usuario, correo, contraseña, Player Tag y teléfono. Mientras escribes, la página te avisa si el usuario o el correo ya están en uso y si tu Player Tag existe.',
+            'En la pantalla de entrada elige «Crear cuenta» y llena usuario, correo, contraseña, Player Tag, token de API de Clash Royale y celular. Mientras escribes, la página revisa los formatos y consulta si el Player Tag existe.',
+            'El token de API del juego se usa una sola vez para confirmar que controlas esa cuenta y no se guarda. El celular debe ser tuyo y no estar registrado en otra cuenta; escribirlo con o sin +57 no crea un número distinto.',
             'También debes aceptar los Términos de Servicio y la Política de Privacidad; sin eso el botón de registro no te deja continuar. Al terminar, vuelves a la pantalla de entrada e inicias sesión con tu correo y contraseña.'
         ],
         video: { titulo: 'Cómo crear tu cuenta paso a paso', youtube: '', archivo: '' }
@@ -67,17 +68,17 @@ export const PREGUNTAS = [
         pregunta: '¿Qué es el Player Tag y dónde lo encuentro?',
         respuesta: [
             'Es el código único de tu cuenta de Clash Royale. Empieza con # y se compone de letras y números (por ejemplo #2PP). Lo usamos para saber cuáles partidas son tuyas y quién ganó.',
-            'Lo encuentras dentro del juego, en tu perfil, justo debajo de tu nombre. Escríbelo con el # al inicio. Si es correcto, la página te muestra el nombre y los trofeos de esa cuenta para que confirmes que es la tuya.'
+            'Lo encuentras dentro del juego, en tu perfil, justo debajo de tu nombre. Escríbelo con el # al inicio. La página muestra el nombre y los trofeos para identificarlo; durante el registro también debes ingresar el token de API generado en los ajustes del juego para demostrar que controlas esa cuenta. Ese token se usa una sola vez y no se guarda.'
         ],
         video: { titulo: 'Dónde encontrar tu Player Tag en Clash Royale', youtube: '', archivo: '' }
     },
     {
         id: 'registro-no-disponible',
         categoria: 'inicio',
-        pregunta: 'Me dice que el usuario o el correo no está disponible, ¿qué hago?',
+        pregunta: 'No puedo entrar después de crear mi cuenta, ¿qué hago?',
         respuesta: [
-            'Significa que alguien ya se registró con ese usuario o con ese correo. Prueba con otro nombre de usuario. Si el correo es tuyo y crees que no deberías estar registrado, intenta iniciar sesión con él: puede que ya hayas creado la cuenta antes.',
-            'Si ves el aviso «Demasiadas solicitudes», no es que esté ocupado: espera unos segundos y vuelve a intentar.'
+            'El registro muestra una confirmación genérica por privacidad. Si el usuario, correo, Player Tag o celular ya están asociados con otra cuenta, no se crea una cuenta nueva. Intenta iniciar sesión con el correo que usaste antes o contacta al soporte.',
+            'Si la verificación de propiedad no está disponible, el servicio de Clash Royale debe habilitar el permiso de API antes de aceptar nuevos registros.'
         ]
     },
     {
@@ -85,7 +86,7 @@ export const PREGUNTAS = [
         categoria: 'inicio',
         pregunta: '¿Para qué piden mi teléfono?',
         respuesta: [
-            'Es para contactarte por WhatsApp si ganas un sorteo. Ponlo con el número que sí usas en esa aplicación.'
+            'Es para contactarte por WhatsApp si ganas un sorteo. Usa tu celular personal; no se puede registrar el mismo número en dos cuentas. Los formatos local y +57 se reconocen como el mismo celular.'
         ]
     },
     {

@@ -303,7 +303,7 @@ public class UsuarioDAO {
 
     public JsonObject buscarPorUsername(String username) {
         try (Connection conn = db.getConnection();
-             PreparedStatement ps = conn.prepareStatement("SELECT id FROM users WHERE LOWER(username) = LOWER(?)")) {
+             PreparedStatement ps = conn.prepareStatement("SELECT id FROM users WHERE LOWER(BTRIM(username)) = LOWER(BTRIM(?))")) {
             ps.setString(1, username);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
@@ -320,8 +320,8 @@ public class UsuarioDAO {
 
     public JsonObject buscarPorEmailLower(String email) {
         try (Connection conn = db.getConnection();
-             PreparedStatement ps = conn.prepareStatement("SELECT id FROM users WHERE LOWER(email) = ?")) {
-            ps.setString(1, email.toLowerCase());
+             PreparedStatement ps = conn.prepareStatement("SELECT id FROM users WHERE LOWER(BTRIM(email)) = LOWER(BTRIM(?))")) {
+            ps.setString(1, email.toLowerCase(java.util.Locale.ROOT));
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     JsonObject obj = new JsonObject();
@@ -337,8 +337,9 @@ public class UsuarioDAO {
 
     public JsonObject buscarPorPlayerTag(String tag) {
         try (Connection conn = db.getConnection();
-             PreparedStatement ps = conn.prepareStatement("SELECT id FROM users WHERE player_tag = ?")) {
-            ps.setString(1, tag.toUpperCase());
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT id FROM users WHERE UPPER(REGEXP_REPLACE(BTRIM(player_tag), '^#+', '')) = ?")) {
+            ps.setString(1, tag == null ? "" : tag.trim().replace("#", "").toUpperCase(java.util.Locale.ROOT));
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     JsonObject obj = new JsonObject();
@@ -352,6 +353,28 @@ public class UsuarioDAO {
         return null;
     }
 
+    public JsonObject buscarPorTelefonoNormalizado(String telefonoNormalizado) {
+        String digitos = "REGEXP_REPLACE(BTRIM(telefono), '[^0-9]', '', 'g')";
+        String normalizado = "CASE WHEN " + digitos + " ~ '^003[0-9]{9}$' THEN '57' || SUBSTRING(" + digitos
+                + " FROM 3) WHEN " + digitos + " ~ '^00[0-9]{7,15}$' THEN SUBSTRING(" + digitos
+                + " FROM 3) WHEN " + digitos + " ~ '^3[0-9]{9}$' THEN '57' || " + digitos
+                + " ELSE " + digitos + " END";
+        String sql = "SELECT id FROM users WHERE telefono IS NOT NULL AND " + normalizado + " = ? LIMIT 1";
+        try (Connection conn = db.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, telefonoNormalizado);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    JsonObject obj = new JsonObject();
+                    obj.addProperty("id", rs.getInt("id"));
+                    return obj;
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error buscando usuario por teléfono normalizado: {}", e.getMessage());
+        }
+        return null;
+    }
+
     public int registrar(String username, String email, String passwordHash, String playerTag, String telefono) {
         try (Connection conn = db.getConnection();
              PreparedStatement ps = conn.prepareStatement(
@@ -359,7 +382,7 @@ public class UsuarioDAO {
             ps.setString(1, username);
             ps.setString(2, email);
             ps.setString(3, passwordHash);
-            ps.setString(4, playerTag.toUpperCase());
+            ps.setString(4, normalizarPlayerTag(playerTag));
             ps.setString(5, telefono);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) return rs.getInt("id");
@@ -387,7 +410,7 @@ public class UsuarioDAO {
                     ps.setString(1, username);
                     ps.setString(2, email);
                     ps.setString(3, passwordHash);
-                    ps.setString(4, playerTag.toUpperCase());
+                    ps.setString(4, normalizarPlayerTag(playerTag));
                     ps.setString(5, telefono);
                     try (ResultSet rs = ps.executeQuery()) {
                         if (!rs.next()) {
@@ -439,6 +462,11 @@ public class UsuarioDAO {
             }
         }
         return false;
+    }
+
+    private static String normalizarPlayerTag(String playerTag) {
+        String normalizado = playerTag == null ? "" : playerTag.trim().toUpperCase(java.util.Locale.ROOT);
+        return normalizado.startsWith("#") ? normalizado : "#" + normalizado;
     }
 
     public void actualizarEstado(int userId, String estado, String salaActual, int pasoJuego) {

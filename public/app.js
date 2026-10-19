@@ -750,7 +750,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     if (data.found) {
                         playerTagStatus.className = 'tag-status visible found';
-                        playerTagStatus.innerHTML = `✅ ¿Tu nombre es <strong>${esc(data.name)}</strong>? (${esc(data.trophies)} 🏆)`;
+                        playerTagStatus.textContent = `✅ Tag encontrado: ${data.name} (${data.trophies} 🏆)`;
                         playerTagValid = true;
                     } else {
                         playerTagStatus.className = 'tag-status visible not-found';
@@ -796,6 +796,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify(Object.fromEntries(new FormData(registroForm)))
             });
             const data = await res.json();
+            const tokenJuegoInput = document.getElementById('player-api-token');
+            if (tokenJuegoInput) tokenJuegoInput.value = '';
             if (res.ok) {
                 alert(data.message || 'Solicitud recibida. Si los datos permiten crear una cuenta, podrás iniciar sesión en unos instantes.');
                 registroContainer.classList.add('hidden');
@@ -806,6 +808,9 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {
             console.error(e);
             alert('Error de conexión');
+        } finally {
+            const tokenJuegoInput = document.getElementById('player-api-token');
+            if (tokenJuegoInput) tokenJuegoInput.value = '';
         }
     });
 

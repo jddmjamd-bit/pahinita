@@ -33,6 +33,7 @@ public class AuthService {
     private static final Logger logger = LoggerFactory.getLogger(AuthService.class);
 
     private static final Pattern PLAYER_TAG_VALIDO = Pattern.compile("^#[0289PYLQGRJCUV]{3,15}$");
+    private static final Pattern TELEFONO_FORMATO = Pattern.compile("^\\+?[0-9() .-]{7,30}$");
     private static final Pattern TOKEN_RECUPERACION_VALIDO = Pattern.compile("^[A-Za-z0-9_-]{43}$");
     private static final int PASSWORD_MAX_CARACTERES = 128;
     private static final int PASSWORD_MAX_BYTES_BCRYPT = 72;
@@ -87,6 +88,7 @@ public class AuthService {
 
     /** Registra una cuenta; un conflicto de identidad se oculta con el mismo resultado HTTP que el alta. */
     public void registrar(String username, String email, String password, String playerTag, String telefono,
+            String playerApiToken,
             boolean aceptaTerminos) {
         // ↓↓↓ NUEVO (roadmap 1.6) ↓↓↓
         if (!aceptaTerminos) {
@@ -94,15 +96,16 @@ public class AuthService {
                     "Debes aceptar los Términos de Servicio y la Política de Privacidad para crear tu cuenta");
         }
         // ↑↑↑ NUEVO ↑↑↑
-        username = username.trim();
-        email = email.trim().toLowerCase();
-        playerTag = playerTag == null ? "" : playerTag.trim().toUpperCase();
+        username = username == null ? "" : username.trim();
+        email = email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
+        playerTag = playerTag == null ? "" : playerTag.trim().toUpperCase(Locale.ROOT);
         if (!playerTag.isEmpty() && !playerTag.startsWith("#")) {
             playerTag = "#" + playerTag;
         }
-        telefono = telefono == null ? "" : ChatSanitizer.limpiarTexto(telefono.trim(), 30);
+        telefono = normalizarTelefono(telefono);
 
-        if (username.isEmpty() || email.isEmpty() || password == null || password.isEmpty() || playerTag.isEmpty()) {
+        if (username.isEmpty() || email.isEmpty() || password == null || password.isEmpty()
+                || playerTag.isEmpty() || telefono.isEmpty()) {
             throw ServicioException.solicitudInvalida("Campos obligatorios vacíos");
         }
         if (email.length() > 120 || !EMAIL_VALIDO.matcher(email).matches()) {
@@ -111,11 +114,27 @@ public class AuthService {
         if (!PLAYER_TAG_VALIDO.matcher(playerTag).matches()) {
             throw ServicioException.solicitudInvalida("El Player Tag no tiene un formato válido de Clash Royale (#XXXXXXX)");
         }
+        String tokenJugador = playerApiToken == null ? "" : playerApiToken.trim();
+        if (tokenJugador.isEmpty() || tokenJugador.length() > 256 || tokenJugador.chars().anyMatch(Character::isISOControl)) {
+            throw ServicioException.solicitudInvalida("Ingresa el token de API generado en los ajustes de Clash Royale");
+        }
         validarPasswordNueva(password);
         // S5 (XSS): el username se muestra en chat, rankings y paneles de admin
         if (!ChatSanitizer.esNombreUsuarioSeguro(username)) {
             throw ServicioException.solicitudInvalida(
                     "El nombre de usuario debe tener entre 3 y 30 caracteres y no puede incluir < > \" ' & ` ni caracteres de control");
+        }
+
+        ClashApiServicio.ResultadoVerificacionPropiedad resultadoTag =
+                clashApi.verificarPropiedadTag(playerTag, tokenJugador);
+        if (resultadoTag == ClashApiServicio.ResultadoVerificacionPropiedad.TOKEN_INVALIDO) {
+            throw ServicioException.solicitudInvalida("El token no demuestra control de ese Player Tag; revisa el tag y vuelve a copiar el token del juego");
+        }
+        if (resultadoTag == ClashApiServicio.ResultadoVerificacionPropiedad.API_SIN_PERMISO) {
+            throw ServicioException.noDisponible("La API key de Clash Royale del servidor no tiene permiso para verificar cuentas. Contacta al administrador para habilitarlo.");
+        }
+        if (resultadoTag != ClashApiServicio.ResultadoVerificacionPropiedad.VERIFICADO) {
+            throw ServicioException.noDisponible("Clash Royale no está disponible para verificar la cuenta. Inténtalo de nuevo más tarde.");
         }
 
         String hash = hashear(password);
@@ -124,7 +143,8 @@ public class AuthService {
         boolean usernameExiste = usuarioDAO.buscarPorUsername(username) != null;
         boolean emailExiste = usuarioDAO.buscarPorEmailLower(email) != null;
         boolean tagExiste = usuarioDAO.buscarPorPlayerTag(playerTag) != null;
-        if (usernameExiste || emailExiste || tagExiste) {
+        boolean telefonoExiste = usuarioDAO.buscarPorTelefonoNormalizado(telefono) != null;
+        if (usernameExiste || emailExiste || tagExiste || telefonoExiste) {
             return;
         }
         int newId = usuarioDAO.registrarConAceptacionLegal(username, email, hash, playerTag, telefono,
@@ -136,6 +156,26 @@ public class AuthService {
         if (newId <= 0) {
             throw ServicioException.interno("No se pudo completar el registro", null);
         }
+    }
+
+    /** Canonicaliza el teléfono para que formatos distintos del mismo número colisionen en la BD. */
+    private static String normalizarTelefono(String telefono) {
+        String crudo = telefono == null ? "" : telefono.trim();
+        if (crudo.isEmpty()) return "";
+        if (!TELEFONO_FORMATO.matcher(crudo).matches()) {
+            throw ServicioException.solicitudInvalida("El formato del celular no es válido");
+        }
+        String digitos = crudo.replaceAll("[^0-9]", "");
+        if (digitos.length() < 7 || digitos.length() > 15) {
+            throw ServicioException.solicitudInvalida("El celular debe tener entre 7 y 15 dígitos");
+        }
+        if (digitos.startsWith("00")) digitos = digitos.substring(2);
+        if (digitos.length() < 7 || digitos.length() > 15) {
+            throw ServicioException.solicitudInvalida("El celular debe tener entre 7 y 15 dígitos");
+        }
+        // En este servicio, los celulares colombianos pueden escribirse con o sin +57.
+        if (digitos.matches("^3[0-9]{9}$")) digitos = "57" + digitos;
+        return digitos;
     }
 
     /**

@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Verificar propiedad de Player Tag y unicidad normalizada de cuentas (GPT-6)
+- **`ClashApiServicio.java`, `AuthService.java` y `RutasAuth.java`**: el registro comprueba el token de API del juego contra el tag por el endpoint de Supercell. El token se transmite solo durante la verificación, no se persiste ni se registra. Si la API key no tiene permiso, el registro falla de forma cerrada con un aviso de servicio no disponible.
+- **Migración V17 y `UsuarioDAO.java`**: añade índices únicos normalizados para usuario, correo, Player Tag y celular. Las formas locales y con `+57` de celulares colombianos colisionan. La migración aborta con una explicación si encuentra duplicados existentes para que se resuelvan sin elegir cuentas automáticamente.
+- **`Auth.jsx`, `public/index.html`, `public/app.js` y `faq.js`**: ambos formularios de registro piden el token temporal del juego, lo borran al terminar el envío y explican el propósito; la FAQ documenta la unicidad del celular. La Política de Privacidad pasa a versión 1.1 y declara el envío temporal del token a Supercell.
+- **Verificación:** `mvn clean compile -DskipTests` y `npm run build` finalizaron correctamente; `actualizar-txt.bat` terminó. No se ejecutaron pruebas automatizadas.
+Archivos: `ClashApiServicio.java`, `AuthService.java`, `RutasAuth.java`, `UsuarioDAO.java`, `V17__unicidad_identidades_normalizadas.sql`, `Auth.jsx`, `public/index.html`, `public/app.js`, `faq.js`, `contenido-legal.json`, `DocumentosLegales.java`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-19 — Restringir canales internos y normalizar cancelaciones Socket.IO (GPT-6)
 - **`SocketHandler.java`**: el historial y los nuevos logs de `clash_logs` se entregan solo a admins autenticados; las difusiones vuelven a validar el rol y la sesión activa. Las cancelaciones requieren identidad JWT y, para partidas, pertenencia a la sala y estado cancelable. Los errores usan `error_socket` (`evento`, `codigo`, `mensaje`) y los éxitos `cancelacion_completada`.
 - **`SocketIOServer.java`**: elimina `reportar_resultado` de los eventos entrantes porque no tiene handler. El proxy HTTP tolera hasta 60 s para el long-poll (heartbeat configurado: 25 s + 20 s); el presupuesto configurable, limitado a la mitad del pool HTTP, se divide entre GET y POST para evitar que los GET pendientes bloqueen el envío de eventos.

@@ -186,8 +186,8 @@
   },
   "privacidad": {
     "titulo": "Política de Privacidad y Tratamiento de Datos Personales",
-    "version": "1.0",
-    "vigenteDesde": "13 de octubre de 2026",
+    "version": "1.1",
+    "vigenteDesde": "19 de octubre de 2026",
     "intro": "Esta Política explica cómo UltimateClash recolecta, usa y protege tus datos personales, conforme a la Ley 1581 de 2012, el Decreto 1377 de 2013 (compilado en el Decreto 1074 de 2015) y demás normas colombianas de protección de datos personales.",
     "secciones": [
       {
@@ -204,7 +204,7 @@
           {
             "lista": [
               "Cuenta y contacto: nombre de usuario, correo electrónico, número de WhatsApp (lo usamos para disputas y para contactar a los ganadores de sorteos) y contraseña, que guardamos solo como un hash y nunca en texto legible.",
-              "Juego: tu Player Tag de Clash Royale, el perfil público que devuelve la API de Clash Royale (nombre y trofeos) para verificar tu cuenta y los resultados de tus partidas, el historial de partidas, estadísticas, faltas, disputas, tickets y participaciones en sorteos.",
+              "Juego: tu Player Tag de Clash Royale, el token de API generado en el juego (que usamos una sola vez para verificar la propiedad del tag y no almacenamos), el perfil público que devuelve la API de Clash Royale (nombre y trofeos), los resultados e historial de partidas, estadísticas, faltas, disputas, tickets y participaciones en sorteos.",
               "Financieros: tu saldo, recargas, retiros y movimientos, las referencias de pago y, para los retiros, el número de la cuenta de destino y el nombre del titular. Los datos de tu tarjeta los procesa directamente Wompi; nosotros no los almacenamos.",
               "Contenido: los mensajes de chat y las imágenes y videos que publiques o envíes como evidencia.",
               "Técnicos: tu dirección IP (seguridad y límite de solicitudes), el token de notificaciones push de tu dispositivo y la cookie de sesión.",
@@ -253,7 +253,7 @@
               "Brevo: envío de correos.",
               "Google Firebase: notificaciones push.",
               "Render: alojamiento de la aplicación y la base de datos.",
-              "Supercell (API de Clash Royale): consulta de tu perfil público y de los resultados de tus partidas a partir de tu Player Tag."
+              "Supercell (API de Clash Royale): verificación de que el token generado en el juego corresponde a tu Player Tag, además de la consulta de tu perfil público y de los resultados de tus partidas."
             ]
           },
           "Autoridades, cuando una norma o una orden legítima lo exija.",

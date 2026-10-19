@@ -104,7 +104,7 @@ TorneosFlash/
 │       ├── SocketIOServer.java      # Parseo de paquetes Engine.IO/Socket.IO
 │       └── SocketIOClient.java      # Wrapper del cliente WS
 ├── src/main/resources/
-│   └── db/migration/                # Migraciones Flyway V1–V16; V15 agrega sesiones JWT y V16 recuperación de contraseña
+│   └── db/migration/                # Migraciones Flyway V1–V17; V17 aplica unicidad normalizada de identidades
 ├── agent/rules/                     # Reglas para modelos IA
 │   ├── auto-push.md
 │   └── project-conventions.md       # ← NUEVO
@@ -493,7 +493,7 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | Ya migrada | Aplica solo los scripts nuevos; si no hay, no hace nada |
 
 **Reglas**
-- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V17`). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
+- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V18`). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
 - **Nunca editar un `V*` ya aplicado:** Flyway guarda el checksum y `validateOnMigrate` hace fallar el arranque. Para corregir algo, una migración nueva.
 - **Fail-fast:** si una migración falla, `Main` loguea el error y sale con código 1 (no se sirve tráfico con el esquema a medias). Cada script corre en su propia transacción en PostgreSQL: si falla se revierte entero.
 - `cleanDisabled=true`: la app nunca puede ejecutar `flyway clean`.
@@ -802,3 +802,13 @@ Permisos del bot en el servidor: *Gestionar canales*, *Gestionar roles*, *Ver ca
 - **Privacidad**: el canal se llama `partida-<id>`; al rival nunca se le muestra el usuario de Discord del otro. Solo se guarda el id y el nombre de Discord de quien vincula; nunca su token.
 - Los errores de Discord no rompen la partida: `emit` no lanza, el trabajo corre en el pool de IO y la limpieza de cada minuto reintenta los borrados que fallaron.
 - Frontend: solo la app React (`components/VozDiscord.jsx`, usado en `pages/Match.jsx`); el frontend legacy de `public/` no lo tiene.
+
+---
+
+## 22. Normalización de identidades y propiedad del Player Tag
+
+La migración `V17__unicidad_identidades_normalizadas.sql` refuerza el registro con índices únicos funcionales sobre `LOWER(BTRIM(username))`, `LOWER(BTRIM(email))`, Player Tag sin `#` y en mayúsculas, y celular sin separadores. Para celulares colombianos, el número local de 10 dígitos que empieza en 3 se iguala a su forma con prefijo `57`; una forma internacional `00 57...` también queda en esa forma. La validación de registro y la consulta del DAO aplican las mismas reglas. Los duplicados preexistentes provocan un error explícito antes de crear índices: deben resolverse manualmente antes de desplegar V17, sin borrar ni reasignar cuentas de forma automática.
+
+La consulta `GET /api/verify-tag/{tag}` solo confirma que Clash Royale reconoce el tag y devuelve información pública. Para terminar el registro, `AuthService` pide un token generado dentro de los ajustes del juego y llama a `POST /v1/players/{tag}/verifytoken` mediante `ClashApiServicio`. El token del jugador solo vive durante la petición, no se almacena ni se incluye en logs. El endpoint está restringido por Supercell a API keys autorizadas; un 403 hace fallar el registro con 503, nunca se acepta un tag sin verificar. La autorización de la API key de cada entorno debe comprobarse por separado.
+
+Los formularios React y legacy de `public/` envían el token solo al registrar y limpian el campo después de la petición. La Política de Privacidad (versión 1.1) declara el envío temporal del token a Supercell y que la plataforma no lo conserva. La FAQ indica que cada celular solo puede usarse en una cuenta.

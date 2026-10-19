@@ -32,8 +32,11 @@
                     placeholder="Player Tag Clash Royale (#XXXXXXX)" required pattern="#[0289PYLQGRJCUV]{3,}"
                     title="Debe empezar con # seguido de 3+ caracteres válidos">
                 <div id="playerTag-status" class="tag-status"></div>
-                <input type="tel" name="telefono" placeholder="Teléfono (WhatsApp)" required minlength="7"
-                    title="Ingresa tu número para contactarte si ganas un sorteo">
+                <input type="password" name="playerApiToken" id="player-api-token"
+                    placeholder="Token de API de Clash Royale" required maxlength="256" autocomplete="off">
+                <small>Se usa una sola vez para comprobar que controlas ese Player Tag; no lo guardamos. En Clash Royale, genera el token de API desde los ajustes del juego.</small>
+                <input type="tel" name="telefono" placeholder="Celular (WhatsApp)" required minlength="7" maxlength="30"
+                    title="Ingresa un celular único para contactarte si ganas un sorteo">
                 <!-- ↓↓↓ NUEVO ↓↓↓ -->
                 <label
                     style="display:flex; gap:8px; align-items:flex-start; text-align:left; font-size:0.85rem; color:#b9bbbe; margin:10px 0; cursor:pointer;">

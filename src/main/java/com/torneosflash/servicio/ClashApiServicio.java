@@ -6,9 +6,11 @@ import com.google.gson.*;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -19,6 +21,13 @@ import java.time.format.DateTimeFormatter;
  */
 public class ClashApiServicio {
     private static final Logger logger = LoggerFactory.getLogger(ClashApiServicio.class);
+
+    public enum ResultadoVerificacionPropiedad {
+        VERIFICADO,
+        TOKEN_INVALIDO,
+        API_SIN_PERMISO,
+        API_NO_DISPONIBLE
+    }
 
 
     private final String apiToken;
@@ -214,6 +223,69 @@ public class ClashApiServicio {
         reader.close();
 
         return JsonParser.parseString(sb.toString()).getAsJsonObject();
+    }
+
+    /**
+     * Usa el token generado dentro del juego para probar control del tag. El token del jugador
+     * solo viaja en esta petición y nunca se registra ni se persiste.
+     */
+    public ResultadoVerificacionPropiedad verificarPropiedadTag(String tag, String tokenJugador) {
+        if (apiToken == null || apiToken.isBlank() || tag == null || tokenJugador == null || tokenJugador.isBlank()) {
+            return ResultadoVerificacionPropiedad.API_NO_DISPONIBLE;
+        }
+
+        String tagNormalizado = tag.trim().replace("#", "").toUpperCase(Locale.ROOT);
+        String urlStr = "https://api.clashroyale.com/v1/players/%23" + tagNormalizado + "/verifytoken";
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URI(urlStr).toURL().openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(10000);
+            conn.setRequestProperty("Authorization", "Bearer " + apiToken.trim());
+            conn.setRequestProperty("Accept", "application/json");
+            conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+
+            JsonObject request = new JsonObject();
+            request.addProperty("token", tokenJugador);
+            try (OutputStream output = conn.getOutputStream()) {
+                output.write(request.toString().getBytes(StandardCharsets.UTF_8));
+            }
+            request.remove("token");
+
+            int statusCode = conn.getResponseCode();
+            if (statusCode == HttpURLConnection.HTTP_FORBIDDEN) {
+                // No leer ni registrar el cuerpo: errores externos no deben exponer datos de la petición.
+                return ResultadoVerificacionPropiedad.API_SIN_PERMISO;
+            }
+            if (statusCode == HttpURLConnection.HTTP_BAD_REQUEST || statusCode == HttpURLConnection.HTTP_NOT_FOUND) {
+                return ResultadoVerificacionPropiedad.TOKEN_INVALIDO;
+            }
+            if (statusCode != HttpURLConnection.HTTP_OK) {
+                return ResultadoVerificacionPropiedad.API_NO_DISPONIBLE;
+            }
+
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                JsonObject response = JsonParser.parseReader(reader).getAsJsonObject();
+                response.remove("token");
+                String estado = response.has("status") && !response.get("status").isJsonNull()
+                        ? response.get("status").getAsString() : "";
+                String tagDevuelto = response.has("tag") && !response.get("tag").isJsonNull()
+                        ? response.get("tag").getAsString().trim().replace("#", "").toUpperCase(Locale.ROOT) : "";
+                // La respuesta puede repetir el token; se elimina antes de leer los campos usados.
+                return "ok".equalsIgnoreCase(estado) && tagNormalizado.equals(tagDevuelto)
+                        ? ResultadoVerificacionPropiedad.VERIFICADO
+                        : ResultadoVerificacionPropiedad.TOKEN_INVALIDO;
+            }
+        } catch (Exception e) {
+            logger.warn("No se pudo completar la verificación de propiedad de un Player Tag: {}",
+                    e.getClass().getSimpleName());
+            return ResultadoVerificacionPropiedad.API_NO_DISPONIBLE;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
     }
 
     /**

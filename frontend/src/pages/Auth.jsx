@@ -21,6 +21,7 @@ export default function Auth() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [playerTag, setPlayerTag] = useState('');
+    const [playerApiToken, setPlayerApiToken] = useState('');
     const [telefono, setTelefono] = useState('');
     const [acepta, setAcepta] = useState(false);
     const [passwordNueva, setPasswordNueva] = useState('');
@@ -126,7 +127,7 @@ export default function Auth() {
                 }
                 const data = await res.json();
                 if (data.found) {
-                    setPlayerTagStatus({ text: `✅ ¿Tu nombre es ${data.name}? (${data.trophies} 🏆)`, className: 'tag-status visible found' });
+                    setPlayerTagStatus({ text: `✅ Tag encontrado: ${data.name} (${data.trophies} 🏆)`, className: 'tag-status visible found' });
                     setPlayerTagValid(true);
                 } else {
                     setPlayerTagStatus({ text: data.message || '❌ Usuario no encontrado', className: 'tag-status visible not-found' });
@@ -146,6 +147,7 @@ export default function Auth() {
         if (!usernameValid) return alert('❌ El formato del nombre de usuario no es válido');
         if (!emailValid) return alert('❌ El formato del correo no es válido');
         if (!playerTagValid) return alert('❌ El Player Tag no es válido. Debe mostrar tu nombre de Clash Royale');
+        if (!playerApiToken.trim()) return alert('Ingresa el token de API de Clash Royale para demostrar que controlas el Player Tag.');
         if (!acepta) return alert('❌ Debes aceptar los Términos de Servicio y la Política de Privacidad');
         if (excedeLimiteBcrypt(password)) return alert('La contraseña no puede superar 72 bytes UTF-8. Los acentos y emojis pueden ocupar más de un byte.');
 
@@ -155,9 +157,10 @@ export default function Auth() {
                 method: 'POST',
                 credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, email, password, playerTag, telefono, aceptaTerminos: true })
+                body: JSON.stringify({ username, email, password, playerTag, playerApiToken, telefono, aceptaTerminos: true })
             });
             const data = await res.json();
+            setPlayerApiToken('');
             if (res.ok) {
                 alert(data.message || 'Solicitud recibida. Si los datos permiten crear una cuenta, podrás iniciar sesión en unos instantes.');
                 setIsLogin(true);
@@ -166,6 +169,7 @@ export default function Auth() {
             }
         } catch (e) {
             console.error(e);
+            setPlayerApiToken('');
             alert('Error de conexión');
         }
     };
@@ -295,8 +299,12 @@ export default function Auth() {
                             value={playerTag} onChange={e => setPlayerTag(e.target.value)} />
                         <div className={playerTagStatus.className}>{playerTagStatus.text}</div>
 
-                        <input type="tel" placeholder="Teléfono (WhatsApp)" required minLength="7"
-                            title="Ingresa tu número para contactarte si ganas un sorteo"
+                        <input type="password" placeholder="Token de API de Clash Royale" required autoComplete="off"
+                            maxLength="256" value={playerApiToken} onChange={e => setPlayerApiToken(e.target.value)} />
+                        <small>Se usa una sola vez para comprobar que controlas ese Player Tag; no lo guardamos. En Clash Royale, genera el token de API desde los ajustes del juego.</small>
+
+                        <input type="tel" placeholder="Celular (WhatsApp)" required minLength="7" maxLength="30"
+                            title="Ingresa un celular único para contactarte si ganas un sorteo"
                             value={telefono} onChange={e => setTelefono(e.target.value)} />
 
                         <AceptacionLegal acepta={acepta} onChange={setAcepta} />
