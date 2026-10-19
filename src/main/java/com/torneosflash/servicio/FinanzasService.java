@@ -87,6 +87,13 @@ public class FinanzasService {
         if (metodoLimpio.isEmpty() || refLimpia.isEmpty()) {
             throw ServicioException.solicitudInvalida("El método y la referencia son obligatorios");
         }
+        // Wompi genera referencias en el espacio reservado "TF-" y se procesa por /api/wompi/init.
+        // Impide que una recarga manual suplante ese método o reutilice una referencia Wompi.
+        if (metodoLimpio.equalsIgnoreCase("wompi")
+                || refLimpia.trim().regionMatches(true, 0, "TF-", 0, 3)) {
+            throw ServicioException.solicitudInvalida(
+                    "Los pagos por Wompi deben iniciarse desde el flujo de Wompi");
+        }
         String username = usernameDeUsuario(userId);
 
         int rows = db.update("INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia) " +
