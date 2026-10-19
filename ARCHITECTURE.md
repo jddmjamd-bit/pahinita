@@ -151,7 +151,7 @@ TorneosFlash/
 
 ---
 
-## 4. Flujo de una partida
+## 4. Socket.IO, canales y flujo de una partida
 
 ```mermaid
 sequenceDiagram
@@ -159,26 +159,23 @@ sequenceDiagram
     participant S as Servidor (SocketHandler)
     participant J2 as Jugador 2
 
-    J1->>S: buscar_partida (monto, modo)
-    S->>S: Añadir a cola en memoria (ConcurrentHashMap)
-    Note over S: Matchmaking: primer rival con mismo monto y modo
-
-    S->>J1: rival_encontrado
-    S->>J2: rival_encontrado
-
-    J1->>S: reportar_resultado (ganador: J1)
-    J2->>S: reportar_resultado (ganador: J1)
-
-    alt Ambos coinciden
-        S->>S: Liquidar: saldo ganador += monto*2 - comisión
-        S->>S: Registrar match en BD
-        S->>J1: resultado_final
-        S->>J2: resultado_final
-    else Disputa
-        S->>S: Pedir evidencia (screenshots)
-        S->>S: Admin resuelve manualmente
-    end
+    J1->>S: Handshake con cookie JWT
+    S->>S: Validar JWT/sesión y cargar usuario
+    S-->>J1: Historial anuncios/general/clash
+    Note over S,J1: clash_logs solo se entrega a admins autenticados
+    J1->>S: buscar_partida
+    S->>J1: partida_encontrada
+    S->>J2: partida_encontrada
+    J1->>S: iniciar_juego / confirmar_partida_resp
+    J2->>S: iniciar_juego / confirmar_partida_resp
+    S->>S: WalletService persiste cobros y active_matches atómicamente
+    S->>J1: juego_iniciado / resultado_api
+    S->>J2: juego_iniciado / resultado_api
 ```
+
+**Autorización por canal y cancelaciones:** los sockets anónimos no reciben historial ni mensajes en vivo de `clash_logs`; el servidor vuelve a comprobar el rol admin en la BD para cada difusión de logs. Los canales `general`, `anuncios` y `clash` conservan su difusión pública, pero publicar requiere sesión y `anuncios` además requiere admin. Los mensajes privados se envían únicamente a la room de la partida. `reportar_resultado` no se registra porque no existe handler. `cancelar_busqueda`, `cancelar_inicio` y `cancelar_match` requieren la identidad JWT del socket y la pertenencia/estado correspondiente; sus fallos devuelven `error_socket` con `{evento, codigo, mensaje}` y sus éxitos `cancelacion_completada`. La UI cambia de estado al recibir confirmación.
+
+**Puente de polling:** Engine.IO mantiene solicitudes GET long-polling y publica `pingInterval` y `pingTimeout` en el handshake. Este servidor usa 25 s + 20 s; el proxy HTTP espera 60 s para dejar margen al long-poll. El presupuesto total de solicitudes se limita a la mitad de los hilos HTTP (32 por defecto) y se divide entre semáforos GET y POST, para que los GET pendientes no bloqueen el envío de eventos. El tope se configura con `SOCKET_IO_POLLING_MAX_CONCURRENT`. El cliente React actual fuerza WebSocket, así que no ocupa esos cupos.
 
 > [!NOTE]
 > **A2 completado (Persistencia de estado en BD):** Las búsquedas en cola (`match_queue`) y las salas/partidas activas (`active_matches`) se sincronizan en PostgreSQL. Al reiniciar el servidor, `SocketHandler.recuperarEstadoDesdeBD()` restaura las salas en negociación, reanuda el sondeo de la API de Clash Royale (`iniciarPollingApi`) desde el `poll_count` guardado para las partidas en curso y reprograma los temporizadores de búsqueda con el tiempo restante real.
@@ -393,6 +390,7 @@ Toda configuración de despliegue se lee en `config/AppConfig` (nada de números
 | `BIND_HOST` | `0.0.0.0` | | Interfaz en la que escucha Javalin. No se usa `HOST` para no chocar con esa variable de sistema |
 | `WS_MAX_MESSAGE_BYTES` | `50000000` | >= 1024 | Tamaño máximo de un mensaje WebSocket (el chat manda imágenes en base64) |
 | `SOCKET_IO_PORT` | `9092` | 0 - 65535 | Puerto interno donde escucha `netty-socketio` (Javalin expone `/socket.io/` en `PORT` y redirige internamente; si está ocupado elige uno libre) |
+| `SOCKET_IO_POLLING_MAX_CONCURRENT` | la mitad de `HTTP_MAX_THREADS` (32 por defecto) | 2–la mitad de `HTTP_MAX_THREADS` | Presupuesto total de solicitudes del puente HTTP long-polling, repartido por igual entre GET largos y POST de eventos; reserva al menos la mitad del pool HTTP para otras rutas. React usa WebSocket directo (`transports: ['websocket']`) |
 | `BUSQUEDA_TIMEOUT_MINUTOS` | `10` | 1 - 1440 | Minutos de búsqueda de rival antes de cancelarla (`SocketHandler`) |
 | `NEGOCIACION_DESCONEXION_SEGUNDOS` | `90` | 1 - 3600 | Segundos que se espera a un jugador desconectado durante la negociación antes de cancelar el match |
 | `POLLING_INTERVALO_SEGUNDOS` | `5` | 2 - 60 | Cada cuánto se consulta la API de Clash Royale por el resultado de una partida |

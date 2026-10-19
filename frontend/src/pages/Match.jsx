@@ -184,6 +184,18 @@ export default function Match() {
             resetMatch();
         };
 
+        const onErrorSocket = (data) => {
+            if (!data || !['cancelar_busqueda', 'cancelar_inicio', 'cancelar_match'].includes(data.evento)) return;
+            alert(data.mensaje || 'No se pudo completar la cancelación. Inténtalo de nuevo.');
+            if (data.evento === 'cancelar_busqueda') setMatchState({ status: 'searching' });
+        };
+        const onCancelacionCompletada = (data) => {
+            if (data?.evento === 'cancelar_busqueda') setMatchState({ status: 'idle' });
+            if (data?.evento === 'cancelar_inicio') {
+                setBtnState({ text: '🎮 COMENZAR', disabled: false, cssClass: 'enabled' });
+            }
+        };
+
         // Búsqueda de partida
         const onBuscandoActivo = () => setMatchState({ status: 'searching' }); // reconexión con la búsqueda aún activa
         const onErrorBusqueda = (msg) => {
@@ -233,6 +245,8 @@ export default function Match() {
         socket.on('mensaje_privado', onMensajePrivado);
         socket.on('restaurar_partida', onRestaurarPartida);
         socket.on('match_cancelado', onMatchCancelado);
+        socket.on('error_socket', onErrorSocket);
+        socket.on('cancelacion_completada', onCancelacionCompletada);
         socket.on('buscando_activo', onBuscandoActivo);
         socket.on('error_busqueda', onErrorBusqueda);
         socket.on('busqueda_timeout', onBusquedaTimeout);
@@ -256,6 +270,8 @@ export default function Match() {
             socket.off('mensaje_privado', onMensajePrivado);
             socket.off('restaurar_partida', onRestaurarPartida);
             socket.off('match_cancelado', onMatchCancelado);
+            socket.off('error_socket', onErrorSocket);
+            socket.off('cancelacion_completada', onCancelacionCompletada);
             socket.off('buscando_activo', onBuscandoActivo);
             socket.off('error_busqueda', onErrorBusqueda);
             socket.off('busqueda_timeout', onBusquedaTimeout);
@@ -331,7 +347,6 @@ export default function Match() {
         if (!currentUser || !socket) return;
         if (btnState.text.includes('ESPERANDO')) {
             socket.emit('cancelar_inicio');
-            setBtnState({ text: '🎮 COMENZAR', disabled: false, cssClass: 'enabled' });
             return;
         }
         
@@ -371,7 +386,6 @@ export default function Match() {
 
     const handleCancelarBusqueda = () => {
         if (socket) socket.emit('cancelar_busqueda');
-        setMatchState({ status: 'idle' });
     };
 
     // Botón ❌ de la sala: el servidor cancela la partida para ambos (match_cancelado) y cuenta como salida

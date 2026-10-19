@@ -388,7 +388,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let maxBetAllowed = 0;
     let chatStorage = { anuncios: [], general: [], clash: [], clash_logs: [] };
     let lastDatePainted = { anuncios: null, general: null, clash: null, clash_logs: null };
-    let resultadoSeleccionado = null;
 
     // REFERENCIAS DOM
     const authFlow = document.getElementById('auth-flow');
@@ -423,10 +422,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const inputBetAmount = document.getElementById('input-bet-amount');
     const validationMsg = document.getElementById('validation-msg');
     const maxBetInfo = document.getElementById('max-bet-info');
-    const btnWin = document.getElementById('btn-win');
-    const btnLose = document.getElementById('btn-lose');
     const btnConfirmResult = document.getElementById('btn-confirm-result');
-    const resultText = document.getElementById('result-selection-text');
     const privateChatForm = document.getElementById('private-chat-form');
     const btnAdminStats = document.getElementById('btn-admin-stats');
     const adminStatsOverlay = document.getElementById('admin-stats-overlay');
@@ -1434,6 +1430,22 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
         socket.on('error_busqueda', (m) => { alert(m); actualizarEstadoVisual('normal'); });
+        socket.on('error_socket', (data) => {
+            if (!data || !['cancelar_busqueda', 'cancelar_inicio', 'cancelar_match'].includes(data.evento)) return;
+            alert(data.mensaje || 'No se pudo completar la cancelación. Inténtalo de nuevo.');
+            if (data.evento === 'cancelar_busqueda') actualizarEstadoVisual('buscando_partida');
+        });
+        socket.on('cancelacion_completada', (data) => {
+            if (data?.evento === 'cancelar_busqueda') actualizarEstadoVisual('normal');
+            if (data?.evento === 'cancelar_inicio' && btnStartGame) {
+                btnStartGame.textContent = '🎮 COMENZAR PARTIDA';
+                btnStartGame.disabled = false;
+                btnStartGame.classList.remove('waiting-cancel');
+                btnStartGame.classList.add('enabled');
+                btnStartGame.style.backgroundColor = '';
+                btnStartGame.style.pointerEvents = '';
+            }
+        });
 
 
         socket.on('partida_encontrada', (data) => {
@@ -1585,7 +1597,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     // Game Interactions
-    if (btnBuscar) btnBuscar.addEventListener('click', () => { if (!currentUser) return; if (currentUser.saldo < 1000) { alert("Saldo insuficiente"); return; } if (currentUser.estado === 'normal') { actualizarEstadoVisual('buscando_partida'); socket.emit('buscar_partida', currentUser); } else if (currentUser.estado === 'buscando_partida') { actualizarEstadoVisual('normal'); socket.emit('cancelar_busqueda'); } });
+    if (btnBuscar) btnBuscar.addEventListener('click', () => { if (!currentUser) return; if (currentUser.saldo < 1000) { alert("Saldo insuficiente"); return; } if (currentUser.estado === 'normal') { actualizarEstadoVisual('buscando_partida'); socket.emit('buscar_partida', currentUser); } else if (currentUser.estado === 'buscando_partida') { socket.emit('cancelar_busqueda'); } });
     if (btnCancelMatch) btnCancelMatch.addEventListener('click', () => { if (confirm("¿Cancelar?")) socket.emit('cancelar_match', { motivo: 'Oprimió X' }); });
 
     function validarNegociacion() {
@@ -1675,12 +1687,6 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (btnStartGame.textContent === "⏳ ESPERANDO AL RIVAL... (Click para cancelar)") {
                 socket.emit('cancelar_inicio');
-                btnStartGame.textContent = "🎮 COMENZAR PARTIDA";
-                btnStartGame.disabled = false;
-                btnStartGame.classList.remove('waiting-cancel');
-                btnStartGame.classList.add('enabled');
-                btnStartGame.style.backgroundColor = ""; // reset inline style
-                btnStartGame.style.pointerEvents = ""; // reset inline pointer-events
                 return;
             }
 
@@ -1891,31 +1897,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('match-confirm-modal').classList.add('hidden');
             });
         }
-    }
-
-    if (btnWin && btnLose && btnConfirmResult) {
-        btnWin.addEventListener('click', () => {
-            resultadoSeleccionado = 'gane';
-            btnWin.classList.add('selected');
-            btnLose.classList.remove('selected');
-            resultText.textContent = "VICTORIA 👑";
-            btnConfirmResult.disabled = false;
-        });
-        btnLose.addEventListener('click', () => {
-            resultadoSeleccionado = 'perdi';
-            btnLose.classList.add('selected');
-            btnWin.classList.remove('selected');
-            resultText.textContent = "DERROTA 💀";
-            btnConfirmResult.disabled = false;
-        });
-        btnConfirmResult.addEventListener('click', () => {
-            if (resultadoSeleccionado) {
-                socket.emit('reportar_resultado', { resultado: resultadoSeleccionado, usuarioId: currentUser.id });
-                btnConfirmResult.textContent = "⏳ Esperando al rival...";
-                btnConfirmResult.disabled = true;
-                btnConfirmResult.style.background = "#faa61a";
-            }
-        });
     }
 
     // --- CHAT PRIVADO ---

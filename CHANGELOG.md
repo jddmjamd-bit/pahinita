@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Restringir canales internos y normalizar cancelaciones Socket.IO (GPT-6)
+- **`SocketHandler.java`**: el historial y los nuevos logs de `clash_logs` se entregan solo a admins autenticados; las difusiones vuelven a validar el rol y la sesión activa. Las cancelaciones requieren identidad JWT y, para partidas, pertenencia a la sala y estado cancelable. Los errores usan `error_socket` (`evento`, `codigo`, `mensaje`) y los éxitos `cancelacion_completada`.
+- **`SocketIOServer.java`**: elimina `reportar_resultado` de los eventos entrantes porque no tiene handler. El proxy HTTP tolera hasta 60 s para el long-poll (heartbeat configurado: 25 s + 20 s); el presupuesto configurable, limitado a la mitad del pool HTTP, se divide entre GET y POST para evitar que los GET pendientes bloqueen el envío de eventos.
+- **`Match.jsx` y `public/app.js`**: ambas interfaces esperan confirmación antes de cambiar el estado de cancelación y muestran los errores del protocolo común. Se retiró el emisor/controles antiguos de `reportar_resultado` sin handler.
+- **Verificación:** `mvn clean compile -DskipTests` (BUILD SUCCESS), `npm run build` y `actualizar-txt.bat` terminaron correctamente; no se ejecutaron pruebas automatizadas.
+Archivos: `SocketHandler.java`, `SocketIOServer.java`, `AppConfig.java`, `Match.jsx`, `public/app.js`, `public/js/match.js`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-19 — Añadir CSP/HSTS y dejar de persistir datos de usuario (GPT-6)
 - **`Main.java`**: agrega CSP global con scripts restringidos al mismo origen y al widget de Wompi; permite fuentes de Google, videos de YouTube y los orígenes configurados para API/Socket.IO. Los estilos inline siguen habilitados por los estilos de React. HSTS se activa con `APP_BASE_URL` HTTPS durante un año, sin `includeSubDomains`.
 - **Panel DB**: conserva una CSP separada y restringida a recursos/conexiones del mismo origen; sus scripts inline siguen permitidos porque la página heredada usa manejadores inline.

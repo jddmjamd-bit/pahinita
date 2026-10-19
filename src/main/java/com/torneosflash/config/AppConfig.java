@@ -79,6 +79,7 @@ public class AppConfig {
     private final int httpMaxThreads;
     private final int httpMinThreads;
     private final int httpIdleTimeoutMs;
+    private final int socketIoPollingMaxConcurrent;
     private final int ioPoolThreads;
     private final int ioPoolQueue;
     private final int pushPoolThreads;
@@ -197,6 +198,10 @@ public class AppConfig {
         this.httpMaxThreads = httpMax;
         this.httpMinThreads = Math.min(getEnvEntero("HTTP_MIN_THREADS", 8, 1), httpMax);
         this.httpIdleTimeoutMs = getEnvEntero("HTTP_IDLE_TIMEOUT_MS", 60_000, 1_000);
+        // El polling mantiene GET largos; reserva al menos la mitad del pool HTTP para otras rutas.
+        int maxPolling = Math.max(2, httpMax / 2);
+        this.socketIoPollingMaxConcurrent = getEnvEntero(
+                "SOCKET_IO_POLLING_MAX_CONCURRENT", maxPolling, 2, maxPolling);
         this.ioPoolThreads = getEnvEntero("IO_POOL_THREADS", 16, 1);
         this.ioPoolQueue = getEnvEntero("IO_POOL_QUEUE", 500, 1);
         this.pushPoolThreads = getEnvEntero("PUSH_POOL_THREADS", 4, 1, 32);
@@ -439,6 +444,7 @@ public class AppConfig {
     public int getHttpMaxThreads() { return httpMaxThreads; }
     public int getHttpMinThreads() { return httpMinThreads; }
     public int getHttpIdleTimeoutMs() { return httpIdleTimeoutMs; }
+    public int getSocketIoPollingMaxConcurrent() { return socketIoPollingMaxConcurrent; }
     public int getIoPoolThreads() { return ioPoolThreads; }
     public int getIoPoolQueue() { return ioPoolQueue; }
     public int getPushPoolThreads() { return pushPoolThreads; }

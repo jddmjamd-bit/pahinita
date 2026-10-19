@@ -91,8 +91,11 @@ public class SocketHandler {
                 }
             }
 
-            // Enviar historial de chats
+            // El historial general es visible para la app; los logs internos solo para admins
+            // cuya identidad y rol se cargaron desde la sesión JWT y la BD en este handshake.
+            boolean puedeVerLogs = esAdminSocket(socket);
             for (String canal : new String[]{"anuncios", "general", "clash", "clash_logs"}) {
+                if ("clash_logs".equals(canal) && !puedeVerLogs) continue;
                 ArrayList<JsonObject> msgs = db.query(
                         "SELECT * FROM (SELECT * FROM messages WHERE canal = ? ORDER BY id DESC LIMIT ?) t ORDER BY id ASC",
                         canal, config.getChatHistorialLimite()); // A7: CHAT_HISTORIAL_LIMITE (antes 50 fijo)
@@ -394,18 +397,38 @@ public class SocketHandler {
 
             // --- CANCELAR BÚSQUEDA ---
             socket.on("cancelar_busqueda", (client, data) -> {
-                colaEsperaClash.removeIf(s -> s.getSid().equals(client.getSid()));
-                if (client.getUserData() != null) {
-                    int userId = client.getUserData().get("id").getAsInt();
-                    BusquedaActiva busqueda = busquedasActivas.remove(userId);
+                Integer userId = usuarioAutenticado(client, "cancelar_busqueda");
+                if (userId == null) return;
+                try {
+                    if (client.getCurrentRoom() != null) {
+                        emitirErrorSocket(client, "cancelar_busqueda", "EN_PARTIDA",
+                                "No puedes cancelar la búsqueda mientras estás en una partida.");
+                        return;
+                    }
+                    boolean estabaEnColaLocal = colaEsperaClash.stream().anyMatch(s -> s.getSid().equals(client.getSid()));
+                    BusquedaActiva busqueda = busquedasActivas.get(userId);
+                    int eliminada = db.update("DELETE FROM match_queue WHERE user_id = ?", userId);
+                    if (eliminada == 0 && (estabaEnColaLocal || busqueda != null)) {
+                        emitirErrorSocket(client, "cancelar_busqueda", "CANCELACION_FALLIDA",
+                                "No se pudo confirmar la cancelación de la búsqueda. Inténtalo de nuevo.");
+                        return;
+                    }
+                    colaEsperaClash.removeIf(s -> s.getSid().equals(client.getSid()));
+                    busquedasActivas.remove(userId);
                     if (busqueda != null && busqueda.timeoutFuture != null) busqueda.timeoutFuture.cancel(false);
-                    db.update("DELETE FROM match_queue WHERE user_id = ?", userId);
-                    db.update("UPDATE users SET estado = 'normal' WHERE id = ?", userId);
+                    if (eliminada > 0) {
+                        db.update("UPDATE users SET estado = 'normal' WHERE id = ? AND estado = 'buscando_partida'", userId);
+                    }
                     logClash("🚫 " + client.getUserData().get("username").getAsString() + " canceló manualmente.");
                     JsonObject cancelData = new JsonObject();
                     cancelData.addProperty("oderId", userId);
                     cancelData.addProperty("username", client.getUserData().get("username").getAsString());
                     io.emit("busqueda_cancelada", cancelData);
+                    emitirCancelacionCompletada(client, "cancelar_busqueda");
+                } catch (Exception e) {
+                    logger.error("Error cancelar_busqueda (userId={}): {}", userId, e.getMessage(), e);
+                    emitirErrorSocket(client, "cancelar_busqueda", "CANCELACION_FALLIDA",
+                            "No se pudo cancelar la búsqueda. Inténtalo de nuevo.");
                 }
             });
 
@@ -511,23 +534,55 @@ public class SocketHandler {
 
             // --- CANCELAR INICIO ---
             socket.on("cancelar_inicio", (client, data) -> {
+                Integer myId = usuarioAutenticado(client, "cancelar_inicio");
+                if (myId == null) return;
+                String evento = "cancelar_inicio";
                 try {
                     String salaId = client.getCurrentRoom();
-                    if (salaId == null || !activeMatches.containsKey(salaId)) return;
-                    ActiveMatch match = activeMatches.get(salaId);
-                    if (match.iniciado) return;
-                    if (match.inicioRevision) {
-                        client.emit("error_negociacion", new JsonPrimitive(
-                                "Esta partida requiere revisión administrativa antes de cancelarse"));
+                    if (salaId == null) {
+                        emitirErrorSocket(client, evento, "SALA_NO_ENCONTRADA", "No estás en una sala activa.");
                         return;
                     }
-
-                    int myId = client.getUserData().get("id").getAsInt();
-                    match.votosInicio.remove(myId);
-                    match.confirmaciones.clear();
-                    persistirMatchEnBD(salaId, match);
+                    ActiveMatch match = activeMatches.get(salaId);
+                    if (match == null) {
+                        emitirErrorSocket(client, evento, "SALA_NO_ENCONTRADA", "La sala ya no está activa.");
+                        return;
+                    }
+                    synchronized (match) {
+                        if (activeMatches.get(salaId) != match) {
+                            emitirErrorSocket(client, evento, "SALA_NO_ENCONTRADA", "La sala ya no está activa.");
+                            return;
+                        }
+                        if (myId != match.player1Id && myId != match.player2Id) {
+                            emitirErrorSocket(client, evento, "SIN_PERMISO", "No perteneces a esta partida.");
+                            return;
+                        }
+                        if (match.iniciado) {
+                            emitirErrorSocket(client, evento, "PARTIDA_INICIADA", "La partida ya inició y no se puede cancelar.");
+                            return;
+                        }
+                        if (match.inicioRevision) {
+                            emitirErrorSocket(client, evento, "REVISION_ADMIN", "Esta partida requiere revisión administrativa antes de cancelarse.");
+                            return;
+                        }
+                        Map<Integer, JsonObject> votosPrevios = new HashMap<>(match.votosInicio);
+                        Map<Integer, Boolean> confirmacionesPrevias = new HashMap<>(match.confirmaciones);
+                        match.votosInicio.remove(myId);
+                        match.confirmaciones.clear();
+                        if (!persistirMatchEnBD(salaId, match)) {
+                            match.votosInicio.clear();
+                            match.votosInicio.putAll(votosPrevios);
+                            match.confirmaciones.putAll(confirmacionesPrevias);
+                            emitirErrorSocket(client, evento, "CANCELACION_FALLIDA", "No se pudo guardar la cancelación. Inténtalo de nuevo.");
+                            return;
+                        }
+                    }
                     client.to(salaId).emit("rival_cancelo_inicio");
-                } catch (Exception ignored) {}
+                    emitirCancelacionCompletada(client, evento);
+                } catch (Exception e) {
+                    logger.error("Error cancelar_inicio: {}", e.getMessage(), e);
+                    emitirErrorSocket(client, evento, "CANCELACION_FALLIDA", "No se pudo cancelar el inicio. Inténtalo de nuevo.");
+                }
             });
 
             // --- RESPUESTA DE CONFIRMACION ---
@@ -721,9 +776,19 @@ public class SocketHandler {
 
             // --- CANCELAR MATCH ---
             socket.on("cancelar_match", (client, data) -> {
-                JsonObject d = data.length > 0 ? ((JsonElement) data[0]).getAsJsonObject() : new JsonObject();
-                String motivo = d.has("motivo") ? d.get("motivo").getAsString() : "Abandonado";
-                handleCancelMatch(client, motivo);
+                String evento = "cancelar_match";
+                if (usuarioAutenticado(client, evento) == null) return;
+                try {
+                    JsonObject d = data.length > 0 && data[0] instanceof JsonElement
+                            && ((JsonElement) data[0]).isJsonObject()
+                            ? ((JsonElement) data[0]).getAsJsonObject() : new JsonObject();
+                    String motivo = d.has("motivo") && !d.get("motivo").isJsonNull()
+                            ? d.get("motivo").getAsString() : "Abandonado";
+                    handleCancelMatch(client, motivo);
+                } catch (Exception e) {
+                    logger.error("Error cancelar_match: {}", e.getMessage(), e);
+                    emitirErrorSocket(client, evento, "CANCELACION_FALLIDA", "No se pudo cancelar la partida. Inténtalo de nuevo.");
+                }
             });
 
             // --- DISCONNECT ---
@@ -948,11 +1013,11 @@ public class SocketHandler {
         match.disconnectTimers.put(userId, timer);
     }
 
-    private void persistirMatchEnBD(String salaId, ActiveMatch match) {
-        if (salaId == null || match == null) return;
+    private boolean persistirMatchEnBD(String salaId, ActiveMatch match) {
+        if (salaId == null || match == null) return false;
         String votosJson = serializarVotos(match.votosInicio);
         String confirmacionesJson = serializarConfirmaciones(match.confirmaciones);
-        db.update(
+        return db.update(
                 "UPDATE active_matches SET " +
                 "iniciado = ?, monto = ?, match_db_id = ?, player_tag1 = ?, player_tag2 = ?, " +
                 "match_start_time = ?, last_modo = ?, last_dinero = ?, votos_json = ?, " +
@@ -969,7 +1034,7 @@ public class SocketHandler {
                 votosJson,
                 confirmacionesJson,
                 match.pollCount,
-                salaId);
+                salaId) == 1;
     }
 
     private void persistirVotosMatchSinAvanzarFecha(String salaId, ActiveMatch match) {
@@ -1292,49 +1357,73 @@ public class SocketHandler {
     }
 
     private void handleCancelMatch(SocketIOClient socket, String motivoCrudo) {
+        Integer userId = usuarioAutenticado(socket, "cancelar_match");
+        if (userId == null) return;
         String salaId = socket.getCurrentRoom();
-        if (salaId == null || !activeMatches.containsKey(salaId)) return;
+        if (salaId == null) {
+            emitirErrorSocket(socket, "cancelar_match", "SALA_NO_ENCONTRADA", "No estás en una sala activa.");
+            return;
+        }
+        if (!activeMatches.containsKey(salaId)) {
+            emitirErrorSocket(socket, "cancelar_match", "SALA_NO_ENCONTRADA", "La sala ya no está activa.");
+            return;
+        }
         ActiveMatch match = activeMatches.get(salaId);
-        if (match.iniciado) return;
-        if (match.inicioRevision) {
-            socket.emit("error_negociacion", new JsonPrimitive(
-                    "Esta partida requiere revisión administrativa; se conservó para proteger el cobro"));
+        if (match == null) {
+            emitirErrorSocket(socket, "cancelar_match", "SALA_NO_ENCONTRADA", "La sala ya no está activa.");
             return;
         }
 
-        // M2: Sanitizar el motivo antes de guardarlo en clash_logs o reenviarlo a la sala
-        String motivo = ChatSanitizer.limpiarTexto(motivoCrudo, 60);
-        if (motivo.isEmpty()) motivo = "Abandonado";
-
-        for (ScheduledFuture<?> f : match.disconnectTimers.values()) {
-            f.cancel(false);
-        }
-        match.disconnectTimers.clear();
-
-        if (socket.getUserData() != null) {
-            int uid = socket.getUserData().get("id").getAsInt();
-            db.update("UPDATE users SET salidas_chat = salidas_chat + 1 WHERE id = ?", uid);
-            if ("Oprimió X".equals(motivo)) db.update("UPDATE users SET salidas_x = salidas_x + 1 WHERE id = ?", uid);
-            else if ("Salió del chat".equals(motivo)) db.update("UPDATE users SET salidas_canal = salidas_canal + 1 WHERE id = ?", uid);
-        }
-
-        String usersStr = match.player1Username + " vs " + match.player2Username;
-        logClash("⚠️ Cancelada (" + usersStr + "): " + motivo);
-
-        JsonObject cancelData = new JsonObject();
-        cancelData.addProperty("motivo", motivo);
-        io.to(salaId).emit("match_cancelado", cancelData);
-
-        db.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id IN (?, ?)",
-                match.player1Id, match.player2Id);
-        for (SocketIOClient p : match.players) {
-            if (p != null) {
-                p.leave(salaId);
-                p.setCurrentRoom(null);
+        synchronized (match) {
+            if (activeMatches.get(salaId) != match) {
+                emitirErrorSocket(socket, "cancelar_match", "SALA_NO_ENCONTRADA", "La sala ya no está activa.");
+                return;
             }
+            if (userId != match.player1Id && userId != match.player2Id) {
+                emitirErrorSocket(socket, "cancelar_match", "SIN_PERMISO", "No perteneces a esta partida.");
+                return;
+            }
+            if (match.iniciado) {
+                emitirErrorSocket(socket, "cancelar_match", "PARTIDA_INICIADA", "La partida ya inició y no se puede cancelar.");
+                return;
+            }
+            if (match.inicioRevision) {
+                emitirErrorSocket(socket, "cancelar_match", "REVISION_ADMIN", "Esta partida requiere revisión administrativa; se conservó para proteger el cobro.");
+                return;
+            }
+
+            // M2: Sanitizar el motivo antes de guardarlo en clash_logs o reenviarlo a la sala
+            String motivo = ChatSanitizer.limpiarTexto(motivoCrudo, 60);
+            if (motivo.isEmpty()) motivo = "Abandonado";
+
+            for (ScheduledFuture<?> f : match.disconnectTimers.values()) {
+                f.cancel(false);
+            }
+            match.disconnectTimers.clear();
+
+            db.update("UPDATE users SET salidas_chat = salidas_chat + 1 WHERE id = ?", userId);
+            if ("Oprimió X".equals(motivo)) db.update("UPDATE users SET salidas_x = salidas_x + 1 WHERE id = ?", userId);
+            else if ("Salió del chat".equals(motivo)) db.update("UPDATE users SET salidas_canal = salidas_canal + 1 WHERE id = ?", userId);
+
+            String usersStr = match.player1Username + " vs " + match.player2Username;
+            logClash("⚠️ Cancelada (" + usersStr + "): " + motivo);
+
+            JsonObject cancelData = new JsonObject();
+            cancelData.addProperty("motivo", motivo);
+            io.to(salaId).emit("match_cancelado", cancelData);
+
+            db.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id IN (?, ?)",
+                    match.player1Id, match.player2Id);
+            for (SocketIOClient p : match.players) {
+                if (p != null) {
+                    p.leave(salaId);
+                    p.setCurrentRoom(null);
+                }
+            }
+            eliminarMatchDeBD(salaId);
+            activeMatches.remove(salaId, match);
+            emitirCancelacionCompletada(socket, "cancelar_match");
         }
-        eliminarMatchDeBD(salaId);
-        activeMatches.remove(salaId);
     }
 
     private boolean permitirPushChat(String canal) {
@@ -1395,7 +1484,57 @@ public class SocketHandler {
         logData.addProperty("texto", texto);
         logData.addProperty("tipo", "log");
         logData.addProperty("fecha", fecha);
-        io.emit("mensaje_chat", logData);
+        emitirClashLogSoloAdmins(logData);
+    }
+
+    private void emitirClashLogSoloAdmins(JsonObject logData) {
+        Set<Integer> admins = new HashSet<>();
+        for (JsonObject fila : db.query("SELECT id FROM users WHERE tipo_suscripcion = 'admin'")) {
+            if (fila.has("id") && !fila.get("id").isJsonNull()) admins.add(fila.get("id").getAsInt());
+        }
+        if (admins.isEmpty()) return;
+        for (SocketIOClient conectado : io.getSockets().values()) {
+            Integer userId = conectado.getAuthenticatedUserId();
+            if (userId != null && admins.contains(userId)
+                    && AuthMiddleware.sesionVigente(userId, conectado.getAuthenticatedSessionJti())) {
+                conectado.emit("mensaje_chat", logData);
+            }
+        }
+    }
+
+    private boolean esAdminSocket(SocketIOClient client) {
+        Integer authId = client.getAuthenticatedUserId();
+        JsonObject usuario = client.getUserData();
+        return authId != null && usuario != null && usuario.has("id")
+                && !usuario.get("id").isJsonNull() && usuario.get("id").getAsInt() == authId
+                && usuario.has("tipo_suscripcion") && !usuario.get("tipo_suscripcion").isJsonNull()
+                && "admin".equals(usuario.get("tipo_suscripcion").getAsString());
+    }
+
+    private Integer usuarioAutenticado(SocketIOClient client, String evento) {
+        Integer authId = client.getAuthenticatedUserId();
+        JsonObject usuario = client.getUserData();
+        if (authId == null || authId <= 0 || usuario == null || !usuario.has("id")
+                || usuario.get("id").isJsonNull() || usuario.get("id").getAsInt() != authId) {
+            emitirErrorSocket(client, evento, "SESION_REQUERIDA", "Inicia sesión para cancelar esta operación.");
+            return null;
+        }
+        return authId;
+    }
+
+    private void emitirErrorSocket(SocketIOClient client, String evento, String codigo, String mensaje) {
+        JsonObject error = new JsonObject();
+        error.addProperty("evento", evento);
+        error.addProperty("codigo", codigo);
+        error.addProperty("mensaje", mensaje);
+        client.emit("error_socket", error);
+    }
+
+    private void emitirCancelacionCompletada(SocketIOClient client, String evento) {
+        JsonObject respuesta = new JsonObject();
+        respuesta.addProperty("evento", evento);
+        respuesta.addProperty("ok", true);
+        client.emit("cancelacion_completada", respuesta);
     }
 
     // --- Clases internas ---

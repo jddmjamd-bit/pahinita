@@ -59,9 +59,10 @@ public class SocketIOServer {
 
     private static final int PING_INTERVAL_MS = 25_000;
     private static final int PING_TIMEOUT_MS = 20_000;
+    private static final int POLLING_TIMEOUT_MARGIN_MS = 15_000;
     private static final int DEFAULT_NETTY_PORT = 9092;
     private static final int DEFAULT_MAX_BYTES = 8_000_000;
-    private static final int MAX_POLLING_CONCURRENTE = 16;
+    private static final int DEFAULT_POLLING_MAX_CONCURRENT = 16;
 
     private static final String[] EVENTOS_BASE = {
             "registrar_socket",
@@ -73,15 +74,15 @@ public class SocketIOServer {
             "cancelar_inicio",
             "confirmar_partida_resp",
             "mensaje_privado",
-            "cancelar_match",
-            "reportar_resultado"
+            "cancelar_match"
     };
 
     private final AppConfig appConfig;
     private final int configuredPort;
     private final int httpPort;
     private final int maxPayloadBytes;
-    private final java.util.concurrent.Semaphore pollingSemaphore = new java.util.concurrent.Semaphore(MAX_POLLING_CONCURRENTE);
+    private final java.util.concurrent.Semaphore pollingGetSemaphore;
+    private final java.util.concurrent.Semaphore pollingPostSemaphore;
     private int activeNettyPort;
     private com.corundumstudio.socketio.SocketIOServer nettyServer;
 
@@ -103,6 +104,8 @@ public class SocketIOServer {
         this.configuredPort = DEFAULT_NETTY_PORT;
         this.httpPort = 5000;
         this.maxPayloadBytes = DEFAULT_MAX_BYTES;
+        this.pollingGetSemaphore = new java.util.concurrent.Semaphore(DEFAULT_POLLING_MAX_CONCURRENT / 2);
+        this.pollingPostSemaphore = new java.util.concurrent.Semaphore(DEFAULT_POLLING_MAX_CONCURRENT / 2);
     }
 
     public SocketIOServer(AppConfig config, ScheduledExecutorService scheduler) {
@@ -110,6 +113,12 @@ public class SocketIOServer {
         this.configuredPort = config != null ? config.getSocketIoPort() : DEFAULT_NETTY_PORT;
         this.httpPort = config != null ? config.getPort() : 5000;
         this.maxPayloadBytes = config != null ? config.getWsMaxMessageBytes() : DEFAULT_MAX_BYTES;
+        int pollingCapacidadTotal = config != null
+                ? config.getSocketIoPollingMaxConcurrent() : DEFAULT_POLLING_MAX_CONCURRENT;
+        int cuposPorMetodo = Math.max(1, pollingCapacidadTotal / 2);
+        // Los GET long-poll no pueden ocupar los cupos de los POST que llevan eventos del cliente.
+        this.pollingGetSemaphore = new java.util.concurrent.Semaphore(cuposPorMetodo);
+        this.pollingPostSemaphore = new java.util.concurrent.Semaphore(cuposPorMetodo);
     }
 
     /** Registra el handler de nuevas conexiones en el namespace raíz {@code "/"}. */
@@ -433,7 +442,9 @@ public class SocketIOServer {
 
     private void proxyHttpPolling(Context ctx) {
         aplicarCors(ctx);
-        if (!pollingSemaphore.tryAcquire()) {
+        boolean esPost = "POST".equalsIgnoreCase(ctx.req().getMethod());
+        java.util.concurrent.Semaphore limiteMetodo = esPost ? pollingPostSemaphore : pollingGetSemaphore;
+        if (!limiteMetodo.tryAcquire()) {
             ctx.status(503).result("Servidor ocupado");
             return;
         }
@@ -442,7 +453,8 @@ public class SocketIOServer {
         try {
             HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
                     .uri(URI.create(uriStr))
-                    .timeout(Duration.ofSeconds(10));
+                    // Long-polling puede esperar pingInterval + pingTimeout (45 s con esta config).
+                    .timeout(Duration.ofMillis(PING_INTERVAL_MS + PING_TIMEOUT_MS + POLLING_TIMEOUT_MARGIN_MS));
 
             String cookie = ctx.header("Cookie");
             if (cookie != null && !cookie.isEmpty()) {
@@ -471,7 +483,7 @@ public class SocketIOServer {
             logger.debug("Error en proxy HTTP polling de Socket.IO: {}", e.getMessage());
             ctx.status(502).result("Bad Gateway");
         } finally {
-            pollingSemaphore.release();
+            limiteMetodo.release();
         }
     }
 

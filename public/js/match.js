@@ -237,31 +237,6 @@
         }
     }
 
-    if (btnWin && btnLose && btnConfirmResult) {
-        btnWin.addEventListener('click', () => {
-            resultadoSeleccionado = 'gane';
-            btnWin.classList.add('selected');
-            btnLose.classList.remove('selected');
-            resultText.textContent = "VICTORIA 👑";
-            btnConfirmResult.disabled = false;
-        });
-        btnLose.addEventListener('click', () => {
-            resultadoSeleccionado = 'perdi';
-            btnLose.classList.add('selected');
-            btnWin.classList.remove('selected');
-            resultText.textContent = "DERROTA 💀";
-            btnConfirmResult.disabled = false;
-        });
-        btnConfirmResult.addEventListener('click', () => {
-            if (resultadoSeleccionado) {
-                socket.emit('reportar_resultado', { resultado: resultadoSeleccionado, usuarioId: currentUser.id });
-                btnConfirmResult.textContent = "⏳ Esperando al rival...";
-                btnConfirmResult.disabled = true;
-                btnConfirmResult.style.background = "#faa61a";
-            }
-        });
-    }
-
     // --- CHAT PRIVADO ---
     if (privateChatForm) {
         privateChatForm.addEventListener('submit', (e) => {
