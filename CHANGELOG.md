@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Confirmar búsquedas activas al cancelar y vencer (GPT-6)
+- **`SocketHandler.java`**: crea el estado de búsqueda y su fila persistida juntos; coordina el alta, el emparejamiento, la cancelación manual y el timeout con el mismo bloqueo.
+- La cancelación solo cambia `users.estado` si encuentra y elimina una búsqueda persistida que sigue en `buscando_partida` y no tiene `sala_actual` ni una fila en `active_matches`. Si no puede confirmarla, conserva el estado local y devuelve un error controlado. El vencimiento usa la misma transición y no cambia el estado por una fila ausente.
+- Revisado `logClash`: el historial y las emisiones en vivo de `clash_logs` ya estaban restringidos a admins con sesión vigente; no requirieron cambios de código.
+- **Verificación:** `git diff --check` y `actualizar-txt.bat` finalizaron correctamente. No se ejecutaron pruebas automatizadas. No hay Maven instalado localmente; el wrapper quedó esperando la descarga de Maven y se detuvo, así que la compilación se debe confirmar en Render.
+Archivos: `SocketHandler.java`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-19 — Evitar tokens push en logs del cliente (GPT-6)
 - Verificado `frontend/src/hooks/useCapacitor.js`: el token FCM solo se conserva en memoria y se envía al backend; los avisos de error reportan únicamente el estado HTTP y no incluyen el token ni el objeto del evento.
 - Añadido un comentario junto al listener para dejar explícito que el token FCM no debe imprimirse en consola. La interfaz Vanilla antigua que sí tenía registros de tokens fue retirada y no forma parte del frontend compilado por Docker.

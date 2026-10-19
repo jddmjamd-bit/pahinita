@@ -354,41 +354,39 @@ public class SocketHandler {
                     }
 
                     client.setUserData(row);
-                    if (busquedasActivas.containsKey(userId) || estaEnPartidaActiva(userId)) return;
+                    synchronized (this) {
+                        if (busquedasActivas.containsKey(userId) || estaEnPartidaActiva(userId)) return;
 
-                    colaEsperaClash.add(client);
-                    db.update("UPDATE users SET estado = 'buscando_partida' WHERE id = ?", userId);
+                        String username = row.get("username").getAsString();
+                        final int busquedaMinutos = config.getBusquedaTimeoutMinutos();
+                        if (persistirBusquedaSiDisponible(userId, username, busquedaMinutos) != 1) {
+                            emitirErrorSocket(client, "buscar_partida", "BUSQUEDA_NO_DISPONIBLE",
+                                    "No se pudo iniciar la búsqueda. Actualiza el estado e inténtalo de nuevo.");
+                            return;
+                        }
 
-                    String username = row.get("username").getAsString();
-                    BusquedaActiva busqueda = new BusquedaActiva(userId, username, client);
-                    busquedasActivas.put(userId, busqueda);
+                        colaEsperaClash.add(client);
+                        BusquedaActiva busqueda = new BusquedaActiva(userId, username, client);
+                        busquedasActivas.put(userId, busqueda);
 
-                    // A2: Persistir la búsqueda en match_queue con su fecha de expiración
-                    final int busquedaMinutos = config.getBusquedaTimeoutMinutos();
-                    db.update(
-                            "INSERT INTO match_queue (user_id, username, creado_en, expira_en) " +
-                            "VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + make_interval(mins => ?)) " +
-                            "ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, " +
-                            "creado_en = CURRENT_TIMESTAMP, expira_en = EXCLUDED.expira_en",
-                            userId, username, busquedaMinutos);
+                        // Timer de búsqueda (BUSQUEDA_TIMEOUT_MINUTOS, default 10) // A7
+                        programarTimeoutBusqueda(busqueda, busquedaMinutos * 60L, busquedaMinutos);
 
-                    // Timer de búsqueda (BUSQUEDA_TIMEOUT_MINUTOS, default 10) // A7
-                    programarTimeoutBusqueda(busqueda, busquedaMinutos * 60L, busquedaMinutos);
+                        // Notificar a todos
+                        JsonObject buscandoData = new JsonObject();
+                        buscandoData.addProperty("username", username);
+                        buscandoData.addProperty("oderId", userId);
+                        io.emit("alguien_buscando", buscandoData);
 
-                    // Notificar a todos
-                    JsonObject buscandoData = new JsonObject();
-                    buscandoData.addProperty("username", username);
-                    buscandoData.addProperty("oderId", userId);
-                    io.emit("alguien_buscando", buscandoData);
+                        // Push: notificar a todos que alguien busca partida
+                        pushService.enviarPushATodos(db, excluirConectadosEnTiempoReal(userId),
+                                "🔍 Partida disponible", username + " está buscando partida!");
 
-                    // Push: notificar a todos que alguien busca partida
-                    pushService.enviarPushATodos(db, excluirConectadosEnTiempoReal(userId),
-                            "🔍 Partida disponible", username + " está buscando partida!");
+                        logClash("🔍 " + username + " busca...");
 
-                    logClash("🔍 " + username + " busca...");
-
-                    // Intentar matcheo
-                    intentarMatcheo(client, userId, row);
+                        // intentarMatcheo es synchronized en esta misma instancia; el monitor es reentrante.
+                        intentarMatcheo(client, userId, row);
+                    }
 
                 } catch (Exception e) {
                     logger.error("Error buscar_partida: {}", e.getMessage(), e);
@@ -400,31 +398,30 @@ public class SocketHandler {
                 Integer userId = usuarioAutenticado(client, "cancelar_busqueda");
                 if (userId == null) return;
                 try {
-                    if (client.getCurrentRoom() != null) {
-                        emitirErrorSocket(client, "cancelar_busqueda", "EN_PARTIDA",
-                                "No puedes cancelar la búsqueda mientras estás en una partida.");
-                        return;
+                    synchronized (this) {
+                        if (client.getCurrentRoom() != null || estaEnPartidaActiva(userId) || estaEnPartidaPersistida(userId)) {
+                            emitirErrorSocket(client, "cancelar_busqueda", "EN_PARTIDA",
+                                    "No puedes cancelar la búsqueda mientras estás en una partida.");
+                            return;
+                        }
+
+                        BusquedaActiva busqueda = busquedasActivas.get(userId);
+                        if (cancelarBusquedaPersistidaSiActiva(userId) != 1) {
+                            emitirErrorSocket(client, "cancelar_busqueda", "CANCELACION_FALLIDA",
+                                    "No se confirmó una búsqueda activa para cancelar. Actualiza el estado e inténtalo de nuevo.");
+                            return;
+                        }
+
+                        limpiarBusquedaEnMemoria(userId, busqueda);
+                        String username = busqueda != null ? busqueda.username
+                                : client.getUserData().has("username") ? client.getUserData().get("username").getAsString() : "Jugador";
+                        logClash("🚫 " + username + " canceló manualmente.");
+                        JsonObject cancelData = new JsonObject();
+                        cancelData.addProperty("oderId", userId);
+                        cancelData.addProperty("username", username);
+                        io.emit("busqueda_cancelada", cancelData);
+                        emitirCancelacionCompletada(client, "cancelar_busqueda");
                     }
-                    boolean estabaEnColaLocal = colaEsperaClash.stream().anyMatch(s -> s.getSid().equals(client.getSid()));
-                    BusquedaActiva busqueda = busquedasActivas.get(userId);
-                    int eliminada = db.update("DELETE FROM match_queue WHERE user_id = ?", userId);
-                    if (eliminada == 0 && (estabaEnColaLocal || busqueda != null)) {
-                        emitirErrorSocket(client, "cancelar_busqueda", "CANCELACION_FALLIDA",
-                                "No se pudo confirmar la cancelación de la búsqueda. Inténtalo de nuevo.");
-                        return;
-                    }
-                    colaEsperaClash.removeIf(s -> s.getSid().equals(client.getSid()));
-                    busquedasActivas.remove(userId);
-                    if (busqueda != null && busqueda.timeoutFuture != null) busqueda.timeoutFuture.cancel(false);
-                    if (eliminada > 0) {
-                        db.update("UPDATE users SET estado = 'normal' WHERE id = ? AND estado = 'buscando_partida'", userId);
-                    }
-                    logClash("🚫 " + client.getUserData().get("username").getAsString() + " canceló manualmente.");
-                    JsonObject cancelData = new JsonObject();
-                    cancelData.addProperty("oderId", userId);
-                    cancelData.addProperty("username", client.getUserData().get("username").getAsString());
-                    io.emit("busqueda_cancelada", cancelData);
-                    emitirCancelacionCompletada(client, "cancelar_busqueda");
                 } catch (Exception e) {
                     logger.error("Error cancelar_busqueda (userId={}): {}", userId, e.getMessage(), e);
                     emitirErrorSocket(client, "cancelar_busqueda", "CANCELACION_FALLIDA",
@@ -953,11 +950,19 @@ public class SocketHandler {
             busqueda.timeoutFuture.cancel(false);
         }
         busqueda.timeoutFuture = scheduler.schedule(() -> {
-            if (busquedasActivas.containsKey(userId)) {
-                colaEsperaClash.removeIf(s -> s.getUserData() != null &&
-                        s.getUserData().get("id").getAsInt() == userId);
-                db.update("DELETE FROM match_queue WHERE user_id = ?", userId);
-                db.update("UPDATE users SET estado = 'normal' WHERE id = ?", userId);
+            synchronized (this) {
+                if (busquedasActivas.get(userId) != busqueda) return;
+
+                if (estaEnPartidaActiva(userId) || estaEnPartidaPersistida(userId)) {
+                    limpiarBusquedaEnMemoria(userId, busqueda);
+                    return;
+                }
+                if (cancelarBusquedaPersistidaSiActiva(userId) != 1) {
+                    logger.warn("No se venció la búsqueda de userId={}: la fila activa de match_queue no pudo confirmarse", userId);
+                    return;
+                }
+
+                limpiarBusquedaEnMemoria(userId, busqueda);
                 logClash("⏰ " + username + " - Búsqueda cancelada (" + busquedaMinutosTexto + " min sin rival)");
 
                 if (busqueda.socket != null && busqueda.socket.isConnected()) {
@@ -970,9 +975,62 @@ public class SocketHandler {
                 cancelData.addProperty("oderId", userId);
                 cancelData.addProperty("username", username);
                 io.emit("busqueda_cancelada", cancelData);
-                busquedasActivas.remove(userId);
             }
         }, Math.max(1L, delaySegundos), TimeUnit.SECONDS);
+    }
+
+    /** Persiste estado y cola juntos; no deja al usuario buscando si no se creó la fila de cola. */
+    private int persistirBusquedaSiDisponible(int userId, String username, int busquedaMinutos) {
+        return db.update(
+                "WITH usuario_disponible AS (" +
+                "  UPDATE users u SET estado = 'buscando_partida' " +
+                "  WHERE u.id = ? AND u.estado IN ('normal', 'buscando_partida') AND u.sala_actual IS NULL " +
+                "    AND NOT EXISTS (SELECT 1 FROM active_matches am WHERE am.player1_id = u.id OR am.player2_id = u.id) " +
+                "  RETURNING u.id" +
+                ") " +
+                "INSERT INTO match_queue (user_id, username, creado_en, expira_en) " +
+                "SELECT id, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + make_interval(mins => ?) FROM usuario_disponible " +
+                "ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, " +
+                "creado_en = EXCLUDED.creado_en, expira_en = EXCLUDED.expira_en",
+                userId, username, busquedaMinutos);
+    }
+
+    /** Cancela solo si persiste una búsqueda y el usuario no tiene una sala activa. */
+    private int cancelarBusquedaPersistidaSiActiva(int userId) {
+        return db.update(
+                "WITH usuario_elegible AS MATERIALIZED (" +
+                "  SELECT u.id FROM users u " +
+                "  WHERE u.id = ? AND u.estado = 'buscando_partida' AND u.sala_actual IS NULL " +
+                "    AND NOT EXISTS (SELECT 1 FROM active_matches am WHERE am.player1_id = u.id OR am.player2_id = u.id) " +
+                "  FOR UPDATE" +
+                "), cola_cancelada AS (" +
+                "  DELETE FROM match_queue q USING usuario_elegible e " +
+                "  WHERE q.user_id = e.id RETURNING q.user_id" +
+                ") " +
+                "UPDATE users u SET estado = 'normal' FROM cola_cancelada c " +
+                "WHERE u.id = c.user_id AND u.estado = 'buscando_partida' AND u.sala_actual IS NULL " +
+                "  AND NOT EXISTS (SELECT 1 FROM active_matches am WHERE am.player1_id = u.id OR am.player2_id = u.id)",
+                userId);
+    }
+
+    private boolean estaEnPartidaPersistida(int userId) {
+        JsonObject fila = db.queryOne(
+                "SELECT (u.sala_actual IS NOT NULL OR EXISTS (" +
+                "  SELECT 1 FROM active_matches am WHERE am.player1_id = u.id OR am.player2_id = u.id" +
+                ")) AS partida_activa FROM users u WHERE u.id = ?",
+                userId);
+        return fila != null && fila.has("partida_activa") && !fila.get("partida_activa").isJsonNull()
+                && fila.get("partida_activa").getAsBoolean();
+    }
+
+    private void limpiarBusquedaEnMemoria(int userId, BusquedaActiva busqueda) {
+        colaEsperaClash.removeIf(socket -> Objects.equals(idAutenticadoSocket(socket), userId));
+        if (busqueda != null) {
+            busquedasActivas.remove(userId, busqueda);
+            if (busqueda.timeoutFuture != null) busqueda.timeoutFuture.cancel(false);
+        } else {
+            busquedasActivas.remove(userId);
+        }
     }
 
     private void programarTimerDesconexionNegociacion(String salaId, ActiveMatch match, int userId, String username, boolean penalizarSalida) {
