@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Evitar tokens push en logs del cliente (GPT-6)
+- Verificado `frontend/src/hooks/useCapacitor.js`: el token FCM solo se conserva en memoria y se envía al backend; los avisos de error reportan únicamente el estado HTTP y no incluyen el token ni el objeto del evento.
+- Añadido un comentario junto al listener para dejar explícito que el token FCM no debe imprimirse en consola. La interfaz Vanilla antigua que sí tenía registros de tokens fue retirada y no forma parte del frontend compilado por Docker.
+- La búsqueda del historial Git confirma versiones anteriores de Capacitor que imprimían el token completo en la consola nativa; el historial de código no permite saber si esos valores siguen activos. No hay logs históricos de Render o de dispositivos incluidos en el repositorio, así que no se pueden inspeccionar desde aquí.
+- Verificación: `npm run build` y `actualizar-txt.bat` finalizaron correctamente. La búsqueda de fuentes actuales no encontró valores de tokens en logs; la única advertencia relacionada con el registro push muestra el estado HTTP. El historial Git sí conserva versiones antiguas que imprimían tokens en la consola del cliente.
+Archivos: `frontend/src/hooks/useCapacitor.js`, `CHANGELOG.md`
+
 ## 2026-10-19 — Retirar el frontend Vanilla antiguo (GPT-6)
 - Eliminados `public/index.html`, `public/app.js`, `public/style.css`, `public/js/` y `public/firebase-messaging-sw.js`: Render construye y sirve la SPA React desde `frontend/`; Docker no copiaba estos archivos antiguos.
 - Se conserva `public/admin-db.html`, que el Dockerfile copia como fuente única para el panel de administración.

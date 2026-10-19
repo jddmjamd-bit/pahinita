@@ -51,6 +51,7 @@ export function useCapacitor() {
         if (!activo || permStatus.receive !== 'granted') return;
 
         await agregarListener('registration', token => {
+          // El token FCM identifica este dispositivo: nunca escribir su valor en consola.
           const valor = typeof token?.value === 'string' ? token.value.trim() : '';
           if (activo && valor) setPushToken(valor);
         });
