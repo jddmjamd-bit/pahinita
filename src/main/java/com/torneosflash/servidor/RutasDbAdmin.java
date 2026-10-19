@@ -153,7 +153,9 @@ public class RutasDbAdmin {
             int filas = dbAdmin.importar(parseBody(ctx));
             JsonObject res = new JsonObject();
             res.addProperty("success", true);
-            res.addProperty("message", filas + " filas importadas");
+            res.addProperty("message",
+                    filas + " filas importadas. Restauración parcial: usuarios, tokens push y datos financieros no se modifican.");
+            res.addProperty("partial", true);
             ctx.json(res);
         });
     }

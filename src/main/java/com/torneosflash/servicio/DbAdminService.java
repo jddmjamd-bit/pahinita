@@ -42,7 +42,7 @@ public class DbAdminService {
     private static final String TABLA_LEDGER = "wallet_ledger";
     private static final String MASCARA_PASSWORD = "[HASH_PROTEGIDO]";
     private static final Set<String> TABLAS_NO_IMPORTABLES =
-            Set.of("users", "transactions", "admin_wallet", "wallet_ledger");
+            Set.of("users", "transactions", "admin_wallet", "wallet_ledger", "user_tokens");
 
     public DbAdminService(GenericDAO db) {
         this.db = db;
@@ -229,18 +229,36 @@ public class DbAdminService {
     // Backup
     // ------------------------------------------------------------------
 
-    /** Exporta todas las tablas (más un bloque {@code _meta}). */
+    /**
+     * Exporta el subconjunto de tablas que este panel puede restaurar de forma segura.
+     * No es un backup completo: excluye usuarios, datos financieros, tokens y tablas no soportadas.
+     */
     public JsonObject exportar() {
         return conErrores(() -> {
             try (Connection conn = db.getConnection()) {
                 JsonObject backup = new JsonObject();
-                for (String tableName : nombresDeTablas(conn)) {
+                List<String> tablasExistentes = nombresDeTablas(conn);
+                Set<String> tablasSoportadas = new HashSet<>(Arrays.asList(ORDEN_TABLAS_IMPORT));
+                JsonArray tablasOmitidas = new JsonArray();
+
+                for (String tableName : tablasExistentes) {
+                    if (!tablasSoportadas.contains(tableName)
+                            || TABLAS_NO_IMPORTABLES.contains(tableName)) {
+                        tablasOmitidas.add(tableName);
+                        continue;
+                    }
                     backup.add(tableName, filasDeTabla(conn, tableName));
                 }
 
                 JsonObject meta = new JsonObject();
                 meta.addProperty("exportDate", new java.util.Date().toString());
-                meta.addProperty("tables", backup.keySet().size());
+                meta.addProperty("backupType", "db-admin-partial-v1");
+                meta.addProperty("partial", true);
+                meta.addProperty("tables", backup.size());
+                meta.add("omittedTables", tablasOmitidas);
+                meta.addProperty("warning",
+                        "Respaldo parcial. No contiene usuarios, tokens push ni datos financieros. "
+                                + "Usa un backup nativo de PostgreSQL para una recuperación completa.");
                 backup.add("_meta", meta);
                 return backup;
             }
@@ -248,8 +266,8 @@ public class DbAdminService {
     }
 
     /**
-     * Importa un backup: borra las tablas presentes en el archivo e inserta sus filas.
-     * Solo se aceptan columnas que existan en la tabla; las filas inválidas se omiten.
+     * Importa un respaldo parcial: borra e inserta las tablas incluidas dentro de una transacción.
+     * Cualquier tabla, columna o fila no válida cancela la operación completa.
      *
      * @return número de filas insertadas
      */
@@ -258,10 +276,21 @@ public class DbAdminService {
             if (data == null) {
                 throw ServicioException.solicitudInvalida("El archivo de importación está vacío");
             }
-            for (String tabla : TABLAS_NO_IMPORTABLES) {
-                if (data.has(tabla)) {
+            Set<String> tablasPermitidas = new HashSet<>(Arrays.asList(ORDEN_TABLAS_IMPORT));
+            for (String tabla : data.keySet()) {
+                if ("_meta".equals(tabla)) continue;
+                if (TABLAS_NO_IMPORTABLES.contains(tabla)) {
                     throw ServicioException.prohibido(
-                            "El panel no puede restaurar usuarios ni tablas financieras. Usa un backup nativo de la base de datos");
+                            "El panel no puede restaurar usuarios, tokens push ni datos financieros. "
+                                    + "Usa un backup nativo de PostgreSQL para una restauración completa");
+                }
+                if (!tablasPermitidas.contains(tabla)) {
+                    throw ServicioException.solicitudInvalida(
+                            "El respaldo contiene una tabla que este panel no puede importar: " + tabla);
+                }
+                if (!data.get(tabla).isJsonArray()) {
+                    throw ServicioException.solicitudInvalida(
+                            "El contenido de la tabla " + tabla + " debe ser una lista de filas");
                 }
             }
 
@@ -280,22 +309,25 @@ public class DbAdminService {
                     }
 
                     for (String tabla : ORDEN_TABLAS_IMPORT) {
-                    if (!data.has(tabla) || !data.get(tabla).isJsonArray()) continue;
+                        if (!data.has(tabla)) continue;
 
-                    String tablaCitada = citarIdentificador(tabla);
-                    Map<String, String> columnasValidas = tiposDeColumna(conn, tabla);
-                    JsonArray rows = data.getAsJsonArray(tabla);
-                    for (JsonElement elem : rows) {
-                        JsonObject row = elem.getAsJsonObject();
+                        String tablaCitada = citarIdentificador(tabla);
+                        Map<String, String> columnasValidas = tiposDeColumna(conn, tabla);
+                        JsonArray rows = data.getAsJsonArray(tabla);
+                        for (JsonElement elem : rows) {
+                            if (elem == null || !elem.isJsonObject()) {
+                                throw ServicioException.solicitudInvalida(
+                                        "El respaldo contiene una fila no válida en la tabla " + tabla);
+                            }
+                            JsonObject row = elem.getAsJsonObject();
                         StringBuilder cols = new StringBuilder();
                         StringBuilder ph = new StringBuilder();
                         List<String> vals = new ArrayList<>();
                         List<String> types = new ArrayList<>();
-                        boolean columnasOk = true;
                         for (String key : row.keySet()) {
                             if (!columnasValidas.containsKey(key)) {
-                                columnasOk = false;
-                                break;
+                                throw ServicioException.solicitudInvalida(
+                                        "El respaldo contiene una columna no válida en la tabla " + tabla + ": " + key);
                             }
                             if (cols.length() > 0) {
                                 cols.append(", ");
@@ -306,7 +338,10 @@ public class DbAdminService {
                             vals.add(row.get(key).isJsonNull() ? null : row.get(key).getAsString());
                             types.add(columnasValidas.get(key));
                         }
-                        if (!columnasOk || vals.isEmpty()) continue;
+                        if (vals.isEmpty()) {
+                            throw ServicioException.solicitudInvalida(
+                                    "El respaldo contiene una fila vacía en la tabla " + tabla);
+                        }
 
                         try (PreparedStatement ps = conn.prepareStatement(
                                 "INSERT INTO " + tablaCitada + " (" + cols + ") VALUES (" + ph + ")")) {
@@ -330,8 +365,6 @@ public class DbAdminService {
                                 try (ResultSet ignored = ps.executeQuery()) {
                                     // secuencia actualizada
                                 }
-                            } catch (Exception ignored) {
-                                // tabla sin secuencia
                             }
                         }
                     }
