@@ -1264,6 +1264,15 @@ public class SocketHandler {
 
                 if (battleResult != null) {
                     match.pollFuture.cancel(false);
+                    if (battleResult.has("ambiguous") && battleResult.get("ambiguous").getAsBoolean()) {
+                        db.update("UPDATE matches SET estado = 'disputa' WHERE id = ? AND estado = 'en_curso'", match.dbId);
+                        logClash("🚨 DISPUTA #" + match.dbId + " (batalla ambigua)");
+                        JsonObject disputaData = new JsonObject();
+                        disputaData.addProperty("mensaje", "No se pudo identificar un resultado único y válido. La partida pasó a disputa para revisión.");
+                        io.to(salaId).emit("disputa_creada", disputaData);
+                        liberarJugadores(salaId, match);
+                        return;
+                    }
                     String winnerTag = battleResult.get("winnerTag").getAsString();
                     logClash("🎯 RESULTADO #" + match.dbId + ": " + battleResult.get("teamCrowns").getAsInt() + "-" + battleResult.get("opponentCrowns").getAsInt());
 

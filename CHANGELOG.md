@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Validar el formato y la unicidad de batallas de Clash (GPT-6)
+- **`ClashApiServicio.java`**: solo correlaciona partidas posteriores al inicio con tipo permitido y un integrante en cada equipo; valida ambos tags y coronas enteras. El timestamp de inicio debe ser válido.
+- **Resultados ambiguos**: si coinciden varias batallas posibles o faltan datos válidos de coronas, devuelve un resultado ambiguo; **`SocketHandler.java`** abre una disputa inmediatamente y no liquida al ganador.
+- **`ARCHITECTURE.md`**: documenta los formatos 1v1 admitidos y el rechazo de 2v2, guerras, desafíos y coincidencias ambiguas.
+- **Verificación**: `mvn clean compile -DskipTests`, `npm run build` y `actualizar-txt.bat` finalizaron correctamente. No se ejecutaron pruebas automatizadas.
+Archivos: `ClashApiServicio.java`, `SocketHandler.java`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-19 — Hacer seguros los sorteos y la acumulación de tickets (GPT-6)
 - **`SorteoService.java`**: valida nombre y categoría al crear sorteos; la participación revisa `fecha_limite` bajo el bloqueo del sorteo y contra el reloj actual de PostgreSQL.
 - **Devoluciones y tickets**: reembolsar participantes y eliminar el sorteo ahora comparten una transacción con bloqueo; la segunda eliminación ya no puede devolver tickets otra vez. La acumulación de cada jugador se lee y actualiza bajo bloqueo en una única transacción para conservar incrementos concurrentes.

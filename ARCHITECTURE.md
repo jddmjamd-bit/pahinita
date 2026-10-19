@@ -182,6 +182,8 @@ sequenceDiagram
 
 > **Inicio de partida recuperable (V14):** `WalletService.iniciarPartidaTorneo()` bloquea la fila de `active_matches` y, en una única transacción, inserta `matches` con el `sala_id` único, descuenta ambos saldos, agrega los dos asientos al ledger y marca la sala iniciada con su `match_db_id`, tags y hora de inicio. Un reintento de la misma sala devuelve la partida persistida sin repetir el débito. Al arrancar, `reconciliarPartidasTorneoAlReiniciar()` vincula automáticamente una partida antigua solo si encuentra un único `matches` compatible posterior a la última actualización de la negociación y los dos movimientos correspondientes del ledger. Si hay más de un candidato, marca `inicio_revision` y conserva la sala bloqueada, sin cobrar ni eliminarla por timeout; requiere conciliación administrativa.
 
+**Validación del resultado de Clash:** `ClashApiServicio.findMatchingBattle()` solo correlaciona batallas posteriores al inicio de la partida, de tipos admitidos (`PvP`, amistosa, compañero de clan o torneo) y con exactamente un jugador en cada lado. Comprueba los dos tags normalizados y las coronas enteras. Si hay más de una batalla posible o el resultado no se puede validar, `SocketHandler` pasa la partida a disputa en vez de liquidar una elección ambigua. Formatos 2v2, guerras y desafíos no se aceptan.
+
 ---
 
 ## 5. Flujo de dinero (D2)

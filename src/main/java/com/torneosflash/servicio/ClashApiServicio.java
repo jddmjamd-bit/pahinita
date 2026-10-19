@@ -11,6 +11,7 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.Set;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -21,6 +22,8 @@ import java.time.format.DateTimeFormatter;
  */
 public class ClashApiServicio {
     private static final Logger logger = LoggerFactory.getLogger(ClashApiServicio.class);
+    /** Tipos de battle log admitidos por el juego 1v1 de la plataforma. */
+    private static final Set<String> TIPOS_BATALLA_1V1_PERMITIDOS = Set.of("pvp", "friendly", "clanmate", "tournament");
 
     public enum ResultadoVerificacionPropiedad {
         VERIFICADO,
@@ -94,6 +97,30 @@ public class ClashApiServicio {
         }
     }
 
+    /** Devuelve el único jugador de un lado; formatos con equipos vacíos o múltiples se rechazan. */
+    private JsonObject jugadorUnico(JsonObject battle, String lado) {
+        JsonElement equipoElement = battle.get(lado);
+        if (equipoElement == null || !equipoElement.isJsonArray()) return null;
+        JsonArray equipo = equipoElement.getAsJsonArray();
+        if (equipo.size() != 1 || !equipo.get(0).isJsonObject()) return null;
+        return equipo.get(0).getAsJsonObject();
+    }
+
+    private String tagDeJugador(JsonObject jugador) {
+        if (jugador == null) return null;
+        JsonElement tagElement = jugador.get("tag");
+        if (tagElement == null || tagElement.isJsonNull() || !tagElement.isJsonPrimitive()
+                || !tagElement.getAsJsonPrimitive().isString()) return null;
+        String tag = tagElement.getAsString().replace("#", "").trim().toUpperCase(Locale.ROOT);
+        return tag.isEmpty() ? null : tag;
+    }
+
+    private boolean tipoBatallaPermitido(JsonObject battle) {
+        JsonElement tipo = battle.get("type");
+        if (tipo == null || tipo.isJsonNull() || !tipo.isJsonPrimitive()) return false;
+        return TIPOS_BATALLA_1V1_PERMITIDOS.contains(tipo.getAsString().trim().toLowerCase(Locale.ROOT));
+    }
+
     /**
      * Busca una batalla entre dos jugadores que haya ocurrido DESPUÉS de matchStartTime.
      * Retorna JsonObject con datos del resultado o null si no encuentra.
@@ -106,58 +133,58 @@ public class ClashApiServicio {
     public JsonObject findMatchingBattle(String tag1, String tag2, String matchStartTime) {
         if (tag1 == null || tag2 == null) return null;
 
-        String normalizedTag1 = tag1.toUpperCase().replace("#", "");
-        String normalizedTag2 = tag2.toUpperCase().replace("#", "");
+        String normalizedTag1 = tag1.trim().toUpperCase(Locale.ROOT).replace("#", "");
+        String normalizedTag2 = tag2.trim().toUpperCase(Locale.ROOT).replace("#", "");
+        if (normalizedTag1.isEmpty() || normalizedTag2.isEmpty() || normalizedTag1.equals(normalizedTag2)) return null;
 
-        // Parsear el timestamp de inicio del match
-        Instant matchStart = null;
-        if (matchStartTime != null && !matchStartTime.isEmpty()) {
-            try {
-                matchStart = Instant.parse(matchStartTime);
-            } catch (Exception e) {
-                logger.error("Error parseando matchStartTime '" + matchStartTime + "': " + e.getMessage());
-            }
+        // Sin un inicio válido no se puede correlacionar con seguridad una batalla reciente.
+        if (matchStartTime == null || matchStartTime.isBlank()) return null;
+        final Instant matchStart;
+        try {
+            matchStart = Instant.parse(matchStartTime);
+        } catch (Exception e) {
+            logger.warn("No se busca batalla porque matchStartTime no es válido: {}", e.getMessage());
+            return null;
         }
 
         JsonArray battles = fetchBattleLog(tag1);
         if (battles == null) return null;
 
+        JsonObject resultadoUnico = null;
         for (JsonElement elem : battles) {
+            if (elem == null || !elem.isJsonObject()) continue;
             JsonObject battle = elem.getAsJsonObject();
 
-            // Verificar tipo de batalla (solo 1v1)
-            String type = battle.has("type") ? battle.get("type").getAsString() : "";
-            if (type.contains("clanWar") || type.contains("challenge")) continue;
-
-            // Filtrar por tiempo: solo aceptar batallas POSTERIORES al inicio del match
-            if (matchStart != null) {
-                String battleTimeStr = battle.has("battleTime") ? battle.get("battleTime").getAsString() : "";
-                Instant battleInstant = parseBattleTime(battleTimeStr);
-                if (battleInstant == null || !battleInstant.isAfter(matchStart)) {
-                    continue; // Batalla anterior al inicio del match, ignorar
-                }
-            }
-
-            // Obtener tags de los jugadores en la batalla
-            JsonArray team = battle.getAsJsonArray("team");
-            JsonArray opponent = battle.getAsJsonArray("opponent");
-            if (team == null || opponent == null) continue;
-
-            String teamTag = team.get(0).getAsJsonObject().get("tag").getAsString()
-                    .replace("#", "").toUpperCase();
-            String oppTag = opponent.get(0).getAsJsonObject().get("tag").getAsString()
-                    .replace("#", "").toUpperCase();
+            // La plataforma liquida partidas 1v1; rechaza tipos no permitidos y equipos que no sean unitarios.
+            if (!tipoBatallaPermitido(battle)) continue;
+            JsonObject jugadorEquipo = jugadorUnico(battle, "team");
+            JsonObject jugadorOponente = jugadorUnico(battle, "opponent");
+            if (jugadorEquipo == null || jugadorOponente == null) continue;
+            String teamTag = tagDeJugador(jugadorEquipo);
+            String oppTag = tagDeJugador(jugadorOponente);
+            if (teamTag == null || oppTag == null || teamTag.equals(oppTag)) continue;
 
             // Verificar que ambos tags coinciden
             boolean match = (teamTag.equals(normalizedTag1) && oppTag.equals(normalizedTag2)) ||
                            (teamTag.equals(normalizedTag2) && oppTag.equals(normalizedTag1));
             if (!match) continue;
 
+            JsonElement battleTimeElement = battle.get("battleTime");
+            if (battleTimeElement == null || battleTimeElement.isJsonNull()
+                    || !battleTimeElement.isJsonPrimitive() || !battleTimeElement.getAsJsonPrimitive().isString()) continue;
+            String battleTime = battleTimeElement.getAsString();
+            Instant battleInstant = parseBattleTime(battleTime);
+            if (battleInstant == null || !battleInstant.isAfter(matchStart)) continue;
+
             // Obtener resultado
-            int teamCrowns = team.get(0).getAsJsonObject().has("crowns") ?
-                    team.get(0).getAsJsonObject().get("crowns").getAsInt() : 0;
-            int oppCrowns = opponent.get(0).getAsJsonObject().has("crowns") ?
-                    opponent.get(0).getAsJsonObject().get("crowns").getAsInt() : 0;
+            Integer coronasEquipo = coronas(jugadorEquipo);
+            Integer coronasOponente = coronas(jugadorOponente);
+            if (coronasEquipo == null || coronasOponente == null) {
+                logger.warn("Batalla coincidente sin coronas válidas; se rechaza para evitar liquidación ambigua");
+                return resultadoAmbiguo();
+            }
+            int teamCrowns = coronasEquipo;
+            int oppCrowns = coronasOponente;
 
             // Determinar ganador
             String winnerTag = null;
@@ -168,16 +195,36 @@ public class ClashApiServicio {
             }
             // Si empate, winnerTag queda null → disputa
 
-            String battleTime = battle.has("battleTime") ? battle.get("battleTime").getAsString() : "";
-
             JsonObject result = new JsonObject();
             result.addProperty("teamCrowns", teamCrowns);
             result.addProperty("opponentCrowns", oppCrowns);
             result.addProperty("winnerTag", winnerTag != null ? winnerTag : "");
             result.addProperty("battleTime", battleTime);
-            return result;
+            if (resultadoUnico != null) {
+                logger.warn("Más de una batalla 1v1 coincide con la partida iniciada en {}", matchStartTime);
+                return resultadoAmbiguo();
+            }
+            resultadoUnico = result;
         }
-        return null;
+        return resultadoUnico;
+    }
+
+    private JsonObject resultadoAmbiguo() {
+        JsonObject resultado = new JsonObject();
+        resultado.addProperty("ambiguous", true);
+        return resultado;
+    }
+
+    private Integer coronas(JsonObject jugador) {
+        JsonElement coronas = jugador.get("crowns");
+        if (coronas == null || coronas.isJsonNull() || !coronas.isJsonPrimitive()
+                || !coronas.getAsJsonPrimitive().isNumber()) return null;
+        try {
+            int valor = coronas.getAsBigDecimal().intValueExact();
+            return valor >= 0 ? valor : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /**
