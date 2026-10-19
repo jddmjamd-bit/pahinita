@@ -70,7 +70,7 @@ public class Main {
         AppConfig config = new AppConfig();
         logger.info("📋 Puerto: " + config.getPort());
 
-        // Pools de hilos (A8): HTTP, IO, CPU y temporizadores. Se crean antes que todo
+        // Pools de hilos (A8): HTTP, IO, push, CPU y temporizadores. Se crean antes que todo
         // lo que los usa.
         Ejecutores ejecutores = new Ejecutores(config);
 

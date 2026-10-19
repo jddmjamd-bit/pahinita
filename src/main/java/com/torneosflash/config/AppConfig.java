@@ -79,6 +79,9 @@ public class AppConfig {
     private final int httpIdleTimeoutMs;
     private final int ioPoolThreads;
     private final int ioPoolQueue;
+    private final int pushPoolThreads;
+    private final int pushPoolQueue;
+    private final int pushMaxPorUsuarioPorMin;
     private final int cpuPoolThreads;
     private final int cpuPoolQueue;
     private final int timerPoolThreads;
@@ -192,6 +195,9 @@ public class AppConfig {
         this.httpIdleTimeoutMs = getEnvEntero("HTTP_IDLE_TIMEOUT_MS", 60_000, 1_000);
         this.ioPoolThreads = getEnvEntero("IO_POOL_THREADS", 16, 1);
         this.ioPoolQueue = getEnvEntero("IO_POOL_QUEUE", 500, 1);
+        this.pushPoolThreads = getEnvEntero("PUSH_POOL_THREADS", 4, 1, 32);
+        this.pushPoolQueue = getEnvEntero("PUSH_POOL_QUEUE", 200, 1, 10_000);
+        this.pushMaxPorUsuarioPorMin = getEnvEntero("PUSH_MAX_PER_USER_PER_MIN", 10, 1, 1_000);
         this.cpuPoolThreads = getEnvEntero("CPU_POOL_THREADS", Math.max(1, Runtime.getRuntime().availableProcessors()), 1);
         this.cpuPoolQueue = getEnvEntero("CPU_POOL_QUEUE", 100, 1);
         this.timerPoolThreads = getEnvEntero("TIMER_POOL_THREADS", 4, 1);
@@ -429,6 +435,9 @@ public class AppConfig {
     public int getHttpIdleTimeoutMs() { return httpIdleTimeoutMs; }
     public int getIoPoolThreads() { return ioPoolThreads; }
     public int getIoPoolQueue() { return ioPoolQueue; }
+    public int getPushPoolThreads() { return pushPoolThreads; }
+    public int getPushPoolQueue() { return pushPoolQueue; }
+    public int getPushMaxPorUsuarioPorMin() { return pushMaxPorUsuarioPorMin; }
     public int getCpuPoolThreads() { return cpuPoolThreads; }
     public int getCpuPoolQueue() { return cpuPoolQueue; }
     public int getTimerPoolThreads() { return timerPoolThreads; }

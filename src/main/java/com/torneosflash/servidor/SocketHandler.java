@@ -307,8 +307,8 @@ public class SocketHandler {
                     salida.addProperty("fecha", fecha);
                     io.emit("mensaje_chat", salida);
 
-                    // Como máximo un push por canal cada minuto para evitar que cada mensaje
-                    // dispare un envío secuencial a todos los tokens.
+                    // Un push por canal/minuto y exclusión de sockets conectados: el mensaje
+                    // ya llegó en tiempo real a esos usuarios.
                     if (client.getUserData() != null && permitirPushChat(canal)) {
                         String nombreCanal = canal.equals("general") ? "General"
                                 : canal.equals("clash") ? "Clash"
@@ -316,7 +316,7 @@ public class SocketHandler {
                         String preview = tipo.equals("texto")
                                 ? (texto.length() > 50 ? texto.substring(0, 50) + "..." : texto)
                                 : usuario + " envió " + (tipo.equals("imagen") ? "una imagen" : "un video");
-                        pushService.enviarPushATodos(db, Set.of(senderId),
+                        pushService.enviarPushATodos(db, excluirConectadosEnTiempoReal(senderId),
                                 "💬 Mensaje en " + nombreCanal,
                                 tipo.equals("texto") ? usuario + ": " + preview : preview);
                     }
@@ -379,7 +379,8 @@ public class SocketHandler {
                     io.emit("alguien_buscando", buscandoData);
 
                     // Push: notificar a todos que alguien busca partida
-                    pushService.enviarPushATodos(db, Set.of(userId), "🔍 Partida disponible", username + " está buscando partida!");
+                    pushService.enviarPushATodos(db, excluirConectadosEnTiempoReal(userId),
+                            "🔍 Partida disponible", username + " está buscando partida!");
 
                     logClash("🔍 " + username + " busca...");
 
@@ -708,7 +709,7 @@ public class SocketHandler {
                         io.to(limpio.salaId()).emit("mensaje_privado", d);
 
                         int rivalId = match.getRivalId(senderId);
-                        if (rivalId > 0) {
+                        if (rivalId > 0 && !usuarioConectadoEnSala(rivalId, limpio.salaId())) {
                             String texto = limpio.texto();
                             String preview = texto.length() > 50 ? texto.substring(0, 50) + "..." : texto;
                             pushService.enviarPush(db, rivalId,
@@ -1344,6 +1345,43 @@ public class SocketHandler {
             long anterior = ultimo.get();
             if (anterior != 0 && ahora - anterior < ventana) return false;
             if (ultimo.compareAndSet(anterior, ahora)) return true;
+        }
+    }
+
+    /** Usuarios autenticados con un socket abierto que ya recibe los broadcasts públicos. */
+    private Set<Integer> excluirConectadosEnTiempoReal(int emisorId) {
+        Set<Integer> ids = new HashSet<>();
+        for (SocketIOClient socket : io.getSockets().values()) {
+            if (!socket.isConnected()) continue;
+            Integer userId = idAutenticadoSocket(socket);
+            if (userId != null) ids.add(userId);
+        }
+        if (emisorId > 0) ids.add(emisorId);
+        return ids;
+    }
+
+    /** Un mensaje privado solo evita el push si el destinatario está conectado a esa sala concreta. */
+    private boolean usuarioConectadoEnSala(int userId, String salaId) {
+        if (userId <= 0 || salaId == null || salaId.isBlank()) return false;
+        for (SocketIOClient socket : io.getSockets().values()) {
+            if (socket.isConnected()
+                    && Objects.equals(idAutenticadoSocket(socket), userId)
+                    && socket.getRooms().contains(salaId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Integer idAutenticadoSocket(SocketIOClient socket) {
+        Integer authId = socket.getAuthenticatedUserId();
+        if (authId != null) return authId;
+        JsonObject userData = socket.getUserData();
+        if (userData == null || !userData.has("id") || userData.get("id").isJsonNull()) return null;
+        try {
+            return userData.get("id").getAsInt();
+        } catch (RuntimeException ignored) {
+            return null;
         }
     }
 

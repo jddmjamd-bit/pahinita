@@ -25,14 +25,15 @@ import java.util.concurrent.atomic.AtomicInteger;
  *       Acotado (antes era el default de Javalin: hasta 250 hilos, demasiado para 512 MB de RAM y para
  *       un pool de BD de 20 conexiones).</li>
  *   <li><b>io</b> ({@link #ejecutarIO}): tareas que esperan red y no deben bloquear a un usuario
- *       (push FCM, correos Brevo, sondeo de la API de Clash). Cola acotada: si se llena, la tarea se descarta y se avisa.</li>
+ *       (correos Brevo y sondeo de la API de Clash). Cola acotada: si se llena, la tarea se descarta y se avisa.</li>
+ *   <li><b>push</b> ({@link #ejecutarPush}): entregas FCM aisladas de IO general, con hilos y cola acotados.</li>
  *   <li><b>cpu</b> ({@link #enCpu}): trabajo que gasta procesador (hash BCrypt). Un hilo por núcleo: más hilos solo
  *       harían que se estorben entre sí y dejarían sin CPU al resto del servidor.</li>
  *   <li><b>timers</b> ({@link #timers()}): solo temporizadores cortos (timeouts de búsqueda, abandono, revisión de
  *       sorteos). NUNCA debe correr HTTP externo aquí: si un temporizador se bloquea, los demás se retrasan.</li>
  * </ul>
  *
- * Los pools propios son hilos daemon con nombre (se ven como {@code io-1}, {@code cpu-1}, {@code timer-1} en un
+ * Los pools propios son hilos daemon con nombre (se ven como {@code io-1}, {@code push-1}, {@code cpu-1}, {@code timer-1} en un
  * volcado de hilos) y registran las excepciones que se les escapen.
  */
 public class Ejecutores {
@@ -40,6 +41,7 @@ public class Ejecutores {
 
     private final AppConfig config;
     private final ThreadPoolExecutor io;
+    private final ThreadPoolExecutor push;
     private final ThreadPoolExecutor cpu;
     private final ScheduledThreadPoolExecutor timers;
 
@@ -53,6 +55,14 @@ public class Ejecutores {
                 new LinkedBlockingQueue<>(config.getIoPoolQueue()),
                 fabrica("io"));
         this.io.allowCoreThreadTimeOut(true);
+
+        // Push tiene pool propio para que broadcasts FCM lentos no ocupen IO general.
+        this.push = new ThreadPoolExecutor(
+                config.getPushPoolThreads(), config.getPushPoolThreads(),
+                60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(config.getPushPoolQueue()),
+                fabrica("push"));
+        this.push.allowCoreThreadTimeOut(true);
 
         // CPU: si la cola se llena, el hilo que pidió el trabajo lo hace él mismo (contrapresión; nunca se pierde un hash).
         this.cpu = new ThreadPoolExecutor(
@@ -73,9 +83,10 @@ public class Ejecutores {
         this.timers = new ScheduledThreadPoolExecutor(config.getTimerPoolThreads(), fabrica("timer"));
         this.timers.setRemoveOnCancelPolicy(true);
 
-        logger.info("🧵 Pools de hilos: HTTP {}-{} (ocioso {} ms) | IO {} (cola {}) | CPU {} (cola {}) | timers {} | BD max {}",
+        logger.info("🧵 Pools de hilos: HTTP {}-{} (ocioso {} ms) | IO {} (cola {}) | PUSH {} (cola {}, máx {}/usuario/min) | CPU {} (cola {}) | timers {} | BD max {}",
                 config.getHttpMinThreads(), config.getHttpMaxThreads(), config.getHttpIdleTimeoutMs(),
                 config.getIoPoolThreads(), config.getIoPoolQueue(),
+                config.getPushPoolThreads(), config.getPushPoolQueue(), config.getPushMaxPorUsuarioPorMin(),
                 config.getCpuPoolThreads(), config.getCpuPoolQueue(),
                 config.getTimerPoolThreads(), config.getDbPoolMax());
     }
@@ -104,6 +115,22 @@ public class Ejecutores {
         }
     }
 
+    /** Encola una entrega FCM en su pool aislado. Si se llena, descarta y avisa sin bloquear al emisor. */
+    public boolean ejecutarPush(String descripcion, Runnable tarea) {
+        try {
+            push.execute(tarea);
+            return true;
+        } catch (RejectedExecutionException e) {
+            logger.warn("⚠️ Pool de push lleno o cerrado: se descarta '{}' (cola {}/{}).",
+                    descripcion, push.getQueue().size(), config.getPushPoolQueue());
+            return false;
+        }
+    }
+
+    public int getPushMaxPorUsuarioPorMin() {
+        return config.getPushMaxPorUsuarioPorMin();
+    }
+
     /**
      * Ejecuta trabajo de CPU en el pool de CPU y espera el resultado. Así, aunque lleguen cien logins a la vez,
      * solo corren tantos hashes como núcleos haya. Las excepciones de la tarea se relanzan tal cual.
@@ -129,12 +156,14 @@ public class Ejecutores {
         return timers;
     }
 
-    /** Apagado ordenado: los temporizadores se cancelan, a IO y CPU se les deja terminar lo que ya tienen. */
+    /** Apagado ordenado: los temporizadores se cancelan y se deja terminar lo pendiente en IO, push y CPU. */
     public void cerrar() {
         timers.shutdownNow();
         io.shutdown();
+        push.shutdown();
         cpu.shutdown();
         esperar("io", io, 5);
+        esperar("push", push, 5);
         esperar("cpu", cpu, 2);
     }
 

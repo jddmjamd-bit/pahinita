@@ -16,11 +16,14 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Servicio para enviar notificaciones push via FCM HTTP v1 API.
  * Usa Google Auth Library para obtener tokens OAuth2 y java.net.http para las peticiones.
- * Soporta envío a usuarios específicos y broadcast a todos los tokens registrados.
+ * Soporta envío a usuarios específicos y broadcast paginado a todos los usuarios registrados.
  */
 public class NotificacionPushServicio {
     private static final Logger logger = LoggerFactory.getLogger(NotificacionPushServicio.class);
@@ -32,15 +35,22 @@ public class NotificacionPushServicio {
     private final Ejecutores ejecutores;
     private final Gson gson = new Gson();
     private final String siteUrl;
+    private final int maxPushPorUsuarioPorMin;
+    private final ConcurrentHashMap<Integer, VentanaPush> ventanasPorUsuario = new ConcurrentHashMap<>();
+    private final AtomicLong ultimaLimpiezaVentanas = new AtomicLong();
     private boolean disponible = false;
 
-    /** Tiempo máximo de una llamada a FCM (A8: sin tope, un hilo del pool de IO quedaría ocupado para siempre). */
+    /** Tiempo máximo de una llamada a FCM. */
     private static final Duration TIMEOUT_PETICION = Duration.ofSeconds(15);
+    private static final int PAGINA_BROADCAST = 100;
+    private static final int MAX_TOKENS_POR_USUARIO = 10;
+    private static final long VENTANA_RATE_LIMIT_NANOS = Duration.ofMinutes(1).toNanos();
 
     public NotificacionPushServicio(String serviceAccountJson, String siteUrl, Ejecutores ejecutores) {
         this.siteUrl = siteUrl;
         this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
-        this.ejecutores = ejecutores; // A8: pool de IO compartido (antes: un pool propio de 4 hilos sin apagar)
+        this.ejecutores = ejecutores;
+        this.maxPushPorUsuarioPorMin = ejecutores.getPushMaxPorUsuarioPorMin();
 
         if (serviceAccountJson == null || serviceAccountJson.isEmpty()) {
             logger.info("⚠️ FIREBASE_SERVICE_ACCOUNT no configurado. Push notifications deshabilitadas.");
@@ -68,7 +78,7 @@ public class NotificacionPushServicio {
         return disponible;
     }
 
-    private String getAccessToken() {
+    private synchronized String getAccessToken() {
         try {
             credentials.refreshIfExpired();
             return credentials.getAccessToken().getTokenValue();
@@ -82,22 +92,8 @@ public class NotificacionPushServicio {
      * Envía push notification a un usuario específico (todos sus tokens).
      */
     public void enviarPush(GenericDAO db, int userId, String titulo, String body) {
-        if (!disponible) return;
-        ejecutores.ejecutarIO("push a usuario " + userId, () -> {
-            try {
-                ArrayList<JsonObject> tokens = db.query(
-                        "SELECT fcm_token FROM user_tokens WHERE user_id = ?", userId);
-                if (tokens.isEmpty()) return;
-                String accessToken = getAccessToken();
-                if (accessToken == null) return;
-                for (JsonObject row : tokens) {
-                    String token = row.get("fcm_token").getAsString();
-                    enviarFCM(db, accessToken, token, titulo, body);
-                }
-            } catch (Exception e) {
-                logger.error("🔔 Error enviando push a usuario " + userId + ": " + e.getMessage());
-            }
-        });
+        if (!disponible || userId <= 0) return;
+        encolarPushUsuario(db, userId, titulo, body, "push a usuario " + userId);
     }
 
     /**
@@ -106,22 +102,96 @@ public class NotificacionPushServicio {
      */
     public void enviarPushATodos(GenericDAO db, Set<Integer> excluirUserIds, String titulo, String body) {
         if (!disponible) return;
-        ejecutores.ejecutarIO("push broadcast", () -> {
-            try {
-                ArrayList<JsonObject> tokens = db.query("SELECT user_id, fcm_token FROM user_tokens");
-                if (tokens.isEmpty()) return;
-                String accessToken = getAccessToken();
-                if (accessToken == null) return;
-                for (JsonObject row : tokens) {
-                    int uid = row.get("user_id").getAsNumber().intValue();
-                    if (excluirUserIds.contains(uid)) continue;
-                    String token = row.get("fcm_token").getAsString();
-                    enviarFCM(db, accessToken, token, titulo, body);
+        Set<Integer> excluidos = excluirUserIds == null || excluirUserIds.isEmpty()
+                ? Set.of() : Collections.unmodifiableSet(new HashSet<>(excluirUserIds));
+        ejecutores.ejecutarPush("push broadcast", () -> encolarDestinatariosBroadcast(db, excluidos, titulo, body));
+    }
+
+    /**
+     * Recorre destinatarios por páginas pequeñas y encola una tarea por usuario.
+     * Así el broadcast nunca conserva todos los tokens ni hace las llamadas FCM en un solo hilo.
+     */
+    private void encolarDestinatariosBroadcast(GenericDAO db, Set<Integer> excluidos, String titulo, String body) {
+        int despuesDeUserId = 0;
+        try {
+            while (true) {
+                ArrayList<JsonObject> destinatarios = db.query(
+                        "SELECT user_id FROM user_tokens WHERE user_id IS NOT NULL " +
+                                "AND fcm_token IS NOT NULL AND fcm_token <> '' AND user_id > ? " +
+                                "GROUP BY user_id ORDER BY user_id LIMIT ?",
+                        despuesDeUserId, PAGINA_BROADCAST);
+                if (destinatarios.isEmpty()) return;
+
+                for (JsonObject destinatario : destinatarios) {
+                    int userId = destinatario.get("user_id").getAsInt();
+                    despuesDeUserId = Math.max(despuesDeUserId, userId);
+                    if (excluidos.contains(userId)) continue;
+                    if (!encolarPushUsuario(db, userId, titulo, body, "push broadcast a usuario " + userId)) {
+                        logger.warn("🔔 Broadcast FCM parcial: se detuvo al llenarse la cola de push.");
+                        return;
+                    }
                 }
-            } catch (Exception e) {
-                logger.error("🔔 Error enviando push broadcast: " + e.getMessage());
+                if (destinatarios.size() < PAGINA_BROADCAST) return;
             }
+        } catch (Exception e) {
+            logger.error("🔔 Error preparando push broadcast: {}", e.getMessage(), e);
+        }
+    }
+
+    private boolean encolarPushUsuario(GenericDAO db, int userId, String titulo, String body, String descripcion) {
+        return ejecutores.ejecutarPush(descripcion, () -> enviarPushUsuario(db, userId, titulo, body));
+    }
+
+    private void enviarPushUsuario(GenericDAO db, int userId, String titulo, String body) {
+        try {
+            ArrayList<JsonObject> tokens = db.query(
+                    "SELECT fcm_token FROM user_tokens WHERE user_id = ? " +
+                            "AND fcm_token IS NOT NULL AND fcm_token <> '' ORDER BY id DESC LIMIT ?",
+                    userId, MAX_TOKENS_POR_USUARIO);
+            if (tokens.isEmpty() || !permitirPushUsuario(userId)) return;
+            String accessToken = getAccessToken();
+            if (accessToken == null) return;
+            for (JsonObject row : tokens) {
+                enviarFCM(db, accessToken, row.get("fcm_token").getAsString(), titulo, body);
+            }
+        } catch (Exception e) {
+            logger.error("🔔 Error enviando push a usuario {}: {}", userId, e.getMessage(), e);
+        }
+    }
+
+    /** Límite móvil por usuario, compartido entre pushes directos y broadcasts. */
+    private boolean permitirPushUsuario(int userId) {
+        long ahora = System.nanoTime();
+        AtomicBoolean permitido = new AtomicBoolean(false);
+        ventanasPorUsuario.compute(userId, (id, anterior) -> {
+            if (anterior == null || ahora - anterior.inicioNanos >= VENTANA_RATE_LIMIT_NANOS) {
+                permitido.set(true);
+                return new VentanaPush(ahora, 1);
+            }
+            if (anterior.cantidad < maxPushPorUsuarioPorMin) {
+                permitido.set(true);
+                return new VentanaPush(anterior.inicioNanos, anterior.cantidad + 1);
+            }
+            return anterior;
         });
+        limpiarVentanasCaducadas(ahora);
+        return permitido.get();
+    }
+
+    private void limpiarVentanasCaducadas(long ahora) {
+        long ultima = ultimaLimpiezaVentanas.get();
+        if (ahora - ultima < VENTANA_RATE_LIMIT_NANOS || !ultimaLimpiezaVentanas.compareAndSet(ultima, ahora)) return;
+        ventanasPorUsuario.entrySet().removeIf(e -> ahora - e.getValue().inicioNanos >= VENTANA_RATE_LIMIT_NANOS);
+    }
+
+    private static final class VentanaPush {
+        private final long inicioNanos;
+        private final int cantidad;
+
+        private VentanaPush(long inicioNanos, int cantidad) {
+            this.inicioNanos = inicioNanos;
+            this.cantidad = cantidad;
+        }
     }
 
     /**

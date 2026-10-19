@@ -11,6 +11,14 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Aislar y limitar los push provocados por actividad (GPT-6)
+- **`Ejecutores` y `AppConfig`**: agregan un pool FCM separado, con hilos y cola acotados configurables (`PUSH_POOL_THREADS`, `PUSH_POOL_QUEUE`) y límite móvil por destinatario (`PUSH_MAX_PER_USER_PER_MIN`).
+- **`NotificacionPushServicio`**: los broadcasts recorren usuarios en páginas y encolan una tarea por usuario; se detienen al llenarse la cola, consultan como máximo los 10 tokens registrados por persona y comparten el límite por usuario entre avisos directos y broadcasts.
+- **`SocketHandler`**: omite push público a usuarios con socket conectado y push privado cuando el rival está en la sala. El envío de chat conserva el límite existente de un aviso por canal/minuto.
+- **`ARCHITECTURE.md`**: documenta los límites, el pool y el apagado ordenado.
+- **Verificación**: `actualizar-txt.bat` terminó y `mvnw.cmd clean compile -DskipTests` terminó con `BUILD SUCCESS` usando JDK 26 para generar bytecode objetivo 17. No se ejecutaron pruebas automatizadas.
+Archivos: `AppConfig.java`, `Ejecutores.java`, `NotificacionPushServicio.java`, `SocketHandler.java`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-19 — Hacer idempotente y recuperable el inicio de partidas (GPT-6)
 - **Migración V14**: agrega un `sala_id` único a `matches` y la marca `inicio_revision` para salas antiguas ambiguas que no deben cobrarse ni eliminarse automáticamente.
 - **`WalletService.java`**: hace atómicos el débito de ambos jugadores, los asientos del ledger, la creación de `matches` y la actualización iniciada de `active_matches`; bloquea la sala durante el intento, devuelve el resultado persistido en reintentos y verifica el estado tras un `COMMIT` incierto.
