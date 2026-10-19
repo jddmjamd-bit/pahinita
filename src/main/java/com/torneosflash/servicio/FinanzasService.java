@@ -208,7 +208,11 @@ public class FinanzasService {
         WalletResult result = wallet.acreditarDepositoWompi(
                 reference, transactionId, pagadoCentavos, FinanzasService::calcularMontoCentavosWompi);
         if (result != null && result.isSuccess()) {
-            JsonObject trans = db.queryOne("SELECT usuario_id FROM transactions WHERE referencia = ?", reference);
+            JsonObject trans = db.queryOne(
+                    "SELECT usuario_id FROM transactions " +
+                    "WHERE referencia = ? AND tipo = 'deposito' AND metodo = 'wompi' " +
+                    "AND estado = 'completado' AND external_id = ?",
+                    reference, transactionId);
             if (trans != null && trans.has("usuario_id")) {
                 int userId = trans.get("usuario_id").getAsInt();
                 notificador.notificarSaldo(userId, "✅ Pago Wompi aprobado. Saldo acreditado.", result.getNuevoSaldo());
