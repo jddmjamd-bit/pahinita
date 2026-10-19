@@ -31,6 +31,7 @@ import com.torneosflash.socketio.SocketIOServer;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
 import java.io.File;
+import java.net.URI;
 import io.javalin.json.JsonMapper;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -233,11 +234,18 @@ public class Main {
             }
         });
 
-        // Cabeceras de seguridad globales para toda respuesta HTTP
+        // Cabeceras de seguridad globales para toda respuesta HTTP. APP_BASE_URL define
+        // el origen público de la API/Socket.IO detrás del proxy TLS.
+        String politicaCsp = construirPoliticaCsp(config.getAppBaseUrl());
+        boolean sitioHttps = config.getAppBaseUrl().regionMatches(true, 0, "https://", 0, 8);
         app.before(ctx -> {
             ctx.header("X-Content-Type-Options", "nosniff");
             ctx.header("X-Frame-Options", "DENY");
             ctx.header("Referrer-Policy", "strict-origin-when-cross-origin");
+            ctx.header("Content-Security-Policy", politicaCsp);
+            // HSTS solo se anuncia cuando el origen canónico está configurado con HTTPS.
+            // No incluye subdominios: cada uno debe habilitarse cuando también use HTTPS.
+            if (sitioHttps) ctx.header("Strict-Transport-Security", "max-age=31536000");
         });
 
         // ============================================
@@ -409,5 +417,23 @@ public class Main {
             ejecutores.cerrar();
             conexion.cerrar();
         }, "shutdown-hook"));
+    }
+
+    private static String construirPoliticaCsp(String appBaseUrl) {
+        URI appUri = URI.create(appBaseUrl);
+        String appOrigen = appUri.getScheme() + "://" + appUri.getRawAuthority();
+        String socketOrigen = ("https".equalsIgnoreCase(appUri.getScheme()) ? "wss" : "ws")
+                + "://" + appUri.getRawAuthority();
+        return "default-src 'self'; "
+                + "base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
+                + "form-action 'self' https://*.wompi.co; "
+                + "script-src 'self' https://checkout.wompi.co; "
+                + "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                + "font-src 'self' data: https://fonts.gstatic.com; "
+                + "img-src 'self' data: blob:; media-src 'self' blob:; "
+                + "connect-src 'self' " + appOrigen + " " + socketOrigen
+                + " https://*.wompi.co; "
+                + "frame-src 'self' https://www.youtube-nocookie.com https://*.wompi.co; "
+                + "worker-src 'self' blob:";
     }
 }

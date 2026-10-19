@@ -75,9 +75,12 @@ public class RutasDbAdmin {
                 return;
             }
             cabecerasSeguras(ctx);
-            // La pantalla de acceso no puede ir en un iframe ni filtrar la URL por Referer
+            // Panel heredado con script y manejadores inline: limita orígenes, red y formularios;
+            // la CSP de la aplicación principal mantiene script-src sin unsafe-inline.
             ctx.header("Content-Security-Policy",
-                    "frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'");
+                    "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+                            + "style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; "
+                            + "frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'");
         });
 
         app.get("/admin-db", ctx -> {

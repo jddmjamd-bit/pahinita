@@ -3,15 +3,16 @@ import { io } from 'socket.io-client';
 import { API_BASE_URL, llamarApi } from './llamarApi';
 import { cerrarSesionConPush } from '../services/pushTokens';
 
-const leerUsuarioGuardado = () => {
+const eliminarUsuarioPersistido = () => {
     try {
-        const raw = localStorage.getItem('currentUser');
-        return raw ? JSON.parse(raw) : null;
-    } catch {
+        // Limpia datos personales y financieros guardados por versiones anteriores.
         localStorage.removeItem('currentUser');
-        return null;
+    } catch {
+        // El almacenamiento puede estar deshabilitado; la sesión vive solo en memoria.
     }
 };
+
+eliminarUsuarioPersistido();
 
 export const useAppStore = create((set, get) => ({
     // Modo Claro/Oscuro
@@ -23,7 +24,9 @@ export const useAppStore = create((set, get) => ({
     },
 
     // Estado del usuario
-    user: leerUsuarioGuardado(),
+    user: null,
+    sessionReady: false,
+    authRevision: 0,
     // Token nativo FCM solo en memoria; no se persiste junto con los datos del usuario.
     pushToken: null,
     pushTokenAnterior: null,
@@ -40,9 +43,10 @@ export const useAppStore = create((set, get) => ({
         return { pushTokenAnterior: null };
     }),
     setUser: (userData) => {
+        eliminarUsuarioPersistido();
+        const anterior = get().user;
+        const authRevisionDelta = userData == null || anterior?.id !== userData.id ? 1 : 0;
         if (userData) {
-            const anterior = get().user;
-            localStorage.setItem('currentUser', JSON.stringify(userData));
             const socket = get().socket;
             // registrar_socket solo cuando cambia de usuario (login). Los cambios de saldo NO deben repetirlo:
             // el servidor rehace todo el registro (incluido reenviar restaurar_partida) en cada emisión.
@@ -50,34 +54,39 @@ export const useAppStore = create((set, get) => ({
             if (socket && socket.connected && anterior?.id !== userData.id) {
                 socket.emit('registrar_socket');
             }
-        } else {
-            localStorage.removeItem('currentUser');
         }
-        set({ user: userData });
+        set(state => ({
+            user: userData,
+            sessionReady: true,
+            authRevision: state.authRevision + authRevisionDelta
+        }));
     },
-    // Trae el usuario real del servidor (saldo, estado...) para no depender del localStorage viejo.
-    // 401 = sesión vencida o cuenta inexistente -> se cierra la sesión. Cualquier otro fallo (sin red, 5xx, 429)
-    // conserva el usuario guardado.
+    // La cookie httpOnly es la única persistencia de sesión; los datos del usuario quedan en memoria.
     sincronizarSesion: async () => {
-        if (!get().user) return { ok: false, status: 0 };
+        const revisionInicial = get().authRevision;
         const { ok, status, data } = await llamarApi('/api/session');
+        // Ignora respuestas atrasadas si el usuario inició o cerró sesión mientras la petición estaba en vuelo.
+        if (get().authRevision !== revisionInicial) return { ok, status };
         if (ok && data?.user) {
-            const actual = get().user;
-            if (actual && actual.id === data.user.id) get().setUser(data.user); // si cerró sesión mientras tanto, se ignora
+            get().setUser(data.user);
         } else if (status === 401) {
             get().logout();
+        } else {
+            set({ sessionReady: true });
         }
         return { ok, status };
     },
     logout: () => {
         const { pushToken, pushTokenAnterior } = get();
-        localStorage.removeItem('currentUser');
+        eliminarUsuarioPersistido();
         get().disconnectSocket();
         // El servidor desasocia los tokens de este dispositivo antes de borrar la cookie httpOnly.
         const tokens = [pushToken, pushTokenAnterior].filter(Boolean);
         void cerrarSesionConPush(tokens);
         set({ 
             user: null,
+            sessionReady: true,
+            authRevision: get().authRevision + 1,
             pushTokenAnterior: null,
             chatMessages: { general: [], anuncios: [], clash: [], clash_logs: [], pagos: [] },
             matchState: { inMatch: false, salaId: null, rival: null, gameMode: '', monto: 0, maxMonto: 10000, status: 'idle' }

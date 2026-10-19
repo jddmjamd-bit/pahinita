@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useEffect, lazy, Suspense } from 'react'
 import { useAppStore } from './store/useAppStore'
 import { useCapacitor } from './hooks/useCapacitor'
@@ -23,8 +23,8 @@ function App() {
   const theme = useAppStore(state => state.theme);
   const toggleTheme = useAppStore(state => state.toggleTheme);
   const user = useAppStore(state => state.user);
+  const sessionReady = useAppStore(state => state.sessionReady);
   const sincronizarSesion = useAppStore(state => state.sincronizarSesion);
-  const navigate = useNavigate();
   const { pathname } = useLocation();
 
   useCapacitor();
@@ -33,18 +33,18 @@ function App() {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
-  // Al cargar la app se pide el usuario real al servidor (saldo actual, rol, estado). Sin esto el front arranca con el
-  // saldo viejo del localStorage. Si el servidor responde 401 se cierra la sesión (ver sincronizarSesion).
+  // Al cargar se valida la cookie httpOnly; ningún dato de usuario se hidrata desde localStorage.
   useEffect(() => {
     sincronizarSesion();
   }, [sincronizarSesion]);
 
-  // Sin usuario no hay nada que mostrar fuera de /auth y las páginas legales (cubre también el cierre por 401).
-  useEffect(() => {
-    if (!user && !RUTAS_PUBLICAS.includes(pathname)) {
-      navigate('/auth', { replace: true });
-    }
-  }, [user, pathname, navigate]);
+  // No se muestra contenido protegido hasta terminar la validación de sesión en el servidor.
+  if (!sessionReady && !RUTAS_PUBLICAS.includes(pathname)) {
+    return <div role="status" style={{ padding: 24, textAlign: 'center' }}>Verificando sesión…</div>;
+  }
+  if (sessionReady && !user && !RUTAS_PUBLICAS.includes(pathname)) {
+    return <Navigate to="/auth" replace />;
+  }
 
   return (
     <>

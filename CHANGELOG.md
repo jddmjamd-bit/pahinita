@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Añadir CSP/HSTS y dejar de persistir datos de usuario (GPT-6)
+- **`Main.java`**: agrega CSP global con scripts restringidos al mismo origen y al widget de Wompi; permite fuentes de Google, videos de YouTube y los orígenes configurados para API/Socket.IO. Los estilos inline siguen habilitados por los estilos de React. HSTS se activa con `APP_BASE_URL` HTTPS durante un año, sin `includeSubDomains`.
+- **Panel DB**: conserva una CSP separada y restringida a recursos/conexiones del mismo origen; sus scripts inline siguen permitidos porque la página heredada usa manejadores inline.
+- **`useAppStore.js` y `App.jsx`**: eliminan `currentUser` de `localStorage` al cargar y dejan de guardarlo al iniciar sesión o actualizar saldo. La app valida `/api/session` antes de mostrar rutas privadas; el usuario y su saldo viven solo en memoria. El tema sigue guardándose porque no es sensible.
+- **Verificación**: `mvn clean compile -DskipTests`, `npm run build` y `actualizar-txt.bat` terminaron correctamente; el exportador actualizó 131 archivos. No se ejecutaron pruebas automatizadas.
+Archivos: `Main.java`, `RutasDbAdmin.java`, `useAppStore.js`, `App.jsx`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-19 — Recuperar contraseñas por correo con enlaces de un solo uso (GPT-6)
 - **Migración V16**: crea `password_reset_tokens` y almacena el hash SHA-256 del token, con vencimiento, uso único e índice por cuenta.
 - **`AuthService`, `UsuarioDAO` y `RutasAuth`**: agregan solicitud y consumo de recuperación con respuesta genérica para evitar enumerar correos; el cambio de clave, consumo de tokens pendientes y revocación de sesiones ocurren en una transacción.
