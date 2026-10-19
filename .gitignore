@@ -5,6 +5,7 @@ dependency-reduced-pom.xml
 mvn-wrapper.zip
 *.jar
 !.mvn/wrapper/*.jar
+!**/gradle/wrapper/gradle-wrapper.jar
 
 # ===== Secretos / configuración local =====
 .env
@@ -21,7 +22,17 @@ frontend/dist/
 
 # ===== IDEs / sistema operativo =====
 .idea/
+**/.idea/
 *.iml
 .DS_Store
 Thumbs.db
 *.exe
+
+# ===== Herramientas y exportaciones locales (no forman parte del producto) =====
+puente.ps1
+puente.js
+exportar-txt.js
+actualizar-txt.bat
+contexto-txt/
+codigo-puro.txt
+proyecto-completo.txt

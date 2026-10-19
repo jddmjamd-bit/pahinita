@@ -11,6 +11,14 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Retirar auxiliares y archivos de plantilla sin uso (GPT-6)
+- **Seguimiento de Git:** se retiraron `public/.idea/` y el puente antiguo `puente.ps1`. `puente.ps1` no tenía referencias de build o runtime y la versión local más reciente es `puente.js`, que queda ignorada y fuera del producto.
+- **Archivos sin referencias:** se eliminaron `frontend/src/assets/hero.png`, `react.svg`, `vite.svg`, `frontend/public/icons.svg` y los tests de ejemplo Android (`ExampleUnitTest` y `ExampleInstrumentedTest`); el último esperaba un `applicationId` distinto al configurado.
+- **Artefactos locales:** `dependency-reduced-pom.xml` y `mvn-wrapper.zip` ya eran ignorados y no estaban versionados; se eliminaron del disco. `pom.xml` ahora impide que Maven Shade genere el POM reducido para este ejecutable.
+- **`.gitignore`:** mantiene ignorados los auxiliares/exportaciones locales y los directorios `.idea` en cualquier subcarpeta; conserva excepciones para los wrappers Maven y Gradle necesarios.
+- **Verificación:** `npm run build` y `actualizar-txt.bat` finalizaron correctamente; `git diff --check` no reportó errores. `dependency-reduced-pom.xml` y `mvn-wrapper.zip` no reaparecieron. El empaquetado Maven quedó pendiente porque el wrapper necesita descargar Maven y se rechazó la autorización de red; no hay un `mvn` local instalado.
+Archivos: `.gitignore`, `pom.xml`, `CHANGELOG.md`, `public/.idea/*`, `puente.ps1`, `frontend/src/assets/hero.png`, `frontend/src/assets/react.svg`, `frontend/src/assets/vite.svg`, `frontend/public/icons.svg`, `frontend/android/app/src/test/java/com/getcapacitor/myapp/ExampleUnitTest.java`, `frontend/android/app/src/androidTest/java/com/getcapacitor/myapp/ExampleInstrumentedTest.java`
+
 ## 2026-10-19 — Validar IPs de rate limit detrás de proxies (GPT-6)
 - **`AppConfig.java` y `RateLimitMiddleware.java`**: `RATE_LIMIT_PROXY_HOPS` ahora inicia en `0` y admite como máximo 10 saltos. La cabecera XFF se ignora hasta configurar explícitamente el despliegue; ya no se fuerza la primera entrada cuando faltan saltos y solo se aceptan literales IPv4/IPv6.
 - **`/check-ip`**: ahora muestra la IP efectiva que usa el rate limit, la configuración y el XFF recibido claramente marcado como no confiable. Sigue protegido por rol admin. El chatbot y el panel de BD comparten el mismo resolver validado.
@@ -511,7 +519,7 @@ Archivos: `ConexionDB.java`, `WalletService.java`, `SocketHandler.java`, `RutasA
 ## 2026-10-08 — L2 `.gitignore` (Claude Sonnet 5.5)
 - Creado `.gitignore` en la raíz (no existía; solo `frontend/` tenía el suyo). Ignora: `target/`, `*.class`, `*.jar` (excepto `.mvn/wrapper/*.jar`), `.env` / `.env.*` (excepto `.env.example`), `dependency-reduced-pom.xml`, `mvn-wrapper.zip`, logs, `node_modules/`, `frontend/dist/`, archivos de IDE (`.idea/`, `*.iml`) y del SO (`.DS_Store`, `Thumbs.db`).
 - Verificado que ignorar estos archivos no rompe el build: el `Dockerfile` compila con su propio Maven (`mvn clean package`) y el `Procfile` genera el JAR en el deploy.
-- Pendiente de verificación manual: si `target/`, `dependency-reduced-pom.xml` o `mvn-wrapper.zip` ya estaban versionados, `.gitignore` no los des-versiona; hay que ejecutar `git rm -r --cached target dependency-reduced-pom.xml mvn-wrapper.zip` y luego commit.
+- Verificación posterior (2026-10-19): `target/`, `dependency-reduced-pom.xml` y `mvn-wrapper.zip` nunca estaban versionados; los dos auxiliares ya están ignorados. La generación de `dependency-reduced-pom.xml` quedó desactivada en `maven-shade-plugin` y se retiró la copia local de ambos archivos.
 Archivos: `.gitignore`
 
 ## 2026-10-08 — L3 Eliminar archivos sueltos (Claude Sonnet 5.5)
