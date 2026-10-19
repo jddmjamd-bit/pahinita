@@ -21,9 +21,7 @@ import io.javalin.http.Context;
  */
 public class RutasAuth {
 
-    /**
-     * Rol por defecto de una cuenta nueva (columna {@code users.tipo_suscripcion}).
-     */
+    /** Rol de respaldo si la sesión no contiene {@code users.tipo_suscripcion}. */
     private static final String ROL_POR_DEFECTO = "free";
 
     public static void register(Javalin app, AuthService auth) {
@@ -31,18 +29,18 @@ public class RutasAuth {
         // POST /api/register
         app.post("/api/register", ctx -> {
             JsonObject body = parseBody(ctx);
-            int newId = auth.registrar(
+            auth.registrar(
                     Peticion.texto(body, "username"),
                     Peticion.texto(body, "email"),
                     Peticion.texto(body, "password"),
                     Peticion.textoOpcional(body, "playerTag", ""),
-                    Peticion.textoOpcional(body, "telefono", ""), // ← CAMBIA: ahora termina en coma (antes: `""));`)
-                    Peticion.booleanoOpcional(body, "aceptaTerminos", false)); // ← NUEVO
+                    Peticion.textoOpcional(body, "telefono", ""),
+                    Peticion.booleanoOpcional(body, "aceptaTerminos", false));
 
-            // S1: sesión JWT en cookie httpOnly + SameSite (+ Secure). Una cuenta nueva
-            // siempre es "free".
-            AuthMiddleware.iniciarSesion(ctx, newId, ROL_POR_DEFECTO);
-            ctx.result(successJson("Registrado exitosamente", newId).toString()).contentType("application/json");
+            // La respuesta es idéntica si se creó la cuenta o si algún dato ya está en uso.
+            // El registro no inicia sesión; el usuario debe usar el formulario de login.
+            ctx.status(200).json(successJson(
+                    "Solicitud recibida. Si los datos permiten crear una cuenta, podrás iniciar sesión en unos instantes.", 0));
         });
 
         // POST /api/login

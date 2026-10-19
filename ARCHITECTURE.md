@@ -66,7 +66,7 @@ TorneosFlash/
 │   │   ├── ResultadoPartidaListener.java # Listener de `match.finished`: saldo del ganador + `resultado_api` + push (A4)
 │   │   ├── ServicioException.java   # Error de negocio con código HTTP + mensaje; lo convierte `ManejadorErrores` en `{error}` (A3)
 │   │   ├── NotificadorUsuarios.java # Aviso a un usuario por socket (si está conectado) + push FCM (A3)
-│   │   ├── AuthService.java         # Registro, login (BCrypt en el pool CPU), sesión, disponibilidad, tag de Clash, token push (A3)
+│   │   ├── AuthService.java         # Registro, login (BCrypt en el pool CPU), sesión, validación de formato, tag de Clash, token push (A3)
 │   │   ├── JwtServicio.java         # Emite y verifica el JWT de sesión (HS256, issuer `ultimateclash`, claims `sub`=userId y `rol`) (S1)
 │   │   ├── FinanzasService.java     # Depósito, recarga, retiro y Wompi (init + webhook) (A3)
 │   │   ├── AdminService.java        # Transacciones pendientes, disputas, estadísticas, utilidades admin (A3)
@@ -328,6 +328,7 @@ Middleware global (`servidor/RateLimitMiddleware`, registrado en `Main` antes de
 |------|--------------|-----------|
 | General | `RATE_LIMIT_GENERAL_PER_MIN` = 60 | Todo lo que empiece por `/api/`, `/admin-db/`, `/secret-admin/`, `/admin-fix-status/` y `/check-ip` |
 | Financiero | `RATE_LIMIT_FINANCIAL_PER_MIN` = 10 | `/api/deposit`, `/api/transaction/create`, `/api/transaction/withdraw`, `/api/wompi/init`, `/api/admin/transaction/process`, `/api/admin/resolve-dispute`. Cuentan aquí **y** en el general |
+| Auth | `RATE_LIMIT_AUTH_PER_MIN` = 10 | `/api/login`, `/api/register`, `/api/check-username/*`, `/api/check-email/*`, `/api/verify-tag/*`. Cuentan aquí **y** en el general |
 | Media | `RATE_LIMIT_MEDIA_PER_MIN` = 300 | `GET /api/media/*` (los videos hacen muchas peticiones Range; el chat carga varias imágenes a la vez) |
 
 - **Exentos:** `OPTIONS` (preflight CORS), archivos estáticos del frontend, WebSocket (Socket.IO) y `POST /api/wompi/webhook` (lo llama Wompi, no un usuario; limitarlo podría perder pagos reales. Su defensa es verificar la firma SHA-256 en `FinanzasService`, S7).
@@ -337,7 +338,7 @@ Middleware global (`servidor/RateLimitMiddleware`, registrado en `Main` antes de
 - **Clientes (frontend):** `Auth.jsx` muestra "Demasiadas solicitudes" en las validaciones de usuario/correo/tag en vez de marcarlos como ocupados; `Match.jsx` consulta la ganancia con debounce de 400 ms; `Sorteos.jsx` recarga solo `/api/raffle/offers` tras participar (2 peticiones por clic en +/−, antes 5). Finance, Leaderboard y Chat ya muestran `data.error` o ignoran respuestas no OK. No auditados: `Admin.jsx` y el frontend legacy de `public/`.
 - **Memoria:** una clave guarda como máximo `limite` marcas de tiempo; se limpian las inactivas cada minuto y hay tope de 100.000 claves.
 - **Chatbot (roadmap 20):** `POST /api/chatbot/mensaje` cuenta en el cubo general y, además, en un límite propio por IP (`RATE_LIMIT_CHATBOT_PER_MIN` = 10) que aplica `RutasChatbot.limitarPorIp` (no `RateLimitMiddleware`) con la misma regla de IP real. Cada mensaje es una llamada de pago a la IA; el límite por usuario está en la sección 17.
-- **Límites conocidos:** (1) es por IP, no por usuario: varios jugadores detrás de la misma red/CGNAT comparten cupo (por eso todo es configurable); cuando el JWT (S1) esté conectado se puede añadir un cubo por `userId`. (2) No cubre mensajes de Socket.IO (spam de chat por socket): requiere un limitador propio en `SocketHandler`. (3) Login/registro entran en el cubo general (60/min); un cubo más estricto para fuerza bruta de contraseñas no estaba en S8.
+- **Límites conocidos:** (1) es por IP, no por usuario: varios jugadores detrás de la misma red/CGNAT comparten cupo (por eso todo es configurable); cuando el JWT (S1) esté conectado se puede añadir un cubo por `userId`. (2) No cubre mensajes de Socket.IO (spam de chat por socket): requiere un limitador propio en `SocketHandler`.
 
 ---
 
@@ -542,9 +543,11 @@ RutasX (servidor/)                        XService (servicio/)
 La sesión ya no es la cookie `userId` en texto plano (cualquiera podía escribir ahí el id de otro usuario). Ahora es un JWT firmado que solo el servidor puede emitir.
 
 ```
-login / registro ── AuthMiddleware.iniciarSesion(ctx, userId, rol)
+login correcto ── AuthMiddleware.iniciarSesion(ctx, userId, rol)
                       └─ Set-Cookie: session=<JWT>; Path=/; Max-Age=...; HttpOnly; SameSite=Lax; Secure
                       └─ Set-Cookie: userId=; Max-Age=0   (borra la cookie legacy)
+
+registro ── respuesta genérica sin cookie, tanto al crear la cuenta como ante un conflicto de identidad
 
 cada request ── AuthMiddleware (app.before) ── JwtServicio.verificar(cookie session)
                       ├─ válido   → ctx.attribute("userId"), ctx.attribute("rol")
@@ -560,6 +563,8 @@ ruta ── AuthMiddleware.getUserId(ctx) / Peticion.userIdDeSesion(ctx) (0 si n
 | `GET /api/session` | 401 si no hay JWT válido (y borra la cookie). Si es válido, re-emite el token con el rol actual de la BD y la expiración renovada (sesión deslizante). Si la cuenta ya no existe, 401 y borra la cookie |
 | `POST /api/logout` | Borra `session` y la cookie legacy `userId` |
 | Cookie legacy `userId` | **No se acepta nunca** (sería volver al agujero). Tras el deploy todos deben iniciar sesión una vez |
+
+**Mensajes de autenticación y registro:** todo fallo de login responde `Correo o contraseña incorrectos`. Las consultas públicas de nombre/correo (`/api/check-username/*`, `/api/check-email/*`) validan solo el formato y no consultan si el dato existe; devuelven `valid`, no disponibilidad. El registro usa la misma respuesta HTTP genérica tanto si crea la cuenta como si el nombre, correo o tag ya está ocupado, y nunca inicia sesión automáticamente. `/api/verify-tag/*` valida contra la API pública de Clash Royale, sin revelar si ese tag está vinculado a una cuenta local.
 
 | Variable | Default | Qué controla |
 |---|---|---|
@@ -577,7 +582,7 @@ ruta ── AuthMiddleware.getUserId(ctx) / Peticion.userIdDeSesion(ctx) (0 si n
 
 - **Texto:** `frontend/public/legal/contenido-legal.json` (claves `terminos` y `privacidad`, cada una con `titulo`, `version`, `vigenteDesde`, `intro` y `secciones[{titulo, parrafos[]}]`; un párrafo es un texto o `{ "lista": [...] }`). Es la única fuente: el responsable, los contactos y las reglas de dinero se cambian ahí.
 - **Frontend:** `DocumentoLegal` (renderiza un documento; sin `innerHTML`), `pages/Legal.jsx` (rutas públicas `/terminos` y `/privacidad`) y `AceptacionLegal` (checkbox del registro + visor en portal). La URL del JSON es relativa (`/legal/contenido-legal.json`): mismo origen en la web y dentro del paquete en Capacitor.
-- **Backend:** `POST /api/register` exige `aceptaTerminos` (`Peticion.booleanoOpcional`; 400 si falta). `AuthService.registrar` guarda la constancia con `UsuarioDAO.registrarConAceptacionLegal` en una sola transacción.
+- **Backend:** `POST /api/register` exige `aceptaTerminos` (`Peticion.booleanoOpcional`; 400 si falta). `AuthService.registrar` guarda la constancia con `UsuarioDAO.registrarConAceptacionLegal` en una sola transacción. La respuesta de alta es genérica y no inicia sesión automáticamente (sección 16).
 - **BD:** `legal_acceptances (id, user_id → users ON DELETE CASCADE, documento 'terminos'|'privacidad', version, aceptado_en)`, única por `(user_id, documento, version)` (migración `V4`).
 - **Versiones:** constantes en `DocumentosLegales`. Al cambiar un texto hay que subir la versión en el JSON y en esa clase.
 - **Legacy:** `public/index.html` tiene el checkbox (`name="aceptaTerminos"`); sus enlaces apuntan a los documentos del despliegue de producción.

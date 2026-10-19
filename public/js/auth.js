@@ -38,8 +38,14 @@
             usernameTimeout = setTimeout(async () => {
                 try {
                     const res = await fetch(API_BASE_URL + '/api/check-username/' + encodeURIComponent(username));
+                    if (res.status === 429) {
+                        usernameStatus.className = 'tag-status visible error';
+                        usernameStatus.textContent = '⏳ Demasiadas solicitudes, espera unos segundos';
+                        usernameValid = false;
+                        return;
+                    }
                     const data = await res.json();
-                    if (data.available) {
+                    if (data.valid) {
                         usernameStatus.className = 'tag-status visible found';
                         usernameValid = true;
                     } else {
@@ -76,8 +82,14 @@
             emailTimeout = setTimeout(async () => {
                 try {
                     const res = await fetch(API_BASE_URL + '/api/check-email/' + encodeURIComponent(email));
+                    if (res.status === 429) {
+                        emailStatus.className = 'tag-status visible error';
+                        emailStatus.textContent = '⏳ Demasiadas solicitudes, espera unos segundos';
+                        emailValid = false;
+                        return;
+                    }
                     const data = await res.json();
-                    if (data.available) {
+                    if (data.valid) {
                         emailStatus.className = 'tag-status visible found';
                         emailValid = true;
                     } else {
@@ -147,12 +159,12 @@
 
         // Validar en orden: username, email, playerTag
         if (!usernameValid) {
-            alert('❌ El nombre de usuario no es válido o ya está en uso');
+            alert('❌ El formato del nombre de usuario no es válido');
             usernameInput.focus();
             return;
         }
         if (!emailValid) {
-            alert('❌ El correo no es válido o ya está registrado');
+            alert('❌ El formato del correo no es válido');
             emailInput.focus();
             return;
         }
@@ -170,7 +182,7 @@
             });
             const data = await res.json();
             if (res.ok) {
-                alert('¡Cuenta creada! Ahora inicia sesión.');
+                alert(data.message || 'Solicitud recibida. Si los datos permiten crear una cuenta, podrás iniciar sesión en unos instantes.');
                 registroContainer.classList.add('hidden');
                 loginContainer.classList.remove('hidden');
             } else {

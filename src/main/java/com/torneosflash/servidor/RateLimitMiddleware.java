@@ -49,7 +49,7 @@ public class RateLimitMiddleware {
             "/api/admin/transaction/process",
             "/api/admin/resolve-dispute");
 
-    /** A3: Rutas de autenticación y verificación externa sujetas a un límite más estricto contra fuerza bruta. */
+    /** Rutas de autenticación y validación pública sujetas a un límite más estricto contra fuerza bruta y sondeo. */
     private static final Set<String> RUTAS_AUTH = Set.of(
             "/api/login",
             "/api/register");
@@ -134,7 +134,10 @@ public class RateLimitMiddleware {
         if (lectura && ruta.startsWith(PREFIJO_MEDIA)) return Categoria.MEDIA;
 
         if (RUTAS_FINANCIERAS.contains(ruta)) return Categoria.FINANCIERO;
-        if (RUTAS_AUTH.contains(ruta) || ruta.startsWith("/api/verify-tag/")) return Categoria.AUTH;
+        if (RUTAS_AUTH.contains(ruta)
+                || ruta.startsWith("/api/check-username/")
+                || ruta.startsWith("/api/check-email/")
+                || ruta.startsWith("/api/verify-tag/")) return Categoria.AUTH;
         return Categoria.GENERAL;
     }
 

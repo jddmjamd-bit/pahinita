@@ -150,7 +150,7 @@ public class UsuarioDAO {
      * Roadmap 1.6: crea el usuario y deja constancia de que aceptó los Términos de Servicio y la Política de
      * Privacidad (tabla legal_acceptances) en UNA sola transacción: o quedan las dos cosas o ninguna.
      *
-     * @return el id del usuario nuevo, o -1 si no se pudo registrar
+     * @return el id del usuario nuevo, -1 si chocó con una restricción única, -2 si falló la BD
      */
     public int registrarConAceptacionLegal(String username, String email, String passwordHash, String playerTag,
                                            String telefono, String versionTerminos, String versionPrivacidad) {
@@ -168,7 +168,7 @@ public class UsuarioDAO {
                     try (ResultSet rs = ps.executeQuery()) {
                         if (!rs.next()) {
                             conn.rollback();
-                            return -1;
+                            return -2;
                         }
                         newId = rs.getInt("id");
                     }
@@ -188,8 +188,12 @@ public class UsuarioDAO {
                     conn.rollback();
                 } catch (SQLException ignored) {
                 }
+                if (esViolacionUnica(e)) {
+                    logger.debug("Registro rechazado por una restricción única");
+                    return -1;
+                }
                 logger.error("Error registrando usuario con aceptación legal: {}", e.getMessage());
-                return -1;
+                return -2;
             } finally {
                 try {
                     conn.setAutoCommit(true);
@@ -198,8 +202,19 @@ public class UsuarioDAO {
             }
         } catch (Exception e) {
             logger.error("Error obteniendo conexión para registrar usuario: {}", e.getMessage());
-            return -1;
+            return -2;
         }
+    }
+
+    private static boolean esViolacionUnica(Throwable error) {
+        for (Throwable actual = error; actual != null; actual = actual.getCause()) {
+            if (actual instanceof SQLException sql) {
+                for (SQLException actualSql = sql; actualSql != null; actualSql = actualSql.getNextException()) {
+                    if ("23505".equals(actualSql.getSQLState())) return true;
+                }
+            }
+        }
+        return false;
     }
 
     public void actualizarEstado(int userId, String estado, String salaActual, int pasoJuego) {

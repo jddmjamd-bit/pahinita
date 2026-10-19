@@ -46,7 +46,7 @@ export default function Auth() {
                     return;
                 }
                 const data = await res.json();
-                if (data.available) {
+                if (data.valid) {
                     setUsernameStatus({ text: data.message, className: 'tag-status visible found' });
                     setUsernameValid(true);
                 } else {
@@ -79,7 +79,7 @@ export default function Auth() {
                     return;
                 }
                 const data = await res.json();
-                if (data.available) {
+                if (data.valid) {
                     setEmailStatus({ text: data.message, className: 'tag-status visible found' });
                     setEmailValid(true);
                 } else {
@@ -136,8 +136,8 @@ export default function Auth() {
 
     const handleRegister = async (e) => {
         e.preventDefault();
-        if (!usernameValid) return alert('❌ El nombre de usuario no es válido o ya está en uso');
-        if (!emailValid) return alert('❌ El correo no es válido o ya está registrado');
+        if (!usernameValid) return alert('❌ El formato del nombre de usuario no es válido');
+        if (!emailValid) return alert('❌ El formato del correo no es válido');
         if (!playerTagValid) return alert('❌ El Player Tag no es válido. Debe mostrar tu nombre de Clash Royale');
         if (!acepta) return alert('❌ Debes aceptar los Términos de Servicio y la Política de Privacidad');
 
@@ -151,7 +151,7 @@ export default function Auth() {
             });
             const data = await res.json();
             if (res.ok) {
-                alert('¡Cuenta creada! Ahora inicia sesión.');
+                alert(data.message || 'Solicitud recibida. Si los datos permiten crear una cuenta, podrás iniciar sesión en unos instantes.');
                 setIsLogin(true);
             } else {
                 alert('Error: ' + (data.error || 'Revisa los datos'));

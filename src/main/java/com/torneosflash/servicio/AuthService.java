@@ -14,14 +14,16 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 
 /**
- * Lógica de autenticación y cuentas: registro, login, sesión, disponibilidad de
- * datos y tokens push (A3).
+ * Lógica de autenticación y cuentas: registro, login, sesión, validación de
+ * formato y tokens push (A3).
  * No conoce HTTP: las cookies y las respuestas las maneja {@code RutasAuth}.
  */
 public class AuthService {
     private static final Logger logger = LoggerFactory.getLogger(AuthService.class);
 
     private static final Pattern PLAYER_TAG_VALIDO = Pattern.compile("^#[0289PYLQGRJCUV]{3,15}$");
+    /** Hash de trabajo para que un correo inexistente también ejecute una comparación BCrypt. */
+    private static final String HASH_CUENTA_INEXISTENTE = BCrypt.hashpw("clave-sin-cuenta", BCrypt.gensalt(10));
     private static final Pattern EMAIL_VALIDO = Pattern.compile("^[^\\s@<>\",;]+@[^\\s@<>\",;]+\\.[^\\s@<>\",;]+$");
 
     /**
@@ -63,9 +65,9 @@ public class AuthService {
         }
     }
 
-    /** Registra un usuario nuevo y devuelve su id. */
-    public int registrar(String username, String email, String password, String playerTag, String telefono,
-            boolean aceptaTerminos) { // ← CAMBIA: parámetro nuevo al final
+    /** Registra una cuenta; un conflicto de identidad se oculta con el mismo resultado HTTP que el alta. */
+    public void registrar(String username, String email, String password, String playerTag, String telefono,
+            boolean aceptaTerminos) {
         // ↓↓↓ NUEVO (roadmap 1.6) ↓↓↓
         if (!aceptaTerminos) {
             throw ServicioException.solicitudInvalida(
@@ -98,26 +100,24 @@ public class AuthService {
                     "El nombre de usuario debe tener entre 3 y 30 caracteres y no puede incluir < > \" ' & ` ni caracteres de control");
         }
 
-        // Duplicados
-        if (usuarioDAO.buscarPorUsername(username) != null) {
-            throw ServicioException.solicitudInvalida("Este nombre de usuario ya está registrado");
-        }
-        if (usuarioDAO.buscarPorEmailLower(email) != null) {
-            throw ServicioException.solicitudInvalida("Este correo ya está registrado");
-        }
-        if (usuarioDAO.buscarPorPlayerTag(playerTag) != null) {
-            throw ServicioException.solicitudInvalida("Este Player Tag ya está registrado");
-        }
-
         String hash = hashear(password);
-        // ← CAMBIA la línea de abajo (antes: usuarioDAO.registrar(username, email,
-        // hash, playerTag, telefono))
+        // Hacer las mismas consultas y el mismo trabajo BCrypt tanto si hay conflicto como si no.
+        // El resultado de registro nunca debe confirmar si una cuenta ya existe.
+        boolean usernameExiste = usuarioDAO.buscarPorUsername(username) != null;
+        boolean emailExiste = usuarioDAO.buscarPorEmailLower(email) != null;
+        boolean tagExiste = usuarioDAO.buscarPorPlayerTag(playerTag) != null;
+        if (usernameExiste || emailExiste || tagExiste) {
+            return;
+        }
         int newId = usuarioDAO.registrarConAceptacionLegal(username, email, hash, playerTag, telefono,
                 DocumentosLegales.TERMINOS_VERSION, DocumentosLegales.PRIVACIDAD_VERSION);
-        if (newId < 0) {
-            throw ServicioException.solicitudInvalida("Error al registrar");
+        if (newId == -1) {
+            // Conflicto de unicidad concurrente: se presenta igual que un registro aceptado.
+            return;
         }
-        return newId;
+        if (newId <= 0) {
+            throw ServicioException.interno("No se pudo completar el registro", null);
+        }
     }
 
     /**
@@ -131,16 +131,17 @@ public class AuthService {
         // cliente)
         JsonObject credenciales = usuarioDAO.buscarCredencialesPorEmail(email);
         if (credenciales == null) {
-            throw ServicioException.solicitudInvalida("Usuario no encontrado");
+            coincide(password, HASH_CUENTA_INEXISTENTE);
+            throw ServicioException.solicitudInvalida("Correo o contraseña incorrectos");
         }
         if (!coincide(password, credenciales.get("password").getAsString())) {
-            throw ServicioException.solicitudInvalida("Contraseña incorrecta");
+            throw ServicioException.solicitudInvalida("Correo o contraseña incorrectos");
         }
 
         int userId = credenciales.get("id").getAsNumber().intValue();
         JsonObject user = usuarioDAO.buscarPorId(userId);
         if (user == null) {
-            throw ServicioException.solicitudInvalida("Usuario no encontrado");
+            throw ServicioException.solicitudInvalida("Correo o contraseña incorrectos");
         }
         return new SesionIniciada(userId, user);
     }
@@ -158,24 +159,28 @@ public class AuthService {
     }
 
     public JsonObject usernameDisponible(String username) {
-        boolean disponible = usuarioDAO.buscarPorUsername(username) == null;
-        return disponibilidad(disponible, "✅ Usuario disponible", "❌ El usuario ya está en uso");
+        String normalizado = username == null ? "" : username.trim();
+        boolean formatoValido = ChatSanitizer.esNombreUsuarioSeguro(normalizado);
+        return resultadoValidacion(formatoValido, "Formato válido. Confirmaremos los datos al enviar el registro.",
+                "El formato del nombre no es válido");
     }
 
     public JsonObject emailDisponible(String email) {
-        boolean disponible = usuarioDAO.buscarPorEmailLower(email) == null;
-        return disponibilidad(disponible, "✅ Correo disponible", "❌ El correo ya está registrado");
+        String normalizado = email == null ? "" : email.trim().toLowerCase();
+        boolean formatoValido = normalizado.length() <= 120 && EMAIL_VALIDO.matcher(normalizado).matches();
+        return resultadoValidacion(formatoValido, "Formato válido. Confirmaremos los datos al enviar el registro.",
+                "El formato del correo no es válido");
     }
 
-    private static JsonObject disponibilidad(boolean disponible, String msgSi, String msgNo) {
+    private static JsonObject resultadoValidacion(boolean valido, String msgSi, String msgNo) {
         JsonObject res = new JsonObject();
-        res.addProperty("available", disponible);
-        res.addProperty("message", disponible ? msgSi : msgNo);
+        res.addProperty("valid", valido);
+        res.addProperty("message", valido ? msgSi : msgNo);
         return res;
     }
 
     /**
-     * Verifica que el Player Tag tenga formato válido, no esté registrado y exista en la API de Clash Royale.
+     * Verifica formato y existencia pública en Clash Royale; no consulta si el tag está vinculado a una cuenta local.
      * M5: nunca devuelve al cliente el mensaje crudo de error de Clash API (que puede incluir la IP del servidor).
      */
     public JsonObject verificarTag(String tag) {
@@ -187,12 +192,6 @@ public class AuthService {
         if (!PLAYER_TAG_VALIDO.matcher(normalizado).matches()) {
             res.addProperty("found", false);
             res.addProperty("message", "Formato de Player Tag inválido");
-            return res;
-        }
-
-        if (usuarioDAO.buscarPorPlayerTag(normalizado) != null) {
-            res.addProperty("found", false);
-            res.addProperty("message", "Este Player Tag ya está registrado");
             return res;
         }
 

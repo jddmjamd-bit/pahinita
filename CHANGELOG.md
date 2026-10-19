@@ -11,6 +11,15 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Evitar enumeración de cuentas en login y registro (GPT-6)
+- **`AuthService.java`**: unifica el error de credenciales y verifica BCrypt con un hash ficticio cuando el correo no existe. Las consultas de nombre y correo validan solo el formato; validar un Player Tag ya no revela si está vinculado a una cuenta local.
+- **`RutasAuth.java` y `UsuarioDAO.java`**: el alta responde igual para cuentas creadas y conflictos de identidad, no emite sesión y distingue conflictos únicos de fallos reales de base de datos.
+- **`RateLimitMiddleware.java`**: aplica el límite estricto de autenticación a las consultas de disponibilidad de nombre y correo.
+- **Frontends React y legacy**: validan formato, muestran la respuesta genérica de registro y dejan de afirmar que un nombre/correo está libre o ocupado.
+- **`ARCHITECTURE.md`**: documenta el nuevo contrato de login, registro y consultas públicas.
+- **Verificación**: `npm.cmd run build` y `mvn.cmd clean compile -DskipTests` terminaron correctamente; `actualizar-txt.bat` actualizó 128 archivos. No se ejecutaron pruebas automatizadas.
+Archivos: `AuthService.java`, `RutasAuth.java`, `UsuarioDAO.java`, `RateLimitMiddleware.java`, `Auth.jsx`, `app.js`, `auth.js`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-19 — Completar el ciclo de tokens push en Capacitor (GPT-6)
 - **`useCapacitor.js`**: guarda el token nativo solo en memoria, lo registra al tener sesión, vuelve a enviarlo cuando rota y reintenta fallos de red/servidor con pausas acotadas. Quitó logs que exponían el token y el contenido de notificaciones.
 - **`pushTokens.js`, `useAppStore.js` y `Auth.jsx`**: serializan registros/logout para que una petición de alta pendiente no vuelva a asociar el dispositivo después de cerrar sesión; login/registro esperan el logout anterior y el logout manda los tokens antes de borrar la cookie.
