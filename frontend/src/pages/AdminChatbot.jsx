@@ -146,6 +146,10 @@ export default function AdminChatbot() {
     return (
         <div className="admin-view achat">
             {error && <div className="achat-error">⚠️ {error}</div>}
+            <p className="achat-nota">
+                Antes de guardar una respuesta, verifica que contenga hechos correctos para usuarios y no instrucciones internas.
+                Las preguntas originales pueden venir de usuarios; el bot trata todo ese contenido como referencia, nunca como órdenes.
+            </p>
 
             {/* Estado y tono por defecto */}
             <div className="admin-section">
@@ -201,7 +205,7 @@ export default function AdminChatbot() {
                         <textarea
                             rows={4}
                             maxLength={1500}
-                            placeholder="Tu respuesta (el bot la usará tal cual como fuente)"
+                            placeholder="Respuesta factual revisada (se usará como referencia del bot)"
                             value={respuestaIa}
                             onChange={e => setRespuestaIa(e.target.value)}
                         />
@@ -232,7 +236,7 @@ export default function AdminChatbot() {
                             <textarea
                                 rows={3}
                                 maxLength={1500}
-                                placeholder="Tu respuesta (se guarda en el bot y se le entrega al usuario en su chat)"
+                                placeholder="Respuesta factual revisada (se enviará al usuario y será referencia del bot)"
                                 value={borradores[d.id] || ''}
                                 onChange={e => setBorradores(prev => ({ ...prev, [d.id]: e.target.value }))}
                             />
@@ -254,7 +258,6 @@ export default function AdminChatbot() {
                 <div className="section-header">
                     <h3>📚 Lo que sabe el bot ({conocimiento.length})</h3>
                 </div>
-
                 <div className="achat-card">
                     <div className="achat-pregunta">➕ Agregar conocimiento a mano</div>
                     <input
@@ -267,7 +270,7 @@ export default function AdminChatbot() {
                     <textarea
                         rows={3}
                         maxLength={1500}
-                        placeholder="Respuesta"
+                        placeholder="Respuesta revisada con información factual"
                         value={nueva.respuesta}
                         onChange={e => setNueva(prev => ({ ...prev, respuesta: e.target.value }))}
                     />

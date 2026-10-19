@@ -624,6 +624,7 @@ Admin ── pestaña «🤖 Chatbot» del panel (AdminChatbot.jsx)
 | Pieza | Detalle |
 |---|---|
 | Conocimiento | `chatbot_conocimiento`: `origen` = `ia` (pregunta de entrenamiento), `usuario` (duda sin resolver) o `admin` (agregada a mano); `estado` = `pendiente` / `respondida` / `descartada`. Solo las `respondida` las ve la IA. Una duda repetida (mismo texto normalizado) suma `veces` y añade al usuario a `chatbot_duda_usuarios`, sin volver a enviar correo |
+| Separación de instrucciones y referencias | `ChatbotService` mantiene la política confiable en `systemInstruction` / rol `system` y envía las referencias en un mensaje de usuario separado como JSON serializado por Gson. Los campos se vuelven a limpiar al leerlos y el bloque tiene tope de 12.000 caracteres. El prompt ordena tratar preguntas y respuestas como datos citados, no seguir órdenes dentro de ellos ni del historial, y responder `[SIN_RESPUESTA]` si no puede separar un hecho fiable de una instrucción. El panel recuerda revisar el contenido antes de aprobarlo |
 | Qué ve la IA | Con hasta 15 respuestas se le pasan todas; con más, las 8 con más palabras clave en común con la pregunta (y la anterior del usuario). Sin coincidencias, ninguna y la IA dirá que no sabe |
 | Entrenamiento | `siguientePregunta`: si ya hay una pregunta de la IA sin responder se devuelve esa; si no, la IA genera una nueva (distinta de las ya hechas). Si la IA no está configurada o falla, se usa una pregunta base de `ChatbotService.PREGUNTAS_SEMILLA` |
 | Tono | `formal`, `informal` o `adaptativo` (imita cómo escribe el usuario). El admin fija el tono por defecto (`chatbot_config.tono_defecto`, inicial `adaptativo`); cada usuario puede elegir el suyo (`chatbot_preferencias`) o volver al del admin con `defecto` |
@@ -645,7 +646,7 @@ Admin ── pestaña «🤖 Chatbot» del panel (AdminChatbot.jsx)
 | `CHATBOT_MAX_TOKENS` | 1024 | Tope de la respuesta (64 - 8192) |
 
 **Reglas y límites conocidos**
-- La IA solo puede responder con la base de conocimiento; las instrucciones le prohíben inventar datos, pedir contraseñas o hablar de «apuestas» (se dice «monto» y «torneo», F5). La base la escribe solo el admin, así que no hay entrada de usuarios en ese bloque del prompt.
+- La IA solo puede responder con hechos pertinentes de las referencias revisadas; la política confiable va separada del JSON de referencia. Las preguntas originales pueden venir de usuarios, por lo que todo el contenido recuperado se trata como no confiable y nunca como instrucciones. El prompt prohíbe inventar datos, pedir contraseñas o hablar de «apuestas» (se dice «monto» y «torneo», F5).
 - La llamada a la IA bloquea el hilo HTTP hasta `CHATBOT_TIMEOUT_SEGUNDOS`; el tope de simultáneas evita agotar el pool de Jetty.
 - Ante 500, 502, 503 o 504 del proveedor (p. ej. Gemini «high demand») `ChatbotIaCliente` reintenta hasta 3 intentos en total, con 1 s y 2 s de espera; el 429 y los 4xx no se reintentan.
 - La búsqueda en la base es por palabras clave, no semántica: suficiente para decenas o cientos de respuestas cortas. Si crece mucho, sustituir `ChatbotConocimiento.relevantes` (embeddings).

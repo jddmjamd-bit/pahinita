@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Separar las referencias del chatbot de sus instrucciones (GPT-6)
+- **`ChatbotService.java`**: construye la política del bot por separado, vuelve a limpiar referencias al leerlas y serializa preguntas/respuestas como JSON con tope de contexto.
+- **`ChatbotIaCliente.java`**: Gemini y OpenAI reciben ese JSON en un mensaje aparte; el rol de sistema conserva las reglas y ordena tratar tanto referencias como historial como datos no confiables, no como instrucciones.
+- **`AdminChatbot.jsx`**: recuerda revisar el conocimiento y que las preguntas originales pueden provenir de usuarios. `ARCHITECTURE.md` documenta el flujo y elimina la afirmación de que no entra contenido de usuario.
+- **Verificación**: `mvn clean compile -DskipTests`, `npm run build` y `actualizar-txt.bat` finalizaron correctamente. No se ejecutaron pruebas automatizadas.
+Archivos: `ChatbotService.java`, `ChatbotIaCliente.java`, `AdminChatbot.jsx`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-19 — Validar el formato y la unicidad de batallas de Clash (GPT-6)
 - **`ClashApiServicio.java`**: solo correlaciona partidas posteriores al inicio con tipo permitido y un integrante en cada equipo; valida ambos tags y coronas enteras. El timestamp de inicio debe ser válido.
 - **Resultados ambiguos**: si coinciden varias batallas posibles o faltan datos válidos de coronas, devuelve un resultado ambiguo; **`SocketHandler.java`** abre una disputa inmediatamente y no liquida al ganador.
