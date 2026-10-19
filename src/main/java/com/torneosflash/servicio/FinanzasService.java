@@ -19,6 +19,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.Locale;
@@ -37,6 +40,7 @@ public class FinanzasService {
     private static final BigDecimal TARIFA_FIJA_WOMPI = BigDecimal.valueOf(840);
     private static final BigDecimal DIVISOR_PASARELA_WOMPI = new BigDecimal("0.964");
     private static final BigDecimal CIEN = BigDecimal.valueOf(100);
+    private static final int INTENTOS_REFERENCIA_WOMPI = 5;
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
@@ -134,15 +138,7 @@ public class FinanzasService {
         String username = usernameDeUsuario(userId);
 
         long montoCentavos = calcularMontoCentavosWompi(monto);
-        String reference = "TF-" + userId + "-" + System.currentTimeMillis() + "-"
-                + ThreadLocalRandom.current().nextInt(1000, 10000);
-
-        int rows = db.update("INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado) " +
-                "VALUES (?, ?, 'deposito', 'wompi', ?, ?, 'pendiente')",
-                userId, username, monto, reference);
-        if (rows == 0) {
-            throw ServicioException.interno("No se pudo iniciar la transacción Wompi", null);
-        }
+        String reference = registrarTransaccionWompi(userId, username, monto);
 
         // Firma de integridad
         String toSign = reference + montoCentavos + "COP" + config.getWompiIntegritySecret();
@@ -155,6 +151,42 @@ public class FinanzasService {
         res.addProperty("signature", signature);
         res.addProperty("montoReal", monto);
         return res;
+    }
+
+    /**
+     * Inserta el pendiente solo si la referencia Wompi es única. Ante una colisión, vuelve a generarla
+     * antes de guardar nada; así nunca se crean dos pendientes que el webhook no pueda distinguir.
+     */
+    private String registrarTransaccionWompi(int userId, String username, BigDecimal monto) {
+        String sql = "INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado) " +
+                "VALUES (?, ?, 'deposito', 'wompi', ?, ?, 'pendiente') " +
+                "ON CONFLICT (referencia) " +
+                "WHERE tipo = 'deposito' AND metodo = 'wompi' AND referencia IS NOT NULL DO NOTHING";
+
+        try (Connection conn = db.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            for (int intento = 1; intento <= INTENTOS_REFERENCIA_WOMPI; intento++) {
+                String reference = "TF-" + userId + "-" + System.currentTimeMillis() + "-"
+                        + ThreadLocalRandom.current().nextInt(1000, 10000);
+                ps.setInt(1, userId);
+                ps.setString(2, username);
+                ps.setBigDecimal(3, monto);
+                ps.setString(4, reference);
+
+                if (ps.executeUpdate() == 1) {
+                    return reference;
+                }
+                logger.warn("Colisión de referencia Wompi; se reintentará (intento {}/{})",
+                        intento, INTENTOS_REFERENCIA_WOMPI);
+            }
+        } catch (SQLException e) {
+            logger.error("No se pudo registrar la transacción Wompi para userId={}: {}", userId, e.getMessage());
+            throw ServicioException.interno("No se pudo iniciar la transacción Wompi", e);
+        }
+
+        // Los intentos fallidos por colisión no insertan filas. El cliente puede reintentar sin dejar
+        // una transacción pendiente que luego el webhook no pueda correlacionar.
+        throw ServicioException.noDisponible(
+                "No se pudo generar una referencia única para el pago. Inténtalo de nuevo.");
     }
 
     /** Compatibilidad: procesa el webhook de Wompi verificando la firma del body. */

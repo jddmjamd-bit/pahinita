@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — UltimateClash (TorneosFlash)
 
 > Documento de referencia para que cualquier modelo o desarrollador entienda el sistema.
-> Última actualización: 2026-10-17
+> Última actualización: 2026-10-19
 
 ---
 
@@ -103,7 +103,7 @@ TorneosFlash/
 │       ├── SocketIOServer.java      # Parseo de paquetes Engine.IO/Socket.IO
 │       └── SocketIOClient.java      # Wrapper del cliente WS
 ├── src/main/resources/
-│   └── db/migration/                # Migraciones Flyway: V1 esquema base, V2 datos antiguos, V3 chatbot IA, V4 aceptación legal, V5 wallet_ledger (D3), V6 soporte_tickets (24.5), V7 evidencias_pago (7), V8 chat_voz_discord (84), V9 persistir_estado_partidas (A2)
+│   └── db/migration/                # Migraciones Flyway V1–V12; V12 agrega unicidad de referencias de depósitos Wompi
 ├── agent/rules/                     # Reglas para modelos IA
 │   ├── auto-push.md
 │   └── project-conventions.md       # ← NUEVO
@@ -122,7 +122,7 @@ TorneosFlash/
 | `users` | Usuarios registrados | `id`, `username`, `email`, `password` (bcrypt), `saldo`, `player_tag`, `total_victorias`, `total_monto_torneos`, `gen_*` (desglose comisiones) |
 | `messages` | Chat de la app | `canal`, `usuario`, `texto`, `tipo` |
 | `matches` | Historial de partidas | `jugador1`, `jugador2`, `monto`, `ganador`, `estado` |
-| `transactions` | Depósitos y retiros | `usuario_id`, `tipo`, `metodo`, `monto`, `referencia`, `estado` |
+| `transactions` | Depósitos y retiros | `usuario_id`, `tipo`, `metodo`, `monto`, `referencia`, `estado`, `external_id`. V12 hace única `referencia` en depósitos Wompi; V11 hace único `external_id` no nulo. |
 | `admin_wallet` | Bóveda de comisiones del admin | `monto`, `razon`, `categoria` (sorteos, misiones, etc.) |
 | `user_tokens` | Tokens FCM por usuario | `user_id`, `fcm_token` |
 | `user_tickets` | Tickets de sorteo acumulados | `user_id`, `cantidad`, `acumulado` |
@@ -189,7 +189,7 @@ evento al bus de eventos (A4): `wallet.deposited`, `wallet.withdrawn`, `wallet.b
 
 ```
 Depósito:
-  Wompi (tarjeta) → webhook → FinanzasService → WalletService.depositar() → evento wallet.deposited
+  Wompi (tarjeta) → /api/wompi/init → webhook verificado → FinanzasService → WalletService.acreditarDepositoWompi() → evento wallet.deposited
   Nequi (manual)  → admin aprueba → AdminService → WalletService.depositar() → evento wallet.deposited
 
 Torneo (monto):
@@ -205,6 +205,11 @@ Retiro:
 Premio (leaderboard, sorteo):
   WalletService.premiar() → evento wallet.awarded
 ```
+
+En `POST /api/wompi/init`, `FinanzasService` genera una referencia `TF-` e inserta el pendiente con `ON CONFLICT`.
+El índice parcial único de V12 serializa solicitudes concurrentes; ante una colisión, el servicio genera otra
+referencia hasta cinco veces. Los intentos que colisionan no dejan filas pendientes; si se agotan los intentos,
+la solicitud falla sin crear una recarga. El webhook correlaciona la referencia con el ID externo de Wompi (V11).
 
 > [!NOTE]
 > - Las transacciones SQL son atómicas (D2 completado). Si falla a mitad, se hace rollback.
@@ -440,6 +445,9 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 |---|---|
 | `V1__esquema_base.sql` | Las 13 tablas y todas sus columnas (`CREATE TABLE IF NOT EXISTS` + `ADD COLUMN IF NOT EXISTS`), la fila `leaderboard_pools.id = 1` y el renombrado F5 (`apuesta` → `monto`, `total_apostado` → `total_monto_torneos`) solo si la BD aún tiene los nombres viejos |
 | `V2__migrar_datos_antiguos.sql` | Conversión única de datos viejos: desglose `gen_*` desde la antigua `ganancia_generada` y reparto en 7 categorías de las filas de `admin_wallet` sin categoría |
+| `V10__endurecer_esquema_finanzas.sql` | Refuerza saldos/tickets, hace inmutable `wallet_ledger` y persiste marcas de corte de leaderboard |
+| `V11__blindaje_wompi_y_ledger.sql` | Agrega `transactions.external_id` único para correlacionar transacciones Wompi y bloquea `TRUNCATE` en `wallet_ledger` |
+| `V12__referencias_wompi_unicas.sql` | Hace única la referencia de depósitos Wompi. Si existen duplicados históricos, falla sin modificarlos para exigir conciliación antes del despliegue |
 
 **Cómo se comporta según el estado de la BD** (`baselineOnMigrate=true`, `baselineVersion=0`):
 
@@ -450,7 +458,7 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | Ya migrada | Aplica solo los scripts nuevos; si no hay, no hace nada |
 
 **Reglas**
-- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V7`). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
+- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V13`). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
 - **Nunca editar un `V*` ya aplicado:** Flyway guarda el checksum y `validateOnMigrate` hace fallar el arranque. Para corregir algo, una migración nueva.
 - **Fail-fast:** si una migración falla, `Main` loguea el error y sale con código 1 (no se sirve tráfico con el esquema a medias). Cada script corre en su propia transacción en PostgreSQL: si falla se revierte entero.
 - `cleanDisabled=true`: la app nunca puede ejecutar `flyway clean`.

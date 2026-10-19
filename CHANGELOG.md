@@ -11,6 +11,12 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Evitar referencias duplicadas en recargas Wompi (GPT-6)
+- **Migración Flyway `V12__referencias_wompi_unicas.sql`**: agrega un índice único parcial para las referencias de depósitos Wompi. Si ya hay duplicados históricos, la migración se detiene y muestra referencias para conciliarlas; no reasigna ni elimina pagos automáticamente.
+- **`FinanzasService.java`**: inserta la recarga con `ON CONFLICT` y vuelve a generar la referencia hasta cinco veces si otra solicitud ganó la misma referencia. Los intentos en conflicto no crean transacciones pendientes; si no logra una referencia única, responde con error reintentable.
+- **Verificación**: `mvnw -DskipTests compile` finalizó con `BUILD SUCCESS`. No se ejecutaron pruebas; el frontend no cambió.
+Archivos: `FinanzasService.java`, `V12__referencias_wompi_unicas.sql`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-17 — A2: Persistir en BD el estado de partidas activas, colas y búsquedas y recuperarlo al reiniciar (Gemini 3.1 Pro)
 - **Migración Flyway `V9__persistir_estado_partidas.sql`**: Creadas las tablas `match_queue` (`id`, `user_id` UNIQUE, `username`, `creado_en`, `expira_en`) y `active_matches` (`id`, `sala_id` UNIQUE, `player1_id`, `player1_username`, `player2_id`, `player2_username`, `iniciado`, `monto`, `match_db_id`, `player_tag1`, `player_tag2`, `match_start_time`, `last_modo`, `last_dinero`, `votos_json`, `confirmaciones_json`, `poll_count`, `creado_en`, `actualizado_en`). Ambas tablas incluyen `id SERIAL PRIMARY KEY` para compatibilidad con `/admin-db`.
 - **Persistencia en tiempo real (`SocketHandler.java`)**: `buscar_partida` y `cancelar_busqueda` insertan/eliminan en `match_queue`; `intentarMatcheo` crea la fila en `active_matches` y retira a ambos jugadores de `match_queue`; `negociacion_live`, `iniciar_juego`, `cancelar_inicio`, `confirmar_partida_resp` e `iniciarPollingApi` actualizan el estado de la sala en `active_matches`; `liberarJugadores`, `handleCancelMatch` y el timeout de abandono eliminan la fila de `active_matches`.
