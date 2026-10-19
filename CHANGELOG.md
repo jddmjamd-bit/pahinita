@@ -11,6 +11,14 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Hacer idempotente y recuperable el inicio de partidas (GPT-6)
+- **Migración V14**: agrega un `sala_id` único a `matches` y la marca `inicio_revision` para salas antiguas ambiguas que no deben cobrarse ni eliminarse automáticamente.
+- **`WalletService.java`**: hace atómicos el débito de ambos jugadores, los asientos del ledger, la creación de `matches` y la actualización iniciada de `active_matches`; bloquea la sala durante el intento, devuelve el resultado persistido en reintentos y verifica el estado tras un `COMMIT` incierto.
+- **Reconciliación de legado**: al arrancar, vincula una sala pendiente solo cuando existe un único match compatible posterior a la última actualización de negociación y hay movimientos de ledger de ambos jugadores. Los casos ambiguos quedan preservados y bloqueados para revisión, sin repetir el cobro.
+- **`SocketHandler.java` y `ARCHITECTURE.md`**: recuperan partidas conciliadas, evitan que estados incompletos se sobreescriban o se eliminen por timeout y documentan el flujo transaccional.
+- **Verificación**: `mvnw.cmd clean compile -DskipTests` terminó con `BUILD SUCCESS`; se ejecutó `actualizar-txt.bat`. No se ejecutaron pruebas ni se probó la migración contra una base PostgreSQL real.
+Archivos: `WalletService.java`, `SocketHandler.java`, `V14__inicio_partida_idempotente.sql`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-19 — Hacer recuperables e idempotentes los premios del leaderboard (GPT-6)
 - **Migración V13**: añade cortes y pagos persistentes, conserva estado/intentos/error por destinatario y vincula de forma única el historial de jugador con su pago.
 - **`LeaderboardService.java`**: guarda en una transacción el pozo leído antes de ponerlo en cero, los montos exactos por jugador/admin, la marca de corte y el reset de victorias. Reintenta los pagos pendientes cada minuto, registra historial idempotente y solo cierra el corte cuando todos los pagos e historiales terminaron.

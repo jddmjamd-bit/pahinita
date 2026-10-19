@@ -74,7 +74,11 @@ public class SocketHandler {
      * Registra todos los event handlers del Socket.IO server y recupera el estado persistido en BD (A2).
      */
     public void registrar() {
+        List<Eventos.PartidaIniciada> partidasReconciliadas = wallet.reconciliarPartidasTorneoAlReiniciar();
         recuperarEstadoDesdeBD();
+        for (Eventos.PartidaIniciada partida : partidasReconciliadas) {
+            eventos.emit(Eventos.MATCH_STARTED, partida);
+        }
 
         io.onConnection((socket, args) -> {
             // S2: Si el handshake tenía cookie JWT válida, precargar el usuario desde la BD
@@ -214,6 +218,7 @@ public class SocketHandler {
                         JsonObject restoreData = new JsonObject();
                         restoreData.addProperty("salaId", salaActual);
                         restoreData.addProperty("iniciado", match.iniciado);
+                        restoreData.addProperty("inicioRevision", match.inicioRevision);
                         restoreData.addProperty("estado", match.iniciado ? "jugando" : "partida_encontrada");
                         restoreData.addProperty("maxMonto", maxMonto);
                         if (rivalData != null) restoreData.add("rival", UsuarioVista.paraRival(rivalData)); // S6
@@ -222,6 +227,10 @@ public class SocketHandler {
                         restoreData.addProperty("lastDinero", match.lastDinero);
 
                         client.emit("restaurar_partida", restoreData);
+                        if (match.inicioRevision) {
+                            client.emit("error_negociacion", new JsonPrimitive(
+                                    "El inicio de esta partida está bloqueado para revisión administrativa; no se realizará otro cobro"));
+                        }
 
                         // Si está en negociación y había votos/confirmaciones pendientes, restaurar estado de botones/modal
                         if (!match.iniciado) {
@@ -506,6 +515,11 @@ public class SocketHandler {
                     if (salaId == null || !activeMatches.containsKey(salaId)) return;
                     ActiveMatch match = activeMatches.get(salaId);
                     if (match.iniciado) return;
+                    if (match.inicioRevision) {
+                        client.emit("error_negociacion", new JsonPrimitive(
+                                "Esta partida requiere revisión administrativa antes de cancelarse"));
+                        return;
+                    }
 
                     int myId = client.getUserData().get("id").getAsInt();
                     match.votosInicio.remove(myId);
@@ -527,6 +541,11 @@ public class SocketHandler {
 
                     int myId = client.getUserData().get("id").getAsInt();
                     if (myId != match.player1Id && myId != match.player2Id) return;
+                    if (match.inicioRevision) {
+                        client.emit("error_negociacion", new JsonPrimitive(
+                                "El inicio requiere revisión administrativa; no se realizará otro cobro"));
+                        return;
+                    }
 
                     // C1: Candado por partida para impedir doble inicio y doble cobro si ambos confirman a la vez
                     synchronized (match) {
@@ -577,26 +596,54 @@ public class SocketHandler {
                             }
 
                             // C1: Cobrar a ambos jugadores y crear el registro en matches en UNA sola transacción SQL // REVIEW-MONEY
+                            String fechaInicio = java.time.Instant.now().toString();
                             WalletService.InicioPartidaResult inicioResult = wallet.iniciarPartidaTorneo(
                                     match.player1Id, match.player1Username,
                                     match.player2Id, match.player2Username,
-                                    salaId, modo, montoTorneo);
+                                    salaId, modo, montoTorneo, tag1, tag2, fechaInicio);
                             if (!inicioResult.success) {
+                                match.inicioRevision = inicioResult.requiereRevision;
                                 io.to(salaId).emit("error_negociacion", new JsonPrimitive(inicioResult.error));
                                 match.votosInicio.clear();
                                 match.confirmaciones.clear();
-                                persistirMatchEnBD(salaId, match);
+                                // Guardar el rechazo sin tocar actualizado_en: se usa como límite temporal al
+                                // reconciliar un posible cobro legado después de un COMMIT incierto.
+                                persistirVotosMatchSinAvanzarFecha(salaId, match);
                                 return;
                             }
 
                             match.iniciado = true;
-                            match.matchStartTime = java.time.Instant.now().toString();
-                            match.monto = montoTorneo;
-                            match.playerTag1 = tag1;
-                            match.playerTag2 = tag2;
                             match.dbId = inicioResult.matchId;
-
-                            persistirMatchEnBD(salaId, match);
+                            if (inicioResult.nuevoInicio) {
+                                match.matchStartTime = fechaInicio;
+                                match.monto = montoTorneo;
+                                match.playerTag1 = tag1;
+                                match.playerTag2 = tag2;
+                                match.lastModo = modo;
+                                match.lastDinero = montoTorneo.toPlainString();
+                            } else {
+                                JsonObject inicioPersistido = db.queryOne(
+                                        "SELECT monto, player_tag1, player_tag2, match_start_time, last_modo, last_dinero, poll_count " +
+                                        "FROM active_matches WHERE sala_id = ? AND iniciado = TRUE AND match_db_id = ?",
+                                        salaId, match.dbId);
+                                if (inicioPersistido == null) {
+                                    match.iniciado = false;
+                                    io.to(salaId).emit("error_negociacion", new JsonPrimitive(
+                                            "No se pudo recuperar el estado persistido de la partida. Vuelve a intentar."));
+                                    return;
+                                }
+                                match.monto = inicioPersistido.get("monto").getAsBigDecimal();
+                                match.playerTag1 = str(inicioPersistido, "player_tag1");
+                                match.playerTag2 = str(inicioPersistido, "player_tag2");
+                                match.matchStartTime = str(inicioPersistido, "match_start_time");
+                                match.lastModo = str(inicioPersistido, "last_modo");
+                                match.lastDinero = str(inicioPersistido, "last_dinero");
+                                match.pollCount = inicioPersistido.get("poll_count").getAsInt();
+                            }
+                            match.votosInicio.clear();
+                            match.confirmaciones.clear();
+                            for (ScheduledFuture<?> timer : match.disconnectTimers.values()) timer.cancel(false);
+                            match.disconnectTimers.clear();
 
                             // Notificar saldos actualizados a ambos jugadores
                             SocketIOClient sock1 = buscarSocketJugador(match, match.player1Id);
@@ -614,7 +661,9 @@ public class SocketHandler {
                             inicioData.addProperty("monto", match.monto);
                             inicioData.addProperty("matchId", match.dbId);
                             io.to(salaId).emit("juego_iniciado", inicioData);
-                            if (match.dbId > 0) eventos.emit(Eventos.MATCH_STARTED, new Eventos.PartidaIniciada(match.dbId, ids));
+                            if (inicioResult.nuevoInicio && match.dbId > 0) {
+                                eventos.emit(Eventos.MATCH_STARTED, new Eventos.PartidaIniciada(match.dbId, ids));
+                            }
                             logClash("🎮 INICIO #" + match.dbId + " | $" + match.monto.toPlainString() + " | Buscando resultado via API...");
 
                             // Iniciar polling de la API
@@ -748,6 +797,8 @@ public class SocketHandler {
                         p1Id, p1Name != null ? p1Name : "Jugador 1",
                         p2Id, p2Name != null ? p2Name : "Jugador 2");
                 match.iniciado = row.has("iniciado") && !row.get("iniciado").isJsonNull() && row.get("iniciado").getAsBoolean();
+                match.inicioRevision = row.has("inicio_revision") && !row.get("inicio_revision").isJsonNull()
+                        && row.get("inicio_revision").getAsBoolean();
                 match.monto = row.has("monto") && !row.get("monto").isJsonNull() ? row.get("monto").getAsBigDecimal() : BigDecimal.ZERO;
                 match.dbId = row.has("match_db_id") && !row.get("match_db_id").isJsonNull() ? row.get("match_db_id").getAsInt() : 0;
                 match.playerTag1 = str(row, "player_tag1") != null ? str(row, "player_tag1") : "";
@@ -779,9 +830,13 @@ public class SocketHandler {
                     iniciarPollingApi(salaId, match, match.playerIds());
                 } else {
                     matchesNegociando++;
-                    // Si tras el reinicio alguno no reconecta dentro del tiempo de negociación, se libera la sala sin penalizar
-                    programarTimerDesconexionNegociacion(salaId, match, p1Id, match.player1Username, false);
-                    programarTimerDesconexionNegociacion(salaId, match, p2Id, match.player2Username, false);
+                    if (match.inicioRevision) {
+                        logger.error("Sala {} bloqueada para revisión; se conserva para evitar perder un cobro legado", salaId);
+                    } else {
+                        // Si tras el reinicio alguno no reconecta dentro del tiempo de negociación, se libera la sala sin penalizar
+                        programarTimerDesconexionNegociacion(salaId, match, p1Id, match.player1Username, false);
+                        programarTimerDesconexionNegociacion(salaId, match, p2Id, match.player2Username, false);
+                    }
                 }
             }
 
@@ -862,7 +917,7 @@ public class SocketHandler {
         }
         ScheduledFuture<?> timer = scheduler.schedule(() -> {
             ActiveMatch actual = activeMatches.get(salaId);
-            if (actual != null && !actual.iniciado) {
+            if (actual != null && !actual.iniciado && !actual.inicioRevision) {
                 for (ScheduledFuture<?> f : actual.disconnectTimers.values()) {
                     f.cancel(false);
                 }
@@ -901,7 +956,7 @@ public class SocketHandler {
                 "iniciado = ?, monto = ?, match_db_id = ?, player_tag1 = ?, player_tag2 = ?, " +
                 "match_start_time = ?, last_modo = ?, last_dinero = ?, votos_json = ?, " +
                 "confirmaciones_json = ?, poll_count = ?, actualizado_en = CURRENT_TIMESTAMP " +
-                "WHERE sala_id = ?",
+                "WHERE sala_id = ? AND iniciado = FALSE AND inicio_revision = FALSE AND match_db_id = 0",
                 match.iniciado,
                 match.monto != null ? match.monto : BigDecimal.ZERO,
                 match.dbId,
@@ -914,6 +969,14 @@ public class SocketHandler {
                 confirmacionesJson,
                 match.pollCount,
                 salaId);
+    }
+
+    private void persistirVotosMatchSinAvanzarFecha(String salaId, ActiveMatch match) {
+        if (salaId == null || match == null) return;
+        db.update(
+                "UPDATE active_matches SET votos_json = ?, confirmaciones_json = ? " +
+                "WHERE sala_id = ? AND iniciado = FALSE AND inicio_revision = FALSE AND match_db_id = 0",
+                serializarVotos(match.votosInicio), serializarConfirmaciones(match.confirmaciones), salaId);
     }
 
     private void eliminarMatchDeBD(String salaId) {
@@ -1232,6 +1295,11 @@ public class SocketHandler {
         if (salaId == null || !activeMatches.containsKey(salaId)) return;
         ActiveMatch match = activeMatches.get(salaId);
         if (match.iniciado) return;
+        if (match.inicioRevision) {
+            socket.emit("error_negociacion", new JsonPrimitive(
+                    "Esta partida requiere revisión administrativa; se conservó para proteger el cobro"));
+            return;
+        }
 
         // M2: Sanitizar el motivo antes de guardarlo en clash_logs o reenviarlo a la sala
         String motivo = ChatSanitizer.limpiarTexto(motivoCrudo, 60);
@@ -1301,6 +1369,7 @@ public class SocketHandler {
         String player2Username;
         BigDecimal monto = BigDecimal.ZERO; // REVIEW-MONEY
         boolean iniciado = false;
+        boolean inicioRevision = false;
         int dbId = 0;
         String playerTag1 = "", playerTag2 = "";
         String matchStartTime = "";

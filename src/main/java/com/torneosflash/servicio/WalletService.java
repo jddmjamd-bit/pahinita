@@ -10,6 +10,7 @@ import com.torneosflash.servicio.ComisionService.Categoria;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.*;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -106,26 +107,53 @@ public class WalletService {
     /** Resultado atómico del inicio de una partida entre dos jugadores (C1). */
     public static final class InicioPartidaResult {
         public final boolean success;
+        /** true solo cuando esta transacción descontó los saldos y creó el match. */
+        public final boolean nuevoInicio;
         public final int matchId;
         public final BigDecimal nuevoSaldoJugador1;
         public final BigDecimal nuevoSaldoJugador2;
         public final String error;
+        /** La fila queda preservada para conciliación manual y no debe cancelarse por timeout. */
+        public final boolean requiereRevision;
 
         private InicioPartidaResult(boolean success, int matchId, BigDecimal nuevoSaldoJugador1,
-                                    BigDecimal nuevoSaldoJugador2, String error) {
+                                    BigDecimal nuevoSaldoJugador2, String error, boolean nuevoInicio,
+                                    boolean requiereRevision) {
             this.success = success;
             this.matchId = matchId;
             this.nuevoSaldoJugador1 = nuevoSaldoJugador1;
             this.nuevoSaldoJugador2 = nuevoSaldoJugador2;
             this.error = error;
+            this.nuevoInicio = nuevoInicio;
+            this.requiereRevision = requiereRevision;
         }
 
         public static InicioPartidaResult ok(int matchId, BigDecimal saldo1, BigDecimal saldo2) {
-            return new InicioPartidaResult(true, matchId, saldo1, saldo2, null);
+            return new InicioPartidaResult(true, matchId, saldo1, saldo2, null, true, false);
+        }
+
+        public static InicioPartidaResult yaIniciada(int matchId, BigDecimal saldo1, BigDecimal saldo2) {
+            return new InicioPartidaResult(true, matchId, saldo1, saldo2, null, false, false);
         }
 
         public static InicioPartidaResult fail(String error) {
-            return new InicioPartidaResult(false, -1, null, null, error);
+            return new InicioPartidaResult(false, -1, null, null, error, false, false);
+        }
+
+        public static InicioPartidaResult requiereRevision(String error) {
+            return new InicioPartidaResult(false, -1, null, null, error, false, true);
+        }
+    }
+
+    private static final class PartidaLegada {
+        final int matchId;
+        final BigDecimal monto;
+        final Timestamp fecha;
+
+        PartidaLegada(int matchId, BigDecimal monto, Timestamp fecha) {
+            this.matchId = matchId;
+            this.monto = monto;
+            this.fecha = fecha;
         }
     }
 
@@ -348,18 +376,140 @@ public class WalletService {
      */
     public InicioPartidaResult iniciarPartidaTorneo(int player1Id, String player1Username,
                                                     int player2Id, String player2Username,
-                                                    String salaId, String modo, BigDecimal monto) {
+                                                    String salaId, String modo, BigDecimal monto,
+                                                    String playerTag1, String playerTag2, String matchStartTime) {
         if (monto == null || monto.compareTo(BigDecimal.ZERO) <= 0) {
             return InicioPartidaResult.fail("El monto debe ser positivo");
         }
-        if (player1Id <= 0 || player2Id <= 0 || player1Id == player2Id) {
+        if (player1Id <= 0 || player2Id <= 0 || player1Id == player2Id
+                || salaId == null || salaId.isBlank()) {
             return InicioPartidaResult.fail("Jugadores inválidos para iniciar la partida");
         }
 
         Connection conn = null;
+        boolean commitSolicitado = false;
         try {
             conn = db.getConnection();
             conn.setAutoCommit(false);
+
+            // Serializa los intentos de la misma sala, incluso si llegan desde más de una instancia.
+            int salaPlayer1;
+            int salaPlayer2;
+            boolean yaIniciada;
+            int matchPersistidoId;
+            String modoPersistido;
+            String dineroPersistido;
+            Timestamp negociacionActualizadaEn;
+            boolean requiereRevision;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT player1_id, player2_id, iniciado, inicio_revision, match_db_id, last_modo, last_dinero, actualizado_en " +
+                    "FROM active_matches WHERE sala_id = ? FOR UPDATE")) {
+                ps.setString(1, salaId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        return InicioPartidaResult.fail("La sala ya no está activa");
+                    }
+                    salaPlayer1 = rs.getInt("player1_id");
+                    salaPlayer2 = rs.getInt("player2_id");
+                    yaIniciada = rs.getBoolean("iniciado");
+                    requiereRevision = rs.getBoolean("inicio_revision");
+                    matchPersistidoId = rs.getInt("match_db_id");
+                    modoPersistido = rs.getString("last_modo");
+                    dineroPersistido = rs.getString("last_dinero");
+                    negociacionActualizadaEn = rs.getTimestamp("actualizado_en");
+                }
+            }
+            if (salaPlayer1 != player1Id || salaPlayer2 != player2Id) {
+                conn.rollback();
+                return InicioPartidaResult.fail("Los jugadores de la sala cambiaron; vuelve a negociar");
+            }
+
+            if (yaIniciada) {
+                if (matchPersistidoId <= 0 || !matchEnCursoDeSala(conn, salaId, matchPersistidoId)) {
+                    conn.rollback();
+                    return InicioPartidaResult.fail("La partida ya fue procesada");
+                }
+                InicioPartidaResult existente = resultadoInicioExistente(conn, matchPersistidoId, player1Id, player2Id);
+                if (!existente.success) {
+                    conn.rollback();
+                    return existente;
+                }
+                commitSolicitado = true;
+                conn.commit();
+                return existente;
+            }
+
+            if (requiereRevision) {
+                conn.rollback();
+                return InicioPartidaResult.requiereRevision(
+                        "El inicio de esta partida requiere revisión administrativa; no se volvió a cobrar");
+            }
+
+            if (modoPersistido == null || !modoPersistido.equals(modo)
+                    || dineroPersistido == null || !coincideMontoPersistido(dineroPersistido, monto)) {
+                conn.rollback();
+                return InicioPartidaResult.fail("La negociación cambió; confirma nuevamente el inicio");
+            }
+
+            // Defensa adicional de idempotencia: si ya existe el vínculo por sala, completa solo el estado.
+            Integer matchSalaId = buscarMatchDeSala(conn, salaId);
+            if (matchSalaId != null) {
+                if (!matchEnCursoDeSala(conn, salaId, matchSalaId)) {
+                    conn.rollback();
+                    return InicioPartidaResult.fail("La partida ya fue procesada");
+                }
+                marcarSalaIniciada(conn, salaId, matchSalaId, monto, modo, playerTag1, playerTag2, matchStartTime);
+                InicioPartidaResult existente = resultadoInicioExistente(conn, matchSalaId, player1Id, player2Id);
+                if (!existente.success) {
+                    conn.rollback();
+                    return existente;
+                }
+                commitSolicitado = true;
+                conn.commit();
+                return existente;
+            }
+
+            // Compatibilidad: detecta un cobro comprometido por una versión anterior que aún no vinculaba la sala.
+            ArrayList<PartidaLegada> partidasLegadas = buscarPartidasLegadas(conn,
+                    player1Id, player2Id, player1Username, player2Username, modoPersistido, monto,
+                    negociacionActualizadaEn);
+            if (partidasLegadas.size() > 1) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE active_matches SET inicio_revision = TRUE, actualizado_en = CURRENT_TIMESTAMP " +
+                        "WHERE sala_id = ? AND iniciado = FALSE AND match_db_id = 0")) {
+                    ps.setString(1, salaId);
+                    ps.executeUpdate();
+                }
+                commitSolicitado = true;
+                conn.commit();
+                return InicioPartidaResult.requiereRevision(
+                        "Hay más de un cobro anterior compatible; la sala quedó bloqueada para revisión administrativa");
+            }
+            if (partidasLegadas.size() == 1) {
+                PartidaLegada legada = partidasLegadas.get(0);
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE matches SET sala_id = ? WHERE id = ? AND sala_id IS NULL")) {
+                    ps.setString(1, salaId);
+                    ps.setInt(2, legada.matchId);
+                    if (ps.executeUpdate() != 1) {
+                        conn.rollback();
+                        return InicioPartidaResult.fail("No se pudo reconciliar el cobro anterior");
+                    }
+                }
+                String horaInicioLegada = legada.fecha.toInstant().toString();
+                marcarSalaIniciada(conn, salaId, legada.matchId, legada.monto, modoPersistido,
+                        playerTag1, playerTag2, horaInicioLegada);
+                InicioPartidaResult existente = resultadoInicioExistente(conn, legada.matchId, player1Id, player2Id);
+                if (!existente.success) {
+                    conn.rollback();
+                    return existente;
+                }
+                commitSolicitado = true;
+                conn.commit();
+                logger.warn("Se reconcilió el match legado #{} con la sala {} sin volver a cobrar", legada.matchId, salaId);
+                return existente;
+            }
 
             // Bloquear siempre en orden ascendente de ID para evitar deadlocks entre transacciones concurrentes
             int primeroId = Math.min(player1Id, player2Id);
@@ -382,11 +532,13 @@ public class WalletService {
             // 1. Crear el registro del match en BD dentro de la misma transacción
             int matchId = -1;
             try (PreparedStatement ps = conn.prepareStatement(
-                    "INSERT INTO matches (jugador1, jugador2, modo, monto, estado) VALUES (?, ?, ?, ?, 'en_curso') RETURNING id")) {
-                ps.setString(1, player1Username);
-                ps.setString(2, player2Username);
-                ps.setString(3, modo != null ? modo : "N/A");
-                ps.setBigDecimal(4, monto);
+                    "INSERT INTO matches (sala_id, jugador1, jugador2, modo, monto, estado) " +
+                    "VALUES (?, ?, ?, ?, ?, 'en_curso') RETURNING id")) {
+                ps.setString(1, salaId);
+                ps.setString(2, player1Username);
+                ps.setString(3, player2Username);
+                ps.setString(4, modo != null ? modo : "N/A");
+                ps.setBigDecimal(5, monto);
                 try (ResultSet rs = ps.executeQuery()) {
                     if (rs.next()) {
                         matchId = rs.getInt(1);
@@ -427,6 +579,10 @@ public class WalletService {
             insertarLedger(conn, player1Id, TIPO_TORNEO, monto, saldoAntesP1, nuevoSaldoP1, refMatch);
             insertarLedger(conn, player2Id, TIPO_TORNEO, monto, saldoAntesP2, nuevoSaldoP2, refMatch);
 
+            // 4. Guardar el estado recuperable de la sala dentro de la misma transacción del cobro. // REVIEW-MONEY
+            marcarSalaIniciada(conn, salaId, matchId, monto, modo, playerTag1, playerTag2, matchStartTime);
+
+            commitSolicitado = true;
             conn.commit();
             logger.info("🎲 PARTIDA INICIADA match#{} p1={} (nuevoSaldo={}) p2={} (nuevoSaldo={}) monto={}",
                     matchId, player1Id, nuevoSaldoP1, player2Id, nuevoSaldoP2, monto);
@@ -440,10 +596,263 @@ public class WalletService {
 
         } catch (SQLException e) {
             rollbackSilencioso(conn);
+            if (commitSolicitado) {
+                InicioPartidaResult recuperado = consultarInicioPersistido(salaId, player1Id, player2Id);
+                if (recuperado != null) {
+                    logger.warn("Se reconcilió el resultado de COMMIT para la sala {}", salaId);
+                    return recuperado;
+                }
+            }
             logger.error("❌ Error en iniciarPartidaTorneo ({} vs {}): {}", player1Id, player2Id, e.getMessage());
             return InicioPartidaResult.fail("Error interno al iniciar la partida");
         } finally {
             cerrarConexion(conn);
+        }
+    }
+
+    /**
+     * Repara al arrancar las salas que quedaron negociando por una versión anterior del servidor,
+     * aunque exista evidencia completa del cobro en matches y wallet_ledger. No crea cobros nuevos. // REVIEW-MONEY
+     */
+    public List<Eventos.PartidaIniciada> reconciliarPartidasTorneoAlReiniciar() {
+        ArrayList<String> salas = new ArrayList<>();
+        try (Connection conn = db.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT sala_id FROM active_matches WHERE iniciado = FALSE AND match_db_id = 0 " +
+                     "AND inicio_revision = FALSE AND last_modo <> '' AND last_dinero <> '' ORDER BY id");
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) salas.add(rs.getString("sala_id"));
+        } catch (SQLException e) {
+            logger.error("No se pudieron buscar partidas previas para reconciliar al arrancar: {}", e.getMessage());
+            return List.of();
+        }
+
+        ArrayList<Eventos.PartidaIniciada> reconciliadas = new ArrayList<>();
+        for (String salaId : salas) {
+            Eventos.PartidaIniciada reparada = reconciliarSalaLegada(salaId);
+            if (reparada != null) reconciliadas.add(reparada);
+        }
+        return List.copyOf(reconciliadas);
+    }
+
+    private Eventos.PartidaIniciada reconciliarSalaLegada(String salaId) {
+        try (Connection conn = db.getConnection()) {
+            conn.setAutoCommit(false);
+            int player1Id;
+            int player2Id;
+            String username1;
+            String username2;
+            String modo;
+            String montoTexto;
+            String tag1;
+            String tag2;
+            Timestamp negociacionActualizadaEn;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT a.player1_id, a.player2_id, a.player1_username, a.player2_username, " +
+                    "a.last_modo, a.last_dinero, a.player_tag1, a.player_tag2, a.actualizado_en, " +
+                    "a.iniciado, a.inicio_revision, a.match_db_id, " +
+                    "COALESCE(NULLIF(u1.player_tag, ''), '') AS tag_actual1, " +
+                    "COALESCE(NULLIF(u2.player_tag, ''), '') AS tag_actual2 " +
+                    "FROM active_matches a " +
+                    "JOIN users u1 ON u1.id = a.player1_id JOIN users u2 ON u2.id = a.player2_id " +
+                    "WHERE a.sala_id = ? FOR UPDATE OF a")) {
+                ps.setString(1, salaId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next() || rs.getBoolean("iniciado") || rs.getBoolean("inicio_revision")
+                            || rs.getInt("match_db_id") != 0) {
+                        conn.rollback();
+                        return null;
+                    }
+                    player1Id = rs.getInt("player1_id");
+                    player2Id = rs.getInt("player2_id");
+                    username1 = rs.getString("player1_username");
+                    username2 = rs.getString("player2_username");
+                    modo = rs.getString("last_modo");
+                    montoTexto = rs.getString("last_dinero");
+                    tag1 = rs.getString("player_tag1");
+                    tag2 = rs.getString("player_tag2");
+                    if (tag1 == null || tag1.isBlank()) tag1 = rs.getString("tag_actual1");
+                    if (tag2 == null || tag2.isBlank()) tag2 = rs.getString("tag_actual2");
+                    negociacionActualizadaEn = rs.getTimestamp("actualizado_en");
+                }
+            }
+
+            BigDecimal monto;
+            try {
+                monto = new BigDecimal(montoTexto);
+            } catch (RuntimeException e) {
+                conn.rollback();
+                return null;
+            }
+            if (monto.compareTo(BigDecimal.ZERO) <= 0 || modo == null || modo.isBlank()) {
+                conn.rollback();
+                return null;
+            }
+
+            ArrayList<PartidaLegada> candidatas = buscarPartidasLegadas(conn,
+                    player1Id, player2Id, username1, username2, modo, monto, negociacionActualizadaEn);
+            if (candidatas.size() > 1) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE active_matches SET inicio_revision = TRUE, actualizado_en = CURRENT_TIMESTAMP " +
+                        "WHERE sala_id = ? AND iniciado = FALSE AND match_db_id = 0")) {
+                    ps.setString(1, salaId);
+                    ps.executeUpdate();
+                }
+                conn.commit();
+                logger.error("Sala {} tiene más de un cobro legado compatible; queda bloqueada para revisión", salaId);
+                return null;
+            }
+            if (candidatas.isEmpty()) {
+                conn.rollback();
+                return null;
+            }
+
+            PartidaLegada candidata = candidatas.get(0);
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE matches SET sala_id = ? WHERE id = ? AND sala_id IS NULL")) {
+                ps.setString(1, salaId);
+                ps.setInt(2, candidata.matchId);
+                if (ps.executeUpdate() != 1) {
+                    conn.rollback();
+                    return null;
+                }
+            }
+            marcarSalaIniciada(conn, salaId, candidata.matchId, candidata.monto, modo,
+                    tag1, tag2, candidata.fecha.toInstant().toString());
+            conn.commit();
+            logger.warn("Partida cobrada #{} reconciliada con sala {} al arrancar, sin repetir el cobro",
+                    candidata.matchId, salaId);
+            return new Eventos.PartidaIniciada(candidata.matchId, List.of(player1Id, player2Id));
+        } catch (SQLException e) {
+            logger.error("Error reconciliando la sala {} al arrancar: {}", salaId, e.getMessage());
+            return null;
+        }
+    }
+
+    private ArrayList<PartidaLegada> buscarPartidasLegadas(Connection conn,
+                                                           int player1Id, int player2Id,
+                                                           String username1, String username2,
+                                                           String modo, BigDecimal monto, Timestamp negociacionActualizadaEn)
+            throws SQLException {
+        ArrayList<PartidaLegada> partidas = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT m.id, m.monto, m.fecha " +
+                "FROM matches m " +
+                "WHERE m.sala_id IS NULL AND m.estado = 'en_curso' " +
+                "AND m.jugador1 = ? AND m.jugador2 = ? AND m.modo = ? AND m.monto = ? AND m.fecha >= ? " +
+                "AND EXISTS (SELECT 1 FROM wallet_ledger l WHERE l.user_id = ? AND l.tipo = 'torneo' " +
+                "AND l.monto = m.monto AND l.referencia = 'Torneo Match #' || m.id::text) " +
+                "AND EXISTS (SELECT 1 FROM wallet_ledger l WHERE l.user_id = ? AND l.tipo = 'torneo' " +
+                "AND l.monto = m.monto AND l.referencia = 'Torneo Match #' || m.id::text) " +
+                "AND NOT EXISTS (SELECT 1 FROM active_matches a WHERE a.match_db_id = m.id AND a.iniciado = TRUE) " +
+                "ORDER BY m.fecha, m.id LIMIT 2")) {
+            ps.setString(1, username1);
+            ps.setString(2, username2);
+            ps.setString(3, modo);
+            ps.setBigDecimal(4, monto);
+            ps.setTimestamp(5, negociacionActualizadaEn);
+            ps.setInt(6, player1Id);
+            ps.setInt(7, player2Id);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    partidas.add(new PartidaLegada(rs.getInt("id"), rs.getBigDecimal("monto"),
+                            rs.getTimestamp("fecha")));
+                }
+            }
+        }
+        return partidas;
+    }
+
+    private boolean coincideMontoPersistido(String texto, BigDecimal monto) {
+        try {
+            return new BigDecimal(texto).compareTo(monto) == 0;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    private Integer buscarMatchDeSala(Connection conn, String salaId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement("SELECT id FROM matches WHERE sala_id = ?")) {
+            ps.setString(1, salaId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : null;
+            }
+        }
+    }
+
+    private boolean matchEnCursoDeSala(Connection conn, String salaId, int matchId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT 1 FROM matches WHERE id = ? AND sala_id = ? AND estado = 'en_curso'")) {
+            ps.setInt(1, matchId);
+            ps.setString(2, salaId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
+    private InicioPartidaResult resultadoInicioExistente(Connection conn, int matchId, int player1Id, int player2Id)
+            throws SQLException {
+        BigDecimal saldo1 = leerSaldo(conn, player1Id);
+        BigDecimal saldo2 = leerSaldo(conn, player2Id);
+        if (saldo1 == null || saldo2 == null) {
+            return InicioPartidaResult.fail("No se pudieron verificar los saldos de la partida existente");
+        }
+        return InicioPartidaResult.yaIniciada(matchId, saldo1, saldo2);
+    }
+
+    private void marcarSalaIniciada(Connection conn, String salaId, int matchId, BigDecimal monto, String modo,
+                                    String playerTag1, String playerTag2, String matchStartTime) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "UPDATE active_matches SET iniciado = TRUE, inicio_revision = FALSE, monto = ?, match_db_id = ?, player_tag1 = ?, " +
+                "player_tag2 = ?, match_start_time = ?, last_modo = ?, last_dinero = ?, votos_json = '{}', " +
+                "confirmaciones_json = '{}', poll_count = 0, actualizado_en = CURRENT_TIMESTAMP " +
+                "WHERE sala_id = ? AND iniciado = FALSE AND inicio_revision = FALSE AND match_db_id = 0")) {
+            ps.setBigDecimal(1, monto);
+            ps.setInt(2, matchId);
+            ps.setString(3, playerTag1 == null ? "" : playerTag1);
+            ps.setString(4, playerTag2 == null ? "" : playerTag2);
+            ps.setString(5, matchStartTime == null ? "" : matchStartTime);
+            ps.setString(6, modo == null ? "N/A" : modo);
+            ps.setString(7, monto.toPlainString());
+            ps.setString(8, salaId);
+            if (ps.executeUpdate() != 1) throw new SQLException("No se pudo persistir el inicio de la sala");
+        }
+    }
+
+    private InicioPartidaResult consultarInicioPersistido(String salaId, int player1Id, int player2Id) {
+        try (Connection conn = db.getConnection()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT iniciado, inicio_revision, match_db_id FROM active_matches WHERE sala_id = ? FOR UPDATE")) {
+                ps.setString(1, salaId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        return null;
+                    }
+                    if (rs.getBoolean("inicio_revision")) {
+                        conn.commit();
+                        return InicioPartidaResult.requiereRevision(
+                                "El inicio de esta partida requiere revisión administrativa; no se volvió a cobrar");
+                    }
+                    if (!rs.getBoolean("iniciado")) {
+                        conn.rollback();
+                        return null;
+                    }
+                    int matchId = rs.getInt("match_db_id");
+                    if (matchId <= 0 || !matchEnCursoDeSala(conn, salaId, matchId)) {
+                        conn.rollback();
+                        return null;
+                    }
+                    InicioPartidaResult resultado = resultadoInicioExistente(conn, matchId, player1Id, player2Id);
+                    if (resultado.success) conn.commit(); else conn.rollback();
+                    return resultado.success ? resultado : null;
+                }
+            }
+        } catch (SQLException e) {
+            logger.warn("No se pudo reconciliar la partida de sala {} tras un error de COMMIT: {}", salaId, e.getMessage());
+            return null;
         }
     }
 

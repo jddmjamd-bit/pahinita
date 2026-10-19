@@ -122,7 +122,7 @@ TorneosFlash/
 |-------|----------|----------------|
 | `users` | Usuarios registrados | `id`, `username`, `email`, `password` (bcrypt), `saldo`, `player_tag`, `total_victorias`, `total_monto_torneos`, `gen_*` (desglose comisiones) |
 | `messages` | Chat de la app | `canal`, `usuario`, `texto`, `tipo` |
-| `matches` | Historial de partidas | `jugador1`, `jugador2`, `monto`, `ganador`, `estado` |
+| `matches` | Historial de partidas | `jugador1`, `jugador2`, `monto`, `ganador`, `estado`, `sala_id` (único cuando no es nulo) |
 | `transactions` | Depósitos y retiros | `usuario_id`, `tipo`, `metodo`, `monto`, `referencia`, `estado`, `external_id`. V12 hace única `referencia` en depósitos Wompi; V11 hace único `external_id` no nulo. |
 | `admin_wallet` | Bóveda de comisiones del admin | `monto`, `razon`, `categoria` (sorteos, misiones, etc.) |
 | `user_tokens` | Tokens FCM por usuario | `user_id`, `fcm_token` |
@@ -145,7 +145,7 @@ TorneosFlash/
 | `support_tickets` | Tickets de "Hablar con el admin" (24.5) | `user_id`, `categoria` (pregunta/sugerencia/bug/cuenta/otro), `asunto`, `mensaje`, `estado` (abierto/resuelto), `respuesta`, `respondido_por`, `fecha_creacion`, `fecha_respuesta` |
 | `payment_evidences` | Comprobantes de retiros pagados que el admin publica en el canal «pagos» (7) | `transaction_id` (UNIQUE: una por retiro), `user_id` (a quien se pagó), `admin_id`, `monto`, `metodo`, `nota`, `imagen` (data URI base64), `fecha`. Usuario, monto y método se copian de la transacción |
 | `match_queue` | Cola de búsquedas de partida activas persistidas en BD (A2) | `id`, `user_id` (UNIQUE), `username`, `creado_en`, `expira_en` |
-| `active_matches` | Salas en negociación y partidas en curso persistidas en BD (A2) | `id`, `sala_id` (UNIQUE), `player1_id`, `player2_id`, `iniciado`, `monto`, `match_db_id`, `player_tag1`, `player_tag2`, `match_start_time`, `last_modo`, `last_dinero`, `votos_json`, `confirmaciones_json`, `poll_count` |
+| `active_matches` | Salas en negociación y partidas en curso persistidas en BD (A2) | `id`, `sala_id` (UNIQUE), `player1_id`, `player2_id`, `iniciado`, `inicio_revision`, `monto`, `match_db_id`, `player_tag1`, `player_tag2`, `match_start_time`, `last_modo`, `last_dinero`, `votos_json`, `confirmaciones_json`, `poll_count` |
 
 ---
 
@@ -181,6 +181,8 @@ sequenceDiagram
 > [!NOTE]
 > **A2 completado (Persistencia de estado en BD):** Las búsquedas en cola (`match_queue`) y las salas/partidas activas (`active_matches`) se sincronizan en PostgreSQL. Al reiniciar el servidor, `SocketHandler.recuperarEstadoDesdeBD()` restaura las salas en negociación, reanuda el sondeo de la API de Clash Royale (`iniciarPollingApi`) desde el `poll_count` guardado para las partidas en curso y reprograma los temporizadores de búsqueda con el tiempo restante real.
 
+> **Inicio de partida recuperable (V14):** `WalletService.iniciarPartidaTorneo()` bloquea la fila de `active_matches` y, en una única transacción, inserta `matches` con el `sala_id` único, descuenta ambos saldos, agrega los dos asientos al ledger y marca la sala iniciada con su `match_db_id`, tags y hora de inicio. Un reintento de la misma sala devuelve la partida persistida sin repetir el débito. Al arrancar, `reconciliarPartidasTorneoAlReiniciar()` vincula automáticamente una partida antigua solo si encuentra un único `matches` compatible posterior a la última actualización de la negociación y los dos movimientos correspondientes del ledger. Si hay más de un candidato, marca `inicio_revision` y conserva la sala bloqueada, sin cobrar ni eliminarla por timeout; requiere conciliación administrativa.
+
 ---
 
 ## 5. Flujo de dinero (D2)
@@ -196,10 +198,11 @@ Depósito:
   Nequi (manual)  → admin aprueba → AdminService → WalletService.depositar() → evento wallet.deposited
 
 Torneo (monto):
-  1. Se descuenta al iniciar: WalletService.realizarTorneo() (WHERE saldo >= monto) → evento wallet.bet
-  2. Al liquidar: WalletService.liquidar() paga al ganador y distribuye comisiones atómicamente
-  3. Comisión se distribuye en admin_wallet por categoría (ComisionService, sección 9)
-  4. Se emite match.finished al bus → listeners acreditan tickets y notifican
+  1. WalletService.iniciarPartidaTorneo() guarda el débito de ambos jugadores, matches, wallet_ledger y active_matches en una transacción.
+  2. El match queda vinculado por sala_id único; los reintentos recuperan match_db_id y saldos sin volver a cobrar.
+  3. Al liquidar: WalletService.liquidar() paga al ganador y distribuye comisiones atómicamente.
+  4. Comisión se distribuye en admin_wallet por categoría (ComisionService, sección 9).
+  5. Se emite match.finished al bus → listeners acreditan tickets y notifican.
 
 Retiro:
   Usuario solicita → WalletService.retirar() descuenta atómicamente → evento wallet.withdrawn
