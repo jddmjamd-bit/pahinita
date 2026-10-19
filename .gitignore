@@ -36,3 +36,10 @@ actualizar-txt.bat
 contexto-txt/
 codigo-puro.txt
 proyecto-completo.txt
+
+# ===== Frontend antiguo (reemplazado por frontend/) =====
+public/index.html
+public/app.js
+public/style.css
+public/firebase-messaging-sw.js
+public/js/

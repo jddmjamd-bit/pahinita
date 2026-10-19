@@ -15,7 +15,7 @@
 | **ORM** | Ninguno | SQL directo con `PreparedStatement` vía `GenericDAO` |
 | **Migraciones BD** | Flyway 10 | Scripts versionados en `src/main/resources/db/migration/`; se aplican al arrancar (`ConexionDB.migrar()`). Ver sección 14 |
 | **Auth** | JWT HS256 en cookie httpOnly `session` con JTI persistido y revocable (S1) | `AuthMiddleware` verifica firma y sesión activa en `user_sessions`, e inyecta `ctx.attribute("userId")`/`("rol")`. Rutas de admin protegidas por `AdminMiddleware` (S3, sección 18). S2 resuelto; ver secciones 16 y 18 |
-| **Frontend** | Vanilla JS (`app.js`, 120 KB) | SPA monolítica sin framework. **Migrar a React + Vite** (pendiente, en progreso bajo `frontend/`) |
+| **Frontend** | React + Vite (`frontend/`) | SPA web compilada por Docker y servida por Javalin desde `public/` en el contenedor |
 | **Mobile App** | Capacitor | Genera builds nativos para Android e iOS encapsulando React. El hook mantiene los permisos y el ciclo del token push |
 | **Pagos** | Wompi (tarjeta), Nequi (manual) | Webhook Wompi verifica firma SHA-256, monto y moneda (S7) |
 | **Notificaciones** | Firebase Cloud Messaging (FCM) | Push via `NotificacionPushServicio` y `@capacitor/push-notifications` en cliente |
@@ -28,13 +28,9 @@
 
 ```
 TorneosFlash/
-├── public/                          # Frontend legacy (servido como estáticos)
-│   ├── index.html                   # SPA principal
-│   ├── app.js                       # Lógica completa del frontend (~2500 líneas)
-│   ├── style.css                    # Estilos
-│   ├── admin-db.html                # Panel admin (fuente única; el Dockerfile lo copia a /app/admin-db.html y RutasDbAdmin lo sirve)
-│   └── firebase-messaging-sw.js     # Service worker FCM
-├── frontend/                        # Nuevo Frontend (React + Vite + Capacitor)
+├── public/                          # Fuente auxiliar del backend
+│   └── admin-db.html                # Panel admin (fuente única; el Dockerfile lo copia a /app/admin-db.html y RutasDbAdmin lo sirve)
+├── frontend/                        # Frontend activo (React + Vite + Capacitor)
 │   ├── android/                     # Proyecto nativo Android (Capacitor)
 │   ├── ios/                         # Proyecto nativo iOS (Capacitor)
 │   ├── src/
@@ -260,10 +256,10 @@ Defensa en dos capas; ninguna confía en la otra.
 
 | Capa | Dónde | Qué hace |
 |------|-------|----------|
-| **Render (frontend)** | `public/app.js` (`agregarBurbuja`, `convertirLinks`, `abrirMediaModal`), `frontend/src/pages/Chat.jsx` | El contenido del usuario entra solo por `textContent` / nodos DOM / JSX. Los links se crean con `createElement('a')` (solo `http(s)`, `rel="noopener noreferrer"`). Las plantillas grandes que aún usan `innerHTML` pasan los datos del usuario por `esc()`. Los `src` de imagen/video se validan con `resolverMedia()`. |
+| **Render (frontend)** | `frontend/src/pages/Chat.jsx` | El contenido del usuario se representa con React y se validan los enlaces y recursos multimedia antes de mostrarlos. |
 | **Servidor** | `servicio/ChatSanitizer.java`, usado por `SocketHandler` (`mensaje_chat`, `mensaje_privado`) y `RutasAuth` (registro) | Valida canal (`general`/`anuncios`/`clash`), tipo (`texto`/`imagen`/`video`), quita etiquetas HTML y caracteres de control, limita longitud (500 texto, 50 usuario) y solo reenvía campos permitidos. Imagen = data URI `png/jpeg/gif/webp` (sin SVG) o `/api/media/{id}`; video = `/api/media/{id}`; multimedia solo en `anuncios`. |
 
-- El servidor **no** convierte a entidades HTML (`&lt;`): se guarda texto plano y cada frontend lo escapa al pintar, así no se ven entidades dobles.
+- El servidor **no** convierte a entidades HTML (`&lt;`): se guarda texto plano y el frontend React lo escapa al pintar, así no se ven entidades dobles.
 - `GET /api/media/{id}` responde con `X-Content-Type-Options: nosniff`.
 - Los usernames nuevos (3–30 caracteres) no pueden llevar `<`, `>`, `"`, `'`, `&`, el acento grave ni caracteres de control.
 - **Identidad del emisor (S2 completado):** `SocketIOServer` autentica la cookie JWT en el handshake y `SocketHandler` usa siempre el `username` y rol reales de la sesión para `mensaje_chat`, `mensaje_privado`, `registrar_socket` y `buscar_partida` (y verifica en BD que solo un admin escriba en `anuncios`).
@@ -315,7 +311,7 @@ Cada jugador se atribuye la mitad de cada categoría (`Desglose.porJugador()`, c
 | `GET /api/comisiones/distribucion` | `{ success, distribucion: { sorteos: 20, misiones: 10, ... } }`. Lo usa `Admin.jsx` para los títulos del desglose. |
 
 - Para cambiar la política se edita **solo** `ComisionService` (constantes y enum). El panel admin y `Match.jsx` se actualizan solos.
-- Pendiente: el frontend legacy de `public/` (`app.js`, `public/js/*`) no se tocó en D4 y podría conservar su propia copia de la fórmula (no verificado); muere con la migración a React. La tarifa de pasarela Wompi (`FinanzasService.calcularMontoCentavosWompi`) ya se calcula con `BigDecimal` y `RoundingMode.CEILING` (D1).
+- La tarifa de pasarela Wompi (`FinanzasService.calcularMontoCentavosWompi`) se calcula con `BigDecimal` y `RoundingMode.CEILING` (D1).
 
 ---
 
@@ -335,7 +331,7 @@ Middleware global (`servidor/RateLimitMiddleware`, registrado en `Main` antes de
 - **Diagnóstico:** `GET /check-ip` exige sesión admin. Muestra la IP que usa el rate limit, el número configurado de saltos y la cabecera recibida marcada como dato no confiable. Para verificar el despliegue, compara solicitudes del mismo cliente normal y con un `X-Forwarded-For` falsificado: la IP efectiva debe ser igual. El repositorio no tiene acceso a los valores de entorno ni a las cabeceras que Render entrega en producción.
 - **Apagar (solo para pruebas locales):** `RATE_LIMIT_ENABLED=false`.
 - **CORS en la 429:** el middleware corre antes que el plugin CORS de Javalin y al rechazar se saltan los handlers restantes, así que `RateLimitMiddleware` añade a mano `Access-Control-Allow-Origin` (refleja el `Origin`), `Allow-Credentials` y `Expose-Headers: Retry-After, X-RateLimit-*`. Sin eso la app React/Capacitor (otro origen que el backend) no podría leer el mensaje de la 429.
-- **Clientes (frontend):** `Auth.jsx` muestra "Demasiadas solicitudes" en las validaciones de usuario/correo/tag en vez de marcarlos como ocupados; `Match.jsx` consulta la ganancia con debounce de 400 ms; `Sorteos.jsx` recarga solo `/api/raffle/offers` tras participar (2 peticiones por clic en +/−, antes 5). Finance, Leaderboard y Chat ya muestran `data.error` o ignoran respuestas no OK. No auditados: `Admin.jsx` y el frontend legacy de `public/`.
+- **Clientes (frontend):** `Auth.jsx` muestra "Demasiadas solicitudes" en las validaciones de usuario/correo/tag en vez de marcarlos como ocupados; `Match.jsx` consulta la ganancia con debounce de 400 ms; `Sorteos.jsx` recarga solo `/api/raffle/offers` tras participar (2 peticiones por clic en +/−, antes 5). Finance, Leaderboard y Chat ya muestran `data.error` o ignoran respuestas no OK. No auditado: `Admin.jsx`.
 - **Memoria:** una clave guarda como máximo `limite` marcas de tiempo; se limpian las inactivas cada minuto y hay tope de 100.000 claves.
 - **Chatbot (roadmap 20):** `POST /api/chatbot/mensaje` cuenta en el cubo general y, además, en un límite propio por IP (`RATE_LIMIT_CHATBOT_PER_MIN` = 10) que aplica `RutasChatbot.limitarPorIp` (no `RateLimitMiddleware`) con la misma resolución explícita y validada de `RATE_LIMIT_PROXY_HOPS`. Cada mensaje es una llamada de pago a la IA; el límite por usuario está en la sección 17.
 - **Límites conocidos:** (1) es por IP, no por usuario: varios jugadores detrás de la misma red/CGNAT comparten cupo (por eso todo es configurable); cuando el JWT (S1) esté conectado se puede añadir un cubo por `userId`. (2) No cubre mensajes de Socket.IO (spam de chat por socket): requiere un limitador propio en `SocketHandler`.
@@ -601,7 +597,7 @@ Los JWT anteriores a la migración V15 no tienen JTI persistido y se rechazan; l
 - **Backend:** `POST /api/register` exige `aceptaTerminos` (`Peticion.booleanoOpcional`; 400 si falta). `AuthService.registrar` guarda la constancia con `UsuarioDAO.registrarConAceptacionLegal` en una sola transacción. La respuesta de alta es genérica y no inicia sesión automáticamente (sección 16).
 - **BD:** `legal_acceptances (id, user_id → users ON DELETE CASCADE, documento 'terminos'|'privacidad', version, aceptado_en)`, única por `(user_id, documento, version)` (migración `V4`).
 - **Versiones:** constantes en `DocumentosLegales`. Al cambiar un texto hay que subir la versión en el JSON y en esa clase.
-- **Legacy:** `public/index.html` tiene el checkbox (`name="aceptaTerminos"`); sus enlaces apuntan a los documentos del despliegue de producción.
+- El formulario de registro React presenta la aceptación de términos y enlaza a los documentos legales.
 
 ---
 
@@ -651,7 +647,7 @@ Admin ── pestaña «🤖 Chatbot» del panel (AdminChatbot.jsx)
 - La llamada a la IA bloquea el hilo HTTP hasta `CHATBOT_TIMEOUT_SEGUNDOS`; el tope de simultáneas evita agotar el pool de Jetty.
 - Ante 500, 502, 503 o 504 del proveedor (p. ej. Gemini «high demand») `ChatbotIaCliente` reintenta hasta 3 intentos en total, con 1 s y 2 s de espera; el 429 y los 4xx no se reintentan.
 - La búsqueda en la base es por palabras clave, no semántica: suficiente para decenas o cientos de respuestas cortas. Si crece mucho, sustituir `ChatbotConocimiento.relevantes` (embeddings).
-- El frontend legacy (`public/`) no tiene el chatbot: solo la app React (`/chatbot` y la pestaña del panel admin).
+- El chatbot está disponible en la app React (`/chatbot` y la pestaña del panel admin).
 - `RateLimitMiddleware` no clasifica la ruta del chatbot (ese archivo no se pudo editar en esta tarea); el límite por IP vive en `RutasChatbot`. Si se prefiere centralizarlo, mover `limitarPorIp` al middleware como cubo `IA`.
 
 ---
@@ -677,7 +673,7 @@ petición ── RateLimitMiddleware ── AuthMiddleware (JWT → userId) ─�
 - **`OPTIONS` (preflight CORS) pasa sin chequeo:** no lleva cookies ni ejecuta rutas.
 - **Una ruta admin nueva** debe colgar de `/api/admin/` para quedar protegida sola. Si por compatibilidad no puede, añadir su patrón a `RUTAS_ADMIN` en `AdminMiddleware`.
 - **No existe ruta para crear admins.** `/secret-admin/{username}` se eliminó (cualquiera podía hacerse admin). Para promover a alguien: `/admin-db` → tabla `users` → `tipo_suscripcion = 'admin'` (clave `DB_ADMIN_SECRET`, sección 11). Efecto inmediato en el backend; el frontend lo ve en el siguiente `/api/session`.
-- **Frontend:** `Admin.jsx` llama a `/api/admin/*` con `llamarApi` (envía la cookie) y trata 401/403 como error. El frontend legacy `public/js/admin.js` no maneja esas respuestas.
+- **Frontend:** `Admin.jsx` llama a `/api/admin/*` con `llamarApi` (envía la cookie) y trata 401/403 como error.
 
 **Pendiente / fuera de S3**
 - `GET /admin-fix-status/...` modifica datos con GET (riesgo CSRF con `SameSite=Lax` desde un enlace externo): pasarlo a POST.
@@ -720,7 +716,7 @@ Admin ── POST /api/admin/soporte/tickets/{id}/responder ── SoporteServic
 - Cada ticket admite **una sola respuesta** y el usuario no puede replicar: una consulta nueva es un ticket nuevo. Si se necesita conversación, habría que añadir una tabla de mensajes por ticket.
 - El correo al usuario va a `users.email` sin verificar que sea suyo (la verificación de email es otra tarea del roadmap). Si no hay correo válido o Brevo no está configurado, el usuario igual ve la respuesta en su panel.
 - El aviso en vivo usa `NotificadorUsuarios.emitirA` (directo a los sockets del usuario, sin rooms ni namespaces), igual que el chatbot; no depende de A1.
-- Frontend: solo la app React (`pages/Soporte.jsx`, `pages/AdminSoporte.jsx`, `pages/soporteComun.js`); el frontend legacy de `public/` no lo tiene. El texto de usuarios y admin se pinta con React, nunca con `innerHTML`.
+- Frontend: `pages/Soporte.jsx`, `pages/AdminSoporte.jsx` y `pages/soporteComun.js`; el texto de usuarios y admin se pinta con React, nunca con `innerHTML`.
 
 ---
 
@@ -754,7 +750,7 @@ Usuario ── GET /api/pagos/evidencias ── historial (las últimas, con for
 - **Una evidencia por retiro** (`UNIQUE (transaction_id)`). No se puede editar ni borrar desde la app; si hay que quitar una, se hace desde `/admin-db`.
 - **Privacidad:** el canal es público para los usuarios con sesión y muestra nombre de usuario, monto y método, además de la imagen. El admin debe tapar números de cuenta/celular y documentos antes de subirla (el formulario lo avisa); el servidor no puede detectarlo.
 - El push solo va a quien recibió el pago. Los demás usuarios ven la evidencia en vivo si están conectados, o al abrir la pestaña.
-- Frontend: solo la app React (`pages/Chat.jsx`, `Chat.css`, `store/useAppStore.js`); el frontend legacy de `public/` no lo tiene.
+- Frontend: `pages/Chat.jsx`, `Chat.css` y `store/useAppStore.js`.
 
 ---
 
@@ -806,7 +802,7 @@ Permisos del bot en el servidor: *Gestionar canales*, *Gestionar roles*, *Ver ca
 - **Un canal por partida, nunca se reabre**: si el canal se cerró (por tiempo máximo) y la partida sigue, `mi-canal` responde `caducado`.
 - **Privacidad**: el canal se llama `partida-<id>`; al rival nunca se le muestra el usuario de Discord del otro. Solo se guarda el id y el nombre de Discord de quien vincula; nunca su token.
 - Los errores de Discord no rompen la partida: `emit` no lanza, el trabajo corre en el pool de IO y la limpieza de cada minuto reintenta los borrados que fallaron.
-- Frontend: solo la app React (`components/VozDiscord.jsx`, usado en `pages/Match.jsx`); el frontend legacy de `public/` no lo tiene.
+- Frontend: `components/VozDiscord.jsx`, usado en `pages/Match.jsx`.
 
 ---
 
@@ -816,4 +812,4 @@ La migración `V17__unicidad_identidades_normalizadas.sql` refuerza el registro 
 
 La consulta `GET /api/verify-tag/{tag}` solo confirma que Clash Royale reconoce el tag y devuelve información pública. Para terminar el registro, `AuthService` pide un token generado dentro de los ajustes del juego y llama a `POST /v1/players/{tag}/verifytoken` mediante `ClashApiServicio`. El token del jugador solo vive durante la petición, no se almacena ni se incluye en logs. El endpoint está restringido por Supercell a API keys autorizadas; un 403 hace fallar el registro con 503, nunca se acepta un tag sin verificar. La autorización de la API key de cada entorno debe comprobarse por separado.
 
-Los formularios React y legacy de `public/` envían el token solo al registrar y limpian el campo después de la petición. La Política de Privacidad (versión 1.1) declara el envío temporal del token a Supercell y que la plataforma no lo conserva. La FAQ indica que cada celular solo puede usarse en una cuenta.
+El formulario React envía el token solo al registrar y limpia el campo después de la petición. La Política de Privacidad (versión 1.1) declara el envío temporal del token a Supercell y que la plataforma no lo conserva. La FAQ indica que cada celular solo puede usarse en una cuenta.

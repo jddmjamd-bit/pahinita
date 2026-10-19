@@ -11,6 +11,14 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Retirar el frontend Vanilla antiguo (GPT-6)
+- Eliminados `public/index.html`, `public/app.js`, `public/style.css`, `public/js/` y `public/firebase-messaging-sw.js`: Render construye y sirve la SPA React desde `frontend/`; Docker no copiaba estos archivos antiguos.
+- Se conserva `public/admin-db.html`, que el Dockerfile copia como fuente única para el panel de administración.
+- Movido `icon-192.png` a `frontend/public/` para que Vite lo incluya en el despliegue activo; el backend lo usa en el payload de notificaciones push.
+- `.gitignore` impide volver a agregar los archivos de la interfaz antigua por error. `ARCHITECTURE.md` ahora describe React como frontend activo.
+- Verificación: `npm run build` y `actualizar-txt.bat` finalizaron correctamente; `frontend/dist/icon-192.png` fue generado. La búsqueda de referencias activas ya no encuentra los archivos retirados (solo queda el fallback genérico de `Main.java`, que en Docker resuelve al `index.html` compilado de React).
+Archivos: `.gitignore`, `ARCHITECTURE.md`, `CHANGELOG.md`, `frontend/public/icon-192.png`, `public/index.html`, `public/app.js`, `public/style.css`, `public/js/*`, `public/firebase-messaging-sw.js`
+
 ## 2026-10-19 — Retirar auxiliares y archivos de plantilla sin uso (GPT-6)
 - **Seguimiento de Git:** se retiraron `public/.idea/` y el puente antiguo `puente.ps1`. `puente.ps1` no tenía referencias de build o runtime y la versión local más reciente es `puente.js`, que queda ignorada y fuera del producto.
 - **Archivos sin referencias:** se eliminaron `frontend/src/assets/hero.png`, `react.svg`, `vite.svg`, `frontend/public/icons.svg` y los tests de ejemplo Android (`ExampleUnitTest` y `ExampleInstrumentedTest`); el último esperaba un `applicationId` distinto al configurado.
