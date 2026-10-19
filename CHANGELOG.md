@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Hacer seguros los sorteos y la acumulación de tickets (GPT-6)
+- **`SorteoService.java`**: valida nombre y categoría al crear sorteos; la participación revisa `fecha_limite` bajo el bloqueo del sorteo y contra el reloj actual de PostgreSQL.
+- **Devoluciones y tickets**: reembolsar participantes y eliminar el sorteo ahora comparten una transacción con bloqueo; la segunda eliminación ya no puede devolver tickets otra vez. La acumulación de cada jugador se lee y actualiza bajo bloqueo en una única transacción para conservar incrementos concurrentes.
+- **`ARCHITECTURE.md`**: documenta las garantías transaccionales de los sorteos y la acumulación.
+- **Verificación**: `mvn clean compile -DskipTests`, `npm run build` y `actualizar-txt.bat` finalizaron correctamente. No se ejecutaron pruebas automatizadas.
+Archivos: `SorteoService.java`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-19 — Verificar propiedad de Player Tag y unicidad normalizada de cuentas (GPT-6)
 - **`ClashApiServicio.java`, `AuthService.java` y `RutasAuth.java`**: el registro comprueba el token de API del juego contra el tag por el endpoint de Supercell. El token se transmite solo durante la verificación, no se persiste ni se registra. Si la API key no tiene permiso, el registro falla de forma cerrada con un aviso de servicio no disponible.
 - **Migración V17 y `UsuarioDAO.java`**: añade índices únicos normalizados para usuario, correo, Player Tag y celular. Las formas locales y con `+57` de celulares colombianos colisionan. La migración aborta con una explicación si encuentra duplicados existentes para que se resuelvan sin elegir cuentas automáticamente.

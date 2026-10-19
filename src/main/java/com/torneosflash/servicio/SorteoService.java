@@ -16,6 +16,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -177,6 +178,20 @@ public class SorteoService {
                 }
             }
 
+            // Comprueba el vencimiento después de adquirir el bloqueo, usando el reloj real de PostgreSQL.
+            // NOW() queda fijo al inicio de la transacción y podría aceptar una participación tras esperar el bloqueo.
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT COALESCE(fecha_limite > clock_timestamp(), FALSE) AS vigente " +
+                    "FROM raffles WHERE id = ? AND estado = 'activo'")) {
+                ps.setInt(1, raffleId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next() || !rs.getBoolean("vigente")) {
+                        conn.rollback();
+                        throw ServicioException.solicitudInvalida("El sorteo ya venció");
+                    }
+                }
+            }
+
             // 2. Asegurar y bloquear fila de tickets del usuario
             try (PreparedStatement ps = conn.prepareStatement(
                     "INSERT INTO user_tickets (user_id, cantidad, acumulado) VALUES (?, 0, 0) ON CONFLICT (user_id) DO NOTHING")) {
@@ -310,6 +325,16 @@ public class SorteoService {
 
     /** Crea un sorteo. {@code precioCrudo} y {@code duracionCruda} vienen tal cual del cliente y se validan aquí. */
     public JsonObject crear(String nombre, String categoria, JsonElement precioCrudo, JsonElement duracionCruda) {
+        String nombreValidado = nombre == null ? "" : nombre.trim();
+        int longitudNombre = nombreValidado.codePointCount(0, nombreValidado.length());
+        if (longitudNombre < 1 || longitudNombre > 100 || nombreValidado.codePoints().anyMatch(Character::isISOControl)) {
+            throw ServicioException.solicitudInvalida("El nombre del sorteo debe tener entre 1 y 100 caracteres válidos");
+        }
+        String categoriaValidada = categoria == null ? "" : categoria.trim().toLowerCase(Locale.ROOT);
+        if (!CATEGORIAS_VALIDAS.contains(categoriaValidada)) {
+            throw ServicioException.solicitudInvalida("La categoría del sorteo no es válida");
+        }
+
         // D5: precio validado en el servidor (número, positivo, entero, dentro de rango)
         ValidadorMonto.Resultado precioValido = validador.sorteo(precioCrudo);
         if (!precioValido.isValido()) {
@@ -332,13 +357,16 @@ public class SorteoService {
 
         int newId = db.insertReturningId("INSERT INTO raffles (nombre, categoria, precio, tickets_necesarios, fecha_limite) " +
                 "VALUES (?, ?, ?, ?, NOW() + make_interval(mins => ?)) RETURNING id",
-                nombre, categoria, precio, ticketsNecesarios, duracionMinutos);
+                nombreValidado, categoriaValidada, precio, ticketsNecesarios, duracionMinutos);
+        if (newId <= 0) {
+            throw ServicioException.interno("No se pudo crear el sorteo", null);
+        }
 
         JsonObject nuevoSorteo = db.queryOne("SELECT * FROM raffles WHERE id = ?", newId);
         io.emit("nuevo_sorteo", nuevoSorteo);
 
         if (push != null) {
-            push.enviarPushATodos(db, Set.of(), "🎁 ¡Nuevo sorteo!", "Sorteo \"" + nombre + "\" disponible");
+            push.enviarPushATodos(db, Set.of(), "🎁 ¡Nuevo sorteo!", "Sorteo \"" + nombreValidado + "\" disponible");
         }
 
         JsonObject res = new JsonObject();
@@ -349,22 +377,65 @@ public class SorteoService {
 
     /** Elimina un sorteo. Si no estaba completado, devuelve los tickets a quienes participaban. */
     public String eliminar(int raffleId) {
-        JsonObject sorteo = db.queryOne("SELECT estado FROM raffles WHERE id = ?", raffleId);
-        if (sorteo == null) throw ServicioException.noEncontrado("Sorteo no encontrado");
+        boolean completado;
+        Connection conn = null;
+        try {
+            conn = db.getConnection();
+            conn.setAutoCommit(false);
 
-        String estado = sorteo.get("estado").getAsString();
-        boolean completado = "completado".equals(estado);
-        if (!completado) {
-            ArrayList<JsonObject> entries = db.query("SELECT * FROM raffle_entries WHERE raffle_id = ?", raffleId);
-            for (JsonObject entry : entries) {
-                db.update("INSERT INTO user_tickets (user_id, cantidad) VALUES (?, ?) " +
-                        "ON CONFLICT (user_id) DO UPDATE SET cantidad = user_tickets.cantidad + ?",
-                        (int) entry.get("user_id").getAsLong(),
-                        (int) entry.get("tickets_asignados").getAsLong(),
-                        (int) entry.get("tickets_asignados").getAsLong());
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT estado FROM raffles WHERE id = ? FOR UPDATE")) {
+                ps.setInt(1, raffleId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        throw ServicioException.noEncontrado("Sorteo no encontrado");
+                    }
+                    completado = "completado".equals(rs.getString("estado"));
+                }
+            }
+
+            if (!completado) {
+                ArrayList<int[]> entriesToRefund = new ArrayList<>();
+                try (PreparedStatement entries = conn.prepareStatement(
+                        "SELECT user_id, tickets_asignados FROM raffle_entries WHERE raffle_id = ? ORDER BY user_id FOR UPDATE")) {
+                    entries.setInt(1, raffleId);
+                    try (ResultSet rs = entries.executeQuery()) {
+                        while (rs.next()) {
+                            entriesToRefund.add(new int[]{rs.getInt("user_id"), rs.getInt("tickets_asignados")});
+                        }
+                    }
+                }
+                try (PreparedStatement refund = conn.prepareStatement(
+                        "INSERT INTO user_tickets (user_id, cantidad, acumulado) VALUES (?, ?, 0) " +
+                        "ON CONFLICT (user_id) DO UPDATE SET cantidad = user_tickets.cantidad + EXCLUDED.cantidad")) {
+                    for (int[] entry : entriesToRefund) {
+                        refund.setInt(1, entry[0]);
+                        refund.setInt(2, entry[1]);
+                        refund.executeUpdate();
+                    }
+                }
+            }
+
+            try (PreparedStatement ps = conn.prepareStatement("DELETE FROM raffles WHERE id = ?")) {
+                ps.setInt(1, raffleId);
+                if (ps.executeUpdate() != 1) {
+                    throw new SQLException("El sorteo dejó de estar disponible durante su eliminación");
+                }
+            }
+            conn.commit();
+        } catch (ServicioException e) {
+            if (conn != null) { try { conn.rollback(); } catch (SQLException ignored) {} }
+            throw e;
+        } catch (SQLException e) {
+            if (conn != null) { try { conn.rollback(); } catch (SQLException ignored) {} }
+            logger.error("Error SQL eliminando sorteo #{}: {}", raffleId, e.getMessage());
+            throw ServicioException.interno("No se pudo eliminar el sorteo", e);
+        } finally {
+            if (conn != null) {
+                try { conn.setAutoCommit(true); conn.close(); } catch (SQLException ignored) {}
             }
         }
-        db.update("DELETE FROM raffles WHERE id = ?", raffleId);
 
         JsonObject deleteData = new JsonObject();
         deleteData.addProperty("raffleId", raffleId);
@@ -521,31 +592,66 @@ public class SorteoService {
      * por cada 1000 pesos acumulados.
      */
     public int[] acumularTickets(int userId, BigDecimal montoComisionSorteo) {
-        try {
-            JsonObject ticketRes = db.queryOne("SELECT * FROM user_tickets WHERE user_id = ?", userId);
-            if (ticketRes == null) {
-                db.update("INSERT INTO user_tickets (user_id, cantidad, acumulado) VALUES (?, 0, 0)", userId);
-                ticketRes = db.queryOne("SELECT * FROM user_tickets WHERE user_id = ?", userId);
-            }
-
-            int acumuladoAnterior = (int) ticketRes.get("acumulado").getAsLong();
-            int nuevoAcumulado = acumuladoAnterior + montoComisionSorteo.intValue(); // REVIEW-MONEY (trunca a pesos enteros, igual que antes)
-            int ticketsAnteriores = acumuladoAnterior / 1000;
-            int ticketsGanados = nuevoAcumulado / 1000;
-            int residuo = nuevoAcumulado % 1000;
-            int ticketsNuevos = ticketsGanados - ticketsAnteriores;
-
-            if (ticketsNuevos > 0) {
-                db.update("UPDATE user_tickets SET cantidad = cantidad + ?, acumulado = ? WHERE user_id = ?",
-                        ticketsNuevos, residuo, userId);
-                return new int[]{ticketsNuevos, residuo};
-            } else {
-                db.update("UPDATE user_tickets SET acumulado = ? WHERE user_id = ?", nuevoAcumulado, userId);
-                return new int[]{0, nuevoAcumulado};
-            }
-        } catch (Exception e) {
-            logger.error("Error acumulando tickets: " + e.getMessage());
+        if (userId <= 0 || montoComisionSorteo == null) {
+            logger.warn("Se omitió la acumulación de tickets por datos inválidos (userId={})", userId);
             return new int[]{0, 0};
+        }
+
+        final int montoPesos;
+        try {
+            montoPesos = montoComisionSorteo.setScale(0, RoundingMode.DOWN).intValueExact();
+        } catch (ArithmeticException e) {
+            logger.error("Monto fuera de rango al acumular tickets para userId={}", userId);
+            return new int[]{0, 0};
+        }
+        if (montoPesos < 0) {
+            logger.warn("Se omitió una acumulación negativa de tickets para userId={}", userId);
+            return new int[]{0, 0};
+        }
+
+        Connection conn = null;
+        try {
+            conn = db.getConnection();
+            conn.setAutoCommit(false);
+
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "INSERT INTO user_tickets (user_id, cantidad, acumulado) VALUES (?, 0, 0) " +
+                    "ON CONFLICT (user_id) DO NOTHING")) {
+                ps.setInt(1, userId);
+                ps.executeUpdate();
+            }
+
+            int acumuladoAnterior;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT acumulado FROM user_tickets WHERE user_id = ? FOR UPDATE")) {
+                ps.setInt(1, userId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) throw new SQLException("No se pudo crear el registro de tickets");
+                    acumuladoAnterior = rs.getInt("acumulado");
+                }
+            }
+
+            // REVIEW-MONEY: conserva el truncamiento a pesos enteros; el bloqueo hace atómica la suma y el cálculo del residuo.
+            long acumuladoNuevo = (long) acumuladoAnterior + montoPesos;
+            int ticketsNuevos = (int) (acumuladoNuevo / 1000 - acumuladoAnterior / 1000);
+            int residuo = (int) (acumuladoNuevo % 1000);
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE user_tickets SET cantidad = cantidad + ?, acumulado = ? WHERE user_id = ?")) {
+                ps.setInt(1, ticketsNuevos);
+                ps.setInt(2, residuo);
+                ps.setInt(3, userId);
+                if (ps.executeUpdate() != 1) throw new SQLException("No se pudo actualizar el registro de tickets");
+            }
+            conn.commit();
+            return new int[]{ticketsNuevos, residuo};
+        } catch (Exception e) {
+            if (conn != null) { try { conn.rollback(); } catch (SQLException ignored) {} }
+            logger.error("Error acumulando tickets para userId={}: {}", userId, e.getMessage());
+            return new int[]{0, 0};
+        } finally {
+            if (conn != null) {
+                try { conn.setAutoCommit(true); conn.close(); } catch (SQLException ignored) {}
+            }
         }
     }
 }

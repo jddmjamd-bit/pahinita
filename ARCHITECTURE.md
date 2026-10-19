@@ -533,6 +533,7 @@ RutasX (servidor/)                        XService (servicio/)
 - **Notificar al usuario** (socket + push): `NotificadorUsuarios.notificarSaldo` / `emitirA`. Reacciones a algo que ya ocurrió (tickets, resultado de partida) van por el bus de eventos (sección 13).
 - **Pools:** BCrypt va por `Ejecutores.enCpu` (dentro de `AuthService`); un servicio que llame a HTTP externo no debe hacerlo en un hilo de temporizador (sección de A8).
 - Los jobs de `Main` revisan sorteos vencidos y cierres de leaderboard cada minuto. `LeaderboardService.verificarYCerrarPeriodos()` recupera primero los pagos pendientes y luego detecta cambios de día, semana, mes o año en hora de Colombia.
+- `SorteoService.crear()` valida nombre y categoría en el servidor. `participar()` bloquea la fila del sorteo y comprueba `fecha_limite` con `clock_timestamp()` antes de descontar tickets. `eliminar()` bloquea el sorteo y devuelve los tickets y borra sus participaciones y el sorteo en una sola transacción; eliminar una segunda vez no vuelve a acreditar. La acumulación por partida bloquea la fila `user_tickets` del jugador mientras calcula y guarda el nuevo saldo/residuo.
 
 **Pendiente / fuera de A3**
 - `SocketHandler` (~50 KB) sigue mezclando protocolo de sockets con lógica de negocio (matchmaking, negociación, chat); es candidato a su propia tarea.
