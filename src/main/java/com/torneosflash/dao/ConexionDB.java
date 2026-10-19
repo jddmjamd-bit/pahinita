@@ -270,8 +270,8 @@ public class ConexionDB {
     }
 
     /**
-     * Revoca las sesiones que venían dentro del dump después de restaurarlo. Las sesiones son credenciales
-     * temporales y no deben reactivarse al volver a una copia anterior. Solo se permite durante restore.
+     * Invalida sesiones y enlaces de recuperación restaurados desde el dump. Son credenciales temporales y no
+     * deben reactivarse al volver a una copia anterior. Solo se permite durante restore.
      */
     public int revocarSesionesTrasRestauracion() throws SQLException {
         if (!restauracionActiva.get()) {
@@ -284,9 +284,23 @@ public class ConexionDB {
             propiedades.setProperty("user", enlaceBD.usuario);
         }
         if (enlaceBD.password != null) propiedades.setProperty("password", enlaceBD.password);
-        try (Connection conn = DriverManager.getConnection(enlaceBD.jdbcUrl, propiedades);
-             PreparedStatement ps = conn.prepareStatement("DELETE FROM user_sessions")) {
-            return ps.executeUpdate();
+        try (Connection conn = DriverManager.getConnection(enlaceBD.jdbcUrl, propiedades)) {
+            conn.setAutoCommit(false);
+            try {
+                int sesiones;
+                try (PreparedStatement ps = conn.prepareStatement("DELETE FROM user_sessions")) {
+                    sesiones = ps.executeUpdate();
+                }
+                int tokens;
+                try (PreparedStatement ps = conn.prepareStatement("DELETE FROM password_reset_tokens")) {
+                    tokens = ps.executeUpdate();
+                }
+                conn.commit();
+                return sesiones + tokens;
+            } catch (SQLException e) {
+                try { conn.rollback(); } catch (SQLException ignored) {}
+                throw e;
+            }
         }
     }
 

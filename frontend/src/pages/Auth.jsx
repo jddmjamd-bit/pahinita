@@ -6,10 +6,15 @@ import { esperarSolicitudesPush } from '../services/pushTokens';
 import AceptacionLegal from '../components/AceptacionLegal';
 import './Auth.css';
 
+const excedeLimiteBcrypt = value => new TextEncoder().encode(value).length > 72;
+
 export default function Auth() {
     const [isLogin, setIsLogin] = useState(false);
+    const [recuperando, setRecuperando] = useState(false);
     const navigate = useNavigate();
     const setUser = useAppStore(state => state.setUser);
+    // El token va en el fragmento (#), que el navegador no envía en peticiones ni en el Referer.
+    const tokenRecuperacion = new URLSearchParams(window.location.hash.slice(1)).get('reset') || '';
 
     // Formularios
     const [username, setUsername] = useState('');
@@ -18,6 +23,8 @@ export default function Auth() {
     const [playerTag, setPlayerTag] = useState('');
     const [telefono, setTelefono] = useState('');
     const [acepta, setAcepta] = useState(false);
+    const [passwordNueva, setPasswordNueva] = useState('');
+    const [confirmarPassword, setConfirmarPassword] = useState('');
 
     // Estados de validación
     const [usernameStatus, setUsernameStatus] = useState({ text: '', className: 'tag-status' });
@@ -140,6 +147,7 @@ export default function Auth() {
         if (!emailValid) return alert('❌ El formato del correo no es válido');
         if (!playerTagValid) return alert('❌ El Player Tag no es válido. Debe mostrar tu nombre de Clash Royale');
         if (!acepta) return alert('❌ Debes aceptar los Términos de Servicio y la Política de Privacidad');
+        if (excedeLimiteBcrypt(password)) return alert('La contraseña no puede superar 72 bytes UTF-8. Los acentos y emojis pueden ocupar más de un byte.');
 
         try {
             await esperarSolicitudesPush();
@@ -164,6 +172,7 @@ export default function Auth() {
 
     const handleLogin = async (e) => {
         e.preventDefault();
+        if (excedeLimiteBcrypt(password)) return alert('La contraseña no puede superar 72 bytes UTF-8. Si es una contraseña antigua, puedes recuperarla por correo.');
         try {
             await esperarSolicitudesPush();
             const res = await fetch(API_BASE_URL + '/api/login', {
@@ -185,9 +194,87 @@ export default function Auth() {
         }
     };
 
+    const handleSolicitarRecuperacion = async (e) => {
+        e.preventDefault();
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/password/forgot`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                alert(data.message || 'Si existe una cuenta con ese correo, enviaremos un enlace para recuperar la contraseña.');
+                setRecuperando(false);
+                setIsLogin(true);
+            } else {
+                alert(data.error || 'No se pudo procesar la solicitud');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error de conexión');
+        }
+    };
+
+    const handleRestablecerPassword = async (e) => {
+        e.preventDefault();
+        if (passwordNueva.length < 6 || passwordNueva.length > 128) {
+            return alert('La contraseña debe tener entre 6 y 128 caracteres.');
+        }
+        if (excedeLimiteBcrypt(passwordNueva)) {
+            return alert('La contraseña no puede superar 72 bytes UTF-8. Los acentos y emojis pueden ocupar más de un byte.');
+        }
+        if (passwordNueva !== confirmarPassword) return alert('Las contraseñas no coinciden.');
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/password/reset`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: tokenRecuperacion, password: passwordNueva })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setUser(null);
+                setPassword('');
+                setPasswordNueva('');
+                setConfirmarPassword('');
+                setIsLogin(true);
+                navigate('/auth', { replace: true });
+                alert(data.message || 'Contraseña actualizada. Inicia sesión de nuevo.');
+            } else {
+                alert(data.error || 'El enlace no es válido o ya venció.');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error de conexión');
+        }
+    };
+
     return (
         <div id="auth-flow" className="center-screen">
-            {!isLogin ? (
+            {tokenRecuperacion ? (
+                <div className="form-wrapper" id="restablecer-password-container">
+                    <h2>Crear contraseña nueva</h2>
+                    <form onSubmit={handleRestablecerPassword}>
+                        <input type="password" placeholder="Nueva contraseña" required minLength="6" maxLength="128"
+                            autoComplete="new-password" value={passwordNueva} onChange={e => setPasswordNueva(e.target.value)} />
+                        <small>Entre 6 y 128 caracteres, máximo 72 bytes UTF-8.</small>
+                        <input type="password" placeholder="Repite la contraseña" required minLength="6" maxLength="128"
+                            autoComplete="new-password" value={confirmarPassword} onChange={e => setConfirmarPassword(e.target.value)} />
+                        <button type="submit">Guardar contraseña</button>
+                    </form>
+                </div>
+            ) : recuperando ? (
+                <div className="form-wrapper" id="recuperar-password-container">
+                    <h2>Recuperar contraseña</h2>
+                    <form onSubmit={handleSolicitarRecuperacion}>
+                        <input type="email" placeholder="Correo de tu cuenta" required maxLength="120"
+                            autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} />
+                        <button type="submit">Enviar enlace</button>
+                    </form>
+                    <p className="switch-text"><a href="#" onClick={e => { e.preventDefault(); setRecuperando(false); setIsLogin(true); }}>Volver a entrar</a></p>
+                </div>
+            ) : !isLogin ? (
                 <div className="form-wrapper" id="registro-container">
                     <h2>Crear Cuenta</h2>
                     <form id="registro-form" onSubmit={handleRegister}>
@@ -199,8 +286,9 @@ export default function Auth() {
                             value={email} onChange={e => setEmail(e.target.value)} />
                         <div className={emailStatus.className}>{emailStatus.text}</div>
 
-                        <input type="password" placeholder="Contraseña" required
+                        <input type="password" placeholder="Contraseña" required minLength="6" maxLength="128"
                             value={password} onChange={e => setPassword(e.target.value)} />
+                        <small>Entre 6 y 128 caracteres, máximo 72 bytes UTF-8.</small>
 
                         <input type="text" placeholder="Player Tag Clash Royale (#XXXXXXX)" required
                             pattern="#[0289PYLQGRJCUV]{3,}" title="Debe empezar con # seguido de 3+ caracteres válidos"
@@ -222,10 +310,11 @@ export default function Auth() {
                     <form id="login-form" onSubmit={handleLogin}>
                         <input type="email" placeholder="Email" required
                             value={email} onChange={e => setEmail(e.target.value)} />
-                        <input type="password" placeholder="Contraseña" required
+                        <input type="password" placeholder="Contraseña" required maxLength="128"
                             value={password} onChange={e => setPassword(e.target.value)} />
                         <button type="submit">Entrar</button>
                     </form>
+                    <p className="switch-text"><a href="#" onClick={e => { e.preventDefault(); setRecuperando(true); }}>¿Olvidaste tu contraseña?</a></p>
                     <p className="switch-text">¿Nuevo? <a href="#" onClick={(e) => { e.preventDefault(); setIsLogin(false); }}>Crear cuenta</a></p>
                 </div>
             )}

@@ -37,4 +37,4 @@ ENTRYPOINT []
 EXPOSE 10000
 
 # Ejecutar acotando la memoria máxima de la JVM para instancias de 512 MB en Render
-CMD ["java", "-XX:MaxRAMPercentage=75.0", "-jar", "app.jar"]
+CMD ["java", "-Dfile.encoding=UTF-8", "-XX:MaxRAMPercentage=75.0", "-jar", "app.jar"]

@@ -14,6 +14,17 @@ import java.util.List;
 public final class Eventos {
     private Eventos() {}
 
+    /** Se emitió un token de recuperación de contraseña y se puede enviar el correo sin acoplar AuthService a Brevo. */
+    public static final String PASSWORD_RESET_REQUESTED = "password.reset_requested";
+
+    /** Datos necesarios para enviar por correo el enlace de un solo uso. */
+    public record PasswordResetSolicitado(String email, String username, String enlace, int minutosVigencia) {}
+
+    /** La contraseña se cambió y todas las sesiones anteriores fueron revocadas. */
+    public static final String PASSWORD_RESET_COMPLETED = "password.reset_completed";
+
+    public record PasswordResetCompletado(int userId) {}
+
     /**
      * Una partida terminó y ya se liquidó (el dinero ya se movió y el match quedó {@code finalizada} en la BD).
      * Datos: {@link PartidaFinalizada}. Lo emiten {@code SocketHandler} (resultado automático por la API de Clash)

@@ -43,6 +43,8 @@ public class DbAdminService {
     private static final String TABLA_FLYWAY = "flyway_schema_history";
     /** JTI son credenciales de sesión; el editor genérico no debe exponerlas ni permitir revocarlas indirectamente. */
     private static final String TABLA_SESIONES = "user_sessions";
+    /** Los hashes de los tokens de recuperación también son credenciales temporales. */
+    private static final String TABLA_RECUPERACION_PASSWORD = "password_reset_tokens";
     /** D3 / M4: El ledger financiero es inmutable; solo se permite lectura en el panel DB. */
     private static final String TABLA_LEDGER = "wallet_ledger";
     private static final String MASCARA_PASSWORD = "[HASH_PROTEGIDO]";
@@ -405,9 +407,10 @@ public class DbAdminService {
     private static List<String> nombresDeTablas(Connection conn) throws SQLException {
         List<String> nombres = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name NOT IN (?, ?) ORDER BY table_name")) {
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name NOT IN (?, ?, ?) ORDER BY table_name")) {
             ps.setString(1, TABLA_FLYWAY);
             ps.setString(2, TABLA_SESIONES);
+            ps.setString(3, TABLA_RECUPERACION_PASSWORD);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) nombres.add(rs.getString("table_name"));
             }
@@ -459,10 +462,11 @@ public class DbAdminService {
             throw ServicioException.solicitudInvalida("Tabla no válida");
         }
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ? AND table_name NOT IN (?, ?)")) {
+                "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ? AND table_name NOT IN (?, ?, ?)")) {
             ps.setString(1, tableName);
             ps.setString(2, TABLA_FLYWAY);
             ps.setString(3, TABLA_SESIONES);
+            ps.setString(4, TABLA_RECUPERACION_PASSWORD);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) {
                     throw ServicioException.solicitudInvalida("Tabla no válida");

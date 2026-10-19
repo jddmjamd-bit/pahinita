@@ -46,6 +46,7 @@ import com.torneosflash.servicio.EvidenciaPagoService;
 import com.torneosflash.servicio.DiscordApiCliente;
 import com.torneosflash.servicio.VozDiscordService;
 import com.torneosflash.servicio.VozListener;
+import com.torneosflash.servicio.RecuperacionPasswordListener;
 
 /**
  * Punto de entrada principal de Torneos Flash.
@@ -277,7 +278,8 @@ public class Main {
         // Capa de servicio (A3): las rutas solo parsean el request y llaman a estos
         // servicios
         NotificadorUsuarios notificador = new NotificadorUsuarios(socketServer, db, pushService);
-        AuthService authService = new AuthService(usuarioDAO, db, clashApi, ejecutores);
+        AuthService authService = new AuthService(usuarioDAO, db, clashApi, ejecutores, config, eventBus);
+        new RecuperacionPasswordListener(correo, socketServer).registrar(eventBus);
         FinanzasService finanzasService = new FinanzasService(db, config, wallet, validadorMonto, notificador);
         SorteoService sorteoService = new SorteoService(db, socketServer, correo, pushService, validadorMonto);
 

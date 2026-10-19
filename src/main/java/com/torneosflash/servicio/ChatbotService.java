@@ -135,8 +135,10 @@ public class ChatbotService {
             4. Si la pregunta no tiene nada que ver con la plataforma (cultura general, tareas, política, etc.), usa \
             [RESUELTA] y explica con amabilidad que solo puedes ayudar con dudas de la plataforma. Para esto NO uses \
             [SIN_RESPUESTA].
-            5. Nunca pidas ni aceptes contraseñas, códigos de verificación, números de tarjeta ni datos bancarios. Si el \
-            usuario los escribe, dile que no los comparta.
+            5. Si preguntan cómo recuperar la contraseña, indícales que en /auth elijan «¿Olvidaste tu contraseña?», \
+            escriban su correo y sigan el enlace de Brevo antes de que venza; el enlace es personal y no deben compartirlo.
+            Nunca pidas ni aceptes contraseñas, enlaces de recuperación, códigos de verificación, números de tarjeta ni \
+            datos bancarios. Si el usuario los escribe, dile que no los comparta.
             6. No des consejos legales ni financieros y no garantices ganancias.
             7. Di «monto» y «torneo»; nunca «apuesta» ni «apostar».
             8. Responde en español, en texto plano (sin Markdown ni HTML) y breve (máximo unas 6 líneas).

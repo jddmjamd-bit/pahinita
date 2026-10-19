@@ -23,6 +23,9 @@ public class UsuarioDAO {
 
     private final ConexionDB db;
 
+    /** Datos mínimos que necesita el correo de recuperación; nunca incluye el hash de contraseña. */
+    public record CuentaRecuperacion(int userId, String email, String username) {}
+
     public UsuarioDAO(ConexionDB db) {
         this.db = db;
     }
@@ -129,6 +132,172 @@ public class UsuarioDAO {
             ps.setString(1, jti);
             ps.setInt(2, userId);
             return ps.executeUpdate() == 1;
+        }
+    }
+
+    /** Busca solo los datos necesarios para enviar un enlace sin revelar la cuenta por la API. */
+    public CuentaRecuperacion buscarCuentaRecuperacion(String email) throws SQLException {
+        try (Connection conn = db.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT id, email, username FROM users WHERE LOWER(email) = LOWER(?)")) {
+            ps.setString(1, email);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next()
+                        ? new CuentaRecuperacion(rs.getInt("id"), rs.getString("email"), rs.getString("username"))
+                        : null;
+            }
+        }
+    }
+
+    /** Crea o renueva un único enlace activo por cuenta y aplica una pausa entre correos. */
+    public boolean crearTokenRecuperacion(int userId, String tokenHash, Instant expiraEn, int cooldownSegundos)
+            throws SQLException {
+        try (Connection conn = db.getConnection()) {
+            boolean autoCommit = conn.getAutoCommit();
+            conn.setAutoCommit(false);
+            try {
+                try (PreparedStatement bloquearUsuario = conn.prepareStatement(
+                        "SELECT id FROM users WHERE id = ? FOR UPDATE")) {
+                    bloquearUsuario.setInt(1, userId);
+                    try (ResultSet rs = bloquearUsuario.executeQuery()) {
+                        if (!rs.next()) {
+                            conn.commit();
+                            return false;
+                        }
+                    }
+                }
+
+                try (PreparedStatement limpiar = conn.prepareStatement(
+                        "DELETE FROM password_reset_tokens WHERE expires_at <= CURRENT_TIMESTAMP OR used_at IS NOT NULL")) {
+                    limpiar.executeUpdate();
+                }
+
+                try (PreparedStatement reciente = conn.prepareStatement(
+                        "SELECT 1 FROM password_reset_tokens WHERE user_id = ? AND used_at IS NULL " +
+                                "AND expires_at > CURRENT_TIMESTAMP " +
+                                "AND created_at > CURRENT_TIMESTAMP - (? * INTERVAL '1 second') LIMIT 1")) {
+                    reciente.setInt(1, userId);
+                    reciente.setInt(2, cooldownSegundos);
+                    try (ResultSet rs = reciente.executeQuery()) {
+                        if (rs.next()) {
+                            conn.commit();
+                            return false;
+                        }
+                    }
+                }
+
+                try (PreparedStatement invalidar = conn.prepareStatement(
+                        "UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP " +
+                                "WHERE user_id = ? AND used_at IS NULL")) {
+                    invalidar.setInt(1, userId);
+                    invalidar.executeUpdate();
+                }
+                try (PreparedStatement insertar = conn.prepareStatement(
+                        "INSERT INTO password_reset_tokens (token_hash, user_id, expires_at) VALUES (?, ?, ?)")) {
+                    insertar.setString(1, tokenHash);
+                    insertar.setInt(2, userId);
+                    insertar.setTimestamp(3, Timestamp.from(expiraEn));
+                    insertar.executeUpdate();
+                }
+                conn.commit();
+                return true;
+            } catch (SQLException e) {
+                try { conn.rollback(); } catch (SQLException ignored) {}
+                throw e;
+            } finally {
+                try { conn.setAutoCommit(autoCommit); } catch (SQLException ignored) {}
+            }
+        }
+    }
+
+    public boolean tokenRecuperacionValido(String tokenHash) throws SQLException {
+        try (Connection conn = db.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT 1 FROM password_reset_tokens WHERE token_hash = ? AND used_at IS NULL " +
+                             "AND expires_at > CURRENT_TIMESTAMP")) {
+            ps.setString(1, tokenHash);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
+    /** Consume el token y cambia la contraseña y revoca todas las sesiones en una transacción. */
+    public int restablecerPassword(String tokenHash, String passwordHash) throws SQLException {
+        try (Connection conn = db.getConnection()) {
+            boolean autoCommit = conn.getAutoCommit();
+            conn.setAutoCommit(false);
+            try {
+                Integer userId = null;
+                // Lee primero el propietario sin bloquear el token. Los flujos de emisión y consumo
+                // adquieren los bloqueos en el mismo orden: usuario y luego token.
+                try (PreparedStatement buscar = conn.prepareStatement(
+                        "SELECT user_id FROM password_reset_tokens WHERE token_hash = ? AND used_at IS NULL " +
+                                "AND expires_at > CURRENT_TIMESTAMP")) {
+                    buscar.setString(1, tokenHash);
+                    try (ResultSet rs = buscar.executeQuery()) {
+                        if (rs.next()) userId = rs.getInt("user_id");
+                    }
+                }
+                if (userId == null) {
+                    conn.rollback();
+                    return 0;
+                }
+
+                try (PreparedStatement bloquearUsuario = conn.prepareStatement(
+                        "SELECT id FROM users WHERE id = ? FOR UPDATE")) {
+                    bloquearUsuario.setInt(1, userId);
+                    try (ResultSet rs = bloquearUsuario.executeQuery()) {
+                        if (!rs.next()) {
+                            conn.rollback();
+                            return 0;
+                        }
+                    }
+                }
+
+                // Revalida bajo bloqueo después de adquirir el lock del usuario: otro request
+                // pudo consumir el token mientras este esperaba.
+                try (PreparedStatement bloquearToken = conn.prepareStatement(
+                        "SELECT 1 FROM password_reset_tokens WHERE token_hash = ? AND user_id = ? " +
+                                "AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP FOR UPDATE")) {
+                    bloquearToken.setString(1, tokenHash);
+                    bloquearToken.setInt(2, userId);
+                    try (ResultSet rs = bloquearToken.executeQuery()) {
+                        if (!rs.next()) {
+                            conn.rollback();
+                            return 0;
+                        }
+                    }
+                }
+
+                try (PreparedStatement actualizar = conn.prepareStatement(
+                        "UPDATE users SET password = ? WHERE id = ?")) {
+                    actualizar.setString(1, passwordHash);
+                    actualizar.setInt(2, userId);
+                    if (actualizar.executeUpdate() != 1) {
+                        conn.rollback();
+                        return 0;
+                    }
+                }
+                try (PreparedStatement consumir = conn.prepareStatement(
+                        "UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP " +
+                                "WHERE user_id = ? AND used_at IS NULL")) {
+                    consumir.setInt(1, userId);
+                    consumir.executeUpdate();
+                }
+                try (PreparedStatement revocarSesiones = conn.prepareStatement(
+                        "DELETE FROM user_sessions WHERE user_id = ?")) {
+                    revocarSesiones.setInt(1, userId);
+                    revocarSesiones.executeUpdate();
+                }
+                conn.commit();
+                return userId;
+            } catch (SQLException e) {
+                try { conn.rollback(); } catch (SQLException ignored) {}
+                throw e;
+            } finally {
+                try { conn.setAutoCommit(autoCommit); } catch (SQLException ignored) {}
+            }
         }
     }
 

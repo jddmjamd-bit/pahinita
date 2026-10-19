@@ -52,7 +52,9 @@ public class RateLimitMiddleware {
     /** Rutas de autenticación y validación pública sujetas a un límite más estricto contra fuerza bruta y sondeo. */
     private static final Set<String> RUTAS_AUTH = Set.of(
             "/api/login",
-            "/api/register");
+            "/api/register",
+            "/api/password/forgot",
+            "/api/password/reset");
 
     /** Solo se limita lo que es API, socket polling o panel admin; el frontend estático no. */
     private static final String[] PREFIJOS_PROTEGIDOS = {

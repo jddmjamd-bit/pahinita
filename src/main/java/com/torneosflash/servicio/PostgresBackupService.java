@@ -163,13 +163,13 @@ public final class PostgresBackupService {
                         "El backup se restauró, pero fallaron las migraciones. La API quedó bloqueada; revisa el log y reinicia el servicio al corregirlo.", e);
             }
             try {
-                int sesionesRevocadas = conexion.revocarSesionesTrasRestauracion();
-                logger.info("Restore completo; se revocaron {} sesiones JWT restauradas desde el backup.", sesionesRevocadas);
+                int credencialesRevocadas = conexion.revocarSesionesTrasRestauracion();
+                logger.info("Restore completo; se invalidaron {} sesiones y enlaces de recuperación restaurados desde el backup.", credencialesRevocadas);
             } catch (SQLException e) {
                 mantenerMantenimiento = true;
-                logger.error("El backup se restauró, pero no se pudieron revocar las sesiones restauradas; se mantiene el servicio en mantenimiento.", e);
+                logger.error("El backup se restauró, pero no se pudieron invalidar las sesiones y tokens restaurados; se mantiene el servicio en mantenimiento.", e);
                 throw new ServicioException(503,
-                        "El backup se restauró, pero no se pudieron revocar las sesiones JWT. La API quedó bloqueada; revisa el log y reinicia el servicio al corregirlo.", e);
+                        "El backup se restauró, pero no se pudieron invalidar las sesiones y enlaces temporales. La API quedó bloqueada; revisa el log y reinicia el servicio al corregirlo.", e);
             }
             JsonObject resultado = new JsonObject();
             resultado.addProperty("success", true);

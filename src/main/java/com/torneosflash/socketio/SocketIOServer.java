@@ -345,6 +345,19 @@ public class SocketIOServer {
         }
     }
 
+    /** Cierra las sesiones abiertas de una cuenta cuando se cambia su contraseña por recuperación. */
+    public void cerrarSocketsDeUsuario(int userId) {
+        if (userId <= 0) return;
+        for (SocketIOClient client : clientsBySession.values()) {
+            if (Integer.valueOf(userId).equals(client.getAuthenticatedUserId())) client.disconnect(true);
+        }
+        for (NamespaceAdapter namespace : namespaces.values()) {
+            for (SocketIOClient client : namespace.getSockets().values()) {
+                if (Integer.valueOf(userId).equals(client.getAuthenticatedUserId())) client.disconnect(true);
+            }
+        }
+    }
+
     void ensureEventRegistered(SocketIONamespace ns, String event) {
         if (ns == null || event == null || "connect".equals(event) || "disconnect".equals(event)) {
             return;

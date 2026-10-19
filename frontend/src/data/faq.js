@@ -468,6 +468,17 @@ export const PREGUNTAS = [
 
     // ───────────────────────── Cuenta y seguridad ─────────────────────────
     {
+        id: 'recuperar-contrasena',
+        categoria: 'cuenta',
+        pregunta: '¿Cómo recupero mi contraseña?',
+        respuesta: [
+            'En la pantalla de entrada elige «¿Olvidaste tu contraseña?» y escribe tu correo. Si está asociado a una cuenta, recibirás un enlace de Brevo; revisa también la carpeta de correo no deseado y úsalo antes de que venza.',
+            'El enlace funciona una sola vez. Al guardar una contraseña nueva se cerrarán las demás sesiones de tu cuenta. Nunca compartas el enlace con nadie.',
+            'La contraseña debe tener entre 6 y 128 caracteres y no superar 72 bytes UTF-8. Los acentos y emojis pueden ocupar más de un byte.'
+        ],
+        enlace: { texto: 'Ir a iniciar sesión', to: '/auth' }
+    },
+    {
         id: 'sesion-cerrada',
         categoria: 'cuenta',
         pregunta: 'La página me sacó de mi cuenta, ¿por qué?',

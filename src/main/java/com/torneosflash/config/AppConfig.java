@@ -54,6 +54,8 @@ public class AppConfig {
     private final long jwtExpirationSeconds;
     private final boolean cookieSecure;
     private final String cookieSameSite;
+    private final int passwordResetTokenMinutes;
+    private final int passwordResetCooldownSeconds;
 
     // --- Límites de montos (COP, pesos enteros). Los valida ValidadorMonto en el servidor. ---
     private final BigDecimal montoMinDeposito;
@@ -166,6 +168,8 @@ public class AppConfig {
 
         this.jwtSecret = resolverJwtSecret(getEnv("JWT_SECRET", ""));
         this.jwtExpirationSeconds = Long.parseLong(getEnv("JWT_EXPIRATION_DAYS", "30")) * 24L * 3600L;
+        this.passwordResetTokenMinutes = getEnvEntero("PASSWORD_RESET_TOKEN_MINUTES", 15, 5, 60);
+        this.passwordResetCooldownSeconds = getEnvEntero("PASSWORD_RESET_COOLDOWN_SECONDS", 60, 30, 600);
         this.cookieSameSite = normalizarSameSite(getEnv("COOKIE_SAMESITE", "Lax"));
         // SameSite=None exige Secure; en cualquier otro caso se respeta COOKIE_SECURE (default true)
         this.cookieSecure = "None".equals(cookieSameSite)
@@ -404,6 +408,8 @@ public class AppConfig {
     public int getChatHistorialLimite() { return chatHistorialLimite; }
     public String getJwtSecret() { return jwtSecret; }
     public long getJwtExpirationSeconds() { return jwtExpirationSeconds; }
+    public int getPasswordResetTokenMinutes() { return passwordResetTokenMinutes; }
+    public int getPasswordResetCooldownSeconds() { return passwordResetCooldownSeconds; }
     public boolean isCookieSecure() { return cookieSecure; }
     public String getCookieSameSite() { return cookieSameSite; }
     public BigDecimal getMontoMinDeposito() { return montoMinDeposito; }

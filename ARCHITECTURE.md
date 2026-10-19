@@ -104,7 +104,7 @@ TorneosFlash/
 │       ├── SocketIOServer.java      # Parseo de paquetes Engine.IO/Socket.IO
 │       └── SocketIOClient.java      # Wrapper del cliente WS
 ├── src/main/resources/
-│   └── db/migration/                # Migraciones Flyway V1–V15; V15 agrega sesiones JWT revocables
+│   └── db/migration/                # Migraciones Flyway V1–V16; V15 agrega sesiones JWT y V16 recuperación de contraseña
 ├── agent/rules/                     # Reglas para modelos IA
 │   ├── auto-push.md
 │   └── project-conventions.md       # ← NUEVO
@@ -384,7 +384,9 @@ Toda configuración de despliegue se lee en `config/AppConfig` (nada de números
 
 | Variable | Default | Rango | Qué controla |
 |---|---|---|---|
-| `APP_BASE_URL` | `https://torneos-beta.onrender.com` | http(s) | URL del sitio en las push (enlace e icono `/icon-192.png`). Se quita la `/` final |
+| `APP_BASE_URL` | `https://torneos-beta.onrender.com` | http(s) | URL del sitio para push y enlaces de recuperación (`/auth#reset=...`). Se quita la `/` final |
+| `PASSWORD_RESET_TOKEN_MINUTES` | `15` | 5–60 | Vigencia del enlace de recuperación enviado por Brevo |
+| `PASSWORD_RESET_COOLDOWN_SECONDS` | `60` | 30–600 | Pausa mínima entre correos de recuperación para una cuenta |
 | `PUSH_POOL_THREADS` | `4` | 1–32 | Hilos exclusivos para entregas FCM |
 | `PUSH_POOL_QUEUE` | `200` | 1–10000 | Cola acotada de entregas FCM; al llenarse se descartan tareas y queda un aviso en el log |
 | `PUSH_MAX_PER_USER_PER_MIN` | `10` | 1–1000 | Máximo de notificaciones push por usuario en una ventana móvil de un minuto |
@@ -482,6 +484,7 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | `V13__cortes_leaderboard_recuperables.sql` | Persiste cortes/pagos idempotentes y vincula cada historial de jugador con su pago para recuperarse tras reinicios |
 | `V14__inicio_partida_idempotente.sql` | Vincula la sala persistida con el match financiero e impide cobrar dos veces al reintentar el inicio |
 | `V15__sesiones_revocables.sql` | Crea `user_sessions`, que vincula cada JTI de JWT a un usuario y una expiración para validar y revocar sesiones |
+| `V16__recuperacion_segura_password.sql` | Crea `password_reset_tokens`, que persiste solo hashes SHA-256 de tokens de recuperación de un solo uso |
 
 **Cómo se comporta según el estado de la BD** (`baselineOnMigrate=true`, `baselineVersion=0`):
 
@@ -492,7 +495,7 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | Ya migrada | Aplica solo los scripts nuevos; si no hay, no hace nada |
 
 **Reglas**
-- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V16`). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
+- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V17`). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
 - **Nunca editar un `V*` ya aplicado:** Flyway guarda el checksum y `validateOnMigrate` hace fallar el arranque. Para corregir algo, una migración nueva.
 - **Fail-fast:** si una migración falla, `Main` loguea el error y sale con código 1 (no se sirve tráfico con el esquema a medias). Cada script corre en su propia transacción en PostgreSQL: si falla se revierte entero.
 - `cleanDisabled=true`: la app nunca puede ejecutar `flyway clean`.
@@ -567,9 +570,13 @@ ruta ── AuthMiddleware.getUserId(ctx) / Peticion.userIdDeSesion(ctx) (0 si n
 | `user_sessions` | Un registro por sesión iniciada, con `jti`, `user_id`, `expires_at` y `created_at`. Cada petición API y cada evento autenticado de Socket.IO comprueban que siga activo; los vencidos se limpian al iniciar una sesión nueva. La tabla queda oculta y protegida en el editor genérico de DB |
 | Cookie legacy `userId` | **No se acepta nunca** (sería volver al agujero). Tras el deploy todos deben iniciar sesión una vez |
 
-Los JWT anteriores a la migración V15 no tienen JTI persistido y se rechazan; los usuarios deben iniciar sesión una vez después del despliegue. Si la BD no puede validar una sesión, la autenticación falla cerrada con 503. Los JTI de una sesión se conservan durante la renovación para que logout invalide también cualquier copia anterior; cada dispositivo conserva su propia sesión. El restore completo borra las sesiones restauradas antes de reabrir tráfico para evitar reactivar JWT de la copia.
+Los JWT anteriores a la migración V15 no tienen JTI persistido y se rechazan; los usuarios deben iniciar sesión una vez después del despliegue. Si la BD no puede validar una sesión, la autenticación falla cerrada con 503. Los JTI de una sesión se conservan durante la renovación para que logout invalide también cualquier copia anterior; cada dispositivo conserva su propia sesión. El restore completo borra las sesiones y enlaces de recuperación restaurados antes de reabrir tráfico para evitar reactivar credenciales temporales de la copia.
 
 **Mensajes de autenticación y registro:** todo fallo de login responde `Correo o contraseña incorrectos`. Las consultas públicas de nombre/correo (`/api/check-username/*`, `/api/check-email/*`) validan solo el formato y no consultan si el dato existe; devuelven `valid`, no disponibilidad. El registro usa la misma respuesta HTTP genérica tanto si crea la cuenta como si el nombre, correo o tag ya está ocupado, y nunca inicia sesión automáticamente. `/api/verify-tag/*` valida contra la API pública de Clash Royale, sin revelar si ese tag está vinculado a una cuenta local.
+
+**Recuperación de contraseña (V16):** `POST /api/password/forgot` siempre devuelve el mismo mensaje, tanto si el correo existe como si no. Para una cuenta válida, el servidor genera 32 bytes aleatorios, almacena solo el SHA-256 del token y envía por Brevo un enlace `APP_BASE_URL/auth#reset=<token>` con vencimiento configurable; el token se consume una sola vez. Hay rate limit por IP en ambas rutas y una pausa por cuenta entre envíos. `POST /api/password/reset` cambia el hash de contraseña, consume los enlaces pendientes y revoca todas las sesiones en una transacción; después se cierran los sockets del usuario. Se requiere `BREVO_API_KEY` y `BREVO_SENDER_EMAIL` ya usados por `CorreoServicio`; sin configuración el endpoint conserva la respuesta genérica, pero no puede entregar el correo. Los backups completos contienen los hashes de tokens temporales, pero el restore los elimina junto con las sesiones antes de reabrir tráfico.
+
+**Contraseñas BCrypt:** el registro y la recuperación aceptan de 6 a 128 caracteres, con un máximo de **72 bytes UTF-8**, que es el límite de BCrypt. El login también rechaza contraseñas que exceden ese tamaño; una contraseña histórica más larga se debe restablecer por correo. El contenedor fija la codificación predeterminada de Java en UTF-8 para que BCrypt procese los mismos bytes que valida la aplicación.
 
 | Variable | Default | Qué controla |
 |---|---|---|

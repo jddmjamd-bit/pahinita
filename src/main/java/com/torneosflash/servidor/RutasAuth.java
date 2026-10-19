@@ -109,6 +109,24 @@ public class RutasAuth {
             ctx.json(successJson("Sesión cerrada", 0));
         });
 
+        // POST /api/password/forgot — respuesta genérica para no confirmar si el correo está registrado.
+        app.post("/api/password/forgot", ctx -> {
+            JsonObject body = parseBody(ctx);
+            auth.solicitarRecuperacionPassword(Peticion.textoOpcional(body, "email", ""));
+            ctx.status(200).json(successJson(
+                    "Si existe una cuenta con ese correo, enviaremos un enlace para recuperar la contraseña.", 0));
+        });
+
+        // POST /api/password/reset — el token demuestra control del correo y solo puede consumirse una vez.
+        app.post("/api/password/reset", ctx -> {
+            JsonObject body = parseBody(ctx);
+            auth.restablecerPassword(
+                    Peticion.textoOpcional(body, "token", ""),
+                    Peticion.textoOpcional(body, "password", ""));
+            AuthMiddleware.cerrarSesion(ctx);
+            ctx.status(200).json(successJson("Contraseña actualizada. Inicia sesión de nuevo.", 0));
+        });
+
         // GET /api/check-username/:username
         app.get("/api/check-username/{username}", ctx -> ctx.json(auth.usernameDisponible(ctx.pathParam("username"))));
 

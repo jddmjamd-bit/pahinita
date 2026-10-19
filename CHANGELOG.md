@@ -11,6 +11,17 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Recuperar contraseñas por correo con enlaces de un solo uso (GPT-6)
+- **Migración V16**: crea `password_reset_tokens` y almacena el hash SHA-256 del token, con vencimiento, uso único e índice por cuenta.
+- **`AuthService`, `UsuarioDAO` y `RutasAuth`**: agregan solicitud y consumo de recuperación con respuesta genérica para evitar enumerar correos; el cambio de clave, consumo de tokens pendientes y revocación de sesiones ocurren en una transacción.
+- **Brevo y límites**: un listener envía el enlace desde `CorreoServicio`; las rutas tienen rate limit por IP y un cooldown por cuenta. `PASSWORD_RESET_TOKEN_MINUTES` (15, 5–60) y `PASSWORD_RESET_COOLDOWN_SECONDS` (60, 30–600) son configurables. Se requieren `BREVO_API_KEY`, `BREVO_SENDER_EMAIL` y `APP_BASE_URL` válidos para entregar el enlace.
+- **Contraseñas**: el registro y la recuperación limitan BCrypt a 72 bytes UTF-8; el login también rechaza entradas que excedan el límite. Docker fija Java en UTF-8.
+- **Frontend y contenido**: React muestra formularios para pedir y consumir enlaces; se añadió una respuesta en FAQ y guía del chatbot. El fragmento `#reset=` evita enviar el token en solicitudes HTTP o encabezados Referer.
+- **Revocación y backups**: al cambiar la contraseña se revocan sesiones y sockets; un restore completo elimina también los tokens recuperados desde el backup y el editor genérico oculta la tabla nueva.
+- **`ARCHITECTURE.md`**: documenta V16, los endpoints, la entrega Brevo, límites de configuración y límite BCrypt.
+- **Verificación**: `mvn clean compile -DskipTests`, `npm run build` y `actualizar-txt.bat` terminaron correctamente; el exportador actualizó 131 archivos. No se ejecutaron pruebas automatizadas.
+Archivos: `V16__recuperacion_segura_password.sql`, `AuthService.java`, `UsuarioDAO.java`, `RutasAuth.java`, `RecuperacionPasswordListener.java`, `Auth.jsx`, `faq.js`, `AppConfig.java`, `RateLimitMiddleware.java`, `ConexionDB.java`, `PostgresBackupService.java`, `DbAdminService.java`, `SocketIOServer.java`, `Main.java`, `Eventos.java`, `ChatbotService.java`, `Dockerfile`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-19 — Revocar sesiones JWT en el servidor (GPT-6)
 - **Migración V15**: crea `user_sessions` para guardar el JTI, usuario y expiración de cada sesión activa.
 - **`JwtServicio`, `AuthMiddleware` y `RutasAuth`**: emiten JWT con JTI, validan su estado en cada request API, conservan el JTI al renovar y eliminan su registro al cerrar sesión. Cada dispositivo mantiene su propia sesión.

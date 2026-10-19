@@ -1,13 +1,24 @@
 package com.torneosflash.servicio;
 
 import com.google.gson.JsonObject;
+import com.torneosflash.config.AppConfig;
 import com.torneosflash.config.Ejecutores;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.dao.UsuarioDAO;
+import com.torneosflash.eventos.EventBus;
+import com.torneosflash.eventos.Eventos;
 import org.mindrot.jbcrypt.BCrypt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.time.Instant;
+import java.util.Base64;
+import java.util.HexFormat;
+import java.util.Locale;
 import java.util.regex.Pattern;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -22,6 +33,10 @@ public class AuthService {
     private static final Logger logger = LoggerFactory.getLogger(AuthService.class);
 
     private static final Pattern PLAYER_TAG_VALIDO = Pattern.compile("^#[0289PYLQGRJCUV]{3,15}$");
+    private static final Pattern TOKEN_RECUPERACION_VALIDO = Pattern.compile("^[A-Za-z0-9_-]{43}$");
+    private static final int PASSWORD_MAX_CARACTERES = 128;
+    private static final int PASSWORD_MAX_BYTES_BCRYPT = 72;
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     /** Hash de trabajo para que un correo inexistente también ejecute una comparación BCrypt. */
     private static final String HASH_CUENTA_INEXISTENTE = BCrypt.hashpw("clave-sin-cuenta", BCrypt.gensalt(10));
     private static final Pattern EMAIL_VALIDO = Pattern.compile("^[^\\s@<>\",;]+@[^\\s@<>\",;]+\\.[^\\s@<>\",;]+$");
@@ -37,12 +52,17 @@ public class AuthService {
     private final GenericDAO db;
     private final ClashApiServicio clashApi;
     private final Ejecutores ejecutores;
+    private final AppConfig config;
+    private final EventBus eventos;
 
-    public AuthService(UsuarioDAO usuarioDAO, GenericDAO db, ClashApiServicio clashApi, Ejecutores ejecutores) {
+    public AuthService(UsuarioDAO usuarioDAO, GenericDAO db, ClashApiServicio clashApi, Ejecutores ejecutores,
+                       AppConfig config, EventBus eventos) {
         this.usuarioDAO = usuarioDAO;
         this.db = db;
         this.clashApi = clashApi;
         this.ejecutores = ejecutores;
+        this.config = config;
+        this.eventos = eventos;
     }
 
     /**
@@ -82,7 +102,7 @@ public class AuthService {
         }
         telefono = telefono == null ? "" : ChatSanitizer.limpiarTexto(telefono.trim(), 30);
 
-        if (username.isEmpty() || email.isEmpty() || password.isEmpty() || playerTag.isEmpty()) {
+        if (username.isEmpty() || email.isEmpty() || password == null || password.isEmpty() || playerTag.isEmpty()) {
             throw ServicioException.solicitudInvalida("Campos obligatorios vacíos");
         }
         if (email.length() > 120 || !EMAIL_VALIDO.matcher(email).matches()) {
@@ -91,9 +111,7 @@ public class AuthService {
         if (!PLAYER_TAG_VALIDO.matcher(playerTag).matches()) {
             throw ServicioException.solicitudInvalida("El Player Tag no tiene un formato válido de Clash Royale (#XXXXXXX)");
         }
-        if (password.length() < 6 || password.length() > 128) {
-            throw ServicioException.solicitudInvalida("La contraseña debe tener entre 6 y 128 caracteres");
-        }
+        validarPasswordNueva(password);
         // S5 (XSS): el username se muestra en chat, rankings y paneles de admin
         if (!ChatSanitizer.esNombreUsuarioSeguro(username)) {
             throw ServicioException.solicitudInvalida(
@@ -125,6 +143,10 @@ public class AuthService {
      * lista blanca de columnas (S6).
      */
     public SesionIniciada login(String emailCrudo, String password) {
+        if (password == null || password.isEmpty() || bytesUtf8(password) > PASSWORD_MAX_BYTES_BCRYPT) {
+            coincide("clave-con-longitud-invalida", HASH_CUENTA_INEXISTENTE);
+            throw ServicioException.solicitudInvalida("Correo o contraseña incorrectos");
+        }
         String email = emailCrudo.trim().toLowerCase();
 
         // S6: el hash vive solo en este objeto de credenciales (nunca se envía al
@@ -144,6 +166,93 @@ public class AuthService {
             throw ServicioException.solicitudInvalida("Correo o contraseña incorrectos");
         }
         return new SesionIniciada(userId, user);
+    }
+
+    /** Responde igual para cuentas existentes, inexistentes y solicitudes repetidas. */
+    public void solicitarRecuperacionPassword(String emailCrudo) {
+        String email = emailCrudo == null ? "" : emailCrudo.trim().toLowerCase(Locale.ROOT);
+        if (email.isEmpty() || email.length() > 120 || !EMAIL_VALIDO.matcher(email).matches()) return;
+
+        UsuarioDAO.CuentaRecuperacion cuenta;
+        try {
+            cuenta = usuarioDAO.buscarCuentaRecuperacion(email);
+        } catch (SQLException e) {
+            logger.error("No se pudo consultar una cuenta para recuperación de contraseña", e);
+            return;
+        }
+        if (cuenta == null) return;
+
+        byte[] aleatorio = new byte[32];
+        SECURE_RANDOM.nextBytes(aleatorio);
+        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(aleatorio);
+        java.util.Arrays.fill(aleatorio, (byte) 0);
+        String tokenHash = hashToken(token);
+        int minutosVigencia = config.getPasswordResetTokenMinutes();
+        try {
+            boolean creado = usuarioDAO.crearTokenRecuperacion(cuenta.userId(), tokenHash,
+                    Instant.now().plusSeconds(minutosVigencia * 60L), config.getPasswordResetCooldownSeconds());
+            if (!creado) return;
+        } catch (SQLException e) {
+            logger.error("No se pudo crear un token de recuperación de contraseña", e);
+            return;
+        }
+
+        String enlace = config.getAppBaseUrl() + "/auth#reset=" + token;
+        eventos.emit(Eventos.PASSWORD_RESET_REQUESTED,
+                new Eventos.PasswordResetSolicitado(cuenta.email(), cuenta.username(), enlace, minutosVigencia));
+    }
+
+    /** Valida el enlace de un solo uso, cambia el hash y revoca todas las sesiones anteriores. */
+    public void restablecerPassword(String token, String passwordNueva) {
+        if (token == null || !TOKEN_RECUPERACION_VALIDO.matcher(token).matches()) {
+            throw ServicioException.solicitudInvalida("El enlace de recuperación no es válido o ya venció");
+        }
+        validarPasswordNueva(passwordNueva);
+        String tokenHash = hashToken(token);
+        try {
+            if (!usuarioDAO.tokenRecuperacionValido(tokenHash)) {
+                throw ServicioException.solicitudInvalida("El enlace de recuperación no es válido o ya venció");
+            }
+        } catch (SQLException e) {
+            logger.error("No se pudo validar el token de recuperación de contraseña", e);
+            throw ServicioException.noDisponible("No se pudo validar el enlace en este momento");
+        }
+
+        String passwordHash = hashear(passwordNueva);
+        try {
+            int userId = usuarioDAO.restablecerPassword(tokenHash, passwordHash);
+            if (userId <= 0) {
+                throw ServicioException.solicitudInvalida("El enlace de recuperación no es válido o ya venció");
+            }
+            eventos.emit(Eventos.PASSWORD_RESET_COMPLETED, new Eventos.PasswordResetCompletado(userId));
+        } catch (SQLException e) {
+            logger.error("No se pudo guardar la contraseña recuperada", e);
+            throw ServicioException.noDisponible("No se pudo actualizar la contraseña en este momento");
+        }
+    }
+
+    private static void validarPasswordNueva(String password) {
+        if (password == null || password.length() < 6 || password.length() > PASSWORD_MAX_CARACTERES) {
+            throw ServicioException.solicitudInvalida(
+                    "La contraseña debe tener entre 6 y 128 caracteres y ocupar como máximo 72 bytes UTF-8");
+        }
+        if (bytesUtf8(password) > PASSWORD_MAX_BYTES_BCRYPT) {
+            throw ServicioException.solicitudInvalida(
+                    "La contraseña puede ocupar como máximo 72 bytes UTF-8 para ser compatible con BCrypt");
+        }
+    }
+
+    private static int bytesUtf8(String valor) {
+        return valor.getBytes(StandardCharsets.UTF_8).length;
+    }
+
+    private static String hashToken(String token) {
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.US_ASCII));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 no está disponible", e);
+        }
     }
 
     /**
