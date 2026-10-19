@@ -41,6 +41,8 @@ public class DbAdminService {
     /** D3 / M4: El ledger financiero es inmutable; solo se permite lectura en el panel DB. */
     private static final String TABLA_LEDGER = "wallet_ledger";
     private static final String MASCARA_PASSWORD = "[HASH_PROTEGIDO]";
+    private static final Set<String> TABLAS_NO_IMPORTABLES =
+            Set.of("users", "transactions", "admin_wallet", "wallet_ledger");
 
     public DbAdminService(GenericDAO db) {
         this.db = db;
@@ -253,6 +255,16 @@ public class DbAdminService {
      */
     public int importar(JsonObject data) {
         return conErrores(() -> {
+            if (data == null) {
+                throw ServicioException.solicitudInvalida("El archivo de importación está vacío");
+            }
+            for (String tabla : TABLAS_NO_IMPORTABLES) {
+                if (data.has(tabla)) {
+                    throw ServicioException.prohibido(
+                            "El panel no puede restaurar usuarios ni tablas financieras. Usa un backup nativo de la base de datos");
+                }
+            }
+
             int totalInserted = 0;
             try (Connection conn = db.getConnection()) {
                 conn.setAutoCommit(false);
@@ -303,8 +315,6 @@ public class DbAdminService {
                             }
                             ps.executeUpdate();
                             totalInserted++;
-                        } catch (Exception ignored) {
-                            // fila inválida: se omite
                         }
                     }
                 }

@@ -22,6 +22,7 @@ import java.math.BigDecimal;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Maneja todos los eventos Socket.IO en tiempo real.
@@ -51,6 +52,7 @@ public class SocketHandler {
     private final ScheduledExecutorService scheduler; // A8: temporizadores cortos (Ejecutores.timers()), nunca HTTP externo
     private final Ejecutores ejecutores; // A8: pool de IO para el sondeo de la API de Clash
     private final RateLimiter socketRateLimiter = new RateLimiter(); // A3: límite por usuario para eventos de socket
+    private final ConcurrentHashMap<String, AtomicLong> ultimoPushChatPorCanal = new ConcurrentHashMap<>();
     private static final int LIMITE_CHAT_SOCKET_POR_MIN = 25;
     private static final int LIMITE_BUSQUEDA_SOCKET_POR_MIN = 6;
     private final Gson gson = new Gson();
@@ -296,15 +298,18 @@ public class SocketHandler {
                     salida.addProperty("fecha", fecha);
                     io.emit("mensaje_chat", salida);
 
-                    // Push notification para mensajes de chat (a todos excepto el remitente)
-                    if (client.getUserData() != null) {
-                        String nombreCanal = canal.equals("general") ? "General" : canal.equals("clash") ? "Clash" : canal.equals("anuncios") ? "Anuncios" : canal;
-                        if (tipo.equals("texto")) {
-                            String preview = texto.length() > 50 ? texto.substring(0, 50) + "..." : texto;
-                            pushService.enviarPushATodos(db, Set.of(senderId), "💬 Mensaje en " + nombreCanal, usuario + ": " + preview);
-                        } else {
-                            pushService.enviarPushATodos(db, Set.of(senderId), "💬 Mensaje en " + nombreCanal, usuario + " envió " + (tipo.equals("imagen") ? "una imagen" : "un video"));
-                        }
+                    // Como máximo un push por canal cada minuto para evitar que cada mensaje
+                    // dispare un envío secuencial a todos los tokens.
+                    if (client.getUserData() != null && permitirPushChat(canal)) {
+                        String nombreCanal = canal.equals("general") ? "General"
+                                : canal.equals("clash") ? "Clash"
+                                : canal.equals("anuncios") ? "Anuncios" : canal;
+                        String preview = tipo.equals("texto")
+                                ? (texto.length() > 50 ? texto.substring(0, 50) + "..." : texto)
+                                : usuario + " envió " + (tipo.equals("imagen") ? "una imagen" : "un video");
+                        pushService.enviarPushATodos(db, Set.of(senderId),
+                                "💬 Mensaje en " + nombreCanal,
+                                tipo.equals("texto") ? usuario + ": " + preview : preview);
                     }
                 } catch (Exception e) { logger.error("Error mensaje_chat: " + e.getMessage()); }
             });
@@ -1261,6 +1266,17 @@ public class SocketHandler {
         }
         eliminarMatchDeBD(salaId);
         activeMatches.remove(salaId);
+    }
+
+    private boolean permitirPushChat(String canal) {
+        AtomicLong ultimo = ultimoPushChatPorCanal.computeIfAbsent(canal, ignorado -> new AtomicLong(0));
+        long ahora = System.nanoTime();
+        long ventana = TimeUnit.MINUTES.toNanos(1);
+        while (true) {
+            long anterior = ultimo.get();
+            if (anterior != 0 && ahora - anterior < ventana) return false;
+            if (ultimo.compareAndSet(anterior, ahora)) return true;
+        }
     }
 
     private void logClash(String texto) {

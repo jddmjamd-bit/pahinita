@@ -178,7 +178,7 @@ public class AppConfig {
         this.rateLimitGeneralPorMin = getEnvEntero("RATE_LIMIT_GENERAL_PER_MIN", 60, 1);
         this.rateLimitFinancieroPorMin = getEnvEntero("RATE_LIMIT_FINANCIAL_PER_MIN", 10, 1);
         this.rateLimitAuthPorMin = getEnvEntero("RATE_LIMIT_AUTH_PER_MIN", 10, 1);
-        this.rateLimitMediaPorMin = getEnvEntero("RATE_LIMIT_MEDIA_PER_MIN", 300, 1);
+        this.rateLimitMediaPorMin = getEnvEntero("RATE_LIMIT_MEDIA_PER_MIN", 30, 1);
         // Cuántos proxies de confianza hay delante del servidor (Render = 1). 0 = ignorar X-Forwarded-For.
         this.rateLimitProxyHops = getEnvEntero("RATE_LIMIT_PROXY_HOPS", 1, 0);
 

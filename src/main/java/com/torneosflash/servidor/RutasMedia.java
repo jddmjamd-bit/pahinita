@@ -4,6 +4,7 @@ import com.torneosflash.servicio.MediaService;
 import com.torneosflash.servicio.ServicioException;
 import io.javalin.Javalin;
 import io.javalin.http.UploadedFile;
+import java.util.concurrent.Semaphore;
 
 /**
  * Rutas para subir y servir archivos multimedia (videos).
@@ -18,10 +19,16 @@ import io.javalin.http.UploadedFile;
  */
 public class RutasMedia {
 
+    // Limita la memoria reservada simultáneamente por descargas grandes.
+    private static final Semaphore DESCARGAS_CONCURRENTES = new Semaphore(1);
+
     public static void register(Javalin app, MediaService media) {
 
         // POST /api/upload - Subir video
         app.post("/api/upload", ctx -> {
+            if (Peticion.userIdDeSesion(ctx) <= 0) {
+                throw ServicioException.noAutenticado("Inicia sesión para subir videos");
+            }
             UploadedFile archivo = ctx.uploadedFile("file");
             if (archivo == null) {
                 throw ServicioException.solicitudInvalida("No se recibió ningún archivo");
@@ -32,28 +39,42 @@ public class RutasMedia {
         // GET /api/media/{id} - Servir archivo desde BD (con soporte Range para seek en
         // videos)
         app.get("/api/media/{id}", ctx -> {
-            MediaService.Descarga descarga = media.descargar(Peticion.pathEntero(ctx, "id"), ctx.header("Range"));
-            if (descarga == null) {
-                ctx.status(404).result("Archivo no encontrado");
+            if (Peticion.userIdDeSesion(ctx) <= 0) {
+                throw ServicioException.noAutenticado("Inicia sesión para ver videos");
+            }
+            if (!DESCARGAS_CONCURRENTES.tryAcquire()) {
+                ctx.header("Retry-After", "2");
+                ctx.status(503).result("Servidor ocupado; inténtalo de nuevo");
                 return;
             }
 
-            ctx.contentType(descarga.contentType());
-            ctx.header("X-Content-Type-Options", "nosniff"); // S5: el navegador no debe "adivinar" otro tipo (p.ej.
-                                                             // HTML)
-            ctx.header("Accept-Ranges", "bytes");
-            ctx.header("Cache-Control", "public, max-age=86400"); // Cache 24h
+            try {
+                MediaService.Descarga descarga =
+                        media.descargar(Peticion.pathEntero(ctx, "id"), ctx.header("Range"));
+                if (descarga == null) {
+                    ctx.status(404).result("Archivo no encontrado");
+                    return;
+                }
 
-            if (descarga.status() == 416) {
-                ctx.status(416).header("Content-Range", descarga.contentRange());
-                return;
+                ctx.contentType(descarga.contentType());
+                ctx.header("X-Content-Type-Options", "nosniff");
+                ctx.header("Accept-Ranges", "bytes");
+                ctx.header("Cache-Control", "private, max-age=86400");
+
+                if (descarga.status() == 416) {
+                    ctx.status(416).header("Content-Range", descarga.contentRange());
+                    return;
+                }
+                if (descarga.status() == 206) {
+                    ctx.status(206);
+                    ctx.header("Content-Range", descarga.contentRange());
+                }
+                ctx.header("Content-Length", String.valueOf(descarga.datos().length));
+                ctx.res().getOutputStream().write(descarga.datos());
+                ctx.res().flushBuffer();
+            } finally {
+                DESCARGAS_CONCURRENTES.release();
             }
-            if (descarga.status() == 206) {
-                ctx.status(206);
-                ctx.header("Content-Range", descarga.contentRange());
-            }
-            ctx.header("Content-Length", String.valueOf(descarga.datos().length));
-            ctx.result(descarga.datos());
         });
     }
 }

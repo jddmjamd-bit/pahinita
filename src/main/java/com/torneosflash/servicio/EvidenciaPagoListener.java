@@ -41,7 +41,8 @@ public class EvidenciaPagoListener {
             JsonObject mensaje = EvidenciaPagoService.mensajeChat(
                     e.evidenciaId(), e.transaccionId(), e.adminUsername(), e.username(),
                     e.monto(), e.metodo(), e.nota(), e.imagen(), e.fecha());
-            io.emit("mensaje_chat", mensaje);
+            // El comprobante solo se entrega al usuario dueño de la transacción.
+            notificador.emitirA(e.userId(), "mensaje_chat", mensaje);
         } catch (Exception ex) {
             logger.error("No se pudo repartir en vivo la evidencia #{}: {}", e.evidenciaId(), ex.getMessage());
         }

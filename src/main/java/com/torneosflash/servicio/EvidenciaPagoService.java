@@ -115,12 +115,19 @@ public class EvidenciaPagoService {
      * ({@link #mensajeChat}). Se pide al abrir el canal «Pagos» (no viajan en la conexión del socket por su peso).
      */
     public List<JsonObject> historial(int userId) {
-        exigirUsuario(userId);
-        List<JsonObject> filas = db.query("SELECT e.id, e.transaction_id, e.monto, e.metodo, e.nota, e.imagen, e.fecha, "
+        JsonObject usuario = exigirUsuario(userId);
+        String consultaBase = "SELECT e.id, e.transaction_id, e.monto, e.metodo, e.nota, e.imagen, e.fecha, "
                 + "uu.username AS para, COALESCE(ua.username, 'admin') AS admin "
                 + "FROM payment_evidences e JOIN users uu ON uu.id = e.user_id "
-                + "LEFT JOIN users ua ON ua.id = e.admin_id "
-                + "ORDER BY e.id DESC LIMIT ?", config.getPagosHistorialLimite());
+                + "LEFT JOIN users ua ON ua.id = e.admin_id ";
+
+        List<JsonObject> filas;
+        if ("admin".equals(texto(usuario, "tipo_suscripcion"))) {
+            filas = db.query(consultaBase + "ORDER BY e.id DESC LIMIT ?", config.getPagosHistorialLimite());
+        } else {
+            filas = db.query(consultaBase + "WHERE e.user_id = ? ORDER BY e.id DESC LIMIT ?",
+                    userId, config.getPagosHistorialLimite());
+        }
         Collections.reverse(filas); // la consulta trae las más nuevas primero; el chat las muestra de vieja a nueva
         List<JsonObject> mensajes = new ArrayList<>();
         for (JsonObject f : filas) {

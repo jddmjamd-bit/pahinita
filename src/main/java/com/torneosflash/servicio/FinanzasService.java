@@ -200,8 +200,13 @@ public class FinanzasService {
             throw ServicioException.solicitudInvalida("amount_in_cents inválido en el webhook");
         }
 
+        // El ID firmado de Wompi permite consultar la transacción real y comparar referencia,
+        // estado, moneda y monto antes de acreditar.
+        verificarCorrelacionEnApiWompi(transactionId, reference, status, currency, pagadoCentavos);
+
         // 3. Marcar como completada y acreditar saldo en UNA sola transacción SQL atómica (C4) // REVIEW-MONEY
-        WalletResult result = wallet.acreditarDepositoWompi(reference, pagadoCentavos, FinanzasService::calcularMontoCentavosWompi);
+        WalletResult result = wallet.acreditarDepositoWompi(
+                reference, transactionId, pagadoCentavos, FinanzasService::calcularMontoCentavosWompi);
         if (result != null && result.isSuccess()) {
             JsonObject trans = db.queryOne("SELECT usuario_id FROM transactions WHERE referencia = ?", reference);
             if (trans != null && trans.has("usuario_id")) {

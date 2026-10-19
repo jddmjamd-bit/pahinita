@@ -23,7 +23,7 @@ import static com.torneosflash.servidor.RutasAuth.errorJson;
  * <ul>
  *   <li><b>GENERAL</b> (60/min): cualquier ruta de la API y de los paneles admin.</li>
  *   <li><b>FINANCIERO</b> (10/min): rutas que mueven dinero. Cuentan en este cubo Y en el general.</li>
- *   <li><b>MEDIA</b> (300/min): {@code GET /api/media/*}. Un video hace muchas peticiones Range al
+ *   <li><b>MEDIA</b> (30/min por defecto): {@code GET /api/media/*}. Un video hace peticiones Range al
  *       buscar y el chat carga varias imágenes a la vez; por eso tiene su propio cubo, más amplio.</li>
  * </ul>
  *

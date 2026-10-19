@@ -640,23 +640,33 @@ public class WalletService {
             conn = db.getConnection();
             conn.setAutoCommit(false);
 
+            int transaccionId;
             int userId;
             BigDecimal monto;
             String estado;
             String externalIdExistente;
 
             try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT usuario_id, monto, estado, external_id FROM transactions WHERE referencia = ? AND tipo = 'deposito' FOR UPDATE")) {
+                    "SELECT id, usuario_id, monto, estado, external_id FROM transactions " +
+                    "WHERE referencia = ? AND tipo = 'deposito' AND metodo = 'wompi' FOR UPDATE")) {
                 ps.setString(1, reference);
                 try (ResultSet rs = ps.executeQuery()) {
                     if (!rs.next()) {
                         conn.rollback();
                         return null;
                     }
+                    transaccionId = rs.getInt("id");
                     userId = rs.getInt("usuario_id");
                     monto = rs.getBigDecimal("monto");
                     estado = rs.getString("estado");
                     externalIdExistente = rs.getString("external_id");
+
+                    if (rs.next()) {
+                        conn.rollback();
+                        logger.error("⛔ Hay varias transacciones Wompi con la referencia '{}'", reference);
+                        throw ServicioException.solicitudInvalida(
+                                "La referencia Wompi no identifica una sola transacción");
+                    }
                 }
             }
 
@@ -697,13 +707,14 @@ public class WalletService {
             }
 
             try (PreparedStatement ps = conn.prepareStatement(
-                    "UPDATE transactions SET estado = 'completado', external_id = ? WHERE referencia = ? AND tipo = 'deposito' AND estado = 'pendiente'")) {
+                    "UPDATE transactions SET estado = 'completado', external_id = ? " +
+                    "WHERE id = ? AND tipo = 'deposito' AND metodo = 'wompi' AND estado = 'pendiente'")) {
                 if (wompiTransactionId != null && !wompiTransactionId.isBlank()) {
                     ps.setString(1, wompiTransactionId);
                 } else {
                     ps.setNull(1, Types.VARCHAR);
                 }
-                ps.setString(2, reference);
+                ps.setInt(2, transaccionId);
                 if (ps.executeUpdate() == 0) {
                     conn.rollback();
                     return null;
