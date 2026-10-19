@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Validar IPs de rate limit detrás de proxies (GPT-6)
+- **`AppConfig.java` y `RateLimitMiddleware.java`**: `RATE_LIMIT_PROXY_HOPS` ahora inicia en `0` y admite como máximo 10 saltos. La cabecera XFF se ignora hasta configurar explícitamente el despliegue; ya no se fuerza la primera entrada cuando faltan saltos y solo se aceptan literales IPv4/IPv6.
+- **`/check-ip`**: ahora muestra la IP efectiva que usa el rate limit, la configuración y el XFF recibido claramente marcado como no confiable. Sigue protegido por rol admin. El chatbot y el panel de BD comparten el mismo resolver validado.
+- **Pruebas**: regresiones para ignorar XFF en modo seguro, prefijos falsificados, cadenas cortas, hosts y direcciones IPv4 inválidas. La cadena efectiva de Render se debe verificar desde su entorno antes de habilitar saltos confiables.
+- **Verificación**: `mvnw clean compile -DskipTests` y `mvnw test-compile -DskipTests` terminaron correctamente; las 6 pruebas pasaron con JUnitCore local. `npm run build` y `actualizar-txt.bat` finalizaron correctamente. `mvnw test` no pudo descargar el adaptador Surefire por un error de certificado. La cadena efectiva de Render aún debe comprobarse desde su entorno.
+Archivos: `AppConfig.java`, `RateLimitMiddleware.java`, `RutasAdmin.java`, `Main.java`, `RateLimitMiddlewareTest.java`, `pom.xml`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-19 — Separar las referencias del chatbot de sus instrucciones (GPT-6)
 - **`ChatbotService.java`**: construye la política del bot por separado, vuelve a limpiar referencias al leerlas y serializa preguntas/respuestas como JSON con tope de contexto.
 - **`ChatbotIaCliente.java`**: Gemini y OpenAI reciben ese JSON en un mensaje aparte; el rol de sistema conserva las reglas y ordena tratar tanto referencias como historial como datos no confiables, no como instrucciones.

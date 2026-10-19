@@ -190,8 +190,9 @@ public class AppConfig {
         this.rateLimitFinancieroPorMin = getEnvEntero("RATE_LIMIT_FINANCIAL_PER_MIN", 10, 1);
         this.rateLimitAuthPorMin = getEnvEntero("RATE_LIMIT_AUTH_PER_MIN", 10, 1);
         this.rateLimitMediaPorMin = getEnvEntero("RATE_LIMIT_MEDIA_PER_MIN", 30, 1);
-        // Cuántos proxies de confianza hay delante del servidor (Render = 1). 0 = ignorar X-Forwarded-For.
-        this.rateLimitProxyHops = getEnvEntero("RATE_LIMIT_PROXY_HOPS", 1, 0);
+        // Solo confiar en X-Forwarded-For después de verificar la cadena efectiva del despliegue.
+        // 0 ignora la cabecera; valores válidos van de 1 a 10 proxies.
+        this.rateLimitProxyHops = getEnvEntero("RATE_LIMIT_PROXY_HOPS", 0, 0, 10);
 
         // Hilos y pools (A8). Defaults pensados para Render free (poca CPU y 512 MB de RAM).
         int httpMax = getEnvEntero("HTTP_MAX_THREADS", 64, 16);

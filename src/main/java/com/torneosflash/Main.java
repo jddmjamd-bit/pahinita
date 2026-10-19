@@ -324,7 +324,7 @@ public class Main {
 
         RutasAuth.register(app, authService);
         RutasFinanzas.register(app, finanzasService);
-        RutasAdmin.register(app, adminService);
+        RutasAdmin.register(app, adminService, config);
         RutasSorteos.register(app, sorteoService);
         RutasLeaderboard.register(app, leaderboardService);
         RutasComisiones.register(app, comisiones, validadorMonto);

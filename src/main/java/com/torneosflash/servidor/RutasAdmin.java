@@ -1,6 +1,7 @@
 package com.torneosflash.servidor;
 
 import com.google.gson.*;
+import com.torneosflash.config.AppConfig;
 import com.torneosflash.servicio.AdminService;
 import io.javalin.Javalin;
 
@@ -18,7 +19,7 @@ import static com.torneosflash.servidor.RutasAuth.*;
  */
 public class RutasAdmin {
 
-    public static void register(Javalin app, AdminService admin) {
+    public static void register(Javalin app, AdminService admin, AppConfig config) {
 
         // GET /api/admin/transactions (solo pendientes)
         app.get("/api/admin/transactions", ctx -> ctx.json(admin.transaccionesPendientes()));
@@ -56,13 +57,18 @@ public class RutasAdmin {
             ctx.json(successJson("Estado de " + targetUser + " reseteado a normal", 0));
         });
 
-        // GET /check-ip (mostrar IP del cliente y del servidor; protegida por AdminMiddleware)
+        // GET /check-ip (diagnóstico de IP efectiva y cadena XFF; protegida por AdminMiddleware)
         app.get("/check-ip", ctx -> {
-            String clientIp = ctx.header("x-forwarded-for");
-            if (clientIp == null || clientIp.isEmpty()) clientIp = ctx.ip();
-            if ("0:0:0:0:0:0:0:1".equals(clientIp)) clientIp = "127.0.0.1 (Localhost)";
+            int saltosProxy = config.getRateLimitProxyHops();
+            String ipEfectiva = RateLimitMiddleware.ipCliente(ctx, saltosProxy);
+            String xffNoConfiable = ctx.header("X-Forwarded-For");
+            if (xffNoConfiable == null || xffNoConfiable.isBlank()) xffNoConfiable = "(ausente)";
+            if (xffNoConfiable.length() > 512) xffNoConfiable = xffNoConfiable.substring(0, 512) + "…";
 
-            ctx.result("IP del Cliente: " + clientIp + "\nIP Pública del Servidor: " + admin.ipPublicaServidor());
+            ctx.result("IP usada por el rate limit: " + ipEfectiva
+                    + "\nRATE_LIMIT_PROXY_HOPS: " + saltosProxy
+                    + "\nX-Forwarded-For recibido (dato no confiable): " + xffNoConfiable
+                    + "\nIP Pública del Servidor: " + admin.ipPublicaServidor());
         });
     }
 }

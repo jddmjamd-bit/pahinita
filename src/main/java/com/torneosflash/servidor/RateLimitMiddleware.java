@@ -8,8 +8,12 @@ import io.javalin.http.Context;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.Inet6Address;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import static com.torneosflash.servidor.RutasAuth.errorJson;
 
@@ -31,9 +35,10 @@ import static com.torneosflash.servidor.RutasAuth.errorJson;
  * webhook de Wompi (llegan de los servidores de Wompi, no de un usuario: limitarlo podría perder
  * pagos reales; su defensa es la verificación de firma, tarea S7).
  *
- * Detrás del proxy de Render {@code ctx.ip()} es la IP del proxy, no la del cliente. Por eso se
- * lee {@code X-Forwarded-For} contando desde la DERECHA ({@code RATE_LIMIT_PROXY_HOPS}), que es
- * lo que añaden los proxies de confianza; la parte izquierda la puede escribir el cliente.
+ * La cabecera {@code X-Forwarded-For} solo se usa con una cantidad de saltos de proxy configurada
+ * explícitamente. Se cuenta desde la derecha y nunca se corrige una cadena demasiado corta tomando
+ * la entrada izquierda, que puede haber sido enviada por el cliente. Hasta confirmar la cadena del
+ * despliegue, {@code RATE_LIMIT_PROXY_HOPS=0} usa la IP directa de la conexión.
  */
 public class RateLimitMiddleware {
     private static final Logger logger = LoggerFactory.getLogger(RateLimitMiddleware.class);
@@ -64,8 +69,12 @@ public class RateLimitMiddleware {
     private static final String RUTA_WEBHOOK_WOMPI = "/api/wompi/webhook";
     private static final String PREFIJO_MEDIA = "/api/media/";
 
-    /** Una IP válida (v4 o v6) mide menos de 46 caracteres; un valor más largo es basura del cliente. */
     private static final int LARGO_MAX_IP = 64;
+    private static final int LARGO_MAX_XFF = 1024;
+    private static final int MAX_ENTRADAS_XFF = 20;
+    private static final int MAX_SALTOS_PROXY = 10;
+    private static final Pattern FORMATO_IPV4 = Pattern.compile("(?:[0-9]{1,3}\\.){3}[0-9]{1,3}");
+    private static final Pattern CARACTERES_IPV6 = Pattern.compile("[0-9a-fA-F:.]+");
 
     public static void register(Javalin app, AppConfig config, RateLimiter limiter) {
         final int limiteGeneral = config.getRateLimitGeneralPorMin();
@@ -76,6 +85,9 @@ public class RateLimitMiddleware {
 
         logger.info("🚦 Rate limiting activo: general {}/min, financiero {}/min, auth {}/min, media {}/min por IP (saltos de proxy: {})",
                 limiteGeneral, limiteFinanciero, limiteAuth, limiteMedia, saltosProxy);
+        if (saltosProxy == 0) {
+            logger.warn("RATE_LIMIT_PROXY_HOPS=0: se ignora X-Forwarded-For; las solicitudes detrás del mismo proxy compartirán la IP directa hasta verificar y configurar la cadena confiable.");
+        }
 
         app.before(ctx -> {
             String metodo = ctx.req().getMethod();
@@ -164,23 +176,63 @@ public class RateLimitMiddleware {
     }
 
     /**
-     * IP del cliente. Con {@code saltosProxy = N} se toma la N-ésima entrada de {@code X-Forwarded-For}
-     * contando desde la derecha (la que añadió nuestro proxy). Con 0 se ignora el header y se usa la
-     * IP de la conexión.
+     * IP que se usará para el rate limit. Solo confía en X-Forwarded-For cuando se configuró el número
+     * exacto de entradas confiables desde la derecha. Si faltan entradas o la dirección seleccionada no
+     * es una IP literal válida, usa la dirección de conexión y nunca la primera entrada por defecto.
      */
     static String ipCliente(Context ctx, int saltosProxy) {
-        String directa = ctx.ip();
-        if (saltosProxy <= 0) return directa;
+        return ipCliente(ctx.ip(), ctx.header("X-Forwarded-For"), saltosProxy);
+    }
 
-        String xff = ctx.header("X-Forwarded-For");
-        if (xff == null || xff.isBlank()) return directa;
+    /** Lógica pura para poder verificar las cadenas de proxy sin depender de un Context HTTP. */
+    static String ipCliente(String ipConexion, String xff, int saltosProxy) {
+        String directa = normalizarIpLiteral(ipConexion);
+        if (directa == null) directa = "unknown";
+        if (saltosProxy <= 0 || saltosProxy > MAX_SALTOS_PROXY
+                || xff == null || xff.isBlank() || xff.length() > LARGO_MAX_XFF) {
+            return directa;
+        }
 
-        String[] partes = xff.split(",");
+        String[] partes = xff.split(",", -1);
+        if (partes.length < saltosProxy || partes.length > MAX_ENTRADAS_XFF) return directa;
+
         int indice = partes.length - saltosProxy;
-        if (indice < 0) indice = 0;
-        String ip = partes[indice].trim();
-        if (ip.isEmpty() || ip.length() > LARGO_MAX_IP) return directa;
-        return ip;
+        String candidata = null;
+        for (int i = indice; i < partes.length; i++) {
+            String ip = normalizarIpLiteral(partes[i]);
+            if (ip == null) return directa;
+            if (i == indice) candidata = ip;
+        }
+        return candidata == null ? directa : candidata;
+    }
+
+    /** Solo acepta literales IPv4/IPv6; evita nombres DNS, puertos y formatos ambiguos en XFF. */
+    private static String normalizarIpLiteral(String valor) {
+        if (valor == null) return null;
+        String ip = valor.trim();
+        if (ip.isEmpty() || ip.length() > LARGO_MAX_IP) return null;
+
+        if (FORMATO_IPV4.matcher(ip).matches()) {
+            String[] octetos = ip.split("\\.");
+            for (String octeto : octetos) {
+                // Evita representaciones con ceros iniciales, cuyo significado varía entre parsers.
+                if (octeto.length() > 1 && octeto.charAt(0) == '0') return null;
+                try {
+                    if (Integer.parseInt(octeto) > 255) return null;
+                } catch (NumberFormatException e) {
+                    return null;
+                }
+            }
+            return ip;
+        }
+
+        if (ip.indexOf(':') < 0 || !CARACTERES_IPV6.matcher(ip).matches()) return null;
+        try {
+            InetAddress direccion = InetAddress.getByName(ip);
+            return direccion instanceof Inet6Address ? direccion.getHostAddress().toLowerCase(Locale.ROOT) : null;
+        } catch (UnknownHostException e) {
+            return null;
+        }
     }
 
     private static void encabezados(Context ctx, RateLimiter.Resultado r) {
