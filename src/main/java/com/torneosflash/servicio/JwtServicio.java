@@ -7,9 +7,11 @@ import com.auth0.jwt.exceptions.JWTVerificationException;
 import com.auth0.jwt.interfaces.DecodedJWT;
 
 import java.time.Instant;
+import java.util.Date;
+import java.util.UUID;
 
 /**
- * Emisión y verificación de tokens de sesión (JWT HS256).
+ * Emisión y verificación de tokens de sesión (JWT HS256) con identificador JTI revocable.
  * El token viaja únicamente en una cookie httpOnly; el frontend nunca lo lee.
  */
 public class JwtServicio {
@@ -18,7 +20,10 @@ public class JwtServicio {
     private static final String CLAIM_ROL = "rol";
 
     /** Datos de sesión extraídos de un token válido. */
-    public record Sesion(int userId, String rol) {}
+    public record Sesion(int userId, String rol, String jti) {}
+
+    /** JWT firmado y metadatos necesarios para persistir o renovar la sesión. */
+    public record TokenEmitido(String valor, String jti, Instant expiraEn) {}
 
     private final Algorithm algorithm;
     private final JWTVerifier verifier;
@@ -37,15 +42,23 @@ public class JwtServicio {
         return expiracionSegundos;
     }
 
-    public String generarToken(int userId, String rol) {
+    public TokenEmitido generarToken(int userId, String rol) {
+        return generarToken(userId, rol, UUID.randomUUID().toString());
+    }
+
+    /** Renueva el JWT conservando el JTI, de modo que logout también invalide copias anteriores. */
+    public TokenEmitido generarToken(int userId, String rol, String jti) {
         Instant ahora = Instant.now();
-        return JWT.create()
+        Instant expiraEn = Instant.ofEpochMilli(ahora.plusSeconds(expiracionSegundos).toEpochMilli());
+        String valor = JWT.create()
                 .withIssuer(ISSUER)
                 .withSubject(String.valueOf(userId))
+                .withJWTId(jti)
                 .withClaim(CLAIM_ROL, rol != null ? rol : "free")
-                .withIssuedAt(ahora)
-                .withExpiresAt(ahora.plusSeconds(expiracionSegundos))
+                .withIssuedAt(Date.from(ahora))
+                .withExpiresAt(Date.from(expiraEn))
                 .sign(algorithm);
+        return new TokenEmitido(valor, jti, expiraEn);
     }
 
     /**
@@ -58,8 +71,11 @@ public class JwtServicio {
             DecodedJWT jwt = verifier.verify(token);
             int userId = Integer.parseInt(jwt.getSubject());
             if (userId <= 0) return null;
+            String jti = jwt.getId();
+            Date expiraEn = jwt.getExpiresAt();
+            if (jti == null || jti.isBlank() || jti.length() > 80 || expiraEn == null) return null;
             String rol = jwt.getClaim(CLAIM_ROL).asString();
-            return new Sesion(userId, rol != null ? rol : "free");
+            return new Sesion(userId, rol != null ? rol : "free", jti);
         } catch (JWTVerificationException | NumberFormatException e) {
             return null;
         }

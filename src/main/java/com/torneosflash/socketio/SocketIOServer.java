@@ -12,6 +12,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.torneosflash.config.AppConfig;
 import com.torneosflash.servidor.AuthMiddleware;
+import com.torneosflash.servicio.JwtServicio;
 import io.javalin.Javalin;
 import io.javalin.http.Context;
 import io.javalin.websocket.WsCloseContext;
@@ -173,6 +174,7 @@ public class SocketIOServer {
      * Arranca {@code netty-socketio} y registra el puente HTTP + WebSocket en {@code /socket.io/} sobre Javalin.
      */
     public void register(Javalin app) {
+        AuthMiddleware.setSessionRevocationHandler(this::cerrarSocketsDeSesion);
         this.activeNettyPort = elegirPuertoNetty(configuredPort, httpPort);
 
         Configuration config = new Configuration();
@@ -257,6 +259,10 @@ public class SocketIOServer {
             SocketIOClient client = new SocketIOClient(sid, nettyClient, this, rootNs);
             autenticarHandshake(nettyClient, client);
             clientsBySession.put(sid, client);
+            if (!sesionSocketSigueActiva(client)) {
+                client.disconnect(true);
+                return;
+            }
 
             if (connectionHandler != null) {
                 try {
@@ -286,6 +292,10 @@ public class SocketIOServer {
             SocketIOClient client = new SocketIOClient(sid, nettyClient, this, ns);
             autenticarHandshake(nettyClient, client);
             adapter.getSockets().put(sid, client);
+            if (!sesionSocketSigueActiva(client)) {
+                client.disconnect(true);
+                return;
+            }
             adapter.fireConnect(client);
         });
         ns.addDisconnectListener(nettyClient -> {
@@ -306,12 +316,32 @@ public class SocketIOServer {
                 if (cookieHeader == null) {
                     cookieHeader = hd.getHttpHeaders().get("cookie");
                 }
-                Integer authUserId = AuthMiddleware.userIdDesdeCookieHeader(cookieHeader);
-                if (authUserId != null) {
-                    client.setAuthenticatedUserId(authUserId);
+                JwtServicio.Sesion sesion = AuthMiddleware.sesionDesdeCookieHeader(cookieHeader);
+                if (sesion != null) {
+                    client.setAuthenticatedUserId(sesion.userId());
+                    client.setAuthenticatedSessionJti(sesion.jti());
                 }
             }
         } catch (Exception ignored) {
+        }
+    }
+
+    private boolean sesionSocketSigueActiva(SocketIOClient client) {
+        Integer userId = client.getAuthenticatedUserId();
+        if (userId == null) return true;
+        return AuthMiddleware.sesionVigente(userId, client.getAuthenticatedSessionJti());
+    }
+
+    /** Cierra las conexiones que pertenecen al JTI justo después de revocarlo en la BD. */
+    private void cerrarSocketsDeSesion(String jti) {
+        if (jti == null || jti.isBlank()) return;
+        for (SocketIOClient client : clientsBySession.values()) {
+            if (jti.equals(client.getAuthenticatedSessionJti())) client.disconnect(true);
+        }
+        for (NamespaceAdapter namespace : namespaces.values()) {
+            for (SocketIOClient client : namespace.getSockets().values()) {
+                if (jti.equals(client.getAuthenticatedSessionJti())) client.disconnect(true);
+            }
         }
     }
 
@@ -329,6 +359,11 @@ public class SocketIOServer {
             String sid = nettyClient.getSessionId().toString();
             SocketIOClient client = buscarCliente(nsName, sid);
             if (client == null) return;
+            // Logout revoca el JWT en la BD; volver a comprobarlo también invalida sockets de otra instancia.
+            if (!sesionSocketSigueActiva(client)) {
+                client.disconnect(true);
+                return;
+            }
 
             Object[] args = (data == null) ? new Object[0] : new Object[]{ aJsonElement(data) };
 

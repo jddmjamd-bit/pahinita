@@ -81,11 +81,9 @@ public class RutasAuth {
                 return;
             }
 
-            // Sesión deslizante: se re-emite el token con el rol ACTUAL de la BD (si lo
-            // hicieron admin o le quitaron
-            // el rol, el JWT se corrige aquí) y con la expiración renovada para quien sigue
-            // usando la app.
-            AuthMiddleware.iniciarSesion(ctx, userId, rolDe(user));
+            // Sesión deslizante: reemite el token con el rol actual y el mismo JTI; así
+            // logout revoca también copias previas de esta sesión.
+            AuthMiddleware.renovarSesion(ctx, userId, rolDe(user));
 
             JsonObject response = new JsonObject();
             response.addProperty("success", true);
@@ -96,6 +94,8 @@ public class RutasAuth {
         // POST /api/logout
         app.post("/api/logout", ctx -> {
             int userId = Peticion.userIdDeSesion(ctx);
+            if (userId > 0) AuthMiddleware.revocarSesion(ctx);
+            AuthMiddleware.cerrarSesion(ctx);
             JsonObject body = parseBody(ctx);
             if (userId > 0 && body.has("pushTokens") && body.get("pushTokens").isJsonArray()) {
                 JsonArray tokens = body.getAsJsonArray("pushTokens");
@@ -106,7 +106,6 @@ public class RutasAuth {
                     }
                 }
             }
-            AuthMiddleware.cerrarSesion(ctx);
             ctx.json(successJson("Sesión cerrada", 0));
         });
 

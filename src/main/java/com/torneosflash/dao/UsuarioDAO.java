@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.sql.*;
+import java.time.Instant;
 import java.util.ArrayList;
 
 /**
@@ -75,6 +76,60 @@ public class UsuarioDAO {
             logger.error("Error buscando credenciales por email: {}", e.getMessage());
         }
         return null;
+    }
+
+    /** Crea una sesión de servidor para el JTI de un JWT recién emitido. */
+    public void crearSesion(String jti, int userId, Instant expiraEn) throws SQLException {
+        try (Connection conn = db.getConnection()) {
+            try (PreparedStatement limpiar = conn.prepareStatement(
+                    "DELETE FROM user_sessions WHERE expires_at <= CURRENT_TIMESTAMP")) {
+                limpiar.executeUpdate();
+            }
+            try (PreparedStatement insertar = conn.prepareStatement(
+                    "INSERT INTO user_sessions (jti, user_id, expires_at) VALUES (?, ?, ?)")) {
+                insertar.setString(1, jti);
+                insertar.setInt(2, userId);
+                insertar.setTimestamp(3, Timestamp.from(expiraEn));
+                insertar.executeUpdate();
+            }
+        }
+    }
+
+    /** Comprueba en cada request que el JTI siga activo y pertenezca al usuario del JWT. */
+    public boolean sesionActiva(String jti, int userId) throws SQLException {
+        try (Connection conn = db.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT 1 FROM user_sessions WHERE jti = ? AND user_id = ? AND expires_at > CURRENT_TIMESTAMP")) {
+            ps.setString(1, jti);
+            ps.setInt(2, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
+    /** Extiende la misma sesión durante la renovación deslizante, sin reactivar una sesión revocada. */
+    public boolean renovarSesion(String jti, int userId, Instant expiraEn) throws SQLException {
+        try (Connection conn = db.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "UPDATE user_sessions SET expires_at = GREATEST(expires_at, ?) " +
+                             "WHERE jti = ? AND user_id = ? AND expires_at > CURRENT_TIMESTAMP")) {
+            ps.setTimestamp(1, Timestamp.from(expiraEn));
+            ps.setString(2, jti);
+            ps.setInt(3, userId);
+            return ps.executeUpdate() == 1;
+        }
+    }
+
+    /** Revoca solo la sesión asociada al JTI; otros dispositivos del usuario siguen conectados. */
+    public boolean revocarSesion(String jti, int userId) throws SQLException {
+        try (Connection conn = db.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "DELETE FROM user_sessions WHERE jti = ? AND user_id = ?")) {
+            ps.setString(1, jti);
+            ps.setInt(2, userId);
+            return ps.executeUpdate() == 1;
+        }
     }
 
     public JsonObject buscarPorUsername(String username) {

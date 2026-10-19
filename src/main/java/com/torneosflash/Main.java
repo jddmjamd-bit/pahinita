@@ -252,13 +252,13 @@ public class Main {
 
         // ============================================
         // 5.6. SESIÓN JWT (S1)
-        // Verifica la cookie httpOnly "session" en cada request e inyecta
-        // ctx.attribute("userId") y ("rol").
+        // Verifica la cookie httpOnly "session" y su JTI persistido en cada request;
+        // inyecta ctx.attribute("userId") y ("rol") solo si no fue revocada.
         // No rechaza nada: cada ruta decide si exige sesión. La cookie antigua "userId"
         // en texto plano ya no se acepta.
         // ============================================
         JwtServicio jwtServicio = new JwtServicio(config.getJwtSecret(), config.getJwtExpirationSeconds());
-        AuthMiddleware.register(app, jwtServicio, config);
+        AuthMiddleware.register(app, jwtServicio, config, usuarioDAO);
         logger.info("🔐 Sesión JWT activa (cookie httpOnly, SameSite={}, Secure={}, expira en {} días)",
                 config.getCookieSameSite(), config.isCookieSecure(), config.getJwtExpirationSeconds() / 86400);
 

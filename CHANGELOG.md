@@ -11,6 +11,16 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Revocar sesiones JWT en el servidor (GPT-6)
+- **Migración V15**: crea `user_sessions` para guardar el JTI, usuario y expiración de cada sesión activa.
+- **`JwtServicio`, `AuthMiddleware` y `RutasAuth`**: emiten JWT con JTI, validan su estado en cada request API, conservan el JTI al renovar y eliminan su registro al cerrar sesión. Cada dispositivo mantiene su propia sesión.
+- **Socket.IO**: valida la sesión en el handshake y antes de cada evento autenticado; desconecta los sockets asociados al JTI revocado, incluida la carrera entre handshake y logout.
+- **`UsuarioDAO` y `Main`**: persisten, renuevan, validan y revocan sesiones; limpian sesiones vencidas al crear una nueva.
+- **Backup y panel de BD**: un restore completo revoca las sesiones incluidas en el dump antes de reabrir tráfico; el editor genérico oculta y bloquea `user_sessions`.
+- **`ARCHITECTURE.md`**: documenta la tabla, la renovación revocable, los sockets y el inicio de sesión requerido para JWT anteriores a V15.
+- **Verificación**: `npm.cmd run build`, `mvn.cmd clean compile -DskipTests` y `actualizar-txt.bat` (129 archivos) terminaron correctamente. No se ejecutaron pruebas automatizadas.
+Archivos: `V15__sesiones_revocables.sql`, `JwtServicio.java`, `AuthMiddleware.java`, `RutasAuth.java`, `UsuarioDAO.java`, `ConexionDB.java`, `PostgresBackupService.java`, `DbAdminService.java`, `Main.java`, `SocketIOServer.java`, `SocketIOClient.java`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-19 — Evitar enumeración de cuentas en login y registro (GPT-6)
 - **`AuthService.java`**: unifica el error de credenciales y verifica BCrypt con un hash ficticio cuando el correo no existe. Las consultas de nombre y correo validan solo el formato; validar un Player Tag ya no revela si está vinculado a una cuenta local.
 - **`RutasAuth.java` y `UsuarioDAO.java`**: el alta responde igual para cuentas creadas y conflictos de identidad, no emite sesión y distingue conflictos únicos de fallos reales de base de datos.

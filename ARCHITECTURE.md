@@ -14,7 +14,7 @@
 | **BD** | PostgreSQL (Render) | Pool: HikariCP, max 20 conexiones. Enlace de acceso endurecido (sección 11) |
 | **ORM** | Ninguno | SQL directo con `PreparedStatement` vía `GenericDAO` |
 | **Migraciones BD** | Flyway 10 | Scripts versionados en `src/main/resources/db/migration/`; se aplican al arrancar (`ConexionDB.migrar()`). Ver sección 14 |
-| **Auth** | JWT HS256 en cookie httpOnly `session` (S1) | `AuthMiddleware` verifica e inyecta `ctx.attribute("userId")`/`("rol")`. Rutas de admin protegidas por `AdminMiddleware` (S3, sección 18). Pendiente: S2 (userId del body y socket). Ver secciones 16 y 18 |
+| **Auth** | JWT HS256 en cookie httpOnly `session` con JTI persistido y revocable (S1) | `AuthMiddleware` verifica firma y sesión activa en `user_sessions`, e inyecta `ctx.attribute("userId")`/`("rol")`. Rutas de admin protegidas por `AdminMiddleware` (S3, sección 18). S2 resuelto; ver secciones 16 y 18 |
 | **Frontend** | Vanilla JS (`app.js`, 120 KB) | SPA monolítica sin framework. **Migrar a React + Vite** (pendiente, en progreso bajo `frontend/`) |
 | **Mobile App** | Capacitor | Genera builds nativos para Android e iOS encapsulando React. El hook mantiene los permisos y el ciclo del token push |
 | **Pagos** | Wompi (tarjeta), Nequi (manual) | Webhook Wompi verifica firma SHA-256, monto y moneda (S7) |
@@ -67,7 +67,7 @@ TorneosFlash/
 │   │   ├── ServicioException.java   # Error de negocio con código HTTP + mensaje; lo convierte `ManejadorErrores` en `{error}` (A3)
 │   │   ├── NotificadorUsuarios.java # Aviso a un usuario por socket (si está conectado) + push FCM (A3)
 │   │   ├── AuthService.java         # Registro, login (BCrypt en el pool CPU), sesión, validación de formato, tag de Clash, token push (A3)
-│   │   ├── JwtServicio.java         # Emite y verifica el JWT de sesión (HS256, issuer `ultimateclash`, claims `sub`=userId y `rol`) (S1)
+│   │   ├── JwtServicio.java         # Emite y verifica JWT de sesión HS256 con `sub`, `rol`, expiración y JTI revocable (S1)
 │   │   ├── FinanzasService.java     # Depósito, recarga, retiro y Wompi (init + webhook) (A3)
 │   │   ├── AdminService.java        # Transacciones pendientes, disputas, estadísticas, utilidades admin (A3)
 │   │   ├── SorteoService.java       # Tickets, encuesta, participar, crear/eliminar y ejecutar sorteos, tickets por partida (A3)
@@ -85,7 +85,7 @@ TorneosFlash/
 │   │   └── EvidenciaPagoListener.java # Listener de `pagos.evidencia_publicada`: mensaje en vivo al canal «pagos» + push a quien recibió el pago
 │   ├── servidor/                    # Capa HTTP (A3): parsea el request, llama a un servicio y responde. Sin lógica de negocio ni SQL
 │   │   ├── RateLimitMiddleware.java # Rate limiting por IP (S8): clasifica cada request y responde 429. Ver sección 10
-│   │   ├── AuthMiddleware.java      # Sesión JWT (S1): lee la cookie httpOnly `session`, inyecta `userId`/`rol`, emite y borra la cookie. Ver sección 16
+│   │   ├── AuthMiddleware.java      # Sesión JWT (S1): valida el JTI persistido, inyecta identidad y revoca/renueva la sesión. Ver sección 16
 │   │   ├── AdminMiddleware.java     # Exige sesión + rol admin (leído de la BD) en `/api/admin/*`, `/api/deposit` y `/admin-fix-status/*` (S3). Ver sección 18
 │   │   ├── ManejadorErrores.java    # Único handler de `ServicioException` → `{error}` con su código HTTP (A3)
 │   │   ├── Peticion.java            # Lee campos del body, parámetros de ruta y el userId de la sesión JWT; campo faltante/inválido → 400 (A3)
@@ -104,7 +104,7 @@ TorneosFlash/
 │       ├── SocketIOServer.java      # Parseo de paquetes Engine.IO/Socket.IO
 │       └── SocketIOClient.java      # Wrapper del cliente WS
 ├── src/main/resources/
-│   └── db/migration/                # Migraciones Flyway V1–V12; V12 agrega unicidad de referencias de depósitos Wompi
+│   └── db/migration/                # Migraciones Flyway V1–V15; V15 agrega sesiones JWT revocables
 ├── agent/rules/                     # Reglas para modelos IA
 │   ├── auto-push.md
 │   └── project-conventions.md       # ← NUEVO
@@ -480,6 +480,8 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | `V11__blindaje_wompi_y_ledger.sql` | Agrega `transactions.external_id` único para correlacionar transacciones Wompi y bloquea `TRUNCATE` en `wallet_ledger` |
 | `V12__referencias_wompi_unicas.sql` | Hace única la referencia de depósitos Wompi. Si existen duplicados históricos, falla sin modificarlos para exigir conciliación antes del despliegue |
 | `V13__cortes_leaderboard_recuperables.sql` | Persiste cortes/pagos idempotentes y vincula cada historial de jugador con su pago para recuperarse tras reinicios |
+| `V14__inicio_partida_idempotente.sql` | Vincula la sala persistida con el match financiero e impide cobrar dos veces al reintentar el inicio |
+| `V15__sesiones_revocables.sql` | Crea `user_sessions`, que vincula cada JTI de JWT a un usuario y una expiración para validar y revocar sesiones |
 
 **Cómo se comporta según el estado de la BD** (`baselineOnMigrate=true`, `baselineVersion=0`):
 
@@ -490,7 +492,7 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | Ya migrada | Aplica solo los scripts nuevos; si no hay, no hace nada |
 
 **Reglas**
-- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V13`). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
+- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V16`). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
 - **Nunca editar un `V*` ya aplicado:** Flyway guarda el checksum y `validateOnMigrate` hace fallar el arranque. Para corregir algo, una migración nueva.
 - **Fail-fast:** si una migración falla, `Main` loguea el error y sale con código 1 (no se sirve tráfico con el esquema a medias). Cada script corre en su propia transacción en PostgreSQL: si falla se revierte entero.
 - `cleanDisabled=true`: la app nunca puede ejecutar `flyway clean`.
@@ -543,26 +545,29 @@ RutasX (servidor/)                        XService (servicio/)
 La sesión ya no es la cookie `userId` en texto plano (cualquiera podía escribir ahí el id de otro usuario). Ahora es un JWT firmado que solo el servidor puede emitir.
 
 ```
-login correcto ── AuthMiddleware.iniciarSesion(ctx, userId, rol)
-                      └─ Set-Cookie: session=<JWT>; Path=/; Max-Age=...; HttpOnly; SameSite=Lax; Secure
-                      └─ Set-Cookie: userId=; Max-Age=0   (borra la cookie legacy)
+login correcto ── crea un JTI en user_sessions ── Set-Cookie: session=<JWT>; HttpOnly; SameSite; Secure
+GET /api/session ── extiende expires_at y renueva el token conservando el JTI
+POST /api/logout ── elimina el JTI ── desconecta sockets de esa sesión ── borra la cookie
 
-registro ── respuesta genérica sin cookie, tanto al crear la cuenta como ante un conflicto de identidad
+cada request /api ── verifica firma/expiración y JTI activo en user_sessions
+                         ├─ activo   → ctx.attribute("userId"), ctx.attribute("rol")
+                         └─ revocado → sin identidad; se borra la cookie
 
-cada request ── AuthMiddleware (app.before) ── JwtServicio.verificar(cookie session)
-                      ├─ válido   → ctx.attribute("userId"), ctx.attribute("rol")
-                      └─ inválido → sin atributos (no se rechaza: cada ruta decide)
+cada evento autenticado de Socket.IO ── revalida el JTI antes de ejecutar su handler
 
 ruta ── AuthMiddleware.getUserId(ctx) / Peticion.userIdDeSesion(ctx) (0 si no hay sesión)
 ```
 
 | Pieza | Detalle |
 |---|---|
-| Token | HS256, `iss=ultimateclash`, `sub`=userId, claim `rol` (= `users.tipo_suscripcion`), `iat`, `exp`. Se verifican firma, emisor y expiración |
+| Token | HS256, `iss=ultimateclash`, `sub`=userId, claim `rol` (= `users.tipo_suscripcion`), `jti` aleatorio, `iat`, `exp`. Se verifican firma, emisor y expiración |
 | Cookie | `session`, `HttpOnly` (el JS del navegador no la puede leer), `SameSite` = `COOKIE_SAMESITE` (default `Lax`), `Secure` = `COOKIE_SECURE` (default `true`; forzado si SameSite=None). Se arma a mano porque `jakarta.servlet.http.Cookie` no soporta SameSite |
-| `GET /api/session` | 401 si no hay JWT válido (y borra la cookie). Si es válido, re-emite el token con el rol actual de la BD y la expiración renovada (sesión deslizante). Si la cuenta ya no existe, 401 y borra la cookie |
-| `POST /api/logout` | Borra `session` y la cookie legacy `userId` |
+| `GET /api/session` | 401 si no hay JWT/JTI activo (y borra la cookie). Si es válido, renueva la expiración y el rol actual de la BD conservando el JTI. Si la cuenta ya no existe, 401 y borra la cookie |
+| `POST /api/logout` | Elimina el JTI de `user_sessions`, desconecta los sockets asociados, desasocia los tokens push indicados y borra las cookies. Otras sesiones/dispositivos del usuario siguen activos |
+| `user_sessions` | Un registro por sesión iniciada, con `jti`, `user_id`, `expires_at` y `created_at`. Cada petición API y cada evento autenticado de Socket.IO comprueban que siga activo; los vencidos se limpian al iniciar una sesión nueva. La tabla queda oculta y protegida en el editor genérico de DB |
 | Cookie legacy `userId` | **No se acepta nunca** (sería volver al agujero). Tras el deploy todos deben iniciar sesión una vez |
+
+Los JWT anteriores a la migración V15 no tienen JTI persistido y se rechazan; los usuarios deben iniciar sesión una vez después del despliegue. Si la BD no puede validar una sesión, la autenticación falla cerrada con 503. Los JTI de una sesión se conservan durante la renovación para que logout invalide también cualquier copia anterior; cada dispositivo conserva su propia sesión. El restore completo borra las sesiones restauradas antes de reabrir tráfico para evitar reactivar JWT de la copia.
 
 **Mensajes de autenticación y registro:** todo fallo de login responde `Correo o contraseña incorrectos`. Las consultas públicas de nombre/correo (`/api/check-username/*`, `/api/check-email/*`) validan solo el formato y no consultan si el dato existe; devuelven `valid`, no disponibilidad. El registro usa la misma respuesta HTTP genérica tanto si crea la cuenta como si el nombre, correo o tag ya está ocupado, y nunca inicia sesión automáticamente. `/api/verify-tag/*` valida contra la API pública de Clash Royale, sin revelar si ese tag está vinculado a una cuenta local.
 

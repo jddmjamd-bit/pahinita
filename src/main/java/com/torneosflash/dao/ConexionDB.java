@@ -269,6 +269,27 @@ public class ConexionDB {
         }
     }
 
+    /**
+     * Revoca las sesiones que venían dentro del dump después de restaurarlo. Las sesiones son credenciales
+     * temporales y no deben reactivarse al volver a una copia anterior. Solo se permite durante restore.
+     */
+    public int revocarSesionesTrasRestauracion() throws SQLException {
+        if (!restauracionActiva.get()) {
+            throw new SQLException("La revocación posterior al restore requiere modo de restauración");
+        }
+        if (enlaceBD == null) throw new SQLException("No está configurado el enlace de PostgreSQL");
+
+        Properties propiedades = new Properties();
+        if (enlaceBD.usuario != null && !enlaceBD.usuario.isBlank()) {
+            propiedades.setProperty("user", enlaceBD.usuario);
+        }
+        if (enlaceBD.password != null) propiedades.setProperty("password", enlaceBD.password);
+        try (Connection conn = DriverManager.getConnection(enlaceBD.jdbcUrl, propiedades);
+             PreparedStatement ps = conn.prepareStatement("DELETE FROM user_sessions")) {
+            return ps.executeUpdate();
+        }
+    }
+
     /** Evita nuevas consultas y espera a que terminen las conexiones activas antes de restaurar. */
     public void iniciarModoRestauracion(long esperaMaximaMs, BloqueoOperacion operacion) throws SQLException {
         if (operacion == null) throw new SQLException("No se reservó el bloqueo global de backup/restore");

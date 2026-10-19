@@ -35,6 +35,7 @@ public class SocketIOClient {
     private String busquedaNotifId;
     // S2: userId verificado desde la cookie httpOnly JWT durante el handshake
     private Integer authenticatedUserId;
+    private String authenticatedSessionJti;
 
     public SocketIOClient(
             String sid,
@@ -50,6 +51,7 @@ public class SocketIOClient {
         this.currentRoom = null;
         this.busquedaNotifId = null;
         this.authenticatedUserId = null;
+        this.authenticatedSessionJti = null;
     }
 
     /** Registra un listener de evento para este socket y asegura su registro en el namespace de Netty. */
@@ -151,6 +153,8 @@ public class SocketIOClient {
 
     public Integer getAuthenticatedUserId() { return authenticatedUserId; }
     public void setAuthenticatedUserId(Integer authenticatedUserId) { this.authenticatedUserId = authenticatedUserId; }
+    public String getAuthenticatedSessionJti() { return authenticatedSessionJti; }
+    public void setAuthenticatedSessionJti(String authenticatedSessionJti) { this.authenticatedSessionJti = authenticatedSessionJti; }
 
     public String getCurrentRoom() { return currentRoom; }
     public void setCurrentRoom(String currentRoom) { this.currentRoom = currentRoom; }
