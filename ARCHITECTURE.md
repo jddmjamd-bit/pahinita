@@ -130,8 +130,10 @@ TorneosFlash/
 | `raffles` | Sorteos activos/completados | `nombre`, `categoria`, `precio`, `tickets_necesarios`, `ganador_id` |
 | `raffle_entries` | Participaciones en sorteos | `raffle_id`, `user_id`, `tickets_asignados` |
 | `raffle_votes` | Votos de categoría de sorteo | `user_id`, `categoria` |
-| `leaderboard_history` | Historial de rankings | `user_id`, `periodo`, `victorias`, `posicion`, `premio` |
-| `leaderboard_pools` | Acumulado de premios del ranking | `dia`, `semana`, `mes`, `ano` |
+| `leaderboard_history` | Historial de rankings | `user_id`, `periodo`, `victorias`, `posicion`, `premio`, `corte_pago_id` (único para historiales de cortes nuevos) |
+| `leaderboard_pools` | Acumulado de premios del ranking y marcas del último corte | `dia`, `semana`, `mes`, `ano`, `ultimo_corte_*` |
+| `leaderboard_cuts` | Cortes recuperables del leaderboard | `periodo`, `clave_corte`, `pozo`, `estado` |
+| `leaderboard_cut_payments` | Snapshot de destinatarios y estado recuperable de cada pago | `corte_id`, `user_id`, `tipo_pago`, `monto`, `estado`, `intentos`, `ultimo_error` |
 | `media_files` | Videos subidos (como BYTEA) | `filename`, `content_type`, `data` |
 | `chatbot_conocimiento` | Base de conocimiento del chatbot y dudas pendientes | `pregunta`, `pregunta_normalizada`, `respuesta`, `origen` (ia/usuario/admin), `estado` (pendiente/respondida/descartada), `veces` |
 | `chatbot_duda_usuarios` | Quiénes hicieron cada duda pendiente (para avisarles) | `duda_id`, `user_id` |
@@ -204,8 +206,16 @@ Retiro:
   Admin aprueba/rechaza la transacción pendiente
 
 Premio (leaderboard, sorteo):
-  WalletService.premiar() → evento wallet.awarded
+  Leaderboard: WalletService.premiarLeaderboard() acredita saldo, registra wallet_ledger y marca
+  leaderboard_cut_payments como pagado en la misma transacción; bloquear el pago por ID lo hace idempotente.
+  Sorteo: WalletService.premiar() → evento wallet.awarded
 ```
+
+Los cierres de leaderboard guardan primero en una transacción el monto del pozo, el ranking, los pagos
+individuales a jugadores/admins, la marca del período y el reinicio de victorias. El job vuelve a procesar
+cortes pendientes cada minuto; cada pago fallido conserva su error y puede reintentarse, sin recalcular
+montos ni duplicar créditos. El historial se vincula al pago con una clave única, y el corte solo pasa a
+completado cuando todos los créditos y los historiales de jugadores existen.
 
 En `POST /api/wompi/init`, `FinanzasService` genera una referencia `TF-` e inserta el pendiente con `ON CONFLICT`.
 El índice parcial único de V12 serializa solicitudes concurrentes; ante una colisión, el servicio genera otra
@@ -381,7 +391,7 @@ Toda configuración de despliegue se lee en `config/AppConfig` (nada de números
 
 - Los mensajes que ven los jugadores ("...nadie respondió en 10 minutos", "No se encontró el resultado en 10 minutos") y el campo `tiempo` de `rival_desconectado` se calculan con estos valores.
 - `DB_ADMIN_SECRET` ya no tiene valor por defecto: sin ella el panel `/admin-db` queda deshabilitado (ver docstring de `RutasDbAdmin`).
-- Siguen fijos en el código y fuera de A7: CORS `anyHost()` y la zona horaria del reset del leaderboard (usa la de la JVM, UTC en Render). Los pools de hilos pasaron a variables de entorno en A8 (siguiente sección).
+- Siguen fijos en el código y fuera de A7: CORS `anyHost()`. Los cortes de leaderboard usan `America/Bogota` (UTC-5), definido en `LeaderboardService`; los pools de hilos pasaron a variables de entorno en A8 (siguiente sección).
 
 ---
 
@@ -458,6 +468,7 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | `V10__endurecer_esquema_finanzas.sql` | Refuerza saldos/tickets, hace inmutable `wallet_ledger` y persiste marcas de corte de leaderboard |
 | `V11__blindaje_wompi_y_ledger.sql` | Agrega `transactions.external_id` único para correlacionar transacciones Wompi y bloquea `TRUNCATE` en `wallet_ledger` |
 | `V12__referencias_wompi_unicas.sql` | Hace única la referencia de depósitos Wompi. Si existen duplicados históricos, falla sin modificarlos para exigir conciliación antes del despliegue |
+| `V13__cortes_leaderboard_recuperables.sql` | Persiste cortes/pagos idempotentes y vincula cada historial de jugador con su pago para recuperarse tras reinicios |
 
 **Cómo se comporta según el estado de la BD** (`baselineOnMigrate=true`, `baselineVersion=0`):
 
@@ -507,7 +518,7 @@ RutasX (servidor/)                        XService (servicio/)
 - **Un servicio nuevo** = clase en `servicio/` con sus dependencias por constructor, instanciada en `Main` (sección 7) y pasada a `RutasX.register(app, servicio)`. Nada de campos `static` con estado ni de `register(app, db, io, push, ...)`.
 - **Notificar al usuario** (socket + push): `NotificadorUsuarios.notificarSaldo` / `emitirA`. Reacciones a algo que ya ocurrió (tickets, resultado de partida) van por el bus de eventos (sección 13).
 - **Pools:** BCrypt va por `Ejecutores.enCpu` (dentro de `AuthService`); un servicio que llame a HTTP externo no debe hacerlo en un hilo de temporizador (sección de A8).
-- Los jobs de `Main` (sorteos vencidos cada minuto, premios del leaderboard a las 00:00) llaman a `SorteoService.ejecutarSorteosExpirados()` y `LeaderboardService.premiarYResetear()`.
+- Los jobs de `Main` revisan sorteos vencidos y cierres de leaderboard cada minuto. `LeaderboardService.verificarYCerrarPeriodos()` recupera primero los pagos pendientes y luego detecta cambios de día, semana, mes o año en hora de Colombia.
 
 **Pendiente / fuera de A3**
 - `SocketHandler` (~50 KB) sigue mezclando protocolo de sockets con lógica de negocio (matchmaking, negociación, chat); es candidato a su propia tarea.

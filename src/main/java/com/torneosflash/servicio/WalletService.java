@@ -74,24 +74,33 @@ public class WalletService {
         private final boolean success;
         private final BigDecimal nuevoSaldo;
         private final String error;
+        private final boolean applied;
 
-        private WalletResult(boolean success, BigDecimal nuevoSaldo, String error) {
+        private WalletResult(boolean success, BigDecimal nuevoSaldo, String error, boolean applied) {
             this.success = success;
             this.nuevoSaldo = nuevoSaldo;
             this.error = error;
+            this.applied = applied;
         }
 
         public static WalletResult ok(BigDecimal nuevoSaldo) {
-            return new WalletResult(true, nuevoSaldo, null);
+            return new WalletResult(true, nuevoSaldo, null, true);
+        }
+
+        /** Resultado exitoso de una operación idempotente que ya se había aplicado. */
+        public static WalletResult yaAplicado(BigDecimal saldoActual) {
+            return new WalletResult(true, saldoActual, null, false);
         }
 
         public static WalletResult fail(String error) {
-            return new WalletResult(false, null, error);
+            return new WalletResult(false, null, error, false);
         }
 
         public boolean isSuccess() { return success; }
         public BigDecimal getNuevoSaldo() { return nuevoSaldo != null ? nuevoSaldo : BigDecimal.ZERO; }
         public String getError() { return error; }
+        /** Indica si esta llamada aplicó un movimiento nuevo, para evitar notificaciones repetidas. */
+        public boolean wasApplied() { return success && applied; }
     }
 
     /** Resultado atómico del inicio de una partida entre dos jugadores (C1). */
@@ -1054,6 +1063,103 @@ public class WalletService {
             return WalletResult.fail("Error interno al premiar");
         } finally {
             cerrarConexion(conn);
+        }
+    }
+
+    /**
+     * Acredita un pago persistido de leaderboard una sola vez. La acreditación, el ledger y el cambio
+     * a estado pagado comparten la misma transacción SQL; un reinicio puede reintentar el mismo ID.
+     */
+    // REVIEW-MONEY
+    public WalletResult premiarLeaderboard(long pagoId, String motivo) {
+        Connection conn = null;
+        int userId = 0;
+        BigDecimal monto = null;
+        try {
+            conn = db.getConnection();
+            conn.setAutoCommit(false);
+
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT user_id, monto, estado FROM leaderboard_cut_payments WHERE id = ? FOR UPDATE")) {
+                ps.setLong(1, pagoId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        return WalletResult.fail("Pago de leaderboard no encontrado");
+                    }
+                    userId = rs.getInt("user_id");
+                    monto = rs.getBigDecimal("monto");
+                    if ("pagado".equals(rs.getString("estado"))) {
+                        BigDecimal saldoActual = leerSaldo(conn, userId);
+                        conn.commit();
+                        return WalletResult.yaAplicado(saldoActual);
+                    }
+                }
+            }
+
+            if (monto == null || monto.compareTo(BigDecimal.ZERO) <= 0) {
+                conn.rollback();
+                registrarFalloPagoLeaderboard(pagoId, "Monto persistido inválido");
+                return WalletResult.fail("Monto del pago de leaderboard inválido");
+            }
+
+            BigDecimal saldoAnterior = leerSaldoBloqueando(conn, userId);
+            if (saldoAnterior == null) {
+                conn.rollback();
+                registrarFalloPagoLeaderboard(pagoId, "Usuario del pago no encontrado");
+                return WalletResult.fail("Usuario no encontrado");
+            }
+
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE users SET saldo = saldo + ? WHERE id = ?")) {
+                ps.setBigDecimal(1, monto);
+                ps.setInt(2, userId);
+                if (ps.executeUpdate() != 1) {
+                    conn.rollback();
+                    registrarFalloPagoLeaderboard(pagoId, "Usuario del pago no encontrado");
+                    return WalletResult.fail("Usuario no encontrado");
+                }
+            }
+
+            BigDecimal nuevoSaldo = saldoAnterior.add(monto);
+            insertarLedger(conn, userId, TIPO_PREMIO, monto, saldoAnterior, nuevoSaldo, motivo);
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE leaderboard_cut_payments SET estado = 'pagado', intentos = intentos + 1, " +
+                    "ultimo_error = NULL, pagado_en = CURRENT_TIMESTAMP WHERE id = ? AND estado = 'pendiente'")) {
+                ps.setLong(1, pagoId);
+                if (ps.executeUpdate() != 1) {
+                    conn.rollback();
+                    return WalletResult.fail("El pago de leaderboard cambió mientras se procesaba");
+                }
+            }
+
+            conn.commit();
+            logger.info("🎁 PREMIO leaderboard pagoId={} userId={} monto={} motivo='{}' nuevoSaldo={}",
+                    pagoId, userId, monto, motivo, nuevoSaldo);
+            emitirEvento(Eventos.WALLET_AWARDED, new Eventos.MovimientoWallet(
+                    Eventos.TipoMovimiento.PREMIO, userId, monto, nuevoSaldo, motivo));
+            return WalletResult.ok(nuevoSaldo);
+        } catch (SQLException e) {
+            rollbackSilencioso(conn);
+            registrarFalloPagoLeaderboard(pagoId, e.getMessage());
+            logger.error("❌ Error en pago leaderboard id={}: {}", pagoId, e.getMessage());
+            return WalletResult.fail("Error interno al pagar leaderboard");
+        } finally {
+            cerrarConexion(conn);
+        }
+    }
+
+    private void registrarFalloPagoLeaderboard(long pagoId, String error) {
+        try (Connection conn = db.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "UPDATE leaderboard_cut_payments SET intentos = intentos + 1, ultimo_error = ?, " +
+                     "pagado_en = NULL WHERE id = ? AND estado = 'pendiente'")) {
+            String seguro = error == null ? "Error desconocido" : error;
+            ps.setString(1, seguro.length() > 1000 ? seguro.substring(0, 1000) : seguro);
+            ps.setLong(2, pagoId);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            logger.warn("No se pudo registrar el fallo del pago leaderboard id={}: {}", pagoId, e.getMessage());
         }
     }
 

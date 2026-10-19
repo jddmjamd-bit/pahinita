@@ -11,6 +11,14 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-19 — Hacer recuperables e idempotentes los premios del leaderboard (GPT-6)
+- **Migración V13**: añade cortes y pagos persistentes, conserva estado/intentos/error por destinatario y vincula de forma única el historial de jugador con su pago.
+- **`LeaderboardService.java`**: guarda en una transacción el pozo leído antes de ponerlo en cero, los montos exactos por jugador/admin, la marca de corte y el reset de victorias. Reintenta los pagos pendientes cada minuto, registra historial idempotente y solo cierra el corte cuando todos los pagos e historiales terminaron.
+- **`WalletService.java`**: agrega pago idempotente por ID persistido; el saldo, el ledger y el estado pagado se confirman juntos. Las fallas quedan guardadas para próximos reintentos.
+- **`ARCHITECTURE.md`**: documenta las tablas, la recuperación y la frecuencia real del job.
+- **Verificación**: `mvnw.cmd clean compile -DskipTests` terminó con `BUILD SUCCESS`; se ejecutó `actualizar-txt.bat`. No se ejecutaron pruebas ni se probó la migración contra una base real.
+Archivos: `LeaderboardService.java`, `WalletService.java`, `V13__cortes_leaderboard_recuperables.sql`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-19 — Añadir backup y restauración completa de PostgreSQL (GPT-6)
 - **Backup nativo**: el panel crea un archivo custom de `pg_dump` con esquema y datos completos, incluidos hashes, tokens y finanzas; lo transmite sin mantenerlo en el contenedor después de descargarlo.
 - **Restore validado**: la ruta comprueba formato y tablas financieras requeridas antes de pausar el tráfico, usa advisory locks de PostgreSQL para coordinar todas las instancias y serializar backups/restores, y restaura con `pg_restore --single-transaction`; luego aplica migraciones Flyway. Si Flyway falla, deja la API bloqueada hasta corregir y reiniciar.

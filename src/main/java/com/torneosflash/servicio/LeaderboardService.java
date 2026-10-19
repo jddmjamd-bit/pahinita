@@ -165,6 +165,7 @@ public class LeaderboardService {
      */
     public void verificarYCerrarPeriodos() {
         try {
+            recuperarCortesPendientes();
             LocalDate hoy = LocalDate.now(ZONA_COLOMBIA);
             String claveDia = hoy.toString();
             String claveSemana = hoy.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).toString();
@@ -203,164 +204,377 @@ public class LeaderboardService {
     }
 
     /**
-     * C7: Reclama atómicamente el pozo y la marca de corte en {@code leaderboard_pools}, premia al top 10
-     * y resetea la columna de victorias. Un reinicio o doble invocación nunca paga el mismo pozo dos veces.
+     * Crea el corte, guarda la lista inmutable de pagos y reinicia pozo/contador en una transacción.
+     * Los créditos se procesan después, cada uno de forma idempotente en WalletService.
      */
     public void premiarYResetear(String periodo, String columna, String claveCorte) {
         try {
             String columnaSegura = columnaVictoriasSegura(periodo, columna);
             String periodoSeguro = columnaPozoSegura(periodo);
-            String colCorte = columnaUltimoCorteSegura(periodo);
-
-            BigDecimal pozoTotal;
-            try (Connection conn = db.getConnection();
-                 PreparedStatement ps = conn.prepareStatement(
-                         "UPDATE leaderboard_pools SET " + periodoSeguro + " = 0, " + colCorte + " = ? " +
-                         "WHERE id = 1 AND (" + colCorte + " IS NULL OR " + colCorte + " <> ?) " +
-                         "RETURNING (SELECT " + periodoSeguro + " FROM leaderboard_pools WHERE id = 1) AS pozo_reclamado")) {
-                ps.setString(1, claveCorte);
-                ps.setString(2, claveCorte);
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (!rs.next()) {
-                        return; // Otro hilo o instancia ya procesó este corte
-                    }
-                    BigDecimal p = rs.getBigDecimal("pozo_reclamado");
-                    pozoTotal = p != null ? p : BigDecimal.ZERO; // REVIEW-MONEY
-                }
-            } catch (SQLException e) {
-                logger.error("Error reclamando pozo de leaderboard {}: {}", periodoSeguro, e.getMessage());
-                return;
-            }
-
-            logger.info("🏆 Premiando leaderboard {} (corte {}, pozo={})...", periodoSeguro, claveCorte, pozoTotal);
-
-            ArrayList<JsonObject> top = db.query(
-                    "SELECT id, username, " + columnaSegura + " as victorias, ganancia_generada FROM users WHERE " +
-                    columnaSegura + " > 0 ORDER BY " + columnaSegura + " DESC, ganancia_generada DESC LIMIT 10");
-
-            String configKey = "dia".equals(periodoSeguro) ? "diario" : "semana".equals(periodoSeguro) ? "semanal" :
-                    "mes".equals(periodoSeguro) ? "mensual" : "anual";
-
-            String ahora = new java.util.Date().toString();
-
-            if (pozoTotal.compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal pozoSobrante = BigDecimal.ZERO;
-                BigDecimal decimalesSobrantes = BigDecimal.ZERO;
-
-                // 1. Premio base de cada jugador en el top
-                for (int i = 0; i < PORCENTAJES.length; i++) {
-                    BigDecimal premioExacto = pozoTotal.multiply(PORCENTAJES[i]);
-                    if (i < top.size()) {
-                        JsonObject jugador = top.get(i);
-                        BigDecimal premioMonto = premioExacto.setScale(0, RoundingMode.FLOOR);
-                        jugador.addProperty("premio_asignado", premioMonto);
-                        decimalesSobrantes = decimalesSobrantes.add(premioExacto.subtract(premioMonto));
-                    } else {
-                        pozoSobrante = pozoSobrante.add(premioExacto);
-                    }
-                }
-
-                // 2. Dividir el sobrante (si hay menos de 10 jugadores)
-                BigDecimal bonoExtraJugadorExacto = BigDecimal.ZERO;
-                BigDecimal mitadParaAdmin = BigDecimal.ZERO;
-
-                if (pozoSobrante.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal mitadParaJugadores = pozoSobrante.divide(DOS, 6, RoundingMode.HALF_UP);
-                    mitadParaAdmin = pozoSobrante.subtract(mitadParaJugadores);
-
-                    if (!top.isEmpty()) {
-                        bonoExtraJugadorExacto = mitadParaJugadores.divide(
-                                BigDecimal.valueOf(top.size()), 6, RoundingMode.HALF_UP);
-                    } else {
-                        // Nadie en el top, todo para el admin
-                        mitadParaAdmin = pozoSobrante;
-                    }
-                }
-
-                // 3. Pagar a los jugadores y notificar
-                BigDecimal bonoEntero = bonoExtraJugadorExacto.setScale(0, RoundingMode.FLOOR);
-                BigDecimal bonoDecimal = bonoExtraJugadorExacto.subtract(bonoEntero);
-
-                for (int i = 0; i < top.size(); i++) {
-                    JsonObject jugador = top.get(i);
-                    int jugadorId = jugador.get("id").getAsNumber().intValue();
-
-                    decimalesSobrantes = decimalesSobrantes.add(bonoDecimal);
-                    BigDecimal premioFinal = jugador.get("premio_asignado").getAsBigDecimal().add(bonoEntero);
-
-                    if (premioFinal.compareTo(BigDecimal.ZERO) <= 0) continue;
-
-                    // Dar premio // REVIEW-MONEY
-                    WalletService.WalletResult premioResult = wallet.premiar(jugadorId, premioFinal,
-                            "Premio leaderboard #" + (i + 1) + " " + configKey);
-
-                    BigDecimal gananciaGenerada = jugador.has("ganancia_generada") && !jugador.get("ganancia_generada").isJsonNull()
-                            ? jugador.get("ganancia_generada").getAsBigDecimal() : BigDecimal.ZERO;
-
-                    // Historial
-                    db.update("INSERT INTO leaderboard_history (user_id, username, periodo, victorias, ganancias, posicion, premio, fecha_inicio, fecha_fin) " +
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                            jugadorId, jugador.get("username").getAsString(), configKey,
-                            (int) jugador.get("victorias").getAsLong(), gananciaGenerada,
-                            i + 1, premioFinal, ahora, ahora);
-
-                    // Notificar por socket
-                    for (SocketIOClient s : io.getSockets().values()) {
-                        if (s.getUserData() != null && s.getUserData().get("id").getAsNumber().intValue() == jugadorId) {
-                            BigDecimal nuevoSaldo = premioResult.isSuccess() ? premioResult.getNuevoSaldo() :
-                                    wallet.obtenerSaldo(jugadorId);
-                            s.getUserData().addProperty("saldo", nuevoSaldo);
-                            s.emit("actualizar_saldo", new JsonPrimitive(nuevoSaldo));
-
-                            JsonObject premioData = new JsonObject();
-                            premioData.addProperty("periodo", configKey);
-                            premioData.addProperty("posicion", i + 1);
-                            premioData.addProperty("premio", premioFinal);
-                            premioData.addProperty("mensaje", "🏆 ¡Quedaste #" + (i + 1) + " del ranking " + configKey + "! Ganaste $" + premioFinal.toPlainString());
-                            s.emit("premio_leaderboard", premioData);
-                        }
-                    }
-                    logger.info("   🏆 #{} {}: +${}", i + 1, jugador.get("username").getAsString(), premioFinal.toPlainString());
-                }
-
-                // 4. Pagar al admin (sobrantes y decimales)
-                BigDecimal gananciaAdminTotal = mitadParaAdmin.add(decimalesSobrantes).setScale(2, RoundingMode.HALF_UP);
-                if (gananciaAdminTotal.compareTo(BigDecimal.ZERO) > 0) {
-                    ArrayList<JsonObject> admins = db.query("SELECT id FROM users WHERE tipo_suscripcion = 'admin'");
-                    if (!admins.isEmpty()) {
-                        BigDecimal cuotaAdmin = gananciaAdminTotal.divide(
-                                BigDecimal.valueOf(admins.size()), 2, RoundingMode.DOWN);
-                        if (cuotaAdmin.compareTo(BigDecimal.ZERO) > 0) {
-                            // REVIEW-MONEY
-                            wallet.premiarAdmins(cuotaAdmin, "Leaderboard sobrantes " + configKey);
-
-                            // Notificar a los admins por socket
-                            for (SocketIOClient s : io.getSockets().values()) {
-                                if (s.getUserData() != null && "admin".equals(s.getUserData().get("tipo_suscripcion").getAsString())) {
-                                    int aid = s.getUserData().get("id").getAsNumber().intValue();
-                                    BigDecimal nuevoSaldo = wallet.obtenerSaldo(aid);
-                                    s.getUserData().addProperty("saldo", nuevoSaldo);
-                                    s.emit("actualizar_saldo", new JsonPrimitive(nuevoSaldo));
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 5. Restar el pozo de la billetera de comisiones (leaderboard) para que actualice en el panel
-                db.update("INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, 'cierre_leaderboard', ?, 'leaderboard')",
-                        pozoTotal.negate(), "Cierre leaderboard " + configKey);
-            }
-
-            // Resetear columna (el pozo ya quedó en 0 al reclamarlo atómicamente al inicio)
-            db.update("UPDATE users SET " + columnaSegura + " = 0");
-            logger.info("   ✅ Columna {} reseteada y pozo de {} cerrado", columnaSegura, periodoSeguro);
-
-            JsonObject resetData = new JsonObject();
-            resetData.addProperty("periodo", configKey);
-            io.emit("leaderboard_reset", resetData);
+            long corteId = crearCorteRecuperable(periodoSeguro, columnaSegura, claveCorte);
+            if (corteId > 0) procesarCorte(corteId);
         } catch (Exception e) {
             logger.error("Error premiando leaderboard " + periodo + ": " + e.getMessage());
         }
+    }
+
+    private static final class Candidato {
+        final int userId;
+        final String username;
+        final int victorias;
+        final BigDecimal ganancias;
+        BigDecimal premioBase = BigDecimal.ZERO;
+
+        Candidato(int userId, String username, int victorias, BigDecimal ganancias) {
+            this.userId = userId;
+            this.username = username;
+            this.victorias = victorias;
+            this.ganancias = ganancias;
+        }
+    }
+
+    /** Persiste snapshot, destinatarios, pozo y reset antes de intentar cualquier crédito. // REVIEW-MONEY */
+    private long crearCorteRecuperable(String periodo, String columnaVictorias, String claveCorte) throws SQLException {
+        String columnaPozo = columnaPozoSegura(periodo);
+        String colCorte = columnaUltimoCorteSegura(periodo);
+        try (Connection conn = db.getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                // El orden users -> pool coincide con WalletService.liquidar y evita dejar el pozo
+                // bloqueado mientras se esperan las filas de usuarios.
+                try (PreparedStatement ps = conn.prepareStatement("SELECT id FROM users ORDER BY id FOR UPDATE")) {
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) { /* bloquea el snapshot hasta cerrar el corte */ }
+                    }
+                }
+
+                BigDecimal pozo;
+                String ultimoCorte;
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT " + columnaPozo + " AS pozo, " + colCorte + " AS ultimo_corte " +
+                        "FROM leaderboard_pools WHERE id = 1 FOR UPDATE")) {
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (!rs.next()) {
+                            conn.rollback();
+                            return 0;
+                        }
+                        pozo = rs.getBigDecimal("pozo");
+                        if (pozo == null) pozo = BigDecimal.ZERO;
+                        ultimoCorte = rs.getString("ultimo_corte");
+                    }
+                }
+
+                if (claveCorte.equals(ultimoCorte)) {
+                    long existente = buscarIdCorte(conn, periodo, claveCorte);
+                    conn.commit();
+                    return existente;
+                }
+
+                long corteId;
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO leaderboard_cuts (periodo, clave_corte, pozo) VALUES (?, ?, ?) " +
+                        "ON CONFLICT (periodo, clave_corte) DO NOTHING RETURNING id")) {
+                    ps.setString(1, periodo);
+                    ps.setString(2, claveCorte);
+                    ps.setBigDecimal(3, pozo);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (!rs.next()) {
+                            long existente = buscarIdCorte(conn, periodo, claveCorte);
+                            conn.commit();
+                            return existente;
+                        }
+                        corteId = rs.getLong(1);
+                    }
+                }
+
+                ArrayList<Candidato> top = new ArrayList<>();
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT id, username, " + columnaVictorias + " AS victorias, ganancia_generada " +
+                        "FROM users WHERE " + columnaVictorias + " > 0 " +
+                        "ORDER BY " + columnaVictorias + " DESC, ganancia_generada DESC, id ASC LIMIT 10")) {
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) {
+                            BigDecimal ganancias = rs.getBigDecimal("ganancia_generada");
+                            top.add(new Candidato(rs.getInt("id"), rs.getString("username"),
+                                    rs.getInt("victorias"), ganancias == null ? BigDecimal.ZERO : ganancias));
+                        }
+                    }
+                }
+
+                insertarPagosJugadores(conn, corteId, pozo, top);
+                insertarPagosAdmins(conn, corteId, pozo, top);
+
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE leaderboard_pools SET " + columnaPozo + " = 0, " + colCorte + " = ? WHERE id = 1")) {
+                    ps.setString(1, claveCorte);
+                    if (ps.executeUpdate() != 1) throw new SQLException("No se pudo cerrar el pozo del leaderboard");
+                }
+                try (PreparedStatement ps = conn.prepareStatement("UPDATE users SET " + columnaVictorias + " = 0")) {
+                    ps.executeUpdate();
+                }
+                if (pozo.compareTo(BigDecimal.ZERO) > 0) {
+                    try (PreparedStatement ps = conn.prepareStatement(
+                            "INSERT INTO admin_wallet (monto, razon, detalle, categoria) " +
+                            "VALUES (?, 'cierre_leaderboard', ?, 'leaderboard')")) {
+                        ps.setBigDecimal(1, pozo.negate());
+                        ps.setString(2, "Cierre leaderboard " + nombrePeriodo(periodo) + " corte " + corteId);
+                        ps.executeUpdate();
+                    }
+                }
+                conn.commit();
+                logger.info("Corte leaderboard persistido: periodo={} corte={} pozo={} pagos pendientes", periodo, claveCorte, pozo);
+                return corteId;
+            } catch (SQLException | RuntimeException e) {
+                try { conn.rollback(); } catch (SQLException ignored) { }
+                throw e;
+            }
+        }
+    }
+
+    private long buscarIdCorte(Connection conn, String periodo, String claveCorte) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT id FROM leaderboard_cuts WHERE periodo = ? AND clave_corte = ?")) {
+            ps.setString(1, periodo);
+            ps.setString(2, claveCorte);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : 0;
+            }
+        }
+    }
+
+    // REVIEW-MONEY
+    private void insertarPagosJugadores(Connection conn, long corteId, BigDecimal pozo,
+                                        ArrayList<Candidato> top) throws SQLException {
+        if (pozo.compareTo(BigDecimal.ZERO) <= 0) return;
+        BigDecimal pozoSobrante = BigDecimal.ZERO;
+        for (int i = 0; i < PORCENTAJES.length; i++) {
+            BigDecimal exacto = pozo.multiply(PORCENTAJES[i]);
+            if (i < top.size()) {
+                BigDecimal base = exacto.setScale(0, RoundingMode.FLOOR);
+                top.get(i).premioBase = base;
+            } else {
+                pozoSobrante = pozoSobrante.add(exacto);
+            }
+        }
+
+        BigDecimal bonoExacto = BigDecimal.ZERO;
+        if (pozoSobrante.compareTo(BigDecimal.ZERO) > 0 && !top.isEmpty()) {
+            BigDecimal mitadJugadores = pozoSobrante.divide(DOS, 6, RoundingMode.HALF_UP);
+            bonoExacto = mitadJugadores.divide(BigDecimal.valueOf(top.size()), 6, RoundingMode.HALF_UP);
+        }
+        BigDecimal bonoEntero = bonoExacto.setScale(0, RoundingMode.FLOOR);
+        BigDecimal bonoDecimal = bonoExacto.subtract(bonoEntero);
+
+        for (int i = 0; i < top.size(); i++) {
+            Candidato jugador = top.get(i);
+            BigDecimal premio = jugador.premioBase.add(bonoEntero);
+            if (premio.compareTo(BigDecimal.ZERO) <= 0) continue;
+            insertarPago(conn, corteId, jugador.userId, "jugador", jugador.username,
+                    jugador.victorias, jugador.ganancias, i + 1, premio);
+        }
+    }
+
+    // REVIEW-MONEY
+    private void insertarPagosAdmins(Connection conn, long corteId, BigDecimal pozo,
+                                     ArrayList<Candidato> top) throws SQLException {
+        if (pozo.compareTo(BigDecimal.ZERO) <= 0) return;
+        BigDecimal pozoSobrante = BigDecimal.ZERO;
+        BigDecimal decimalesSobrantes = BigDecimal.ZERO;
+        for (int i = 0; i < PORCENTAJES.length; i++) {
+            BigDecimal exacto = pozo.multiply(PORCENTAJES[i]);
+            if (i < top.size()) {
+                BigDecimal base = exacto.setScale(0, RoundingMode.FLOOR);
+                decimalesSobrantes = decimalesSobrantes.add(exacto.subtract(base));
+            } else {
+                pozoSobrante = pozoSobrante.add(exacto);
+            }
+        }
+
+        if (!top.isEmpty() && pozoSobrante.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal bonoExacto = pozoSobrante.divide(DOS, 6, RoundingMode.HALF_UP)
+                    .divide(BigDecimal.valueOf(top.size()), 6, RoundingMode.HALF_UP);
+            BigDecimal bonoDecimal = bonoExacto.subtract(bonoExacto.setScale(0, RoundingMode.FLOOR));
+            decimalesSobrantes = decimalesSobrantes.add(bonoDecimal.multiply(BigDecimal.valueOf(top.size())));
+        }
+
+        BigDecimal mitadAdmin = BigDecimal.ZERO;
+        if (pozoSobrante.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal mitadJugadores = pozoSobrante.divide(DOS, 6, RoundingMode.HALF_UP);
+            mitadAdmin = top.isEmpty() ? pozoSobrante : pozoSobrante.subtract(mitadJugadores);
+        }
+        BigDecimal totalAdmin = mitadAdmin.add(decimalesSobrantes).setScale(2, RoundingMode.HALF_UP);
+        if (totalAdmin.compareTo(BigDecimal.ZERO) <= 0) return;
+
+        ArrayList<Integer> admins = new ArrayList<>();
+        ArrayList<String> usernames = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT id, username FROM users WHERE tipo_suscripcion = 'admin' ORDER BY id")) {
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    admins.add(rs.getInt("id"));
+                    usernames.add(rs.getString("username"));
+                }
+            }
+        }
+        if (admins.isEmpty()) return;
+        BigDecimal cuota = totalAdmin.divide(BigDecimal.valueOf(admins.size()), 2, RoundingMode.DOWN);
+        if (cuota.compareTo(BigDecimal.ZERO) <= 0) return;
+        for (int i = 0; i < admins.size(); i++) {
+            insertarPago(conn, corteId, admins.get(i), "admin", usernames.get(i),
+                    null, null, null, cuota);
+        }
+    }
+
+    // REVIEW-MONEY
+    private void insertarPago(Connection conn, long corteId, int userId, String tipo, String username,
+                              Integer victorias, BigDecimal ganancias, Integer posicion, BigDecimal monto)
+            throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO leaderboard_cut_payments " +
+                "(corte_id, user_id, tipo_pago, username, victorias, ganancias, posicion, monto) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")) {
+            ps.setLong(1, corteId);
+            ps.setInt(2, userId);
+            ps.setString(3, tipo);
+            ps.setString(4, username == null ? "" : username);
+            if (victorias == null) ps.setNull(5, java.sql.Types.INTEGER); else ps.setInt(5, victorias);
+            if (ganancias == null) ps.setNull(6, java.sql.Types.NUMERIC); else ps.setBigDecimal(6, ganancias);
+            if (posicion == null) ps.setNull(7, java.sql.Types.INTEGER); else ps.setInt(7, posicion);
+            ps.setBigDecimal(8, monto);
+            ps.executeUpdate();
+        }
+    }
+
+    /** Cada minuto reintenta pagos pendientes y reconstruye historial que haya quedado por escribir. */
+    private void recuperarCortesPendientes() {
+        try {
+            ArrayList<JsonObject> cortes = db.query(
+                    "SELECT id FROM leaderboard_cuts WHERE estado = 'pendiente' ORDER BY id");
+            for (JsonObject corte : cortes) procesarCorte(corte.get("id").getAsLong());
+        } catch (Exception e) {
+            logger.error("Error recuperando cortes de leaderboard: {}", e.getMessage());
+        }
+    }
+
+    private void procesarCorte(long corteId) {
+        try {
+            ArrayList<JsonObject> pagos = db.query(
+                    "SELECT p.id, p.user_id, p.tipo_pago, p.username, p.victorias, p.ganancias, " +
+                    "p.posicion, p.monto, c.periodo " +
+                    "FROM leaderboard_cut_payments p JOIN leaderboard_cuts c ON c.id = p.corte_id " +
+                    "WHERE p.corte_id = ? ORDER BY p.id", corteId);
+            boolean completo = true;
+            for (JsonObject pago : pagos) {
+                long pagoId = pago.get("id").getAsLong();
+                int userId = pago.get("user_id").getAsInt();
+                String periodo = pago.get("periodo").getAsString();
+                String tipo = pago.get("tipo_pago").getAsString();
+                String nombrePeriodo = nombrePeriodo(periodo);
+                String motivo = "jugador".equals(tipo)
+                        ? "Premio leaderboard corte#" + corteId + " #" + pago.get("posicion").getAsInt() + " " + nombrePeriodo
+                        : "Leaderboard sobrantes corte#" + corteId + " " + nombrePeriodo;
+
+                WalletService.WalletResult resultado = wallet.premiarLeaderboard(pagoId, motivo);
+                if (!resultado.isSuccess()) {
+                    completo = false;
+                    logger.error("Pago leaderboard pendiente: corte={} pago={} usuario={} error={}",
+                            corteId, pagoId, userId, resultado.getError());
+                    continue;
+                }
+
+                if ("jugador".equals(tipo)) {
+                    try {
+                        insertarHistorialIdempotente(pagoId);
+                    } catch (Exception e) {
+                        completo = false;
+                        logger.error("No se pudo registrar historial leaderboard pago={}: {}", pagoId, e.getMessage());
+                    }
+                }
+                if (resultado.wasApplied()) notificarPagoLeaderboard(pago, resultado, nombrePeriodo);
+            }
+
+            if (!completo) return;
+            boolean cerrado = cerrarCorteSiCompleto(corteId);
+            if (cerrado) {
+                JsonObject resetData = new JsonObject();
+                resetData.addProperty("periodo", nombrePeriodoDeCorte(corteId));
+                io.emit("leaderboard_reset", resetData);
+                logger.info("Corte leaderboard {} completado", corteId);
+            }
+        } catch (Exception e) {
+            logger.error("Error procesando corte leaderboard {}: {}", corteId, e.getMessage());
+        }
+    }
+
+    private void insertarHistorialIdempotente(long pagoId) throws SQLException {
+        try (Connection conn = db.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "INSERT INTO leaderboard_history " +
+                     "(corte_pago_id, user_id, username, periodo, victorias, ganancias, posicion, premio, fecha_inicio, fecha_fin) " +
+                     "SELECT p.id, p.user_id, p.username, " +
+                     "CASE c.periodo WHEN 'dia' THEN 'diario' WHEN 'semana' THEN 'semanal' " +
+                     "WHEN 'mes' THEN 'mensual' ELSE 'anual' END, p.victorias, p.ganancias, p.posicion, p.monto, ?, ? " +
+                     "FROM leaderboard_cut_payments p JOIN leaderboard_cuts c ON c.id = p.corte_id " +
+                     "WHERE p.id = ? AND p.tipo_pago = 'jugador' AND p.estado = 'pagado' " +
+                     "ON CONFLICT DO NOTHING")) {
+            String fecha = new java.util.Date().toString();
+            ps.setString(1, fecha);
+            ps.setString(2, fecha);
+            ps.setLong(3, pagoId);
+            ps.executeUpdate();
+        }
+    }
+
+    private boolean cerrarCorteSiCompleto(long corteId) throws SQLException {
+        try (Connection conn = db.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "UPDATE leaderboard_cuts c SET estado = 'completado', completado_en = CURRENT_TIMESTAMP " +
+                     "WHERE c.id = ? AND c.estado = 'pendiente' " +
+                     "AND NOT EXISTS (SELECT 1 FROM leaderboard_cut_payments p WHERE p.corte_id = c.id AND p.estado <> 'pagado') " +
+                     "AND NOT EXISTS (SELECT 1 FROM leaderboard_cut_payments p WHERE p.corte_id = c.id AND p.tipo_pago = 'jugador' " +
+                     "AND NOT EXISTS (SELECT 1 FROM leaderboard_history h WHERE h.corte_pago_id = p.id))")) {
+            ps.setLong(1, corteId);
+            return ps.executeUpdate() == 1;
+        }
+    }
+
+    private String nombrePeriodoDeCorte(long corteId) {
+        JsonObject row = db.queryOne("SELECT periodo FROM leaderboard_cuts WHERE id = ?", corteId);
+        return row == null ? "" : nombrePeriodo(row.get("periodo").getAsString());
+    }
+
+    private static String nombrePeriodo(String periodo) {
+        switch (periodo) {
+            case "dia": return "diario";
+            case "semana": return "semanal";
+            case "mes": return "mensual";
+            case "ano": return "anual";
+            default: return periodo;
+        }
+    }
+
+    private void notificarPagoLeaderboard(JsonObject pago, WalletService.WalletResult resultado, String nombrePeriodo) {
+        int userId = pago.get("user_id").getAsInt();
+        boolean jugador = "jugador".equals(pago.get("tipo_pago").getAsString());
+        for (SocketIOClient socket : io.getSockets().values()) {
+            JsonObject userData = socket.getUserData();
+            if (userData == null || !userData.has("id") || userData.get("id").isJsonNull()
+                    || userData.get("id").getAsInt() != userId) continue;
+            userData.addProperty("saldo", resultado.getNuevoSaldo());
+            socket.emit("actualizar_saldo", new JsonPrimitive(resultado.getNuevoSaldo()));
+            if (jugador) {
+                int posicion = pago.get("posicion").getAsInt();
+                BigDecimal premio = pago.get("monto").getAsBigDecimal();
+                JsonObject data = new JsonObject();
+                data.addProperty("periodo", nombrePeriodo);
+                data.addProperty("posicion", posicion);
+                data.addProperty("premio", premio);
+                data.addProperty("mensaje", "🏆 ¡Quedaste #" + posicion + " del ranking " + nombrePeriodo +
+                        "! Ganaste $" + premio.toPlainString());
+                socket.emit("premio_leaderboard", data);
+            }
+        }
+        logger.info("Premio leaderboard aplicado usuario={} tipo={} monto={}", userId,
+                jugador ? "jugador" : "admin", pago.get("monto").getAsBigDecimal().toPlainString());
     }
 }
