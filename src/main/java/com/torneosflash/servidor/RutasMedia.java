@@ -20,7 +20,7 @@ import java.util.concurrent.Semaphore;
 public class RutasMedia {
 
     // Limita la memoria reservada simultáneamente por descargas grandes.
-    private static final Semaphore DESCARGAS_CONCURRENTES = new Semaphore(1);
+    private static final Semaphore DESCARGAS_CONCURRENTES = new Semaphore(4);
 
     public static void register(Javalin app, MediaService media) {
 
@@ -48,9 +48,8 @@ public class RutasMedia {
                 return;
             }
 
-            try {
-                MediaService.Descarga descarga =
-                        media.descargar(Peticion.pathEntero(ctx, "id"), ctx.header("Range"));
+            try (MediaService.Descarga descarga =
+                         media.descargar(Peticion.pathEntero(ctx, "id"), ctx.header("Range"))) {
                 if (descarga == null) {
                     ctx.status(404).result("Archivo no encontrado");
                     return;
@@ -62,15 +61,17 @@ public class RutasMedia {
                 ctx.header("Cache-Control", "private, max-age=86400");
 
                 if (descarga.status() == 416) {
-                    ctx.status(416).header("Content-Range", descarga.contentRange());
+                    ctx.status(416);
+                    ctx.header("Content-Range", descarga.contentRange());
+                    ctx.header("Content-Length", "0");
                     return;
                 }
                 if (descarga.status() == 206) {
                     ctx.status(206);
                     ctx.header("Content-Range", descarga.contentRange());
                 }
-                ctx.header("Content-Length", String.valueOf(descarga.datos().length));
-                ctx.res().getOutputStream().write(descarga.datos());
+                ctx.header("Content-Length", String.valueOf(descarga.contentLength()));
+                descarga.escribirEn(ctx.res().getOutputStream());
                 ctx.res().flushBuffer();
             } finally {
                 DESCARGAS_CONCURRENTES.release();
