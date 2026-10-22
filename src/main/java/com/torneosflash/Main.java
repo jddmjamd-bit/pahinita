@@ -70,6 +70,9 @@ public class Main {
         // 1. CONFIGURACIÓN
         // ============================================
         AppConfig config = new AppConfig();
+        // Render define RENDER=true. Las variables obligatorias se validan antes de crear hilos,
+        // conexiones o aceptar tráfico; un despliegue incompleto termina con código distinto de cero.
+        config.validarConfiguracionProduccion();
         logger.info("📋 Puerto: " + config.getPort());
 
         // Pools de hilos (A8): HTTP, IO, push, CPU y temporizadores. Se crean antes que todo

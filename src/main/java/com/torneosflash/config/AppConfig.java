@@ -3,7 +3,10 @@ package com.torneosflash.config;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 /**
@@ -16,6 +19,7 @@ import java.util.regex.Pattern;
  */
 public class AppConfig {
     private static final Logger logger = LoggerFactory.getLogger(AppConfig.class);
+    private final Map<String, String> environment;
 
 
     // --- Atributos privados (ENCAPSULAMIENTO) ---
@@ -126,14 +130,20 @@ public class AppConfig {
 
     // --- Constructor (CONSTRUCTOR con parámetros desde env) ---
     public AppConfig() {
-        this.port = Integer.parseInt(getEnv("PORT", "5000"));
+        this(System.getenv());
+    }
+
+    /** Constructor injectable para pruebas: usa un mapa privado sin modificar el entorno del proceso. */
+    public AppConfig(Map<String, String> environment) {
+        this.environment = Collections.unmodifiableMap(Map.copyOf(environment));
+        this.port = getEnvEntero("PORT", 5000, 1, 65535);
         this.databaseUrl = getEnv("DATABASE_URL", "");
         // S10: modo SSL de la conexión a la BD (require | verify-ca | verify-full). Opcional; default require.
         this.dbSslMode = getEnv("DB_SSLMODE", "require");
         this.clashApiToken = getEnv("CLASH_ROYALE_API_TOKEN", "");
         this.firebaseServiceAccount = getEnv("FIREBASE_SERVICE_ACCOUNT", "");
         this.brevoApiKey = getEnv("BREVO_API_KEY", "");
-        this.brevoSenderEmail = getEnv("BREVO_SENDER_EMAIL", "");
+        this.brevoSenderEmail = normalizarCorreo(getEnv("BREVO_SENDER_EMAIL", ""), "BREVO_SENDER_EMAIL");
         this.wompiPublicKey = getEnv("WOMPI_PUBLIC_KEY", "");
         this.wompiPrivateKey = getEnv("WOMPI_PRIVATE_KEY", "");
         this.wompiIntegritySecret = getEnv("WOMPI_INTEGRITY_SECRET", "");
@@ -168,24 +178,28 @@ public class AppConfig {
         this.chatHistorialLimite = getEnvEntero("CHAT_HISTORIAL_LIMITE", 50, 1, 500);
 
         this.jwtSecret = resolverJwtSecret(getEnv("JWT_SECRET", ""));
-        this.jwtExpirationSeconds = Long.parseLong(getEnv("JWT_EXPIRATION_DAYS", "30")) * 24L * 3600L;
+        this.jwtExpirationSeconds = getEnvLong("JWT_EXPIRATION_DAYS", 30L, 1L, 3650L) * 24L * 3600L;
         this.passwordResetTokenMinutes = getEnvEntero("PASSWORD_RESET_TOKEN_MINUTES", 15, 5, 60);
         this.passwordResetCooldownSeconds = getEnvEntero("PASSWORD_RESET_COOLDOWN_SECONDS", 60, 30, 600);
         this.cookieSameSite = normalizarSameSite(getEnv("COOKIE_SAMESITE", "Lax"));
         // SameSite=None exige Secure; en cualquier otro caso se respeta COOKIE_SECURE (default true)
         this.cookieSecure = "None".equals(cookieSameSite)
-                || Boolean.parseBoolean(getEnv("COOKIE_SECURE", "true"));
+                || getEnvBoolean("COOKIE_SECURE", true);
 
-        this.montoMinDeposito = getEnvMonto("MONTO_MIN_DEPOSITO", "1000");
-        this.montoMaxDeposito = getEnvMonto("MONTO_MAX_DEPOSITO", "5000000");
-        this.montoMinRetiro = getEnvMonto("MONTO_MIN_RETIRO", "10000");
-        this.montoMaxRetiro = getEnvMonto("MONTO_MAX_RETIRO", "5000000");
-        this.montoMinTorneo = getEnvMonto("MONTO_MIN_TORNEO", "1000");
-        this.montoMaxTorneo = getEnvMonto("MONTO_MAX_TORNEO", "10000");
-        this.montoMinSorteo = getEnvMonto("MONTO_MIN_SORTEO", "1000");
-        this.montoMaxSorteo = getEnvMonto("MONTO_MAX_SORTEO", "100000000");
+        BigDecimal[] deposito = getEnvRangoMonto("MONTO_MIN_DEPOSITO", "1000", "MONTO_MAX_DEPOSITO", "5000000");
+        this.montoMinDeposito = deposito[0];
+        this.montoMaxDeposito = deposito[1];
+        BigDecimal[] retiro = getEnvRangoMonto("MONTO_MIN_RETIRO", "10000", "MONTO_MAX_RETIRO", "5000000");
+        this.montoMinRetiro = retiro[0];
+        this.montoMaxRetiro = retiro[1];
+        BigDecimal[] torneo = getEnvRangoMonto("MONTO_MIN_TORNEO", "1000", "MONTO_MAX_TORNEO", "10000");
+        this.montoMinTorneo = torneo[0];
+        this.montoMaxTorneo = torneo[1];
+        BigDecimal[] sorteo = getEnvRangoMonto("MONTO_MIN_SORTEO", "1000", "MONTO_MAX_SORTEO", "100000000");
+        this.montoMinSorteo = sorteo[0];
+        this.montoMaxSorteo = sorteo[1];
 
-        this.rateLimitEnabled = Boolean.parseBoolean(getEnv("RATE_LIMIT_ENABLED", "true"));
+        this.rateLimitEnabled = getEnvBoolean("RATE_LIMIT_ENABLED", true);
         this.rateLimitGeneralPorMin = getEnvEntero("RATE_LIMIT_GENERAL_PER_MIN", 60, 1);
         this.rateLimitFinancieroPorMin = getEnvEntero("RATE_LIMIT_FINANCIAL_PER_MIN", 10, 1);
         this.rateLimitAuthPorMin = getEnvEntero("RATE_LIMIT_AUTH_PER_MIN", 10, 1);
@@ -240,9 +254,10 @@ public class AppConfig {
         this.chatbotMaxTokens = getEnvEntero("CHATBOT_MAX_TOKENS", 1024, 64, 8192);
         this.rateLimitChatbotPorMin = getEnvEntero("RATE_LIMIT_CHATBOT_PER_MIN", 10, 1);
 
-        // Soporte (roadmap 24.5). SOPORTE_ADMIN_EMAIL vacío -> se usa CHATBOT_ADMIN_EMAIL y, si tampoco está, el remitente de Brevo.
+        // Soporte (roadmap 24.5): prioridad de contacto de soporte, chatbot y remitente de Brevo.
         String soporteCorreo = normalizarCorreo(getEnv("SOPORTE_ADMIN_EMAIL", ""), "SOPORTE_ADMIN_EMAIL");
-        this.soporteAdminEmail = soporteCorreo.isEmpty() ? this.chatbotAdminEmail : soporteCorreo;
+        this.soporteAdminEmail = !soporteCorreo.isEmpty() ? soporteCorreo
+                : (!this.chatbotAdminEmail.isEmpty() ? this.chatbotAdminEmail : this.brevoSenderEmail);
         this.soporteMaxAbiertos = getEnvEntero("SOPORTE_MAX_ABIERTOS", 5, 1, 100);
         this.soporteMaxTicketsDia = getEnvEntero("SOPORTE_MAX_TICKETS_DIA", 10, 1, 1000);
         this.soporteMaxCorreosHora = getEnvEntero("SOPORTE_MAX_CORREOS_HORA", 10, 1, 1000);
@@ -377,14 +392,55 @@ public class AppConfig {
         } catch (NumberFormatException ignored) {
             // cae al log de abajo
         }
-        logger.error("⚠️ {} no es válido (bytes entre {} y {}). Se usa el valor por defecto.", key, minimo, maximo);
+        logger.error("⚠️ {} no es válido (valor entre {} y {}). Se usa el valor por defecto.", key, minimo, maximo);
         return defaultValue;
     }
 
     // Método auxiliar para leer variables de entorno con valor por defecto
     private String getEnv(String key, String defaultValue) {
-        String value = System.getenv(key);
+        String value = environment.get(key);
         return (value != null && !value.isEmpty()) ? value : defaultValue;
+    }
+
+    private boolean getEnvBoolean(String key, boolean defaultValue) {
+        String raw = getEnv(key, Boolean.toString(defaultValue)).trim().toLowerCase(Locale.ROOT);
+        if ("true".equals(raw)) return true;
+        if ("false".equals(raw)) return false;
+        logger.error("⚠️ {} debe ser true o false. Se usa el valor por defecto {}.", key, defaultValue);
+        return defaultValue;
+    }
+
+    private BigDecimal[] getEnvRangoMonto(String keyMin, String defaultMin, String keyMax, String defaultMax) {
+        BigDecimal minimo = getEnvMonto(keyMin, defaultMin);
+        BigDecimal maximo = getEnvMonto(keyMax, defaultMax);
+        if (minimo.compareTo(maximo) <= 0) return new BigDecimal[]{minimo, maximo};
+        logger.error("⚠️ {} no puede superar {}. Se usan los dos valores por defecto.", keyMin, keyMax);
+        return new BigDecimal[]{new BigDecimal(defaultMin), new BigDecimal(defaultMax)};
+    }
+
+    /**
+     * Render define RENDER=true. En ese entorno se impide iniciar con secretos de producción ausentes.
+     * Los previews de pull request pueden tener un conjunto de variables diferente.
+     */
+    public void validarConfiguracionProduccion() {
+        boolean render = Boolean.parseBoolean(getEnv("RENDER", "false"));
+        boolean preview = Boolean.parseBoolean(getEnv("IS_PULL_REQUEST", "false"));
+        if (!render || preview) return;
+
+        java.util.List<String> faltantes = new ArrayList<>();
+        String[] obligatorias = {
+                "DATABASE_URL", "CLASH_ROYALE_API_TOKEN", "WOMPI_PUBLIC_KEY", "WOMPI_PRIVATE_KEY",
+                "WOMPI_EVENTS_SECRET", "WOMPI_INTEGRITY_SECRET"
+        };
+        for (String key : obligatorias) {
+            if (getEnv(key, "").trim().isEmpty()) faltantes.add(key);
+        }
+        String jwtSecret = getEnv("JWT_SECRET", "").trim();
+        if (jwtSecret.length() < 32) faltantes.add("JWT_SECRET (mínimo 32 caracteres)");
+        if (!faltantes.isEmpty()) {
+            throw new IllegalStateException("Configuración obligatoria de Render incompleta: "
+                    + String.join(", ", faltantes));
+        }
     }
 
     // --- Getters (GETTER) ---

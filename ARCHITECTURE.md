@@ -502,6 +502,12 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 - La conexión de Flyway es la misma de Hikari (mismo usuario y SSL, sección 11): el usuario de la BD debe poder crear tablas y la tabla de historial.
 - Para ver qué está aplicado: `SELECT installed_rank, version, description, success FROM flyway_schema_history ORDER BY installed_rank;`.
 
+### Validación automatizada antes de servir tráfico
+
+El Dockerfile ejecuta `mvn clean verify` durante la construcción; Surefire debe descubrir y pasar toda la suite JUnit 5 para que se genere la imagen. El `CMD` ejecuta `scripts/run-deploy-tests.sh` antes de `Main`: exige `TEST_DATABASE_URL`, comprueba que el nombre de la BD indique test/pruebas/qa, aplica y valida las migraciones con `cleanDisabled=true` y verifica el esquema. La prueba solo usa esa base aislada; compara el nombre con `DATABASE_URL` para rechazar que sean la misma. Cualquier error termina el proceso antes de que Java abra el puerto.
+
+En Render, `Main` valida además las variables obligatorias de producción al reconocer `RENDER=true`; omite esa validación en previews (`IS_PULL_REQUEST=true`). Para que el control previo al arranque se ejecute, Render debe usar el `CMD` de la imagen y tener configurada `TEST_DATABASE_URL` como variable de runtime. La guía [`GUIA_PRUEBAS_Y_VARIABLES.md`](GUIA_PRUEBAS_Y_VARIABLES.md) documenta las variables y los casos manuales.
+
 ---
 
 ## 15. Capa de servicio: rutas delgadas (A3)

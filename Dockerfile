@@ -12,7 +12,7 @@ WORKDIR /app
 COPY pom.xml .
 COPY src ./src
 # Compilar y empaquetar
-RUN mvn clean package -DskipTests
+RUN mvn clean verify
 
 # Etapa 3: Runtime con Java y herramientas oficiales de PostgreSQL (pg_dump/pg_restore)
 FROM postgres:18-bookworm
@@ -22,6 +22,11 @@ RUN apt-get update \
 WORKDIR /app
 # Copiar el JAR generado
 COPY --from=backend-build /app/target/TorneosFlash-1.0.jar ./app.jar
+# Conserva el runner y la prueba de integración DB; el CMD valida la BD de pruebas antes de iniciar el servidor.
+COPY --from=backend-build /app/target/test-classes ./test-classes
+COPY --from=backend-build /app/target/test-runtime ./test-runtime
+COPY scripts/run-deploy-tests.sh ./run-deploy-tests.sh
+RUN chmod 0555 ./run-deploy-tests.sh
 # Copiar el frontend compilado (Vite emite a dist/) y colocarlo en public para que Javalin lo sirva
 COPY --from=frontend-build /app/frontend/dist ./public
 # Copiar admin-db.html (fuente única: public/admin-db.html) a la raíz de trabajo, donde RutasDbAdmin lo busca
@@ -37,4 +42,4 @@ ENTRYPOINT []
 EXPOSE 10000
 
 # Ejecutar acotando la memoria máxima de la JVM para instancias de 512 MB en Render
-CMD ["java", "-Dfile.encoding=UTF-8", "-XX:MaxRAMPercentage=75.0", "-jar", "app.jar"]
+CMD ["/bin/sh", "-c", "/app/run-deploy-tests.sh && exec java -Dfile.encoding=UTF-8 -XX:MaxRAMPercentage=75.0 -jar /app/app.jar"]

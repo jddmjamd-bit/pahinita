@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-22 — Bloquear el deploy si fallan las pruebas JUnit o la BD aislada (GPT-6)
+- Reemplazado JUnit 4 por JUnit Jupiter 5 y configurado Surefire; las pruebas cubren defaults, valores válidos e inválidos de configuración, credenciales obligatorias de Render, URLs PostgreSQL, límites de montos y rate limiting. `AppConfig` acepta un mapa temporal de variables para no alterar el entorno del proceso.
+- El Dockerfile ejecuta `mvn clean verify`; el arranque ejecuta una prueba JUnit de PostgreSQL vía `TEST_DATABASE_URL`, verifica/migra Flyway con `cleanDisabled=true` y termina antes de iniciar Java si falta la BD o hay errores. `Main` también valida las variables obligatorias de producción en Render.
+- Ampliada `GUIA_PRUEBAS_Y_VARIABLES.md` con clasificación de variables, flujo de deploy, aislamiento de BD y los casos manuales existentes. `ARCHITECTURE.md` documenta la secuencia de verificación.
+- **Verificación:** `mvnw.cmd clean verify` compiló y pasó 28 pruebas JUnit; `git diff --check` no encontró errores. No se construyó la imagen Docker porque Docker CLI no está instalado. La comprobación PostgreSQL se ejecutará al arrancar en Render y requiere configurar allí una `TEST_DATABASE_URL` distinta de `DATABASE_URL`.
+Archivos: `GUIA_PRUEBAS_Y_VARIABLES.md`, `pom.xml`, `Dockerfile`, `scripts/run-deploy-tests.sh`, `AppConfig.java`, `Main.java`, pruebas JUnit, `ARCHITECTURE.md`
+
 ## 2026-10-22 — Endurecer roles, negociación y timeout de partidas (GPT-6)
 - **`SocketHandler.java`**: `esAdminSocket` consulta el rol actual y revalida la sesión; las emisiones en vivo de negociación, los votos de inicio, confirmaciones, desconexiones y sus timeouts se serializan con el candado de la partida. Los dos votos deben coincidir en monto y modo, y la negociación en vivo no altera los valores tras ambos votos.
 - El timeout de polling solo crea disputa con `UPDATE ... WHERE estado = 'en_curso'`; si otra operación ya dejó un estado terminal, limpia la sala sin volver a abrir disputa. Si no se pudo confirmar la transición, el polling reintenta. Los handlers `negociacion_live` y `mensaje_privado` ya registran errores sin imprimir contenido del cliente.
