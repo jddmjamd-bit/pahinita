@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-22 — Endurecer roles, negociación y timeout de partidas (GPT-6)
+- **`SocketHandler.java`**: `esAdminSocket` consulta el rol actual y revalida la sesión; las emisiones en vivo de negociación, los votos de inicio, confirmaciones, desconexiones y sus timeouts se serializan con el candado de la partida. Los dos votos deben coincidir en monto y modo, y la negociación en vivo no altera los valores tras ambos votos.
+- El timeout de polling solo crea disputa con `UPDATE ... WHERE estado = 'en_curso'`; si otra operación ya dejó un estado terminal, limpia la sala sin volver a abrir disputa. Si no se pudo confirmar la transición, el polling reintenta. Los handlers `negociacion_live` y `mensaje_privado` ya registran errores sin imprimir contenido del cliente.
+- **Mejoras:** la distribución de comisiones se construye una vez y se devuelve inmutable; `BusquedaActiva.oderId` se renombra a `userId` sin cambiar las claves de eventos `oderId` para conservar compatibilidad; `ChatSanitizer.limpiarTexto` limita a 32 pasadas y descarta entradas que no se estabilizan.
+- **Verificación:** `git diff --check` y `actualizar-txt.bat` finalizaron correctamente. No se ejecutaron pruebas locales, de acuerdo con el flujo de validación en Render. No hay Maven instalado en este entorno, así que la compilación debe confirmarse en el despliegue.
+Archivos: `SocketHandler.java`, `ComisionService.java`, `ChatSanitizer.java`, `ARCHITECTURE.md`, `CHANGELOG.md`
+
 ## 2026-10-19 — Confirmar búsquedas activas al cancelar y vencer (GPT-6)
 - **`SocketHandler.java`**: crea el estado de búsqueda y su fila persistida juntos; coordina el alta, el emparejamiento, la cancelación manual y el timeout con el mismo bloqueo.
 - La cancelación solo cambia `users.estado` si encuentra y elimina una búsqueda persistida que sigue en `buscando_partida` y no tiene `sala_actual` ni una fila en `active_matches`. Si no puede confirmarla, conserva el estado local y devuelve un error controlado. El vencimiento usa la misma transición y no cambia el estado por una fila ausente.

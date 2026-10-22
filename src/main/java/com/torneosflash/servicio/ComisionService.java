@@ -4,7 +4,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Collections;
 import java.util.EnumMap;
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -77,6 +76,8 @@ public class ComisionService {
         /** true si la categoría recibe lo que sobra del reparto (ganancia del dueño). */
         public boolean esResiduo() { return fraccion == null; }
     }
+
+    private static final Map<Categoria, BigDecimal> DISTRIBUCION = construirDistribucion();
 
     // ═══════════════════════════════════════════
     // RESULTADO DEL CÁLCULO
@@ -199,7 +200,11 @@ public class ComisionService {
      * dueño es lo que sobra (1 - suma del resto), de modo que siempre suma 100%.
      */
     public Map<Categoria, BigDecimal> distribucion() {
-        Map<Categoria, BigDecimal> fracciones = new LinkedHashMap<>();
+        return DISTRIBUCION;
+    }
+
+    private static Map<Categoria, BigDecimal> construirDistribucion() {
+        Map<Categoria, BigDecimal> fracciones = new EnumMap<>(Categoria.class);
         BigDecimal suma = BigDecimal.ZERO;
         for (Categoria categoria : Categoria.values()) {
             if (categoria.esResiduo()) continue;
@@ -207,12 +212,7 @@ public class ComisionService {
             suma = suma.add(categoria.getFraccion());
         }
         fracciones.put(Categoria.GANANCIA, BigDecimal.ONE.subtract(suma));
-
-        // Se reordena con el orden de declaración del enum (ganancia no va al final)
-        Map<Categoria, BigDecimal> ordenado = new LinkedHashMap<>();
-        for (Categoria categoria : Categoria.values()) {
-            ordenado.put(categoria, fracciones.get(categoria));
-        }
-        return Collections.unmodifiableMap(ordenado);
+        // EnumMap conserva el orden de declaración de Categoria.
+        return Collections.unmodifiableMap(fracciones);
     }
 }

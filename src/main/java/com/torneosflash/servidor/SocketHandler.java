@@ -148,7 +148,7 @@ public class SocketHandler {
                         if (entry.getKey() != userId) {
                             JsonObject bData = new JsonObject();
                             bData.addProperty("username", entry.getValue().username);
-                            bData.addProperty("oderId", entry.getValue().oderId);
+                            bData.addProperty("oderId", entry.getValue().userId);
                             client.emit("alguien_buscando", bData);
                         }
                     }
@@ -436,25 +436,41 @@ public class SocketHandler {
                     if (client.getUserData() == null || !client.getUserData().has("id")) return;
                     int myId = client.getUserData().get("id").getAsInt();
                     String salaId = client.getCurrentRoom();
-                    if (salaId == null || !activeMatches.containsKey(salaId)) return;
+                    if (salaId == null) return;
                     ActiveMatch match = activeMatches.get(salaId);
-                    if (match.iniciado || (myId != match.player1Id && myId != match.player2Id)) return;
+                    if (match == null) return;
+                    synchronized (match) {
+                        if (activeMatches.get(salaId) != match || match.iniciado || match.inicioRevision
+                                || (myId != match.player1Id && myId != match.player2Id)) return;
+                        // Cuando ambos votos están guardados, last_dinero ya forma parte del inicio validado.
+                        if (match.votosInicio.containsKey(match.player1Id)
+                                && match.votosInicio.containsKey(match.player2Id)) return;
 
-                    JsonObject d = ((JsonElement) data[0]).getAsJsonObject();
-                    JsonObject limpio = new JsonObject();
-                    limpio.addProperty("salaId", salaId);
-                    if (d.has("modo") && !d.get("modo").isJsonNull()) {
-                        match.lastModo = ChatSanitizer.limpiarTexto(d.get("modo").getAsString(), 50);
-                        limpio.addProperty("modo", match.lastModo);
+                        JsonObject d = ((JsonElement) data[0]).getAsJsonObject();
+                        String modo = match.lastModo;
+                        String dinero = match.lastDinero;
+                        JsonObject limpio = new JsonObject();
+                        limpio.addProperty("salaId", salaId);
+                        if (d.has("modo") && !d.get("modo").isJsonNull()) {
+                            modo = ChatSanitizer.limpiarTexto(d.get("modo").getAsString(), 50);
+                            limpio.addProperty("modo", modo);
+                        }
+                        if (d.has("dinero") && !d.get("dinero").isJsonNull()) {
+                            dinero = ChatSanitizer.limpiarTexto(d.get("dinero").getAsString(), 20);
+                            limpio.addProperty("dinero", dinero);
+                        }
+                        int actualizadas = db.update(
+                                "UPDATE active_matches SET last_modo = ?, last_dinero = ?, actualizado_en = CURRENT_TIMESTAMP " +
+                                "WHERE sala_id = ? AND iniciado = FALSE AND inicio_revision = FALSE AND match_db_id = 0",
+                                modo, dinero, salaId);
+                        if (actualizadas != 1) return;
+                        match.lastModo = modo;
+                        match.lastDinero = dinero;
+                        client.to(salaId).emit("actualizar_negociacion", limpio);
                     }
-                    if (d.has("dinero") && !d.get("dinero").isJsonNull()) {
-                        match.lastDinero = ChatSanitizer.limpiarTexto(d.get("dinero").getAsString(), 20);
-                        limpio.addProperty("dinero", match.lastDinero);
-                    }
-                    db.update("UPDATE active_matches SET last_modo = ?, last_dinero = ?, actualizado_en = CURRENT_TIMESTAMP WHERE sala_id = ?",
-                            match.lastModo, match.lastDinero, salaId);
-                    client.to(salaId).emit("actualizar_negociacion", limpio);
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    logger.warn("Error procesando negociacion_live ({})", e.getClass().getSimpleName());
+                }
             });
 
             // --- INICIAR JUEGO ---
@@ -464,65 +480,85 @@ public class SocketHandler {
                     int myId = client.getUserData().get("id").getAsInt();
                     JsonObject d = ((JsonElement) data[0]).getAsJsonObject();
                     String salaId = client.getCurrentRoom();
-                    if (salaId == null || !activeMatches.containsKey(salaId)) return;
+                    if (salaId == null) return;
                     ActiveMatch match = activeMatches.get(salaId);
-                    if (match.iniciado || (myId != match.player1Id && myId != match.player2Id)) return;
-
-                    // D5: el monto lo valida el servidor (número, positivo, entero, dentro del rango de torneo).
-                    // Un voto inválido no se guarda y solo se le avisa a quien lo envió.
-                    ValidadorMonto.Resultado montoVoto = validador.torneo(d.get("dinero"));
-                    if (!montoVoto.isValido()) {
-                        client.emit("error_negociacion", new JsonPrimitive(montoVoto.getError()));
-                        return;
-                    }
-                    String modoLimpio = (d.has("modo") && !d.get("modo").isJsonNull())
-                            ? ChatSanitizer.limpiarTexto(d.get("modo").getAsString(), 50)
-                            : "";
-                    if (modoLimpio.length() < 3) {
-                        client.emit("error_negociacion", new JsonPrimitive("El modo de juego debe tener al menos 3 caracteres"));
-                        return;
-                    }
-
-                    // M2: Construir objeto de voto limpio (solo modo y dinero) sin guardar propiedades arbitrarias del cliente
-                    JsonObject votoLimpio = new JsonObject();
-                    votoLimpio.addProperty("modo", modoLimpio);
-                    votoLimpio.addProperty("dinero", montoVoto.getMonto()); // REVIEW-MONEY
-
-                    match.lastModo = modoLimpio;
-                    match.lastDinero = montoVoto.getMonto().toPlainString();
-
-                    // Un voto nuevo invalida cualquier confirmación anterior (nadie acepta un monto que cambió después)
-                    match.confirmaciones.clear();
-                    match.votosInicio.put(myId, votoLimpio);
-                    persistirMatchEnBD(salaId, match);
-                    client.to(salaId).emit("rival_listo_inicio");
-
-                    // Verificar si ambos votaron
-                    List<Integer> ids = match.playerIds();
-                    if (ids.size() == 2 && match.votosInicio.size() == 2
-                            && match.votosInicio.containsKey(ids.get(0))
-                            && match.votosInicio.containsKey(ids.get(1))) {
-
-                        BigDecimal monto1 = match.votosInicio.get(ids.get(0)).get("dinero").getAsBigDecimal();
-                        BigDecimal monto2 = match.votosInicio.get(ids.get(1)).get("dinero").getAsBigDecimal();
-                        if (monto1.compareTo(monto2) != 0) {
-                            io.to(salaId).emit("error_negociacion", new JsonPrimitive("Montos distintos"));
+                    if (match == null) return;
+                    synchronized (match) {
+                        if (activeMatches.get(salaId) != match || match.iniciado
+                                || (myId != match.player1Id && myId != match.player2Id)) return;
+                        if (match.inicioRevision) {
+                            client.emit("error_negociacion", new JsonPrimitive(
+                                    "El inicio requiere revisión administrativa; no se realizará otro cobro"));
                             return;
                         }
 
-                        String modo1 = match.votosInicio.get(ids.get(0)).has("modo") ? match.votosInicio.get(ids.get(0)).get("modo").getAsString() : "N/A";
+                        // D5: el monto lo valida el servidor (número, positivo, entero, dentro del rango de torneo).
+                        // Un voto inválido no se guarda y solo se le avisa a quien lo envió.
+                        ValidadorMonto.Resultado montoVoto = validador.torneo(d.get("dinero"));
+                        if (!montoVoto.isValido()) {
+                            client.emit("error_negociacion", new JsonPrimitive(montoVoto.getError()));
+                            return;
+                        }
+                        String modoLimpio = (d.has("modo") && !d.get("modo").isJsonNull())
+                                ? ChatSanitizer.limpiarTexto(d.get("modo").getAsString(), 50)
+                                : "";
+                        if (modoLimpio.length() < 3) {
+                            client.emit("error_negociacion", new JsonPrimitive("El modo de juego debe tener al menos 3 caracteres"));
+                            return;
+                        }
 
-                        // Emitir confirmación modal
-                        JsonObject confirmData = new JsonObject();
-                        confirmData.addProperty("modo", modo1);
-                        confirmData.addProperty("monto", monto1);
-                        io.to(salaId).emit("confirmar_partida", confirmData);
+                        // M2: Construir objeto de voto limpio (solo modo y dinero) sin guardar propiedades arbitrarias del cliente
+                        JsonObject votoLimpio = new JsonObject();
+                        votoLimpio.addProperty("modo", modoLimpio);
+                        votoLimpio.addProperty("dinero", montoVoto.getMonto()); // REVIEW-MONEY
 
-                        // Limpiar confirmaciones anteriores si las hay
+                        JsonObject votoAnterior = match.votosInicio.get(myId);
+                        Map<Integer, Boolean> confirmacionesAnteriores = new HashMap<>(match.confirmaciones);
+                        String modoAnterior = match.lastModo;
+                        String dineroAnterior = match.lastDinero;
+                        match.lastModo = modoLimpio;
+                        match.lastDinero = montoVoto.getMonto().toPlainString();
+
+                        // Un voto nuevo invalida cualquier confirmación anterior.
                         match.confirmaciones.clear();
-                        persistirMatchEnBD(salaId, match);
-                    } else {
-                        client.emit("esperando_inicio_rival");
+                        match.votosInicio.put(myId, votoLimpio);
+                        if (!persistirMatchEnBD(salaId, match)) {
+                            if (votoAnterior == null) match.votosInicio.remove(myId);
+                            else match.votosInicio.put(myId, votoAnterior);
+                            match.confirmaciones.putAll(confirmacionesAnteriores);
+                            match.lastModo = modoAnterior;
+                            match.lastDinero = dineroAnterior;
+                            client.emit("error_negociacion", new JsonPrimitive("No se pudo guardar el voto. Inténtalo de nuevo."));
+                            return;
+                        }
+                        client.to(salaId).emit("rival_listo_inicio");
+
+                        // Verificar ambos votos dentro del mismo candado para que modo y monto sean una sola versión.
+                        List<Integer> ids = match.playerIds();
+                        if (ids.size() == 2 && match.votosInicio.containsKey(ids.get(0))
+                                && match.votosInicio.containsKey(ids.get(1))) {
+                            BigDecimal monto1 = match.votosInicio.get(ids.get(0)).get("dinero").getAsBigDecimal();
+                            BigDecimal monto2 = match.votosInicio.get(ids.get(1)).get("dinero").getAsBigDecimal();
+                            if (monto1.compareTo(monto2) != 0) {
+                                io.to(salaId).emit("error_negociacion", new JsonPrimitive("Montos distintos"));
+                                return;
+                            }
+
+                            String modo1 = match.votosInicio.get(ids.get(0)).has("modo")
+                                    ? match.votosInicio.get(ids.get(0)).get("modo").getAsString() : "N/A";
+                            String modo2 = match.votosInicio.get(ids.get(1)).has("modo")
+                                    ? match.votosInicio.get(ids.get(1)).get("modo").getAsString() : "N/A";
+                            if (!modo1.equals(modo2)) {
+                                io.to(salaId).emit("error_negociacion", new JsonPrimitive("Modos de juego distintos"));
+                                return;
+                            }
+                            JsonObject confirmData = new JsonObject();
+                            confirmData.addProperty("modo", modo1);
+                            confirmData.addProperty("monto", monto1);
+                            io.to(salaId).emit("confirmar_partida", confirmData);
+                        } else {
+                            client.emit("esperando_inicio_rival");
+                        }
                     }
                 } catch (Exception e) {
                     logger.error("Error iniciar_juego: {}", e.getMessage(), e);
@@ -589,20 +625,22 @@ public class SocketHandler {
                     JsonObject d = ((JsonElement) data[0]).getAsJsonObject();
                     boolean acepta = d.get("acepta").getAsBoolean();
                     String salaId = client.getCurrentRoom();
-                    if (salaId == null || !activeMatches.containsKey(salaId)) return;
+                    if (salaId == null) return;
                     ActiveMatch match = activeMatches.get(salaId);
+                    if (match == null) return;
 
                     int myId = client.getUserData().get("id").getAsInt();
                     if (myId != match.player1Id && myId != match.player2Id) return;
-                    if (match.inicioRevision) {
-                        client.emit("error_negociacion", new JsonPrimitive(
-                                "El inicio requiere revisión administrativa; no se realizará otro cobro"));
-                        return;
-                    }
 
                     // C1: Candado por partida para impedir doble inicio y doble cobro si ambos confirman a la vez
                     synchronized (match) {
+                        if (activeMatches.get(salaId) != match) return;
                         if (match.iniciado) return;
+                        if (match.inicioRevision) {
+                            client.emit("error_negociacion", new JsonPrimitive(
+                                    "El inicio requiere revisión administrativa; no se realizará otro cobro"));
+                            return;
+                        }
 
                         if (!acepta) {
                             match.votosInicio.clear();
@@ -623,6 +661,8 @@ public class SocketHandler {
                             JsonObject voto1 = match.votosInicio.get(ids.get(0));
                             JsonObject voto2 = match.votosInicio.get(ids.get(1));
                             if (voto1 == null || voto2 == null
+                                    || !voto1.has("dinero") || !voto2.has("dinero")
+                                    || voto1.get("dinero").isJsonNull() || voto2.get("dinero").isJsonNull()
                                     || voto1.get("dinero").getAsBigDecimal().compareTo(voto2.get("dinero").getAsBigDecimal()) != 0) {
                                 io.to(salaId).emit("error_negociacion", new JsonPrimitive("Los montos de ambos jugadores no coinciden"));
                                 match.votosInicio.clear();
@@ -633,8 +673,16 @@ public class SocketHandler {
 
                             BigDecimal montoTorneo = voto1.get("dinero").getAsBigDecimal(); // REVIEW-MONEY
                             String modo = voto1.has("modo") ? ChatSanitizer.limpiarTexto(voto1.get("modo").getAsString(), 50) : "N/A";
-                            if (modo.isEmpty()) modo = "N/A";
-
+                            String modoRival = voto2.has("modo") ? ChatSanitizer.limpiarTexto(voto2.get("modo").getAsString(), 50) : "N/A";
+                            if (modo.isEmpty() || !modo.equals(modoRival)
+                                    || !modo.equals(match.lastModo) || !coincideMontoGuardado(match.lastDinero, montoTorneo)) {
+                                io.to(salaId).emit("error_negociacion", new JsonPrimitive(
+                                        "La negociación cambió; ambos jugadores deben confirmar nuevamente"));
+                                match.votosInicio.clear();
+                                match.confirmaciones.clear();
+                                persistirMatchEnBD(salaId, match);
+                                return;
+                            }
                             // Obtener tags antes de cobrar (C5: ambos deben tener Player Tag configurado)
                             JsonObject p1 = db.queryOne("SELECT player_tag FROM users WHERE id = ?", match.player1Id);
                             JsonObject p2 = db.queryOne("SELECT player_tag FROM users WHERE id = ?", match.player2Id);
@@ -768,7 +816,9 @@ public class SocketHandler {
                                     "💬 Mensaje privado", limpio.usuario() + ": " + preview);
                         }
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    logger.warn("Error procesando mensaje_privado ({})", e.getClass().getSimpleName());
+                }
             });
 
             // --- CANCELAR MATCH ---
@@ -799,36 +849,40 @@ public class SocketHandler {
                 }
 
                 String salaId = client.getCurrentRoom();
-                if (salaId != null && activeMatches.containsKey(salaId) && client.getUserData() != null) {
+                if (salaId != null && client.getUserData() != null) {
                     ActiveMatch match = activeMatches.get(salaId);
+                    if (match == null) return;
                     int userId = client.getUserData().get("id").getAsInt();
                     String uname = client.getUserData().get("username").getAsString();
 
-                    if (match.iniciado) {
-                        // Partida activa - esperamos indefinidamente
-                        logger.info("🔌 " + uname + " desconectado de partida ACTIVA");
-                        JsonObject disconnData = new JsonObject();
-                        disconnData.addProperty("tiempo", "indefinido");
-                        disconnData.addProperty("mensaje", "Rival desconectado. Esperando...");
-                        client.to(salaId).emit("rival_desconectado", disconnData);
-                    } else {
-                        // Negociación - timer de desconexión (NEGOCIACION_DESCONEXION_SEGUNDOS, default 90) // A7
-                        final int esperaSegundos = config.getNegociacionDesconexionSegundos();
-                        logger.info("🔌 " + uname + " se fue en negociación. Timer " + esperaSegundos + "s.");
+                    synchronized (match) {
+                        if (activeMatches.get(salaId) != match) return;
+                        if (match.iniciado) {
+                            // Partida activa - esperamos indefinidamente
+                            logger.info("🔌 " + uname + " desconectado de partida ACTIVA");
+                            JsonObject disconnData = new JsonObject();
+                            disconnData.addProperty("tiempo", "indefinido");
+                            disconnData.addProperty("mensaje", "Rival desconectado. Esperando...");
+                            client.to(salaId).emit("rival_desconectado", disconnData);
+                        } else {
+                            // Negociación - timer de desconexión (NEGOCIACION_DESCONEXION_SEGUNDOS, default 90) // A7
+                            final int esperaSegundos = config.getNegociacionDesconexionSegundos();
+                            logger.info("🔌 " + uname + " se fue en negociación. Timer " + esperaSegundos + "s.");
 
-                        // Cancelar su voto si lo tenía
-                        if (match.votosInicio.containsKey(userId)) {
-                            match.votosInicio.remove(userId);
-                            match.confirmaciones.clear();
-                            persistirMatchEnBD(salaId, match);
-                            client.to(salaId).emit("rival_cancelo_inicio");
+                            // Cancelar su voto si lo tenía
+                            if (match.votosInicio.containsKey(userId)) {
+                                match.votosInicio.remove(userId);
+                                match.confirmaciones.clear();
+                                persistirMatchEnBD(salaId, match);
+                                client.to(salaId).emit("rival_cancelo_inicio");
+                            }
+
+                            JsonObject timerData = new JsonObject();
+                            timerData.addProperty("tiempo", esperaSegundos);
+                            client.to(salaId).emit("rival_desconectado", timerData);
+
+                            programarTimerDesconexionNegociacion(salaId, match, userId, uname, true);
                         }
-
-                        JsonObject timerData = new JsonObject();
-                        timerData.addProperty("tiempo", esperaSegundos);
-                        client.to(salaId).emit("rival_desconectado", timerData);
-
-                        programarTimerDesconexionNegociacion(salaId, match, userId, uname, true);
                     }
                 }
             });
@@ -944,7 +998,7 @@ public class SocketHandler {
     }
 
     private void programarTimeoutBusqueda(BusquedaActiva busqueda, long delaySegundos, int busquedaMinutosTexto) {
-        final int userId = busqueda.oderId;
+        final int userId = busqueda.userId;
         final String username = busqueda.username;
         if (busqueda.timeoutFuture != null) {
             busqueda.timeoutFuture.cancel(false);
@@ -1040,12 +1094,12 @@ public class SocketHandler {
             previo.cancel(false);
         }
         ScheduledFuture<?> timer = scheduler.schedule(() -> {
-            ActiveMatch actual = activeMatches.get(salaId);
-            if (actual != null && !actual.iniciado && !actual.inicioRevision) {
-                for (ScheduledFuture<?> f : actual.disconnectTimers.values()) {
+            synchronized (match) {
+                if (activeMatches.get(salaId) != match || match.iniciado || match.inicioRevision) return;
+                for (ScheduledFuture<?> f : match.disconnectTimers.values()) {
                     f.cancel(false);
                 }
-                actual.disconnectTimers.clear();
+                match.disconnectTimers.clear();
 
                 if (penalizarSalida) {
                     db.update("UPDATE users SET salidas_chat = salidas_chat + 1, salidas_desconexion = salidas_desconexion + 1 WHERE id = ?", userId);
@@ -1057,15 +1111,15 @@ public class SocketHandler {
                 io.to(salaId).emit("match_cancelado", cancelData);
 
                 db.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id IN (?, ?)",
-                        actual.player1Id, actual.player2Id);
-                for (SocketIOClient p : actual.players) {
+                        match.player1Id, match.player2Id);
+                for (SocketIOClient p : match.players) {
                     if (p != null) {
                         p.leave(salaId);
                         p.setCurrentRoom(null);
                     }
                 }
                 eliminarMatchDeBD(salaId);
-                activeMatches.remove(salaId);
+                activeMatches.remove(salaId, match);
             }
         }, esperaSegundos, TimeUnit.SECONDS);
         match.disconnectTimers.put(userId, timer);
@@ -1214,12 +1268,21 @@ public class SocketHandler {
         return segundos + (segundos == 1 ? " segundo" : " segundos");
     }
 
+    private static boolean coincideMontoGuardado(String montoGuardado, BigDecimal montoEsperado) {
+        if (montoGuardado == null || montoGuardado.isBlank() || montoEsperado == null) return false;
+        try {
+            return new BigDecimal(montoGuardado).compareTo(montoEsperado) == 0;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
     private synchronized void intentarMatcheo(SocketIOClient meSocket, int myId, JsonObject myData) {
         if (!busquedasActivas.containsKey(myId) || estaEnPartidaActiva(myId)) return;
         for (Map.Entry<Integer, BusquedaActiva> entry : busquedasActivas.entrySet()) {
             if (entry.getKey() != myId) {
                 BusquedaActiva rival = entry.getValue();
-                if (estaEnPartidaActiva(rival.oderId)) continue;
+                if (estaEnPartidaActiva(rival.userId)) continue;
                 SocketIOClient rivalSocket = rival.socket;
                 boolean rivalConectado = rivalSocket != null && rivalSocket.isConnected();
 
@@ -1230,7 +1293,7 @@ public class SocketHandler {
                 meSocket.join(salaId);
                 if (rivalConectado) { rivalSocket.setCurrentRoom(salaId); rivalSocket.join(salaId); }
 
-                ActiveMatch match = new ActiveMatch(myId, myUsername, rival.oderId, rival.username);
+                ActiveMatch match = new ActiveMatch(myId, myUsername, rival.userId, rival.username);
                 match.players.add(meSocket);
                 if (rivalSocket != null) {
                     match.players.add(rivalSocket);
@@ -1241,15 +1304,15 @@ public class SocketHandler {
                 db.update(
                         "INSERT INTO active_matches (sala_id, player1_id, player1_username, player2_id, player2_username) " +
                         "VALUES (?, ?, ?, ?, ?) ON CONFLICT (sala_id) DO NOTHING",
-                        salaId, myId, myUsername, rival.oderId, rival.username);
-                db.update("DELETE FROM match_queue WHERE user_id IN (?, ?)", myId, rival.oderId);
+                        salaId, myId, myUsername, rival.userId, rival.username);
+                db.update("DELETE FROM match_queue WHERE user_id IN (?, ?)", myId, rival.userId);
 
                 // Si el rival se emparejó estando temporalmente desconectado (ej. tras un reinicio), darle margen de reconexión
                 if (!rivalConectado) {
-                    programarTimerDesconexionNegociacion(salaId, match, rival.oderId, rival.username, false);
+                    programarTimerDesconexionNegociacion(salaId, match, rival.userId, rival.username, false);
                 }
 
-                JsonObject rivalData = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", rival.oderId);
+                JsonObject rivalData = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", rival.userId);
                 BigDecimal miSaldo = myData.has("saldo") && !myData.get("saldo").isJsonNull()
                         ? myData.get("saldo").getAsBigDecimal() : BigDecimal.ZERO;
                 BigDecimal rivalSaldo = rivalData != null && rivalData.has("saldo") && !rivalData.get("saldo").isJsonNull()
@@ -1257,7 +1320,7 @@ public class SocketHandler {
                 BigDecimal maxMonto = miSaldo.min(rivalSaldo); // REVIEW-MONEY
 
                 db.update("UPDATE users SET estado = 'partida_encontrada', sala_actual = ? WHERE id IN (?, ?)",
-                        salaId, myId, rival.oderId);
+                        salaId, myId, rival.userId);
                 logClash("⚔️ MATCH: " + myUsername + " vs " + rival.username);
 
                 JsonObject matchData = new JsonObject();
@@ -1271,12 +1334,12 @@ public class SocketHandler {
 
                 // Push: notificar a ambos que se encontró partida
                 pushService.enviarPush(db, myId, "🎮 ¡Rival encontrado!", "Se encontró partida contra " + rival.username);
-                pushService.enviarPush(db, rival.oderId, "🎮 ¡Rival encontrado!", "Se encontró partida contra " + myUsername);
+                pushService.enviarPush(db, rival.userId, "🎮 ¡Rival encontrado!", "Se encontró partida contra " + myUsername);
 
                 // Limpiar búsquedas en memoria
                 colaEsperaClash.removeIf(s -> s.getUserData() != null &&
-                        (s.getUserData().get("id").getAsInt() == myId || s.getUserData().get("id").getAsInt() == rival.oderId));
-                for (int playerId : new int[]{myId, rival.oderId}) {
+                        (s.getUserData().get("id").getAsInt() == myId || s.getUserData().get("id").getAsInt() == rival.userId));
+                for (int playerId : new int[]{myId, rival.userId}) {
                     BusquedaActiva b = busquedasActivas.remove(playerId);
                     if (b != null && b.timeoutFuture != null) b.timeoutFuture.cancel(false);
                     JsonObject cancelData = new JsonObject();
@@ -1390,8 +1453,22 @@ public class SocketHandler {
                     liberarJugadores(salaId, match);
 
                 } else if (match.pollCount >= MAX_POLLS) {
+                    int disputaCreada = db.update(
+                            "UPDATE matches SET estado = 'disputa' WHERE id = ? AND estado = 'en_curso'", match.dbId);
+                    if (disputaCreada != 1) {
+                        JsonObject filaEstado = db.queryOne("SELECT estado FROM matches WHERE id = ?", match.dbId);
+                        String estadoActual = str(filaEstado, "estado");
+                        if (estadoActual != null && !"en_curso".equals(estadoActual)) {
+                            // Otro flujo ya resolvió/canceló la partida: limpiar la sala sin reabrir disputa.
+                            match.pollFuture.cancel(false);
+                            liberarJugadores(salaId, match);
+                        } else {
+                            // No se confirmó la transición (posible fallo transitorio de BD); el siguiente tick reintenta.
+                            logger.error("No se confirmó el timeout de match #{}; se reintentará sin alterar su estado", match.dbId);
+                        }
+                        return;
+                    }
                     match.pollFuture.cancel(false);
-                    db.update("UPDATE matches SET estado = 'disputa' WHERE id = ?", match.dbId);
                     logClash("⏰ TIMEOUT #" + match.dbId + " - Disputa creada automáticamente");
                     JsonObject timeoutData = new JsonObject();
                     timeoutData.addProperty("mensaje", "No se encontró el resultado en " + duracionTexto((long) MAX_POLLS * intervaloSegundos) + ". Disputa creada.");
@@ -1571,11 +1648,10 @@ public class SocketHandler {
 
     private boolean esAdminSocket(SocketIOClient client) {
         Integer authId = client.getAuthenticatedUserId();
-        JsonObject usuario = client.getUserData();
-        return authId != null && usuario != null && usuario.has("id")
-                && !usuario.get("id").isJsonNull() && usuario.get("id").getAsInt() == authId
-                && usuario.has("tipo_suscripcion") && !usuario.get("tipo_suscripcion").isJsonNull()
-                && "admin".equals(usuario.get("tipo_suscripcion").getAsString());
+        if (authId == null || authId <= 0
+                || !AuthMiddleware.sesionVigente(authId, client.getAuthenticatedSessionJti())) return false;
+        JsonObject usuario = db.queryOne("SELECT tipo_suscripcion FROM users WHERE id = ?", authId);
+        return usuario != null && "admin".equals(str(usuario, "tipo_suscripcion"));
     }
 
     private Integer usuarioAutenticado(SocketIOClient client, String evento) {
@@ -1671,13 +1747,13 @@ public class SocketHandler {
     }
 
     static class BusquedaActiva {
-        int oderId;
+        int userId;
         String username;
         SocketIOClient socket;
         ScheduledFuture<?> timeoutFuture;
 
-        BusquedaActiva(int oderId, String username, SocketIOClient socket) {
-            this.oderId = oderId;
+        BusquedaActiva(int userId, String username, SocketIOClient socket) {
+            this.userId = userId;
             this.username = username;
             this.socket = socket;
         }

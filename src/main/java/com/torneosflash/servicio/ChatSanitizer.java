@@ -26,6 +26,7 @@ public final class ChatSanitizer {
     public static final int MAX_IMAGEN_BASE64 = 7_000_000;
     public static final int USERNAME_MIN = 3;
     public static final int USERNAME_MAX = 30;
+    private static final int MAX_PASADAS_LIMPIEZA = 32;
 
     private static final Set<String> CANALES_PUBLICOS = Set.of("general", "anuncios", "clash");
     private static final Set<String> TIPOS = Set.of("texto", "imagen", "video");
@@ -49,17 +50,23 @@ public final class ChatSanitizer {
 
     /** Limpia un texto libre: sin controles, sin etiquetas HTML, recortado y con tope de longitud. */
     public static String limpiarTexto(String raw, int max) {
-        if (raw == null) return "";
+        if (raw == null || max <= 0) return "";
         // Acota el trabajo del regex si alguien manda un texto gigante
-        if (raw.length() > max * 4) raw = raw.substring(0, max * 4);
+        long maxEntrada = (long) max * 4L;
+        if (raw.length() > maxEntrada) raw = raw.substring(0, (int) maxEntrada);
 
         String s = CARACTERES_CONTROL.matcher(raw).replaceAll("");
         // Se repite hasta que no cambie: evita que "<<b>script>" reconstruya una etiqueta al quitar la interna
-        String anterior;
-        do {
-            anterior = s;
+        boolean estable = false;
+        for (int pasada = 0; pasada < MAX_PASADAS_LIMPIEZA; pasada++) {
+            String anterior = s;
             s = ETIQUETA_HTML.matcher(s).replaceAll("");
-        } while (!s.equals(anterior));
+            if (s.equals(anterior)) {
+                estable = true;
+                break;
+            }
+        }
+        if (!estable) return ""; // Rechaza entradas con anidamiento patológico tras el límite de trabajo.
 
         s = s.trim();
         if (s.length() > max) {
