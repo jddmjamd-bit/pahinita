@@ -11,6 +11,11 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-23 — Corregir import faltante en la suite de aceptación (GPT-6)
+- Añadido `java.util.concurrent.atomic.AtomicInteger`, requerido por la generación de teléfonos únicos de los usuarios sintéticos.
+- **Verificación:** `git diff --check` y revisión del símbolo importado. Maven no produjo salida en este entorno y se canceló; el siguiente build de Render confirmará la compilación completa.
+Archivos: `RenderAcceptanceCheck.java`
+
 ## 2026-10-23 — Usar teléfonos únicos en los datos sintéticos de Render (GPT-6)
 - Cada usuario que crea la suite de aceptación recibe un teléfono de prueba único, compatible con la regla de unicidad normalizada de la migración V17.
 - **Verificación:** `git diff --check`. La suite PostgreSQL debe confirmarse en Render porque requiere `TEST_DATABASE_URL`.
