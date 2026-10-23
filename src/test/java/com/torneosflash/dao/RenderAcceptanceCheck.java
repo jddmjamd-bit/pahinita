@@ -508,7 +508,7 @@ class RenderAcceptanceCheck {
                 .compareTo(fila.get("saldo_posterior").getAsBigDecimal()));
         assertEquals(400, assertThrows(ServicioException.class,
                 () -> finanzas.solicitarRetiro(idUsuario, "nequi", "destino", JsonParser.parseString("20000")))
-                .getStatus());
+                .getStatus(), "Un retiro superior al saldo debe responder HTTP 400 (saldo insuficiente).");
         assertMonto(new BigDecimal("15000.00"), wallet.obtenerSaldo(idUsuario));
     }
 

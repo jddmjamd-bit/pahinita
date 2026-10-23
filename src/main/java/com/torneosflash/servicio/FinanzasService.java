@@ -125,7 +125,13 @@ public class FinanzasService {
         // Descontar saldo e insertar en transactions dentro de la misma transacción SQL // REVIEW-MONEY
         WalletResult result = wallet.solicitarRetiroTransaccional(userId, username, metodoLimpio, refLimpia, monto);
         if (!result.isSuccess()) {
-            throw ServicioException.respuestaConError(result.getError());
+            String error = result.getError();
+            if ("Saldo insuficiente".equals(error)) {
+                // A diferencia de los flujos heredados de depósito/admin, el retiro es un endpoint nuevo:
+                // indicar 400 permite al cliente reconocer el rechazo sin reportarlo como una operación exitosa.
+                throw ServicioException.solicitudInvalida(error);
+            }
+            throw ServicioException.interno(error != null ? error : "No se pudo solicitar el retiro", null);
         }
 
         notificador.notificarSaldo(userId, "⏳ Retiro en proceso...", result.getNuevoSaldo());

@@ -11,6 +11,12 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-23 — Responder correctamente cuando el retiro supera el saldo (GPT-6)
+- Los retiros con saldo insuficiente ahora devuelven HTTP 400; los errores internos al registrar el retiro se reportan como HTTP 500.
+- La prueba de aceptación indica explícitamente por qué se espera el 400 y sigue comprobando que el saldo no cambie si el retiro se rechaza.
+- **Verificación:** `git diff --check` pasó. Falta confirmar el runtime de la suite conectada a `TEST_DATABASE_URL` en Render.
+Archivos: `FinanzasService.java`, `RenderAcceptanceCheck.java`
+
 ## 2026-10-23 — Alinear aceptación de Render con mapper y datos reales (GPT-6)
 - Los servidores HTTP de prueba usan el mismo mapper Gson que producción; se evita que Jackson convierta respuestas de `JsonObject` en HTTP 500.
 - Las aserciones monetarias comparan el valor numérico sin depender de la escala decimal; el caso de leaderboard limpia victorias ajenas y soporte alcanza el límite diario antes de comprobarlo.
