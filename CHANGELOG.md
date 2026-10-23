@@ -11,6 +11,12 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-22 — Mostrar prueba y causa si falla el arranque en Render (GPT-6)
+- El runner de despliegue usa salida detallada de JUnit e informa el código de error al fallar; Render podrá mostrar el nombre/identificador de la prueba y la excepción/motivo en los logs antes de bloquear el inicio del backend.
+- La guía de pruebas y arquitectura documentan cómo reconocer fallos y el mensaje de éxito.
+- **Verificación:** `git diff --check` y validación del script/documentación. La ejecución de la suite de PostgreSQL requiere `TEST_DATABASE_URL` en Render.
+Archivos: `scripts/run-deploy-tests.sh`, `GUIA_PRUEBAS_Y_VARIABLES.md`, `ARCHITECTURE.md`
+
 ## 2026-10-22 — Automatizar casos de aceptación A–Q ejecutables en el deploy (GPT-6)
 - Añadidas pruebas JUnit para JWT, sanitización de chat, rate limit, SQL parametrizado y configuración; `mvnw.cmd clean verify` ahora ejecuta 54 pruebas y bloquea el build ante fallos.
 - Añadidas 23 pruebas JUnit de aceptación ejecutadas en Render antes de iniciar el backend. Usan una base exclusiva `TEST_DATABASE_URL` y un esquema `tf_qa_<uuid>`; incluyen rutas HTTP de sesión/seguridad/rate limit/voz, servicios de chatbot simulado y leaderboard, pagos/ledger, partidas y disputas, soporte, sorteos, evidencias, panel DB/backup temporal y migraciones. El esquema de aceptación se elimina al terminar.

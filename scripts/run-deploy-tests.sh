@@ -12,9 +12,17 @@ if [ ! -f "$1" ]; then
   exit 1
 fi
 
-java -jar "$1" execute \
+echo "[deploy-tests] Iniciando las pruebas de PostgreSQL y aceptación antes de arrancar el servidor."
+
+if java -jar "$1" execute \
   --disable-banner \
-  --details=summary \
+  --details=verbose \
   --class-path "/app/app.jar:/app/test-classes" \
   --select-class com.torneosflash.dao.RenderDeploymentDatabaseCheck \
-  --select-class com.torneosflash.dao.RenderAcceptanceCheck
+  --select-class com.torneosflash.dao.RenderAcceptanceCheck; then
+  echo "[deploy-tests] Todas las pruebas de arranque pasaron."
+else
+  resultado=$?
+  echo "[deploy-tests] ERROR: falló la suite de arranque (código $resultado). Busca arriba el nombre de la prueba fallida y su excepción/motivo; el servidor no iniciará." >&2
+  exit "$resultado"
+fi

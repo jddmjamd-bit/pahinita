@@ -171,6 +171,8 @@
 
 Las pruebas de configuración construyen `AppConfig` con mapas de valores temporales. No cambian las variables del proceso. Las pruebas de aceptación usan credenciales ficticias y no llaman a Clash Royale, Wompi, Brevo, Firebase, Discord ni proveedores de IA. La suite que se conecta a PostgreSQL usa solo `TEST_DATABASE_URL`.
 
+El runner usa el detalle `verbose` de JUnit: si falla una prueba, los logs de Render muestran el identificador/nombre del test y la excepción con su mensaje y traza. Al final aparece `[deploy-tests] ERROR` y el código de salida; el proceso conserva el fallo para impedir que arranque el backend. Si pasa todo, aparece `[deploy-tests] Todas las pruebas de arranque pasaron.`
+
 La guía A–Q sigue siendo el inventario completo de aceptación. La tabla siguiente marca qué comprobaciones ya están automatizadas, con sus límites. “Parcial” significa que se cubre la lógica del servicio o un contrato de código, pero todavía falta validar la ruta HTTP, el navegador, el socket o el servicio externo indicado en el caso.
 
 ### Cobertura automatizada de A–Q
