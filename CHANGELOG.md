@@ -11,6 +11,11 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-23 — Usar teléfonos únicos en los datos sintéticos de Render (GPT-6)
+- Cada usuario que crea la suite de aceptación recibe un teléfono de prueba único, compatible con la regla de unicidad normalizada de la migración V17.
+- **Verificación:** `git diff --check`. La suite PostgreSQL debe confirmarse en Render porque requiere `TEST_DATABASE_URL`.
+Archivos: `RenderAcceptanceCheck.java`
+
 ## 2026-10-23 — Corregir credenciales de la conexión de aceptación en Render (GPT-6)
 - La prueba de aceptación ahora inicia el singleton de PostgreSQL desde el URL original de `TEST_DATABASE_URL`, conservando las credenciales para que el parser las entregue por separado al pool.
 - `ConexionDB` ahora falla inmediatamente si HikariCP no puede inicializarse; la causa original queda visible en JUnit/logs y evita errores secundarios por un `dataSource` nulo.

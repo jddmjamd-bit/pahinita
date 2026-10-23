@@ -62,6 +62,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class RenderAcceptanceCheck {
     private static final Pattern DB_DE_PRUEBAS = Pattern.compile("(^|[_-])(test|pruebas?|qa)([_-]|$)");
     private static final String CLAVE = "test-only-jwt-secret-with-at-least-32-characters";
+    private static final AtomicInteger CONTADOR_TELEFONOS_TEST = new AtomicInteger();
     private static ConexionDB conexion;
     private static GenericDAO dao;
     private static AppConfig config;
@@ -876,10 +877,12 @@ class RenderAcceptanceCheck {
     }
 
     private static int crearUsuario(String username, String tipo, BigDecimal saldo) {
+        String telefono = "3" + String.format("%09d", 100_000_000
+                + Math.floorMod(CONTADOR_TELEFONOS_TEST.getAndIncrement(), 900_000_000));
         int id = dao.insertReturningId("INSERT INTO users "
                 + "(username, email, password, player_tag, telefono, tipo_suscripcion, saldo) "
-                + "VALUES (?, ?, 'qa-hash-no-login', ?, '3000000000', ?, ?) RETURNING id",
-                username, username + "@example.test", "#" + username.toUpperCase(Locale.ROOT), tipo, saldo);
+                + "VALUES (?, ?, 'qa-hash-no-login', ?, ?, ?, ?) RETURNING id",
+                username, username + "@example.test", "#" + username.toUpperCase(Locale.ROOT), telefono, tipo, saldo);
         assertTrue(id > 0, "No se pudo crear el usuario de aceptación.");
         return id;
     }
