@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-23 — Alinear aceptación de Render con mapper y datos reales (GPT-6)
+- Los servidores HTTP de prueba usan el mismo mapper Gson que producción; se evita que Jackson convierta respuestas de `JsonObject` en HTTP 500.
+- Las aserciones monetarias comparan el valor numérico sin depender de la escala decimal; el caso de leaderboard limpia victorias ajenas y soporte alcanza el límite diario antes de comprobarlo.
+- Los tags sintéticos usan el alfabeto válido de Clash Royale.
+- **Verificación:** `git diff --check` pasó. Falta repetir el runtime JUnit en Render, que requiere `TEST_DATABASE_URL`.
+Archivos: `RenderAcceptanceCheck.java`
+
 ## 2026-10-23 — Corregir import faltante en la suite de aceptación (GPT-6)
 - Añadido `java.util.concurrent.atomic.AtomicInteger`, requerido por la generación de teléfonos únicos de los usuarios sintéticos.
 - **Verificación:** `git diff --check` y revisión del símbolo importado. Maven no produjo salida en este entorno y se canceló; el siguiente build de Render confirmará la compilación completa.

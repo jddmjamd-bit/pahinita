@@ -2,6 +2,8 @@ package com.torneosflash.dao;
 
 import com.google.gson.JsonParser;
 import com.google.gson.JsonArray;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.torneosflash.config.AppConfig;
 import com.torneosflash.config.Ejecutores;
@@ -21,6 +23,7 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.flywaydb.core.Flyway;
 import io.javalin.Javalin;
+import io.javalin.json.JsonMapper;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -29,6 +32,7 @@ import org.mindrot.jbcrypt.BCrypt;
 
 import java.math.BigDecimal;
 import java.io.ByteArrayInputStream;
+import java.lang.reflect.Type;
 import java.net.ServerSocket;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -52,6 +56,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -62,6 +67,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class RenderAcceptanceCheck {
     private static final Pattern DB_DE_PRUEBAS = Pattern.compile("(^|[_-])(test|pruebas?|qa)([_-]|$)");
+    private static final String ALFABETO_TAG_PRUEBA = "0289PYLQGRJCUV";
     private static final String CLAVE = "test-only-jwt-secret-with-at-least-32-characters";
     private static final AtomicInteger CONTADOR_TELEFONOS_TEST = new AtomicInteger();
     private static ConexionDB conexion;
@@ -203,7 +209,7 @@ class RenderAcceptanceCheck {
         String aleatorio = UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase(Locale.ROOT);
         String username = "alta_" + aleatorio;
         String email = "alta_" + aleatorio.toLowerCase(Locale.ROOT) + "@example.test";
-        String tag = "#PQ" + String.format("%06d", Math.floorMod(UUID.randomUUID().hashCode(), 1_000_000));
+        String tag = tagPruebaUnico();
         String telefono = "311" + String.format("%07d", Math.floorMod(UUID.randomUUID().hashCode(), 10_000_000));
         long antes = dao.queryOne("SELECT COUNT(*) AS total FROM users").get("total").getAsLong();
         auth.registrar(username, email, "ClaveSegura!123", tag, telefono,
@@ -214,7 +220,7 @@ class RenderAcceptanceCheck {
         assertEquals(2, dao.queryOne("SELECT COUNT(*) AS total FROM legal_acceptances WHERE user_id = ?", id)
                 .get("total").getAsInt());
 
-        assertDoesNotThrow(() -> auth.registrar(username, "otro_" + email, "ClaveSegura!123", "#PY" + String.format("%06d", Math.floorMod(UUID.randomUUID().hashCode(), 1_000_000)),
+        assertDoesNotThrow(() -> auth.registrar(username, "otro_" + email, "ClaveSegura!123", tagPruebaUnico(),
                 "3129999999", "token-falso", true));
         assertEquals(despuesAlta, dao.queryOne("SELECT COUNT(*) AS total FROM users").get("total").getAsLong());
         assertDoesNotThrow(() -> auth.registrar("tag_repetido_" + aleatorio, "tag_" + aleatorio.toLowerCase(Locale.ROOT)
@@ -222,7 +228,7 @@ class RenderAcceptanceCheck {
         assertEquals(despuesAlta, dao.queryOne("SELECT COUNT(*) AS total FROM users").get("total").getAsLong());
         assertEquals(400, assertThrows(ServicioException.class,
                 () -> auth.registrar("usuario_sin_token", "sin-token@example.test", "ClaveSegura!123",
-                        "#" + aleatorio + "3", "3128888888", "", true)).getStatus());
+                tagPruebaUnico(), "3128888888", "", true)).getStatus());
     }
 
     @Test
@@ -236,7 +242,7 @@ class RenderAcceptanceCheck {
             port = reservador.getLocalPort();
         }
 
-        Javalin servidor = Javalin.create();
+        Javalin servidor = crearJavalinConGson();
         ManejadorErrores.registrar(servidor);
         JwtServicio jwt = new JwtServicio(CLAVE, 3600);
         AuthMiddleware.register(servidor, jwt, config, usuarios);
@@ -251,7 +257,7 @@ class RenderAcceptanceCheck {
         String base = "http://127.0.0.1:" + port;
         try {
             String random = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-            String tag = "#PQ" + String.format("%06d", Math.floorMod(UUID.randomUUID().hashCode(), 1_000_000));
+            String tag = tagPruebaUnico();
             String telefono = "310" + String.format("%07d", Math.floorMod(UUID.randomUUID().hashCode(), 10_000_000));
             String registro = """
                     {"username":"http_reg_%s","email":"http_reg_%s@example.test","password":"ClaveSegura!123",
@@ -354,7 +360,7 @@ class RenderAcceptanceCheck {
                 "RATE_LIMIT_FINANCIAL_PER_MIN", "1",
                 "RATE_LIMIT_AUTH_PER_MIN", "1",
                 "RATE_LIMIT_PROXY_HOPS", "0"));
-        Javalin servidor = Javalin.create();
+        Javalin servidor = crearJavalinConGson();
         RateLimitMiddleware.register(servidor, rateConfig, new RateLimiter());
         servidor.post("/api/login", ctx -> ctx.result("login"));
         servidor.post("/api/transaction/create", ctx -> ctx.result("finanzas"));
@@ -460,7 +466,7 @@ class RenderAcceptanceCheck {
         assertTrue(primera.isSuccess());
         var duplicada = wallet.acreditarDepositoWompi(referencia, null, centavos, monto -> centavos);
         assertNull(duplicada, "Una segunda entrega no debe volver a acreditar la misma referencia.");
-        assertEquals(new BigDecimal("2000.00"), wallet.obtenerSaldo(idUsuario));
+        assertMonto(new BigDecimal("2000.00"), wallet.obtenerSaldo(idUsuario));
         assertEquals(1, dao.queryOne("SELECT COUNT(*) AS total FROM wallet_ledger WHERE user_id = ? AND referencia LIKE ?",
                 idUsuario, "%" + referencia + "%").get("total").getAsInt());
     }
@@ -479,13 +485,13 @@ class RenderAcceptanceCheck {
                 """.formatted(referencia)).getAsJsonObject();
         assertEquals(401, assertThrows(ServicioException.class,
                 () -> finanzas.procesarWebhookWompi(webhook, null)).getStatus());
-        assertEquals(BigDecimal.ZERO.setScale(2), wallet.obtenerSaldo(idUsuario));
+        assertMonto(BigDecimal.ZERO, wallet.obtenerSaldo(idUsuario));
         assertEquals(400, assertThrows(ServicioException.class,
                 () -> wallet.acreditarDepositoWompi(referencia, "qa-wrong-amount-" + UUID.randomUUID(),
                         centavos + 1, monto -> centavos)).getStatus());
         assertEquals("pendiente", dao.queryOne("SELECT estado FROM transactions WHERE referencia = ?", referencia)
                 .get("estado").getAsString());
-        assertEquals(BigDecimal.ZERO.setScale(2), wallet.obtenerSaldo(idUsuario));
+        assertMonto(BigDecimal.ZERO, wallet.obtenerSaldo(idUsuario));
     }
 
     @Test
@@ -493,7 +499,7 @@ class RenderAcceptanceCheck {
         int idUsuario = usuarioConSaldo(new BigDecimal("25000"));
         BigDecimal saldoNuevo = finanzas.solicitarRetiro(idUsuario, "nequi", "destino de prueba",
                 JsonParser.parseString("10000"));
-        assertEquals(new BigDecimal("15000.00"), saldoNuevo);
+        assertMonto(new BigDecimal("15000.00"), saldoNuevo);
         var fila = dao.queryOne("SELECT saldo_anterior, monto, saldo_posterior FROM wallet_ledger "
                 + "WHERE user_id = ? AND tipo = 'retiro' ORDER BY id DESC LIMIT 1", idUsuario);
         assertNotNull(fila);
@@ -503,7 +509,7 @@ class RenderAcceptanceCheck {
         assertEquals(400, assertThrows(ServicioException.class,
                 () -> finanzas.solicitarRetiro(idUsuario, "nequi", "destino", JsonParser.parseString("20000")))
                 .getStatus());
-        assertEquals(new BigDecimal("15000.00"), wallet.obtenerSaldo(idUsuario));
+        assertMonto(new BigDecimal("15000.00"), wallet.obtenerSaldo(idUsuario));
     }
 
     @Test
@@ -541,7 +547,7 @@ class RenderAcceptanceCheck {
         assertEquals("finalizada", dao.queryOne("SELECT estado FROM matches WHERE id = ?", matchId)
                 .get("estado").getAsString());
         assertTrue(wallet.obtenerSaldo(ganador).compareTo(new BigDecimal("9000")) > 0);
-        assertEquals(new BigDecimal("9000.00"), wallet.obtenerSaldo(perdedor));
+        assertMonto(new BigDecimal("9000.00"), wallet.obtenerSaldo(perdedor));
         assertEquals(1, dao.queryOne("SELECT total_victorias FROM users WHERE id = ?", ganador)
                 .get("total_victorias").getAsInt());
         assertEquals(1, dao.queryOne("SELECT COUNT(*) AS total FROM wallet_ledger "
@@ -572,6 +578,12 @@ class RenderAcceptanceCheck {
                 .get("respuesta").getAsString());
         assertEquals(400, assertThrows(ServicioException.class,
                 () -> soporte.responder(adminId, ticketId, "Doble respuesta")).getStatus());
+        for (int numero = 2; numero < 10; numero++) {
+            JsonObject ticketDiario = soporte.crear(usuarioId, SoporteService.CATEGORIA_OTRO,
+                    "Cuota diaria " + numero, "Texto de prueba " + numero);
+            int ticketDiarioId = ticketDiario.getAsJsonObject("ticket").get("id").getAsInt();
+            soporte.responder(adminId, ticketDiarioId, "Respuesta de prueba " + numero);
+        }
         assertEquals(429, assertThrows(ServicioException.class,
                 () -> soporte.crear(usuarioId, SoporteService.CATEGORIA_OTRO, "Cuota diaria", "Texto")).getStatus());
     }
@@ -616,6 +628,7 @@ class RenderAcceptanceCheck {
     @Test
     void corteLeaderboardPersisteSnapshotPagaJugadoresYAdminsYEsIdempotente() {
         int jugador = usuarioConSaldo(BigDecimal.ZERO);
+        dao.update("UPDATE users SET victorias_dia = 0");
         dao.update("UPDATE users SET victorias_dia = 1 WHERE id = ?", jugador);
         BigDecimal saldoAdminAntes = wallet.obtenerSaldo(adminId);
         dao.update("UPDATE leaderboard_pools SET dia = 1000 WHERE id = 1");
@@ -628,12 +641,12 @@ class RenderAcceptanceCheck {
         assertNotNull(corte);
         long corteId = corte.get("id").getAsLong();
         assertEquals("completado", corte.get("estado").getAsString());
-        assertEquals(BigDecimal.ZERO, dao.queryOne("SELECT dia FROM leaderboard_pools WHERE id = 1")
+        assertMonto(BigDecimal.ZERO, dao.queryOne("SELECT dia FROM leaderboard_pools WHERE id = 1")
                 .get("dia").getAsBigDecimal());
         assertEquals(0, dao.queryOne("SELECT victorias_dia FROM users WHERE id = ?", jugador)
                 .get("victorias_dia").getAsInt());
-        assertEquals(new BigDecimal("625.00"), wallet.obtenerSaldo(jugador));
-        assertEquals(saldoAdminAntes.add(new BigDecimal("375.00")), wallet.obtenerSaldo(adminId));
+        assertMonto(new BigDecimal("625.00"), wallet.obtenerSaldo(jugador));
+        assertMonto(saldoAdminAntes.add(new BigDecimal("375.00")), wallet.obtenerSaldo(adminId));
         assertEquals(2, dao.queryOne("SELECT COUNT(*) AS total FROM leaderboard_cut_payments WHERE corte_id = ? "
                 + "AND estado = 'pagado'", corteId).get("total").getAsInt());
         assertEquals(1, dao.queryOne("SELECT COUNT(*) AS total FROM leaderboard_history "
@@ -641,8 +654,8 @@ class RenderAcceptanceCheck {
                 jugador, corteId).get("total").getAsInt());
 
         leaderboard.premiarYResetear("dia", "victorias_dia", claveCorte);
-        assertEquals(new BigDecimal("625.00"), wallet.obtenerSaldo(jugador));
-        assertEquals(saldoAdminAntes.add(new BigDecimal("375.00")), wallet.obtenerSaldo(adminId));
+        assertMonto(new BigDecimal("625.00"), wallet.obtenerSaldo(jugador));
+        assertMonto(saldoAdminAntes.add(new BigDecimal("375.00")), wallet.obtenerSaldo(adminId));
         assertEquals(1, dao.queryOne("SELECT COUNT(*) AS total FROM leaderboard_cuts WHERE periodo = 'dia' "
                 + "AND clave_corte = ?", claveCorte).get("total").getAsInt());
     }
@@ -702,8 +715,8 @@ class RenderAcceptanceCheck {
             assertTrue(resultadoB.success);
             assertEquals(resultadoA.matchId, resultadoB.matchId);
             assertEquals(1, (resultadoA.nuevoInicio ? 1 : 0) + (resultadoB.nuevoInicio ? 1 : 0));
-            assertEquals(new BigDecimal("9000.00"), wallet.obtenerSaldo(p1));
-            assertEquals(new BigDecimal("9000.00"), wallet.obtenerSaldo(p2));
+            assertMonto(new BigDecimal("9000.00"), wallet.obtenerSaldo(p1));
+            assertMonto(new BigDecimal("9000.00"), wallet.obtenerSaldo(p2));
             assertEquals(1, dao.queryOne("SELECT COUNT(*) AS total FROM matches WHERE sala_id = ?", sala)
                     .get("total").getAsInt());
         } finally {
@@ -724,8 +737,8 @@ class RenderAcceptanceCheck {
         var resultado = wallet.iniciarPartidaTorneo(p1, nombre1, p2, nombre2, sala, "friendly",
                 new BigDecimal("1000"), "#PQL123", "#PQL124", "2026-10-22T00:00:00Z");
         assertFalse(resultado.success);
-        assertEquals(new BigDecimal("10000.00"), wallet.obtenerSaldo(p1));
-        assertEquals(new BigDecimal("500.00"), wallet.obtenerSaldo(p2));
+        assertMonto(new BigDecimal("10000.00"), wallet.obtenerSaldo(p1));
+        assertMonto(new BigDecimal("500.00"), wallet.obtenerSaldo(p2));
         assertEquals(0, dao.queryOne("SELECT COUNT(*) AS total FROM matches WHERE sala_id = ?", sala)
                 .get("total").getAsInt());
     }
@@ -752,8 +765,8 @@ class RenderAcceptanceCheck {
         var reparadas = wallet.reconciliarPartidasTorneoAlReiniciar();
         assertTrue(reparadas.stream().anyMatch(partida -> partida.matchId() == matchId));
         assertEquals(sala, dao.queryOne("SELECT sala_id FROM matches WHERE id = ?", matchId).get("sala_id").getAsString());
-        assertEquals(new BigDecimal("9000.00"), wallet.obtenerSaldo(p1));
-        assertEquals(new BigDecimal("9000.00"), wallet.obtenerSaldo(p2));
+        assertMonto(new BigDecimal("9000.00"), wallet.obtenerSaldo(p1));
+        assertMonto(new BigDecimal("9000.00"), wallet.obtenerSaldo(p2));
     }
 
     @Test
@@ -875,6 +888,37 @@ class RenderAcceptanceCheck {
                 ps.execute();
             }
         }
+    }
+
+    private static String tagPruebaUnico() {
+        StringBuilder tag = new StringBuilder("#");
+        for (int i = 0; i < 8; i++) {
+            tag.append(ALFABETO_TAG_PRUEBA.charAt(ThreadLocalRandom.current().nextInt(ALFABETO_TAG_PRUEBA.length())));
+        }
+        return tag.toString();
+    }
+
+    private static Javalin crearJavalinConGson() {
+        Gson gson = new GsonBuilder().create();
+        return Javalin.create(javalinConfig -> javalinConfig.jsonMapper(new JsonMapper() {
+            @Override
+            public String toJsonString(Object obj, Type type) {
+                if (obj instanceof com.google.gson.JsonElement) {
+                    return gson.toJson((com.google.gson.JsonElement) obj);
+                }
+                return gson.toJson(obj);
+            }
+
+            @Override
+            public <T> T fromJsonString(String json, Type targetType) {
+                return gson.fromJson(json, targetType);
+            }
+        }));
+    }
+
+    private static void assertMonto(BigDecimal esperado, BigDecimal actual) {
+        assertNotNull(actual, "El valor monetario no debe ser nulo.");
+        assertEquals(0, esperado.compareTo(actual), "El monto no coincide.");
     }
 
     private static int crearUsuario(String username, String tipo, BigDecimal saldo) {
