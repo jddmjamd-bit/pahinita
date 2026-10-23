@@ -147,7 +147,7 @@ export default function Auth() {
         if (!usernameValid) return alert('❌ El formato del nombre de usuario no es válido');
         if (!emailValid) return alert('❌ El formato del correo no es válido');
         if (!playerTagValid) return alert('❌ El Player Tag no es válido. Debe mostrar tu nombre de Clash Royale');
-        if (!playerApiToken.trim()) return alert('Ingresa el token de API de Clash Royale para demostrar que controlas el Player Tag.');
+        if (!playerApiToken.trim()) return alert('Ingresa el token de API de Clash Royale para la verificación manual de tu cuenta.');
         if (!acepta) return alert('❌ Debes aceptar los Términos de Servicio y la Política de Privacidad');
         if (excedeLimiteBcrypt(password)) return alert('La contraseña no puede superar 72 bytes UTF-8. Los acentos y emojis pueden ocupar más de un byte.');
 
@@ -162,7 +162,7 @@ export default function Auth() {
             const data = await res.json();
             setPlayerApiToken('');
             if (res.ok) {
-                alert(data.message || 'Solicitud recibida. Si los datos permiten crear una cuenta, podrás iniciar sesión en unos instantes.');
+                alert(data.message || 'Solicitud recibida. Si los datos permiten crear una cuenta, podrás iniciar sesión. Los retiros se habilitan después de la verificación manual del Player Tag.');
                 setIsLogin(true);
             } else {
                 alert('Error: ' + (data.error || 'Revisa los datos'));
@@ -301,7 +301,7 @@ export default function Auth() {
 
                         <input type="password" placeholder="Token de API de Clash Royale" required autoComplete="off"
                             maxLength="256" value={playerApiToken} onChange={e => setPlayerApiToken(e.target.value)} />
-                        <small>Se usa una sola vez para comprobar que controlas ese Player Tag; no lo guardamos. En Clash Royale, genera el token de API desde los ajustes del juego.</small>
+                        <small>Genera el token desde los ajustes de Clash Royale. Un administrador lo comprobará manualmente con el bot de Discord. Lo guardamos cifrado mientras tu cuenta esté pendiente y lo eliminamos al verificarla. Hasta entonces podrás usar la plataforma, excepto retirar saldo.</small>
 
                         <input type="tel" placeholder="Celular (WhatsApp)" required minLength="7" maxLength="30"
                             title="Ingresa un celular único para contactarte si ganas un sorteo"

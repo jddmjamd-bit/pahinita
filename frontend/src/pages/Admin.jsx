@@ -6,7 +6,7 @@ import AdminSoporte from './AdminSoporte';
 import './Admin.css';
 
 export default function Admin() {
-    const [view, setView] = useState('transactions'); // 'transactions', 'stats', 'chatbot' o 'soporte'
+    const [view, setView] = useState('transactions'); // 'transactions', 'stats', 'chatbot', 'soporte' o 'clash-verifications'
     
     // Transactions & Disputes
     const [transactions, setTransactions] = useState([]);
@@ -22,6 +22,10 @@ export default function Admin() {
     // Form inputs for disputes
     const [disputeResolutions, setDisputeResolutions] = useState({});
 
+    // Verificación manual de tags Clash Royale
+    const [verificacionesClash, setVerificacionesClash] = useState([]);
+    const [loadingVerificacionesClash, setLoadingVerificacionesClash] = useState(false);
+
     const currentUser = useAppStore(state => state.user);
 
     useEffect(() => {
@@ -31,6 +35,10 @@ export default function Admin() {
                 cargarDisputasAdmin();
             } else if (view === 'stats') {
                 cargarEstadisticasAdmin();
+            } else if (view === 'clash-verifications') {
+                cargarVerificacionesClash();
+            } else {
+                setVerificacionesClash([]);
             }
         }
     }, [view]);
@@ -152,6 +160,47 @@ export default function Admin() {
         }
     };
 
+    const cargarVerificacionesClash = async () => {
+        setLoadingVerificacionesClash(true);
+        try {
+            const { ok, data } = await llamarApi('/api/admin/clash-verifications');
+            if (!ok || !Array.isArray(data)) {
+                console.error(data?.error || 'No se pudieron cargar las verificaciones');
+                setVerificacionesClash([]);
+                return;
+            }
+            setVerificacionesClash(data);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoadingVerificacionesClash(false);
+        }
+    };
+
+    const copiarTokenVerificacion = async (token) => {
+        try {
+            await navigator.clipboard.writeText(token);
+            alert('Token copiado. Úsalo para comprobar el tag con el bot de Discord.');
+        } catch (e) {
+            window.prompt('Copia el token para comprobarlo con el bot de Discord:', token);
+        }
+    };
+
+    const marcarTagVerificado = async (verificacion) => {
+        if (!window.confirm(`¿Ya comprobaste ${verificacion.player_tag} con el bot de Discord y quieres habilitar sus retiros?`)) return;
+        try {
+            const { ok, data } = await llamarApi('/api/admin/clash-verifications/confirm', {
+                method: 'POST',
+                body: JSON.stringify({ userId: verificacion.id })
+            });
+            if (!ok || data?.error) return alert('Error: ' + (data?.error || 'No se pudo confirmar la cuenta'));
+            setVerificacionesClash(prev => prev.filter(item => item.id !== verificacion.id));
+            alert('Cuenta verificada. El token fue eliminado.');
+        } catch (e) {
+            alert('Error de conexión');
+        }
+    };
+
     return (
         <div className="admin-container">
             <header className="admin-header">
@@ -161,6 +210,7 @@ export default function Admin() {
                     <button className={`admin-tab ${view === 'stats' ? 'active' : ''}`} onClick={() => setView('stats')}>📊 Finanzas</button>
                     <button className={`admin-tab ${view === 'chatbot' ? 'active' : ''}`} onClick={() => setView('chatbot')}>🤖 Chatbot</button>
                     <button className={`admin-tab ${view === 'soporte' ? 'active' : ''}`} onClick={() => setView('soporte')}>🎫 Soporte</button>
+                    <button className={`admin-tab ${view === 'clash-verifications' ? 'active' : ''}`} onClick={() => setView('clash-verifications')}>⚔️ Verificar Clash</button>
                 </div>
             </header>
 
@@ -236,6 +286,34 @@ export default function Admin() {
 
             {view === 'chatbot' && <AdminChatbot />}
             {view === 'soporte' && <AdminSoporte />}
+
+            {view === 'clash-verifications' && (
+                <div className="admin-view">
+                    <div className="section-header">
+                        <h3>⚔️ Verificación manual de Clash Royale</h3>
+                        <button className="refresh-btn" onClick={cargarVerificacionesClash}>🔄 Actualizar</button>
+                    </div>
+                    <p className="clash-verification-help">
+                        Copia cada token y compruébalo con el bot de Discord. Después de confirmar el resultado aquí, el token se elimina y se habilitan los retiros.
+                    </p>
+                    <div className="admin-list">
+                        {loadingVerificacionesClash ? <p>Cargando...</p> : verificacionesClash.length === 0 ? (
+                            <p className="empty">No hay cuentas pendientes.</p>
+                        ) : verificacionesClash.map(verificacion => (
+                            <div key={verificacion.id} className="clash-verification-item">
+                                <div>
+                                    <strong>{verificacion.username}</strong> · {verificacion.player_tag}
+                                    <div className="clash-verification-token">{verificacion.token}</div>
+                                </div>
+                                <div className="clash-verification-actions">
+                                    <button className="refresh-btn" onClick={() => copiarTokenVerificacion(verificacion.token)}>Copiar token</button>
+                                    <button className="btn-approve" onClick={() => marcarTagVerificado(verificacion)}>✅ Marcar verificada</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {view === 'stats' && (
                 <div className="admin-view">

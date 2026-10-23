@@ -20,6 +20,7 @@ import com.torneosflash.servicio.ValidadorMonto;
 import com.torneosflash.servicio.JwtServicio;
 import com.torneosflash.servicio.AdminService;
 import com.torneosflash.servicio.AuthService;
+import com.torneosflash.servicio.CifradoTokenJugador;
 import com.torneosflash.servicio.DbAdminService;
 import com.torneosflash.servicio.FinanzasService;
 import com.torneosflash.servicio.LeaderboardService;
@@ -289,7 +290,9 @@ public class Main {
         // Capa de servicio (A3): las rutas solo parsean el request y llaman a estos
         // servicios
         NotificadorUsuarios notificador = new NotificadorUsuarios(socketServer, db, pushService);
-        AuthService authService = new AuthService(usuarioDAO, db, clashApi, ejecutores, config, eventBus);
+        CifradoTokenJugador cifradoTokenJugador = new CifradoTokenJugador(config.getJwtSecret());
+        AuthService authService = new AuthService(usuarioDAO, db, clashApi, ejecutores, config, eventBus,
+                cifradoTokenJugador);
         new RecuperacionPasswordListener(correo, socketServer).registrar(eventBus);
         FinanzasService finanzasService = new FinanzasService(db, config, wallet, validadorMonto, notificador);
         SorteoService sorteoService = new SorteoService(db, socketServer, correo, pushService, validadorMonto);
@@ -313,7 +316,8 @@ public class Main {
         DiscordApiCliente discordApi = new DiscordApiCliente(config);
         VozDiscordService vozService = new VozDiscordService(db, discordApi, config);
         new VozListener(vozService, ejecutores).registrar(eventBus);
-        AdminService adminService = new AdminService(db, usuarioDAO, wallet, eventBus, notificador, socketServer);
+        AdminService adminService = new AdminService(db, usuarioDAO, wallet, eventBus, notificador, socketServer,
+                cifradoTokenJugador);
         LeaderboardService leaderboardService = new LeaderboardService(db, socketServer, wallet);
         MediaService mediaService = new MediaService(db);
         DbAdminService dbAdminService = new DbAdminService(db, conexion, config);

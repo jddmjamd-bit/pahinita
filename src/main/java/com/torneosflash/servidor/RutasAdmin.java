@@ -30,6 +30,16 @@ public class RutasAdmin {
         // GET /api/admin/stats
         app.get("/api/admin/stats", ctx -> ctx.json(admin.estadisticas()));
 
+        // GET /api/admin/clash-verifications (token visible solo para administradores)
+        app.get("/api/admin/clash-verifications", ctx -> ctx.json(admin.verificacionesClashPendientes()));
+
+        // POST /api/admin/clash-verifications/confirm (el admin confirma tras revisar el token en Discord)
+        app.post("/api/admin/clash-verifications/confirm", ctx -> {
+            JsonObject body = parseBody(ctx);
+            admin.confirmarVerificacionClash(Peticion.entero(body, "userId"), Peticion.userIdDeSesion(ctx));
+            ctx.json(successJson("Cuenta verificada y token eliminado", 0));
+        });
+
         // POST /api/admin/transaction/process (approve/reject)
         app.post("/api/admin/transaction/process", ctx -> {
             JsonObject body = parseBody(ctx);

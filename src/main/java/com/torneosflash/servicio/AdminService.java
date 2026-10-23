@@ -29,15 +29,22 @@ public class AdminService {
     private final EventBus eventos; // A4: avisa "match.finished" al resolver una disputa (antes acreditaba los tickets aquí)
     private final NotificadorUsuarios notificador;
     private final SocketIOServer io;
+    private final CifradoTokenJugador cifradoTokenJugador;
 
     public AdminService(GenericDAO db, UsuarioDAO usuarioDAO, WalletService wallet, EventBus eventos,
                         NotificadorUsuarios notificador, SocketIOServer io) {
+        this(db, usuarioDAO, wallet, eventos, notificador, io, null);
+    }
+
+    public AdminService(GenericDAO db, UsuarioDAO usuarioDAO, WalletService wallet, EventBus eventos,
+                        NotificadorUsuarios notificador, SocketIOServer io, CifradoTokenJugador cifradoTokenJugador) {
         this.db = db;
         this.usuarioDAO = usuarioDAO;
         this.wallet = wallet;
         this.eventos = eventos;
         this.notificador = notificador;
         this.io = io;
+        this.cifradoTokenJugador = cifradoTokenJugador;
     }
 
     // ------------------------------------------------------------------
@@ -47,6 +54,51 @@ public class AdminService {
     /** Solo las transacciones pendientes de aprobar. */
     public ArrayList<JsonObject> transaccionesPendientes() {
         return db.query("SELECT * FROM transactions WHERE estado = 'pendiente' ORDER BY id DESC");
+    }
+
+    /** Devuelve tokens descifrados solo al panel protegido para que el administrador los verifique en Discord. */
+    public ArrayList<JsonObject> verificacionesClashPendientes() {
+        if (cifradoTokenJugador == null) {
+            throw ServicioException.interno("El servicio de verificación manual no está disponible", null);
+        }
+        ArrayList<JsonObject> filas = db.query(
+                "SELECT id, username, player_tag, player_verification_token_ciphertext " +
+                        "FROM users WHERE player_tag_verificado = FALSE " +
+                        "AND player_verification_token_ciphertext IS NOT NULL ORDER BY id ASC");
+        ArrayList<JsonObject> pendientes = new ArrayList<>();
+        for (JsonObject fila : filas) {
+            JsonObject pendiente = new JsonObject();
+            pendiente.add("id", fila.get("id"));
+            pendiente.add("username", fila.get("username"));
+            pendiente.add("player_tag", fila.get("player_tag"));
+            try {
+                pendiente.addProperty("token", cifradoTokenJugador.descifrar(
+                        fila.get("player_verification_token_ciphertext").getAsString()));
+            } catch (RuntimeException e) {
+                throw ServicioException.interno("No se pudo leer un token pendiente de verificación", e);
+            }
+            pendientes.add(pendiente);
+        }
+        return pendientes;
+    }
+
+    /** Marca como verificado y borra el token cifrado en la misma actualización. */
+    public void confirmarVerificacionClash(int userId, int adminUserId) {
+        if (userId <= 0 || adminUserId <= 0) throw ServicioException.solicitudInvalida("Usuario no válido");
+        int filas = db.update(
+                "UPDATE users SET player_tag_verificado = TRUE, player_tag_verificado_en = CURRENT_TIMESTAMP, " +
+                        "player_tag_verificado_por = ?, player_verification_token_ciphertext = NULL " +
+                        "WHERE id = ? AND player_tag_verificado = FALSE " +
+                        "AND player_verification_token_ciphertext IS NOT NULL",
+                adminUserId, userId);
+        if (filas == 1) return;
+
+        JsonObject usuario = db.queryOne("SELECT player_tag_verificado FROM users WHERE id = ?", userId);
+        if (usuario == null) throw ServicioException.noEncontrado("No se encontró esa cuenta");
+        if (usuario.has("player_tag_verificado") && usuario.get("player_tag_verificado").getAsBoolean()) {
+            throw ServicioException.solicitudInvalida("Esa cuenta ya está verificada");
+        }
+        throw ServicioException.solicitudInvalida("No hay un token pendiente para esa cuenta");
     }
 
     public ArrayList<JsonObject> disputas() {

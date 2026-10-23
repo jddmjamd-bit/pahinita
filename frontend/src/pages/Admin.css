@@ -10,7 +10,7 @@
     align-items: center;
     margin-bottom: 30px;
 }
-.admin-tabs { display: flex; gap: 12px; }
+.admin-tabs { display: flex; gap: 12px; flex-wrap: wrap; }
 .admin-tab {
     background: var(--bg-surface);
     color: var(--text-secondary);
@@ -107,6 +107,34 @@
 .bd-title { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px; font-weight: 600; }
 .bd-actual { color: var(--accent-success); font-weight: 800; font-size: 1.2rem; }
 .bd-hist { color: var(--accent-warning); font-size: 0.9rem; margin-top: 5px; }
+
+.clash-verification-help {
+    color: var(--text-secondary);
+    margin: 0 0 16px;
+}
+.clash-verification-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    background: var(--bg-base);
+    padding: 18px;
+    border-radius: var(--radius-md);
+    margin-bottom: 12px;
+    border: 1px solid var(--border-color);
+}
+.clash-verification-token {
+    margin-top: 8px;
+    overflow-wrap: anywhere;
+    color: var(--text-secondary);
+    font-family: var(--font-mono, monospace);
+}
+.clash-verification-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+@media (max-width: 700px) {
+    .clash-verification-item { align-items: flex-start; flex-direction: column; }
+    .clash-verification-actions { width: 100%; }
+}
 
 .user-card {
     background: var(--bg-base);

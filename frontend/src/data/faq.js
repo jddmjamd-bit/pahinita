@@ -57,7 +57,7 @@ export const PREGUNTAS = [
         pregunta: '¿Cómo creo mi cuenta?',
         respuesta: [
             'En la pantalla de entrada elige «Crear cuenta» y llena usuario, correo, contraseña, Player Tag, token de API de Clash Royale y celular. Mientras escribes, la página revisa los formatos y consulta si el Player Tag existe.',
-            'El token de API del juego se usa una sola vez para confirmar que controlas esa cuenta y no se guarda. El celular debe ser tuyo y no estar registrado en otra cuenta; escribirlo con o sin +57 no crea un número distinto.',
+            'Genera el token desde los ajustes del juego. Un administrador lo comprobará manualmente con el bot de Discord. Se conserva cifrado mientras la cuenta está pendiente y se elimina al confirmarla. Puedes usar la plataforma mientras esperas, excepto retirar saldo. El celular debe ser tuyo y no estar registrado en otra cuenta; escribirlo con o sin +57 no crea un número distinto.',
             'También debes aceptar los Términos de Servicio y la Política de Privacidad; sin eso el botón de registro no te deja continuar. Al terminar, vuelves a la pantalla de entrada e inicias sesión con tu correo y contraseña.'
         ],
         video: { titulo: 'Cómo crear tu cuenta paso a paso', youtube: '', archivo: '' }
@@ -68,7 +68,7 @@ export const PREGUNTAS = [
         pregunta: '¿Qué es el Player Tag y dónde lo encuentro?',
         respuesta: [
             'Es el código único de tu cuenta de Clash Royale. Empieza con # y se compone de letras y números (por ejemplo #2PP). Lo usamos para saber cuáles partidas son tuyas y quién ganó.',
-            'Lo encuentras dentro del juego, en tu perfil, justo debajo de tu nombre. Escríbelo con el # al inicio. La página muestra el nombre y los trofeos para identificarlo; durante el registro también debes ingresar el token de API generado en los ajustes del juego para demostrar que controlas esa cuenta. Ese token se usa una sola vez y no se guarda.'
+            'Lo encuentras dentro del juego, en tu perfil, justo debajo de tu nombre. Escríbelo con el # al inicio. La página muestra el nombre y los trofeos para identificarlo; durante el registro también debes ingresar el token de API generado en los ajustes del juego. Un administrador lo comprobará manualmente con el bot de Discord. Se conserva cifrado hasta la verificación y luego se elimina; mientras tanto, los retiros quedan bloqueados.'
         ],
         video: { titulo: 'Dónde encontrar tu Player Tag en Clash Royale', youtube: '', archivo: '' }
     },

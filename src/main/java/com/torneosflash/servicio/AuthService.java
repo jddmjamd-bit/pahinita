@@ -55,15 +55,23 @@ public class AuthService {
     private final Ejecutores ejecutores;
     private final AppConfig config;
     private final EventBus eventos;
+    private final CifradoTokenJugador cifradoTokenJugador;
 
     public AuthService(UsuarioDAO usuarioDAO, GenericDAO db, ClashApiServicio clashApi, Ejecutores ejecutores,
                        AppConfig config, EventBus eventos) {
+        this(usuarioDAO, db, clashApi, ejecutores, config, eventos,
+                new CifradoTokenJugador(config.getJwtSecret()));
+    }
+
+    public AuthService(UsuarioDAO usuarioDAO, GenericDAO db, ClashApiServicio clashApi, Ejecutores ejecutores,
+                       AppConfig config, EventBus eventos, CifradoTokenJugador cifradoTokenJugador) {
         this.usuarioDAO = usuarioDAO;
         this.db = db;
         this.clashApi = clashApi;
         this.ejecutores = ejecutores;
         this.config = config;
         this.eventos = eventos;
+        this.cifradoTokenJugador = cifradoTokenJugador;
     }
 
     /**
@@ -125,16 +133,14 @@ public class AuthService {
                     "El nombre de usuario debe tener entre 3 y 30 caracteres y no puede incluir < > \" ' & ` ni caracteres de control");
         }
 
-        ClashApiServicio.ResultadoVerificacionPropiedad resultadoTag =
-                clashApi.verificarPropiedadTag(playerTag, tokenJugador);
-        if (resultadoTag == ClashApiServicio.ResultadoVerificacionPropiedad.TOKEN_INVALIDO) {
-            throw ServicioException.solicitudInvalida("El token no demuestra control de ese Player Tag; revisa el tag y vuelve a copiar el token del juego");
-        }
-        if (resultadoTag == ClashApiServicio.ResultadoVerificacionPropiedad.API_SIN_PERMISO) {
-            throw ServicioException.noDisponible("La API key de Clash Royale del servidor no tiene permiso para verificar cuentas. Contacta al administrador para habilitarlo.");
-        }
-        if (resultadoTag != ClashApiServicio.ResultadoVerificacionPropiedad.VERIFICADO) {
-            throw ServicioException.noDisponible("Clash Royale no está disponible para verificar la cuenta. Inténtalo de nuevo más tarde.");
+        try {
+            clashApi.verificarTag(playerTag);
+        } catch (Exception e) {
+            if (e.getMessage() != null && e.getMessage().contains("(Código 404)")) {
+                throw ServicioException.solicitudInvalida("No se encontró ese Player Tag en Clash Royale");
+            }
+            logger.warn("No se pudo consultar el Player Tag durante el registro: {}", e.getClass().getSimpleName());
+            throw ServicioException.noDisponible("No se pudo consultar el Player Tag en Clash Royale. Inténtalo de nuevo más tarde.");
         }
 
         String hash = hashear(password);
@@ -147,8 +153,9 @@ public class AuthService {
         if (usernameExiste || emailExiste || tagExiste || telefonoExiste) {
             return;
         }
+        String tokenCifrado = cifradoTokenJugador.cifrar(tokenJugador);
         int newId = usuarioDAO.registrarConAceptacionLegal(username, email, hash, playerTag, telefono,
-                DocumentosLegales.TERMINOS_VERSION, DocumentosLegales.PRIVACIDAD_VERSION);
+                DocumentosLegales.TERMINOS_VERSION, DocumentosLegales.PRIVACIDAD_VERSION, tokenCifrado);
         if (newId == -1) {
             // Conflicto de unicidad concurrente: se presenta igual que un registro aceptado.
             return;

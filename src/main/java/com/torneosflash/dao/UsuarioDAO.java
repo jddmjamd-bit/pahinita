@@ -401,17 +401,28 @@ public class UsuarioDAO {
      */
     public int registrarConAceptacionLegal(String username, String email, String passwordHash, String playerTag,
                                            String telefono, String versionTerminos, String versionPrivacidad) {
+        return registrarConAceptacionLegal(username, email, passwordHash, playerTag, telefono,
+                versionTerminos, versionPrivacidad, null);
+    }
+
+    /** Crea el usuario y registra el token cifrado pendiente junto con las aceptaciones legales. */
+    public int registrarConAceptacionLegal(String username, String email, String passwordHash, String playerTag,
+                                           String telefono, String versionTerminos, String versionPrivacidad,
+                                           String tokenJugadorCifrado) {
         try (Connection conn = db.getConnection()) {
             conn.setAutoCommit(false);
             try {
                 int newId;
                 try (PreparedStatement ps = conn.prepareStatement(
-                        "INSERT INTO users (username, email, password, player_tag, telefono) VALUES (?, ?, ?, ?, ?) RETURNING id")) {
+                        "INSERT INTO users (username, email, password, player_tag, telefono, player_tag_verificado, " +
+                                "player_verification_token_ciphertext) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id")) {
                     ps.setString(1, username);
                     ps.setString(2, email);
                     ps.setString(3, passwordHash);
                     ps.setString(4, normalizarPlayerTag(playerTag));
                     ps.setString(5, telefono);
+                    ps.setBoolean(6, tokenJugadorCifrado == null);
+                    ps.setString(7, tokenJugadorCifrado);
                     try (ResultSet rs = ps.executeQuery()) {
                         if (!rs.next()) {
                             conn.rollback();

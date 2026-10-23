@@ -186,8 +186,8 @@
   },
   "privacidad": {
     "titulo": "Política de Privacidad y Tratamiento de Datos Personales",
-    "version": "1.1",
-    "vigenteDesde": "19 de octubre de 2026",
+    "version": "1.2",
+    "vigenteDesde": "23 de octubre de 2026",
     "intro": "Esta Política explica cómo UltimateClash recolecta, usa y protege tus datos personales, conforme a la Ley 1581 de 2012, el Decreto 1377 de 2013 (compilado en el Decreto 1074 de 2015) y demás normas colombianas de protección de datos personales.",
     "secciones": [
       {
@@ -204,7 +204,8 @@
           {
             "lista": [
               "Cuenta y contacto: nombre de usuario, correo electrónico, número de WhatsApp (lo usamos para disputas y para contactar a los ganadores de sorteos) y contraseña, que guardamos solo como un hash y nunca en texto legible.",
-              "Juego: tu Player Tag de Clash Royale, el token de API generado en el juego (que usamos una sola vez para verificar la propiedad del tag y no almacenamos), el perfil público que devuelve la API de Clash Royale (nombre y trofeos), los resultados e historial de partidas, estadísticas, faltas, disputas, tickets y participaciones en sorteos.",
+              "Juego: tu Player Tag de Clash Royale, el perfil público que devuelve la API de Clash Royale (nombre y trofeos), los resultados e historial de partidas, estadísticas, faltas, disputas, tickets y participaciones en sorteos.",
+              "Verificación de cuenta de juego: el token de API generado en Clash Royale. Lo conservamos cifrado y con acceso restringido a administradores mientras la verificación manual esté pendiente. El administrador puede introducirlo en el bot de Discord usado para comprobar que controlas el Player Tag. Lo eliminamos de nuestros sistemas cuando se confirma la verificación.",
               "Financieros: tu saldo, recargas, retiros y movimientos, las referencias de pago y, para los retiros, el número de la cuenta de destino y el nombre del titular. Los datos de tu tarjeta los procesa directamente Wompi; nosotros no los almacenamos.",
               "Contenido: los mensajes de chat y las imágenes y videos que publiques o envíes como evidencia.",
               "Técnicos: tu dirección IP (seguridad y límite de solicitudes), el token de notificaciones push de tu dispositivo y la cookie de sesión.",
@@ -237,7 +238,7 @@
         "titulo": "Autorización",
         "parrafos": [
           "Al marcar la casilla de aceptación al registrarte, autorizas de forma previa, expresa e informada el tratamiento de tus datos conforme a esta Política. Guardamos constancia de la versión que aceptaste y de la fecha.",
-          "Datos sensibles: la foto del documento y la selfie pueden contener datos sensibles (biométricos). Entregarlos es facultativo: no estás obligado a hacerlo, pero sin verificación no podrás retirar saldo y, si eres menor de edad, no podrás participar.",
+          "Datos sensibles: la foto del documento y la selfie pueden contener datos sensibles (biométricos). Entregarlos es facultativo: no estás obligado a hacerlo, pero sin la verificación de identidad KYC no podrás retirar saldo y, si eres menor de edad, no podrás participar. Si la verificación de tu Player Tag está pendiente, los retiros también quedan bloqueados hasta que el administrador la confirme.",
           "Menores de edad: tratamos datos de menores solo con la autorización de su representante legal, respetando el interés superior del menor y la prevalencia de sus derechos. El adulto responsable puede ejercer los derechos del menor.",
           "Puedes revocar tu autorización en cualquier momento (sección 9), salvo cuando exista un deber legal o contractual de conservar los datos."
         ]
@@ -253,7 +254,8 @@
               "Brevo: envío de correos.",
               "Google Firebase: notificaciones push.",
               "Render: alojamiento de la aplicación y la base de datos.",
-              "Supercell (API de Clash Royale): verificación de que el token generado en el juego corresponde a tu Player Tag, además de la consulta de tu perfil público y de los resultados de tus partidas."
+              "Supercell (API de Clash Royale): consulta de tu perfil público y de los resultados de tus partidas.",
+              "Discord y el bot externo de verificación de Clash Royale que utilice el administrador: el token de juego puede introducirse allí para comprobar manualmente la relación entre el token y el Player Tag."
             ]
           },
           "Autoridades, cuando una norma o una orden legítima lo exija.",
@@ -263,7 +265,7 @@
       {
         "titulo": "Transmisión y transferencia internacional",
         "parrafos": [
-          "Algunos de nuestros proveedores (por ejemplo, el alojamiento de Render, Google Firebase y Brevo) tienen servidores fuera de Colombia, por lo que tus datos pueden almacenarse o tratarse en otros países.",
+          "Algunos de nuestros proveedores (por ejemplo, el alojamiento de Render, Google Firebase, Brevo y Discord) tienen servidores fuera de Colombia, por lo que tus datos pueden almacenarse o tratarse en otros países.",
           "Al aceptar esta Política autorizas esa transmisión y transferencia internacional. Exigimos a los proveedores medidas razonables de seguridad y confidencialidad."
         ]
       },
@@ -282,6 +284,7 @@
               "Datos de la cuenta: mientras tu cuenta exista.",
               "Registros financieros y contables (recargas, retiros, movimientos y premios): hasta 5 años después de cerrada tu cuenta.",
               "Datos de verificación de identidad (KYC): el tiempo necesario para cumplir su finalidad y las obligaciones legales.",
+              "Token de Clash Royale: cifrado mientras la verificación manual esté pendiente y eliminado cuando el administrador la confirme.",
               "Constancias de aceptación de Términos y Política: el tiempo necesario para acreditar tu autorización."
             ]
           },
@@ -315,7 +318,7 @@
       {
         "titulo": "Seguridad",
         "parrafos": [
-          "Aplicamos medidas técnicas razonables para proteger tus datos: guardamos las contraseñas con un hash irreversible, usamos conexiones cifradas, limitamos el número de solicitudes por IP y restringimos el acceso a la información a quien lo necesita.",
+          "Aplicamos medidas técnicas razonables para proteger tus datos: guardamos las contraseñas con un hash irreversible, ciframos el token de Clash Royale mientras está pendiente de revisión, usamos conexiones cifradas, limitamos el número de solicitudes por IP y restringimos el acceso a la información a quien lo necesita.",
           "Ningún sistema es completamente seguro. Si ocurre un incidente que afecte tus datos, actuaremos para contenerlo y lo reportaremos a las autoridades y a los afectados cuando corresponda."
         ]
       },

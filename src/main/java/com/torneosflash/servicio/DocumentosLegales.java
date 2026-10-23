@@ -15,7 +15,7 @@ package com.torneosflash.servicio;
 public final class DocumentosLegales {
 
     public static final String TERMINOS_VERSION = "1.0";
-    public static final String PRIVACIDAD_VERSION = "1.1";
+    public static final String PRIVACIDAD_VERSION = "1.2";
 
     private DocumentosLegales() {}
 }

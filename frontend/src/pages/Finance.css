@@ -94,6 +94,15 @@
     background: linear-gradient(135deg, var(--accent-danger), #dc2626);
     box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
 }
+.verification-refresh-btn {
+    display: block;
+    width: auto;
+    margin: 14px 0 0;
+    padding: 10px 16px;
+    background: var(--bg-surface-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
 .withdraw-balance {
     background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), transparent);
     border: 1px solid rgba(16, 185, 129, 0.2);

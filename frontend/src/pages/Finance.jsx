@@ -20,6 +20,14 @@ export default function Finance() {
 
     const currentUser = useAppStore(state => state.user);
     const setUser = useAppStore(state => state.setUser);
+    const sincronizarSesion = useAppStore(state => state.sincronizarSesion);
+
+    const actualizarEstadoVerificacion = async () => {
+        const resultado = await sincronizarSesion();
+        if (!resultado.ok && resultado.status !== 401) {
+            alert(resultado.data?.error || 'No se pudo actualizar el estado. Inténtalo de nuevo.');
+        }
+    };
 
     // Calculos de comisión Wompi
     const calculateTotalAuto = (val) => {
@@ -220,13 +228,22 @@ export default function Finance() {
                     <div className="withdraw-balance">
                         Saldo disponible: <strong>${currentUser ? currentUser.saldo.toLocaleString() : 0}</strong>
                     </div>
-                    <input type="number" placeholder="Monto a retirar" min="10000"
-                        value={withdrawAmount} onChange={e => setWithdrawAmount(e.target.value)} />
-                    <input type="text" placeholder="Número de cuenta (Nequi/Daviplata)"
-                        value={withdrawAccount} onChange={e => setWithdrawAccount(e.target.value)} />
-                    <input type="text" placeholder="Nombre completo del titular"
-                        value={withdrawName} onChange={e => setWithdrawName(e.target.value)} />
-                    <button className="finance-action-btn withdraw-btn" onClick={handleWithdraw}>Solicitar Retiro</button>
+                    {currentUser?.player_tag_verificado === false ? (
+                        <p className="info-text verification-pending">
+                            Tu Player Tag está pendiente de verificación manual. Puedes usar la plataforma; los retiros se habilitarán cuando el administrador confirme tu cuenta.
+                            <button type="button" className="verification-refresh-btn" onClick={actualizarEstadoVerificacion}>Actualizar estado</button>
+                        </p>
+                    ) : (
+                        <>
+                            <input type="number" placeholder="Monto a retirar" min="10000"
+                                value={withdrawAmount} onChange={e => setWithdrawAmount(e.target.value)} />
+                            <input type="text" placeholder="Número de cuenta (Nequi/Daviplata)"
+                                value={withdrawAccount} onChange={e => setWithdrawAccount(e.target.value)} />
+                            <input type="text" placeholder="Nombre completo del titular"
+                                value={withdrawName} onChange={e => setWithdrawName(e.target.value)} />
+                            <button className="finance-action-btn withdraw-btn" onClick={handleWithdraw}>Solicitar Retiro</button>
+                        </>
+                    )}
                 </div>
             )}
         </div>

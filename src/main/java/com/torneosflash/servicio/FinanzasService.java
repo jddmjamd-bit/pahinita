@@ -114,6 +114,14 @@ public class FinanzasService {
      */
     public BigDecimal solicitarRetiro(int userId, String metodo, String referencia,
                                       JsonElement montoCrudo) {
+        JsonObject estadoVerificacion = db.queryOne(
+                "SELECT player_tag_verificado FROM users WHERE id = ?", userId);
+        if (estadoVerificacion == null) throw ServicioException.noAutenticado("Usuario no encontrado");
+        if (!estadoVerificacion.has("player_tag_verificado")
+                || !estadoVerificacion.get("player_tag_verificado").getAsBoolean()) {
+            throw ServicioException.prohibido(
+                    "Los retiros se habilitan cuando el administrador verifique manualmente tu cuenta de Clash Royale.");
+        }
         BigDecimal monto = exigirValido(validador.retiro(montoCrudo)); // REVIEW-MONEY
         String metodoLimpio = ChatSanitizer.limpiarTexto(metodo != null ? metodo : "nequi_retiro", 40);
         String refLimpia = ChatSanitizer.limpiarTexto(referencia, 160);
