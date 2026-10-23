@@ -89,7 +89,7 @@ public class DbAdminService {
     // Lectura
     // ------------------------------------------------------------------
 
-    /** Lista las tablas del esquema public con su número de filas. */
+    /** Lista las tablas del esquema activo de la conexión con su número de filas. En producción es {@code public}. */
     public JsonArray listarTablas() {
         return conErrores(() -> {
             try (Connection conn = db.getConnection()) {
@@ -118,7 +118,7 @@ public class DbAdminService {
 
                 JsonArray columns = new JsonArray();
                 try (PreparedStatement colPs = conn.prepareStatement(
-                        "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? ORDER BY ordinal_position")) {
+                        "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ? ORDER BY ordinal_position")) {
                     colPs.setString(1, tableName);
                     try (ResultSet colRs = colPs.executeQuery()) {
                         while (colRs.next()) {
@@ -407,7 +407,7 @@ public class DbAdminService {
     private static List<String> nombresDeTablas(Connection conn) throws SQLException {
         List<String> nombres = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name NOT IN (?, ?, ?) ORDER BY table_name")) {
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name NOT IN (?, ?, ?) ORDER BY table_name")) {
             ps.setString(1, TABLA_FLYWAY);
             ps.setString(2, TABLA_SESIONES);
             ps.setString(3, TABLA_RECUPERACION_PASSWORD);
@@ -456,13 +456,13 @@ public class DbAdminService {
         return rows;
     }
 
-    /** Lanza 400 si la tabla no existe en el esquema public. Todo nombre de tabla del request pasa por aquí. */
+    /** Lanza 400 si la tabla no existe en el esquema activo. Todo nombre de tabla del request pasa por aquí. */
     private static void exigirTablaValida(Connection conn, String tableName) throws SQLException {
         if (tableName == null || !IDENTIFICADOR_SQL.matcher(tableName).matches()) {
             throw ServicioException.solicitudInvalida("Tabla no válida");
         }
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ? AND table_name NOT IN (?, ?, ?)")) {
+                "SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = ? AND table_name NOT IN (?, ?, ?)")) {
             ps.setString(1, tableName);
             ps.setString(2, TABLA_FLYWAY);
             ps.setString(3, TABLA_SESIONES);
@@ -479,7 +479,7 @@ public class DbAdminService {
     private static Map<String, String> tiposDeColumna(Connection conn, String tableName) throws SQLException {
         Map<String, String> types = new LinkedHashMap<>();
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? ORDER BY ordinal_position")) {
+                "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ? ORDER BY ordinal_position")) {
             ps.setString(1, tableName);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {

@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-22 — Automatizar casos de aceptación A–Q ejecutables en el deploy (GPT-6)
+- Añadidas pruebas JUnit para JWT, sanitización de chat, rate limit, SQL parametrizado y configuración; `mvnw.cmd clean verify` ahora ejecuta 54 pruebas y bloquea el build ante fallos.
+- Añadidas 23 pruebas JUnit de aceptación ejecutadas en Render antes de iniciar el backend. Usan una base exclusiva `TEST_DATABASE_URL` y un esquema `tf_qa_<uuid>`; incluyen rutas HTTP de sesión/seguridad/rate limit/voz, servicios de chatbot simulado y leaderboard, pagos/ledger, partidas y disputas, soporte, sorteos, evidencias, panel DB/backup temporal y migraciones. El esquema de aceptación se elimina al terminar.
+- Agregadas cinco comprobaciones de contrato para React y FAQ; Docker ejecuta `npm run build` y `npm run test:acceptance`. La guía ahora detalla la cobertura parcial y los casos que permanecen manuales por requerir navegador, sockets en vivo, proveedores reales o restore.
+- **Verificación:** `mvnw.cmd clean verify` pasó 54 pruebas; `npm run build` y `npm run test:acceptance` pasaron (5 contratos); `git diff --check` limpio. La suite PostgreSQL de runtime no se conectó desde este entorno porque no se dispone de `TEST_DATABASE_URL`; se ejecutará antes del backend en Render. No se construyó Docker localmente.
+Archivos: `GUIA_PRUEBAS_Y_VARIABLES.md`, `Dockerfile`, `scripts/run-deploy-tests.sh`, `frontend/package.json`, `frontend/scripts/acceptance.test.js`, pruebas JUnit, `ARCHITECTURE.md`
+
 ## 2026-10-22 — Bloquear el deploy si fallan las pruebas JUnit o la BD aislada (GPT-6)
 - Reemplazado JUnit 4 por JUnit Jupiter 5 y configurado Surefire; las pruebas cubren defaults, valores válidos e inválidos de configuración, credenciales obligatorias de Render, URLs PostgreSQL, límites de montos y rate limiting. `AppConfig` acepta un mapa temporal de variables para no alterar el entorno del proceso.
 - El Dockerfile ejecuta `mvn clean verify`; el arranque ejecuta una prueba JUnit de PostgreSQL vía `TEST_DATABASE_URL`, verifica/migra Flyway con `cleanDisabled=true` y termina antes de iniciar Java si falta la BD o hay errores. `Main` también valida las variables obligatorias de producción en Render.

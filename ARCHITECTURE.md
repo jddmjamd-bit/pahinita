@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — UltimateClash (TorneosFlash)
 
 > Documento de referencia para que cualquier modelo o desarrollador entienda el sistema.
-> Última actualización: 2026-10-19
+> Última actualización: 2026-10-22
 
 ---
 
@@ -821,3 +821,13 @@ La migración `V17__unicidad_identidades_normalizadas.sql` refuerza el registro 
 La consulta `GET /api/verify-tag/{tag}` solo confirma que Clash Royale reconoce el tag y devuelve información pública. Para terminar el registro, `AuthService` pide un token generado dentro de los ajustes del juego y llama a `POST /v1/players/{tag}/verifytoken` mediante `ClashApiServicio`. El token del jugador solo vive durante la petición, no se almacena ni se incluye en logs. El endpoint está restringido por Supercell a API keys autorizadas; un 403 hace fallar el registro con 503, nunca se acepta un tag sin verificar. La autorización de la API key de cada entorno debe comprobarse por separado.
 
 El formulario React envía el token solo al registrar y limpia el campo después de la petición. La Política de Privacidad (versión 1.1) declara el envío temporal del token a Supercell y que la plataforma no lo conserva. La FAQ indica que cada celular solo puede usarse en una cuenta.
+
+---
+
+## 23. Automatización de aceptación previa al arranque
+
+La imagen bloquea el deploy si falla `npm run build`, los contratos automáticos del frontend o `mvn clean verify`. En cada inicio, `scripts/run-deploy-tests.sh` ejecuta JUnit antes de `Main`: primero valida que `TEST_DATABASE_URL` sea distinta de `DATABASE_URL` y verifica Flyway en su esquema `public`; después ejecuta `RenderAcceptanceCheck`.
+
+`RenderAcceptanceCheck` crea un esquema efímero `tf_qa_<uuid>` dentro de la base dedicada de pruebas, migra el esquema desde cero y ejecuta 23 pruebas con datos sintéticos. Cubre servicios y rutas HTTP de sesión, permisos, recuperación, rate limit, voz opcional y panel de DB, además de backup temporal, pagos/ledger, partidas/disputas, leaderboard, chatbot simulado, soporte, sorteos, evidencias y migraciones. Cierra sus servidores/pools, elimina el backup temporal y elimina únicamente los esquemas cuyo nombre generó. Las credenciales Wompi y de Clash usadas por el test son ficticias; el chatbot usa una respuesta simulada; no se hacen llamadas externas ni se usan usuarios de producción. `cleanDisabled=true` permanece activo.
+
+La cobertura y sus límites están enumerados caso por caso en `GUIA_PRUEBAS_Y_VARIABLES.md`. Los recorridos que necesitan requests/cookies HTTP reales, browser visual, sockets en vivo, proveedores externos o herramientas de restore permanecen manuales; las pruebas de servicio no se presentan como cobertura de esos límites.

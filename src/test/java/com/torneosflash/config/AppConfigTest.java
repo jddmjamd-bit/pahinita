@@ -159,6 +159,7 @@ class AppConfigTest {
                 () -> assertEquals(0, config.getSocketIoPort()),
                 () -> assertTrue(config.esOrigenPermitido("https://one.example.test")),
                 () -> assertTrue(config.esOrigenPermitido("https://two.example.test/")),
+                () -> assertFalse(config.esOrigenPermitido("https://attacker.example.test")),
                 () -> assertEquals(1, config.getBusquedaTimeoutMinutos()),
                 () -> assertEquals(3600, config.getNegociacionDesconexionSegundos()),
                 () -> assertEquals(60, config.getPollingIntervaloSegundos()),

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "test:acceptance": "node --test scripts/acceptance.test.js",
     "lint": "oxlint",
     "preview": "vite preview"
   },

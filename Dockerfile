@@ -5,6 +5,7 @@ COPY frontend/package*.json ./
 RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
+RUN npm run test:acceptance
 
 # Etapa 2: Build Backend
 FROM maven:3.9.6-eclipse-temurin-17 AS backend-build

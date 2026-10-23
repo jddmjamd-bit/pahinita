@@ -16,4 +16,5 @@ java -jar "$1" execute \
   --disable-banner \
   --details=summary \
   --class-path "/app/app.jar:/app/test-classes" \
-  --select-class com.torneosflash.dao.RenderDeploymentDatabaseCheck
+  --select-class com.torneosflash.dao.RenderDeploymentDatabaseCheck \
+  --select-class com.torneosflash.dao.RenderAcceptanceCheck

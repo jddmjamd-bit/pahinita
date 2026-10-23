@@ -165,19 +165,53 @@
 
 | Etapa | Prueba | Si falla |
 |---|---|---|
-| Construcción Docker | `mvn clean verify`: ejecuta toda la suite unitaria JUnit 5, incluyendo configuración, parser de PostgreSQL, rate limiting y límites de montos. | La imagen no se construye y Render conserva el deploy anterior. |
-| Inicio de cada instancia | `scripts/run-deploy-tests.sh` ejecuta `RenderDeploymentDatabaseCheck` con JUnit antes del backend. | El proceso termina con error y el servidor no abre el puerto. |
+| Construcción Docker | `npm run build`, contratos automáticos del frontend y `mvn clean verify`: JUnit ejecuta validaciones de configuración, JWT, SQL parametrizado, chat, rate limiting, URLs y montos. | La imagen no se construye y Render conserva el deploy anterior. |
+| Inicio de cada instancia | `scripts/run-deploy-tests.sh` ejecuta `RenderDeploymentDatabaseCheck` y `RenderAcceptanceCheck` con JUnit antes del backend. | El proceso termina con error y el servidor no abre el puerto. |
 | Inicio del backend en Render | `Main` comprueba las variables obligatorias cuando `RENDER=true`. | El proceso termina antes de crear pools, conectar a la BD o aceptar tráfico. |
 
-Las pruebas de configuración construyen `AppConfig` con mapas de valores temporales. No cambian las variables del proceso ni hacen llamadas a Clash Royale, Wompi, Brevo, Firebase, Discord o proveedores de IA. Se cubren defaults, valores válidos, límites, valores mal formados, combinaciones entre variables y ausencia de cada variable obligatoria.
+Las pruebas de configuración construyen `AppConfig` con mapas de valores temporales. No cambian las variables del proceso. Las pruebas de aceptación usan credenciales ficticias y no llaman a Clash Royale, Wompi, Brevo, Firebase, Discord ni proveedores de IA. La suite que se conecta a PostgreSQL usa solo `TEST_DATABASE_URL`.
 
-Las pruebas automatizadas no reemplazan los recorridos A–Q de la Parte 2: esos siguen siendo una lista manual para validar la interfaz y los servicios reales. La suite de build comprueba las reglas deterministas; solo la verificación previa al arranque se conecta a PostgreSQL.
+La guía A–Q sigue siendo el inventario completo de aceptación. La tabla siguiente marca qué comprobaciones ya están automatizadas, con sus límites. “Parcial” significa que se cubre la lógica del servicio o un contrato de código, pero todavía falta validar la ruta HTTP, el navegador, el socket o el servicio externo indicado en el caso.
+
+### Cobertura automatizada de A–Q
+
+| Casos | Estado | Alcance de la automatización |
+|---|---|---|
+| A1–A14, A16 | Docker runtime | JUnit prueba rutas HTTP de registro, login, cookies, sesión deslizante, JWT manipulado, sesiones simultáneas, logout/revocación, respuestas de recuperación genéricas, reset de un uso y cooldown; verifica además colisiones de username/tag en PostgreSQL. Clash se simula. La entrega real por Brevo sigue manual. |
+| A15 | Manual / parcial | El alta normal confirma el flujo del tag con un proveedor Clash falso. La respuesta de Supercell y la API key real requieren una prueba manual o sandbox externo. |
+| B1–B2, B4–B10 | Parcial, Docker runtime | Inicio Wompi, rangos, firma inválida, monto alterado, acreditación idempotente, retiro, rechazo por saldo y ledger con DB real. La aprobación positiva de Wompi y su consulta externa no se simulan como pago real. |
+| B3, B6 | Parcial, Docker runtime | Se verifica el núcleo transaccional e idempotente del wallet. El webhook válido completo, incluida correlación con API Wompi, queda manual/sandbox. |
+| C8–C9, C16 | Parcial, Docker runtime | Inicio de partida contra PostgreSQL, rollback por saldo insuficiente y dos confirmaciones concurrentes sin doble cobro. Emparejamiento, negociación por socket, timers y resultado de Clash siguen manuales. |
+| D1–D2, D5, D7, M6 | Parcial, build | Sanitización de HTML, mensajes privados, canales no permitidos, SVG y rutas multimedia. Emisión/persistencia por socket y permisos de sala siguen manuales. |
+| E1–E2, E4 | Docker runtime | Crea un corte con pozo y victorias sintéticos, verifica snapshot, reset de contador/pozo, distribución a jugador/admin, ledger, historial e idempotencia. Invoca la misma operación del servicio, sin esperar al cron. |
+| E3 | Parcial, Docker runtime | Repetir un corte persistido no duplica pagos. No mata el proceso en mitad de una transacción ni simula una indisponibilidad de PostgreSQL. |
+| F1–F4 | Docker runtime | Crear sorteo, participación, vencimiento y reembolso de tickets al eliminar con PostgreSQL real. |
+| G1–G4 | Parcial, Docker runtime | Alta, cuotas abiertas y diarias, privacidad, rol admin y respuesta. El envío de correo/push queda fuera. |
+| H1–H4 | Docker runtime | JUnit confirma desactivación sin clave, ejecuta el servicio con un proveedor IA falso y valida respuesta, límite por minuto y límite diario en PostgreSQL. La conexión y calidad de respuesta de Gemini/OpenAI se siguen verificando manualmente. |
+| I1, I6 | Docker runtime | Sin credenciales Discord, la ruta autenticada informa que voz está desactivada y `/api/voz/mi-canal` rechaza solicitudes sin sesión. |
+| I2–I5 | Manual | OAuth, permisos y creación/borrado de canales requieren Discord configurado y llamadas externas. |
+| J1–J5 | Parcial, Docker runtime | Rutas HTTP comprueban 401 sin sesión y 403 con sesión de usuario; PostgreSQL valida rol real, aprobación de retiro sin doble descuento y liquidación idempotente de disputa. J6 y la IP del proxy real siguen manuales. |
+| K1–K4, K6 | Docker runtime | Comprueba que el panel está deshabilitado sin secreto, oculta sesiones/tokens y enmascara contraseñas; cambia una celda sintética, protege saldo/ledger, crea y limpia un backup temporal, y rechaza un dump corrupto antes de activar mantenimiento. Usa solo la base aislada. |
+| K5 | Manual | Restaurar un backup válido reemplaza la base completa; requiere una operación dedicada, copia revisada y confirmación administrativa. No se ejecuta en cada arranque. |
+| L1–L4 | Parcial, Docker runtime | Autorización del servicio, unicidad, almacenamiento e historial con DB real. Emisión socket y push quedan manuales. |
+| M1–M2 | Manual | Requieren probar los hooks globales de `Main` con el servidor completo y un origen HTTP; la prueba Javalin aislada no los duplica. |
+| M5 | Docker runtime | La ruta real de inicio Wompi recibe un `userId` falso en el body y la suite verifica que el movimiento se vincula al usuario de la sesión. |
+| M3–M4 | Parcial, build + Docker runtime | Escaneo impide `createStatement` en fuentes productivas y login verifica que no se devuelva `password`; `userData` de socket aún requiere inspección de integración. |
+| N1–N3, N5 | Parcial, Docker runtime | JUnit arranca Javalin con el middleware real y límites temporales: valida respuestas 429 en auth/finanzas/general y comprueba que `X-Forwarded-For` no evade el límite con cero saltos confiables. N5 queda cubierto para ese caso; no inspecciona la conexión de Render. |
+| N4 | Manual | La IP que Render entrega y el número correcto de saltos confiables solo se confirman desde una instancia detrás de su proxy. |
+| O5 | Docker runtime | La reconciliación de un inicio legado verifica el vínculo sin volver a cobrar. O1–O4 necesitan reiniciar el servidor con sockets, colas y timers vivos. |
+| P1 | Docker build | `npm run build` se ejecuta en la imagen. |
+| P2–P6 | Parcial, Docker build | Pruebas de contrato sobre rutas privadas, persistencia en memoria, credenciales cookie, contenido FAQ, media queries y tema. No son una prueba visual en navegador ni reemplazan verificar tamaños/dispositivos reales. |
+| Q1–Q2 | Docker runtime | Se validan las migraciones de la base de prueba y se aplican todas en un esquema vacío aislado. |
+| Q3 | Docker runtime | Se crea un esquema aparte con duplicados de referencia Wompi; la migración debe fallar y conservar ambas filas. |
+
+Los casos marcados como manuales se dejan así porque incluyen estado visual/gestos, servicios de terceros, red real o restauración destructiva. Ejecutarlos automáticamente en cada deploy podría cargar credenciales productivas, enviar correos o tocar datos externos.
 
 ### Base de datos exclusiva de pruebas
 
 Configura `TEST_DATABASE_URL` en el entorno del servicio Render con la URL interna de una segunda base PostgreSQL. **No uses `DATABASE_URL` como valor de esta variable.** El nombre de la base debe incluir un segmento `test`, `prueba`, `pruebas` o `qa`, por ejemplo `torneosflash_test`. La prueba también rechaza el mismo nombre de base que `DATABASE_URL`.
 
-Antes de iniciar el backend, JUnit aplica y valida Flyway en esa base, confirma que haya al menos 17 migraciones exitosas y que exista `public.users`. Flyway tiene `cleanDisabled=true`: la prueba no borra la base ni ejecuta operaciones de negocio. En el primer arranque aplica las migraciones; en los siguientes valida y aplica únicamente migraciones nuevas.
+Antes de iniciar el backend, JUnit aplica y valida Flyway en esa base, confirma que haya al menos 17 migraciones exitosas y que exista `public.users`. Luego crea un esquema con nombre aleatorio `tf_qa_*`, aplica allí las migraciones desde cero y ejecuta 23 pruebas de aceptación con usuarios sintéticos; algunas levantan un servidor HTTP en un puerto temporal y todas las conexiones de negocio apuntan al esquema aislado. Al terminar, cierra servidores y pools y elimina solo los esquemas con UUID generados por esa ejecución. Las operaciones nunca apuntan a `DATABASE_URL`. Flyway tiene `cleanDisabled=true`.
 
 `TEST_DATABASE_URL` debe estar disponible como variable de entorno en tiempo de ejecución de Render. Si falta, la conexión falla, el nombre no parece de pruebas o Flyway detecta un error, el backend no inicia. Mantén `DATABASE_URL` conectada a la base normal de la aplicación.
 
@@ -189,13 +223,13 @@ En Settings de Render, deja Docker Command vacío para que se use el `CMD` del D
 
 - Windows: `mvnw.cmd clean verify`
 - Linux/macOS: `./mvnw clean verify`
-- En Render: Docker ejecuta `mvn clean verify` durante la construcción y la comprobación PostgreSQL al iniciar cada instancia.
+- En Render: Docker ejecuta build, los contratos del frontend y `mvn clean verify`; el runner de JUnit revisa PostgreSQL y ejecuta la suite sobre el esquema aislado antes de iniciar cada instancia.
 
-El test de PostgreSQL se ejecuta dentro del contenedor para usar la variable `TEST_DATABASE_URL` de runtime; no se conecta a una base durante la compilación de la imagen.
+La suite de servicio de PostgreSQL no se ejecuta durante la compilación Docker; corre en runtime para usar `TEST_DATABASE_URL`. No configures esa variable con la URL de producción. `npm run test:acceptance` en `frontend/` ejecuta los contratos frontend sin navegador; `mvnw.cmd clean verify` ejecuta las pruebas JUnit locales sin conectarse a PostgreSQL.
 
 ## Parte 2: Pruebas Manuales
 
-Los casos A–Q a continuación son pruebas manuales de aceptación. Ejecuta solo las que correspondan al cambio y usa sandbox/usuarios de prueba para operaciones financieras, recuperación de contraseña, restore y servicios externos.
+Los casos A–Q a continuación contienen los recorridos de aceptación completos; la cobertura automatizada parcial está especificada en la matriz anterior. Ejecuta los pasos que faltan con sandbox/usuarios de prueba para pagos, recuperación de correo, restore y servicios externos.
 
 ### 🔐 A — Autenticación y Sesiones
 
