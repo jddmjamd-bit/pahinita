@@ -174,8 +174,12 @@ class RenderAcceptanceCheck {
 
             ClashApiServicio clashFalso = new ClashApiServicio("") {
                 @Override
-                public ResultadoVerificacionPropiedad verificarPropiedadTag(String tag, String tokenJugador) {
-                    return ResultadoVerificacionPropiedad.VERIFICADO;
+                public JsonObject verificarTag(String tag) {
+                    JsonObject jugador = new JsonObject();
+                    jugador.addProperty("tag", tag);
+                    jugador.addProperty("name", "Jugador de prueba");
+                    jugador.addProperty("trophies", 0);
+                    return jugador;
                 }
             };
             auth = new AuthService(usuarios, dao, clashFalso, ejecutores, config, eventos);
