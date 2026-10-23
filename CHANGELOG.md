@@ -11,6 +11,12 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-23 — Corregir credenciales de la conexión de aceptación en Render (GPT-6)
+- La prueba de aceptación ahora inicia el singleton de PostgreSQL desde el URL original de `TEST_DATABASE_URL`, conservando las credenciales para que el parser las entregue por separado al pool.
+- `ConexionDB` ahora falla inmediatamente si HikariCP no puede inicializarse; la causa original queda visible en JUnit/logs y evita errores secundarios por un `dataSource` nulo.
+- **Verificación:** `git diff --check` pasó. `mvnw.cmd clean verify` quedó sin salida al iniciar Maven/Java y se canceló; la ejecución de aceptación contra PostgreSQL debe confirmarse en el próximo arranque de Render.
+Archivos: `RenderAcceptanceCheck.java`, `ConexionDB.java`
+
 ## 2026-10-22 — Mostrar prueba y causa si falla el arranque en Render (GPT-6)
 - El runner de despliegue usa salida detallada de JUnit e informa el código de error al fallar; Render podrá mostrar el nombre/identificador de la prueba y la excepción/motivo en los logs antes de bloquear el inicio del backend.
 - La guía de pruebas y arquitectura documentan cómo reconocer fallos y el mensaje de éxito.

@@ -76,6 +76,7 @@ public class ConexionDB {
             logger.info("✅ ¡Conexión exitosa a PostgreSQL! (host={}, sslmode={})", enlace.host, enlace.sslMode);
         } catch (Exception e) {
             logger.error("❌ Error conectando a PostgreSQL: " + e.getMessage());
+            throw new IllegalStateException("No se pudo inicializar el pool de PostgreSQL: " + e.getMessage(), e);
         }
     }
 

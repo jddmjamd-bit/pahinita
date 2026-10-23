@@ -106,6 +106,7 @@ class RenderAcceptanceCheck {
 
         esquema = "tf_qa_" + UUID.randomUUID().toString().replace("-", "");
         urlBaseJdbc = enlaceBase.jdbcUrl;
+        String urlEsquemaConCredenciales = conEsquema(url, esquema);
         try (HikariDataSource adminDb = crearPool(urlBaseJdbc, enlaceBase, "torneos-qa-bootstrap")) {
             try (Connection c = adminDb.getConnection(); PreparedStatement ps = c.prepareStatement(
                     "CREATE SCHEMA \"" + esquema + "\"")) {
@@ -142,7 +143,9 @@ class RenderAcceptanceCheck {
             env.put("PUSH_POOL_THREADS", "1");
             env.put("TIMER_POOL_THREADS", "1");
             config = new AppConfig(env);
-            conexion = ConexionDB.getInstancia(urlEsquema, sslMode, 4);
+            // EnlaceBD.jdbcUrl elimina usuario/clave intencionalmente. El singleton debe recibir
+            // el URL original para volver a extraerlos sin guardarlos dentro del JDBC URL.
+            conexion = ConexionDB.getInstancia(urlEsquemaConCredenciales, sslMode, 4);
             dao = new GenericDAO(conexion);
             eventos = new EventBus();
             ejecutores = new Ejecutores(config);
