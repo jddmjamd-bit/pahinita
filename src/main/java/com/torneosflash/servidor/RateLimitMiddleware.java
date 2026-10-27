@@ -59,6 +59,7 @@ public class RateLimitMiddleware {
             "/api/login",
             "/api/register",
             "/api/password/forgot",
+            "/api/password/reset/validate",
             "/api/password/reset");
 
     /** Solo se limita lo que es API, socket polling o panel admin; el frontend estático no. */

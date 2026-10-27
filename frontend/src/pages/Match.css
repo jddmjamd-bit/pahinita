@@ -1,10 +1,11 @@
 .match-container {
     max-width: 700px;
+    max-height: calc(100vh - 48px);
     margin: 40px auto;
     background: var(--bg-surface);
     border-radius: var(--radius-lg);
     border: 1px solid var(--border-color);
-    overflow: hidden;
+    overflow-y: auto;
     box-shadow: var(--shadow-lg);
     animation: slideInUp var(--transition-normal);
 }
@@ -117,4 +118,10 @@
     background: var(--bg-surface-elevated);
     border-radius: var(--radius-md);
     border: 1px solid var(--border-color);
+}
+@media (max-width: 768px) {
+    .match-container { max-height: calc(100vh - 32px); margin: 16px auto; }
+    .private-room-content { padding: 18px; }
+    .rival-stats-box { gap: 10px; flex-wrap: wrap; }
+    .inputs-row { flex-direction: column; }
 }

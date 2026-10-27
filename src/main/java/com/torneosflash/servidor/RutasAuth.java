@@ -118,6 +118,15 @@ public class RutasAuth {
                     "Si existe una cuenta con ese correo, enviaremos un enlace para recuperar la contraseña.", 0));
         });
 
+        // POST /api/password/reset/validate — muestra al abrir el enlace si sigue vigente, sin consumirlo.
+        app.post("/api/password/reset/validate", ctx -> {
+            JsonObject body = parseBody(ctx);
+            JsonObject response = new JsonObject();
+            response.addProperty("valid", auth.validarTokenRecuperacion(
+                    Peticion.textoOpcional(body, "token", "")));
+            ctx.status(200).json(response);
+        });
+
         // POST /api/password/reset — el token demuestra control del correo y solo puede consumirse una vez.
         app.post("/api/password/reset", ctx -> {
             JsonObject body = parseBody(ctx);

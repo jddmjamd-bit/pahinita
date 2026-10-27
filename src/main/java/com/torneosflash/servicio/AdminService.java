@@ -53,7 +53,8 @@ public class AdminService {
 
     /** Solo las transacciones pendientes de aprobar. */
     public ArrayList<JsonObject> transaccionesPendientes() {
-        return db.query("SELECT * FROM transactions WHERE estado = 'pendiente' ORDER BY id DESC");
+        return db.query("SELECT * FROM transactions WHERE estado = 'pendiente' " +
+                "AND metodo IS DISTINCT FROM 'wompi' ORDER BY id DESC");
     }
 
     /** Devuelve tokens descifrados solo al panel protegido para que el administrador los verifique en Discord. */

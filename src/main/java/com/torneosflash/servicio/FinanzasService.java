@@ -152,7 +152,36 @@ public class FinanzasService {
         String username = usernameDeUsuario(userId);
 
         long montoCentavos = calcularMontoCentavosWompi(monto);
-        String reference = registrarTransaccionWompi(userId, username, monto);
+        JsonObject pendiente = db.queryOne(
+                "SELECT referencia FROM transactions WHERE usuario_id = ? AND tipo = 'deposito' " +
+                        "AND metodo = 'wompi' AND estado = 'pendiente' AND external_id IS NULL AND monto = ? " +
+                        "ORDER BY id DESC LIMIT 1",
+                userId, monto);
+        String reference = pendiente != null && pendiente.has("referencia")
+                ? pendiente.get("referencia").getAsString()
+                : registrarTransaccionWompi(userId, username, monto);
+
+        return datosCheckoutWompi(reference, monto);
+    }
+
+    /** Retorna los pagos pendientes propios, con firma para reabrir el mismo checkout. */
+    public JsonArray pagosWompiPendientes(int userId) {
+        JsonArray pendientes = new JsonArray();
+        for (JsonObject row : db.query(
+                "SELECT referencia, monto, external_id FROM transactions WHERE usuario_id = ? AND tipo = 'deposito' " +
+                        "AND metodo = 'wompi' AND estado = 'pendiente' ORDER BY id DESC LIMIT 10",
+                userId)) {
+            JsonObject pago = datosCheckoutWompi(row.get("referencia").getAsString(), row.get("monto").getAsBigDecimal());
+            if (row.has("external_id") && !row.get("external_id").isJsonNull()) {
+                pago.addProperty("transactionId", row.get("external_id").getAsString());
+            }
+            pendientes.add(pago);
+        }
+        return pendientes;
+    }
+
+    private JsonObject datosCheckoutWompi(String reference, BigDecimal monto) {
+        long montoCentavos = calcularMontoCentavosWompi(monto);
 
         // Firma de integridad
         String toSign = reference + montoCentavos + "COP" + config.getWompiIntegritySecret();
@@ -234,7 +263,8 @@ public class FinanzasService {
             throw ServicioException.solicitudInvalida("Faltan id, status o reference en el webhook");
         }
 
-        if (!"APPROVED".equals(status)) return;
+        if (!("PENDING".equals(status) || "APPROVED".equals(status) || "DECLINED".equals(status)
+                || "ERROR".equals(status) || "VOIDED".equals(status))) return;
 
         // 2. Verificar moneda ("COP" obligatoria) y monto cobrado en centavos (D5 / S7 / C4)
         String currency = texto(transaction, "currency");
@@ -257,10 +287,20 @@ public class FinanzasService {
         // estado, moneda y monto antes de acreditar.
         verificarCorrelacionEnApiWompi(transactionId, reference, status, currency, pagadoCentavos);
 
-        // 3. Marcar como completada y acreditar saldo en UNA sola transacción SQL atómica (C4) // REVIEW-MONEY
-        WalletResult result = wallet.acreditarDepositoWompi(
-                reference, transactionId, pagadoCentavos, FinanzasService::calcularMontoCentavosWompi);
-        if (result != null && result.isSuccess()) {
+        if ("PENDING".equals(status)) {
+            int usuarioId = wallet.vincularDepositoWompi(reference, transactionId, pagadoCentavos,
+                    FinanzasService::calcularMontoCentavosWompi);
+            if (usuarioId > 0) {
+                notificador.emitirA(usuarioId, "wompi_pago_actualizado", eventoWompi(reference, status));
+            }
+            return;
+        }
+
+        if ("APPROVED".equals(status)) {
+            // 3. Marcar como completada y acreditar saldo en UNA sola transacción SQL atómica (C4) // REVIEW-MONEY
+            WalletResult result = wallet.acreditarDepositoWompi(
+                    reference, transactionId, pagadoCentavos, FinanzasService::calcularMontoCentavosWompi);
+            if (result != null && result.isSuccess()) {
             JsonObject trans = db.queryOne(
                     "SELECT usuario_id FROM transactions " +
                     "WHERE referencia = ? AND tipo = 'deposito' AND metodo = 'wompi' " +
@@ -269,8 +309,87 @@ public class FinanzasService {
             if (trans != null && trans.has("usuario_id")) {
                 int userId = trans.get("usuario_id").getAsInt();
                 notificador.notificarSaldo(userId, "✅ Pago Wompi aprobado. Saldo acreditado.", result.getNuevoSaldo());
+                    notificador.emitirA(userId, "wompi_pago_actualizado", eventoWompi(reference, status));
+                }
+            }
+            return;
+        }
+
+        // Los pagos rechazados o anulados dejan de ser solicitudes pendientes y nunca pasan por el flujo admin.
+        int usuarioId = wallet.rechazarDepositoWompi(reference, transactionId);
+        if (usuarioId > 0) {
+            notificador.emitirA(usuarioId, "wompi_pago_actualizado", eventoWompi(reference, status));
+            notificador.enviarPush(usuarioId, "Pago Wompi no aprobado",
+                    "El pago fue " + status.toLowerCase(Locale.ROOT) + ". Puedes iniciar otro pago desde Finanzas.");
+        }
+    }
+
+    private static JsonObject eventoWompi(String reference, String status) {
+        JsonObject evento = new JsonObject();
+        evento.addProperty("reference", reference);
+        evento.addProperty("status", status);
+        return evento;
+    }
+
+    /** Consulta una transacción que vuelve desde el checkout; Wompi se verifica siempre en el servidor. */
+    public JsonObject sincronizarPagoWompi(int userId, String transactionId) {
+        String id = transactionId == null ? "" : transactionId.trim();
+        if (id.isEmpty() || id.length() > 120 || id.chars().anyMatch(Character::isISOControl)) {
+            throw ServicioException.solicitudInvalida("El identificador de la transacción Wompi no es válido");
+        }
+        JsonObject transaccion = consultarTransaccionEnApiWompi(id);
+        String reference = texto(transaccion, "reference");
+        String status = texto(transaccion, "status");
+        String currency = texto(transaccion, "currency");
+        long amountInCents;
+        try {
+            amountInCents = transaccion.get("amount_in_cents").getAsLong();
+        } catch (Exception e) {
+            throw ServicioException.noAutenticado("Respuesta inválida de Wompi al verificar la transacción");
+        }
+        if (!"COP".equalsIgnoreCase(currency)) {
+            throw ServicioException.noAutenticado("Moneda de transacción Wompi no válida");
+        }
+
+        JsonObject local = db.queryOne(
+                "SELECT monto, estado, external_id FROM transactions WHERE usuario_id = ? AND referencia = ? " +
+                        "AND tipo = 'deposito' AND metodo = 'wompi'",
+                userId, reference);
+        if (local == null) throw ServicioException.noEncontrado("No se encontró el pago Wompi de esta cuenta");
+        String externalId = local.has("external_id") && !local.get("external_id").isJsonNull()
+                ? local.get("external_id").getAsString() : null;
+        String estadoLocal = local.get("estado").getAsString();
+        if (externalId != null && !id.equals(externalId)) {
+            throw ServicioException.noAutenticado("La transacción Wompi no coincide con el pago registrado");
+        }
+        long esperado = calcularMontoCentavosWompi(local.get("monto").getAsBigDecimal());
+        if (amountInCents != esperado) {
+            throw ServicioException.noAutenticado("El monto de la transacción Wompi no coincide con el pago registrado");
+        }
+
+        if ("pendiente".equals(estadoLocal)) {
+            if ("PENDING".equals(status)) {
+                wallet.vincularDepositoWompi(reference, id, amountInCents, FinanzasService::calcularMontoCentavosWompi);
+            } else if ("APPROVED".equals(status)) {
+                WalletResult result = wallet.acreditarDepositoWompi(
+                        reference, id, amountInCents, FinanzasService::calcularMontoCentavosWompi);
+                if (result != null && result.isSuccess()) {
+                    notificador.notificarSaldo(userId, "✅ Pago Wompi aprobado. Saldo acreditado.", result.getNuevoSaldo());
+                    notificador.emitirA(userId, "wompi_pago_actualizado", eventoWompi(reference, status));
+                }
+            } else if ("DECLINED".equals(status) || "ERROR".equals(status) || "VOIDED".equals(status)) {
+                int afectado = wallet.rechazarDepositoWompi(reference, id);
+                if (afectado > 0) {
+                    notificador.emitirA(userId, "wompi_pago_actualizado", eventoWompi(reference, status));
+                    notificador.enviarPush(userId, "Pago Wompi no aprobado",
+                            "El pago fue " + status.toLowerCase(Locale.ROOT) + ". Puedes iniciar otro pago desde Finanzas.");
+                }
             }
         }
+        JsonObject resultado = new JsonObject();
+        resultado.addProperty("reference", reference);
+        resultado.addProperty("status", status);
+        return resultado;
     }
 
     // --- Helpers ---
@@ -369,8 +488,30 @@ public class FinanzasService {
     private void verificarCorrelacionEnApiWompi(String transactionId, String referenceEsperada,
                                                  String statusEsperado, String currencyEsperada,
                                                  long centavosEsperados) {
+        JsonObject txApi = consultarTransaccionEnApiWompi(transactionId);
+        String apiId = texto(txApi, "id");
+        String apiRef = texto(txApi, "reference");
+        String apiStatus = texto(txApi, "status");
+        String apiCurrency = texto(txApi, "currency");
+        long apiCentavos = txApi.has("amount_in_cents") && txApi.get("amount_in_cents").isJsonPrimitive()
+                ? txApi.get("amount_in_cents").getAsLong() : -1L;
+
+        if (!transactionId.equals(apiId)
+                || !referenceEsperada.equals(apiRef)
+                || !statusEsperado.equals(apiStatus)
+                || !currencyEsperada.equalsIgnoreCase(apiCurrency)
+                || centavosEsperados != apiCentavos) {
+            logger.error("⛔ Discrepancia entre webhook y API Wompi para id {}: ref webhook='{}' vs api='{}'",
+                    transactionId, referenceEsperada, apiRef);
+            throw ServicioException.noAutenticado("Los datos del webhook no coinciden con la transacción en Wompi");
+        }
+    }
+
+    private JsonObject consultarTransaccionEnApiWompi(String transactionId) {
         String pubKey = config.getWompiPublicKey() != null ? config.getWompiPublicKey().trim() : "";
         String eventsSecret = config.getWompiEventsSecret() != null ? config.getWompiEventsSecret().trim() : "";
+        String privateKey = config.getWompiPrivateKey() != null ? config.getWompiPrivateKey().trim() : "";
+        if (privateKey.isEmpty()) throw ServicioException.noDisponible("Falta configurar la llave privada de Wompi");
         boolean usarSandbox = pubKey.startsWith("pub_test_") || eventsSecret.startsWith("test_");
         String baseUrl = usarSandbox
                 ? "https://sandbox.wompi.co/v1/transactions/"
@@ -382,6 +523,7 @@ public class FinanzasService {
                     .uri(URI.create(url))
                     .timeout(Duration.ofSeconds(10))
                     .header("Accept", "application/json")
+                    .header("Authorization", "Bearer " + privateKey)
                     .GET()
                     .build();
             HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -394,22 +536,7 @@ public class FinanzasService {
             if (txApi == null) {
                 throw ServicioException.noAutenticado("Respuesta inválida de Wompi al verificar transacción");
             }
-            String apiId = texto(txApi, "id");
-            String apiRef = texto(txApi, "reference");
-            String apiStatus = texto(txApi, "status");
-            String apiCurrency = texto(txApi, "currency");
-            long apiCentavos = txApi.has("amount_in_cents") && txApi.get("amount_in_cents").isJsonPrimitive()
-                    ? txApi.get("amount_in_cents").getAsLong() : -1L;
-
-            if (!transactionId.equals(apiId)
-                    || !referenceEsperada.equals(apiRef)
-                    || !statusEsperado.equals(apiStatus)
-                    || !currencyEsperada.equalsIgnoreCase(apiCurrency)
-                    || centavosEsperados != apiCentavos) {
-                logger.error("⛔ Discrepancia entre webhook y API Wompi para id {}: ref webhook='{}' vs api='{}'",
-                        transactionId, referenceEsperada, apiRef);
-                throw ServicioException.noAutenticado("Los datos del webhook no coinciden con la transacción en Wompi");
-            }
+            return txApi;
         } catch (ServicioException e) {
             throw e;
         } catch (Exception e) {

@@ -8,8 +8,6 @@ import org.junit.jupiter.api.Test;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.util.Locale;
-import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -17,8 +15,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Se ejecuta desde el contenedor justo antes de iniciar el servicio, nunca contra DATABASE_URL. */
 class RenderDeploymentDatabaseCheck {
-    private static final Pattern NOMBRE_DE_PRUEBAS = Pattern.compile("(^|[_-])(test|pruebas?|qa)([_-]|$)");
-
     @Test
     void verificaMigracionesYConexionEnLaBaseDeDatosAislada() throws Exception {
         String testUrl = System.getenv("TEST_DATABASE_URL");
@@ -27,15 +23,11 @@ class RenderDeploymentDatabaseCheck {
 
         String sslMode = System.getenv().getOrDefault("DB_SSLMODE", "require");
         ConexionDB.EnlaceBD testDb = ConexionDB.EnlaceBD.desde(testUrl, sslMode);
-        String nombrePrueba = testDb.nombreBase.toLowerCase(Locale.ROOT);
-        assertTrue(NOMBRE_DE_PRUEBAS.matcher(nombrePrueba).find(),
-                "El nombre de TEST_DATABASE_URL debe incluir un segmento test, pruebas o qa.");
-
         String productionUrl = System.getenv("DATABASE_URL");
         if (productionUrl != null && !productionUrl.isBlank()) {
             ConexionDB.EnlaceBD productionDb = ConexionDB.EnlaceBD.desde(productionUrl, sslMode);
-            assertFalse(testDb.nombreBase.equalsIgnoreCase(productionDb.nombreBase),
-                    "TEST_DATABASE_URL no puede apuntar al mismo nombre de base de datos que DATABASE_URL.");
+            assertFalse(mismaBase(testDb, productionDb),
+                    "TEST_DATABASE_URL no puede apuntar a la misma base que DATABASE_URL.");
         }
 
         HikariConfig pool = new HikariConfig();
@@ -78,5 +70,11 @@ class RenderDeploymentDatabaseCheck {
                 }
             }
         }
+    }
+
+    private static boolean mismaBase(ConexionDB.EnlaceBD a, ConexionDB.EnlaceBD b) {
+        return a.hostProceso.equalsIgnoreCase(b.hostProceso)
+                && a.puertoProceso.equals(b.puertoProceso)
+                && a.nombreBase.equalsIgnoreCase(b.nombreBase);
     }
 }

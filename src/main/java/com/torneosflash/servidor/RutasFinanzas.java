@@ -73,6 +73,21 @@ public class RutasFinanzas {
             ctx.json(finanzas.iniciarWompi(userId, body.get("monto")));
         });
 
+        // GET /api/wompi/pending — permite reabrir el checkout del pago pendiente del usuario.
+        app.get("/api/wompi/pending", ctx -> {
+            int userId = Peticion.userIdDeSesion(ctx);
+            if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
+            ctx.json(finanzas.pagosWompiPendientes(userId));
+        });
+
+        // POST /api/wompi/sync — verifica en Wompi el id devuelto al regresar del checkout.
+        app.post("/api/wompi/sync", ctx -> {
+            int userId = Peticion.userIdDeSesion(ctx);
+            if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
+            JsonObject body = parseBody(ctx);
+            ctx.json(finanzas.sincronizarPagoWompi(userId, Peticion.texto(body, "transactionId")));
+        });
+
         // POST /api/wompi/webhook (lo llama Wompi: verifica firma SHA-256 S7; respuesta en texto plano)
         app.post("/api/wompi/webhook", ctx -> {
             try {

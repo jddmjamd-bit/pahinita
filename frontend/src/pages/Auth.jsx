@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
 import { API_BASE_URL } from '../store/llamarApi';
 import { esperarSolicitudesPush } from '../services/pushTokens';
@@ -12,9 +12,46 @@ export default function Auth() {
     const [isLogin, setIsLogin] = useState(false);
     const [recuperando, setRecuperando] = useState(false);
     const navigate = useNavigate();
+    const location = useLocation();
     const setUser = useAppStore(state => state.setUser);
     // El token va en el fragmento (#), que el navegador no envía en peticiones ni en el Referer.
-    const tokenRecuperacion = new URLSearchParams(window.location.hash.slice(1)).get('reset') || '';
+    // Leer el hash de React Router también actualiza el formulario si se abre otro enlace sin desmontar Auth.
+    const tokenRecuperacion = new URLSearchParams(location.hash.slice(1)).get('reset') || '';
+    const [estadoTokenRecuperacion, setEstadoTokenRecuperacion] = useState(tokenRecuperacion ? 'validando' : 'inactivo');
+    const [tokenVerificado, setTokenVerificado] = useState('');
+    const estadoTokenActual = tokenVerificado === tokenRecuperacion
+        ? estadoTokenRecuperacion
+        : tokenRecuperacion ? 'validando' : 'inactivo';
+
+    useEffect(() => {
+        if (!tokenRecuperacion) {
+            setEstadoTokenRecuperacion('inactivo');
+            setTokenVerificado('');
+            return undefined;
+        }
+        let vigente = true;
+        setEstadoTokenRecuperacion('validando');
+        fetch(`${API_BASE_URL}/api/password/reset/validate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: tokenRecuperacion })
+        })
+            .then(async res => {
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'No se pudo validar el enlace.');
+                if (vigente) {
+                    setTokenVerificado(tokenRecuperacion);
+                    setEstadoTokenRecuperacion(data.valid ? 'valido' : 'invalido');
+                }
+            })
+            .catch(() => {
+                if (vigente) {
+                    setTokenVerificado(tokenRecuperacion);
+                    setEstadoTokenRecuperacion('error');
+                }
+            });
+        return () => { vigente = false; };
+    }, [tokenRecuperacion]);
 
     // Formularios
     const [username, setUsername] = useState('');
@@ -256,7 +293,7 @@ export default function Auth() {
 
     return (
         <div id="auth-flow" className="center-screen">
-            {tokenRecuperacion ? (
+            {tokenRecuperacion && estadoTokenActual === 'valido' ? (
                 <div className="form-wrapper" id="restablecer-password-container">
                     <h2>Crear contraseña nueva</h2>
                     <form onSubmit={handleRestablecerPassword}>
@@ -267,6 +304,22 @@ export default function Auth() {
                             autoComplete="new-password" value={confirmarPassword} onChange={e => setConfirmarPassword(e.target.value)} />
                         <button type="submit">Guardar contraseña</button>
                     </form>
+                </div>
+            ) : tokenRecuperacion ? (
+                <div className="form-wrapper" id="restablecer-password-container">
+                    <h2>Verificar enlace</h2>
+                    <p>{estadoTokenActual === 'validando'
+                        ? 'Comprobando el enlace de recuperación…'
+                        : estadoTokenActual === 'invalido'
+                            ? 'Este enlace ya fue usado o venció. Solicita uno nuevo para continuar.'
+                            : 'No se pudo verificar el enlace. Recarga la página e inténtalo de nuevo.'}</p>
+                    {estadoTokenActual === 'invalido' && (
+                        <button type="button" onClick={() => {
+                            setRecuperando(true);
+                            setIsLogin(true);
+                            navigate('/auth', { replace: true });
+                        }}>Solicitar un enlace nuevo</button>
+                    )}
                 </div>
             ) : recuperando ? (
                 <div className="form-wrapper" id="recuperar-password-container">

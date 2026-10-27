@@ -196,7 +196,27 @@ export const useAppStore = create((set, get) => ({
                 rival,
                 maxMonto: data.maxMonto || 10000,
                 status: 'negotiating',
-                resultado: null
+                resultado: null,
+                gameMode: '',
+                monto: '',
+                rivalDesconectado: null
+            });
+        });
+
+        // La sala se restaura en el handshake y este evento puede llegar antes de que Match.jsx monte.
+        // El store global conserva el estado y permite volver a /match tras recargar o cambiar de ruta.
+        newSocket.on('restaurar_partida', (data) => {
+            if (!data?.salaId) return;
+            get().setMatchState({
+                inMatch: true,
+                salaId: data.salaId,
+                rival: data.rival || null,
+                maxMonto: data.maxMonto || 10000,
+                status: data.iniciado ? 'playing' : 'negotiating',
+                gameMode: data.lastModo || '',
+                monto: data.lastDinero || '',
+                resultado: data.iniciado ? get().matchState.resultado : null,
+                rivalDesconectado: get().matchState.rivalDesconectado || null
             });
         });
 
@@ -227,6 +247,20 @@ export const useAppStore = create((set, get) => ({
         });
         newSocket.on('error_busqueda', () => get().setMatchState({ status: 'idle' }));
         newSocket.on('busqueda_timeout', () => get().setMatchState({ status: 'idle' }));
+        newSocket.on('busqueda_cancelada', (data) => {
+            const userId = get().user?.id;
+            if (userId && Number(data?.oderId) === Number(userId) && !get().matchState.inMatch) {
+                get().setMatchState({ inMatch: false, salaId: null, rival: null, status: 'idle' });
+            }
+        });
+        newSocket.on('cancelacion_completada', (data) => {
+            if (data?.evento === 'cancelar_busqueda') {
+                get().setMatchState({ inMatch: false, salaId: null, rival: null, status: 'idle' });
+            }
+        });
+        newSocket.on('rival_desconectado', (data) => get().setMatchState({ rivalDesconectado: data || { tiempo: 90 } }));
+        newSocket.on('rival_reconectado', () => get().setMatchState({ rivalDesconectado: null }));
+        newSocket.on('match_cancelado', () => get().clearMatchState());
 
         // Desconexión por duplicidad de sesión
         newSocket.on('sesion_duplicada', (data) => {
@@ -252,7 +286,8 @@ export const useAppStore = create((set, get) => ({
         gameMode: '',
         monto: 0,
         maxMonto: 10000,
-        status: 'idle' // idle, searching, negotiating, waiting, playing, finished
+        status: 'idle', // idle, searching, negotiating, waiting, playing, finished
+        rivalDesconectado: null
     },
     setMatchState: (newState) => set((state) => ({ matchState: { ...state.matchState, ...newState } })),
     clearMatchState: () => set({ 

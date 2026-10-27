@@ -114,3 +114,17 @@
     color: var(--accent-success);
     font-weight: 700;
 }
+.wompi-pending-box {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 20px;
+    padding: 16px;
+    border: 1px solid var(--accent-warning);
+    border-radius: var(--radius-md);
+    background: rgba(245, 158, 11, 0.08);
+    color: var(--text-primary);
+}
+.wompi-pending-box p { margin: 0; color: var(--text-secondary); font-size: 0.9rem; }
+.wompi-resume-btn { width: 100%; margin-top: 4px; background: var(--accent-warning); color: #111827; }
+.wompi-resume-btn:disabled { opacity: 0.65; }

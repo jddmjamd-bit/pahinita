@@ -64,7 +64,7 @@ public class SorteoService {
     }
 
     public JsonObject pozo() {
-        JsonObject poolRes = db.queryOne("SELECT COALESCE(SUM(gen_sorteos), 0) as total FROM users");
+        JsonObject poolRes = db.queryOne("SELECT monto AS total FROM raffle_pool WHERE id = 1");
         JsonObject res = new JsonObject();
         res.addProperty("pool", poolRes != null ? poolRes.get("total").getAsBigDecimal() : BigDecimal.ZERO);
         return res;
@@ -355,11 +355,52 @@ public class SorteoService {
         }
         int ticketsNecesarios = montoPrecio.divide(MIL, 0, RoundingMode.CEILING).intValueExact();
 
-        int newId = db.insertReturningId("INSERT INTO raffles (nombre, categoria, precio, tickets_necesarios, fecha_limite) " +
-                "VALUES (?, ?, ?, ?, NOW() + make_interval(mins => ?)) RETURNING id",
-                nombreValidado, categoriaValidada, precio, ticketsNecesarios, duracionMinutos);
-        if (newId <= 0) {
-            throw ServicioException.interno("No se pudo crear el sorteo", null);
+        int newId;
+        Connection conn = null;
+        try {
+            conn = db.getConnection();
+            conn.setAutoCommit(false);
+            BigDecimal saldoPozo;
+            try (PreparedStatement ps = conn.prepareStatement("SELECT monto FROM raffle_pool WHERE id = 1 FOR UPDATE")) {
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) throw new SQLException("No existe el saldo del pozo de sorteos");
+                    saldoPozo = rs.getBigDecimal("monto");
+                }
+            }
+            if (saldoPozo == null || saldoPozo.compareTo(montoPrecio) < 0) {
+                throw ServicioException.solicitudInvalida("El pozo acumulado no alcanza para reservar el premio.");
+            }
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE raffle_pool SET monto = monto - ?, actualizado_en = CURRENT_TIMESTAMP WHERE id = 1")) {
+                ps.setBigDecimal(1, montoPrecio);
+                if (ps.executeUpdate() != 1) throw new SQLException("No se pudo reservar el premio del sorteo");
+            }
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "INSERT INTO raffles (nombre, categoria, precio, tickets_necesarios, fecha_limite) " +
+                            "VALUES (?, ?, ?, ?, NOW() + make_interval(mins => ?)) RETURNING id")) {
+                ps.setString(1, nombreValidado);
+                ps.setString(2, categoriaValidada);
+                ps.setInt(3, precio);
+                ps.setInt(4, ticketsNecesarios);
+                ps.setInt(5, duracionMinutos);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) throw new SQLException("No se pudo crear el sorteo");
+                    newId = rs.getInt(1);
+                }
+            }
+            registrarMovimientoPozo(conn, "reserva", montoPrecio.negate(), "Sorteo #" + newId + " creado");
+            conn.commit();
+        } catch (ServicioException e) {
+            if (conn != null) { try { conn.rollback(); } catch (SQLException ignored) {} }
+            throw e;
+        } catch (SQLException e) {
+            if (conn != null) { try { conn.rollback(); } catch (SQLException ignored) {} }
+            logger.error("Error reservando el premio del sorteo: {}", e.getMessage());
+            throw ServicioException.interno("No se pudo reservar el premio del sorteo", e);
+        } finally {
+            if (conn != null) {
+                try { conn.setAutoCommit(true); conn.close(); } catch (SQLException ignored) {}
+            }
         }
 
         JsonObject nuevoSorteo = db.queryOne("SELECT * FROM raffles WHERE id = ?", newId);
@@ -378,13 +419,14 @@ public class SorteoService {
     /** Elimina un sorteo. Si no estaba completado, devuelve los tickets a quienes participaban. */
     public String eliminar(int raffleId) {
         boolean completado;
+        BigDecimal precio;
         Connection conn = null;
         try {
             conn = db.getConnection();
             conn.setAutoCommit(false);
 
             try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT estado FROM raffles WHERE id = ? FOR UPDATE")) {
+                    "SELECT estado, precio FROM raffles WHERE id = ? FOR UPDATE")) {
                 ps.setInt(1, raffleId);
                 try (ResultSet rs = ps.executeQuery()) {
                     if (!rs.next()) {
@@ -392,10 +434,18 @@ public class SorteoService {
                         throw ServicioException.noEncontrado("Sorteo no encontrado");
                     }
                     completado = "completado".equals(rs.getString("estado"));
+                    precio = rs.getBigDecimal("precio");
                 }
             }
 
             if (!completado) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE raffle_pool SET monto = monto + ?, actualizado_en = CURRENT_TIMESTAMP WHERE id = 1")) {
+                    ps.setBigDecimal(1, precio);
+                    if (ps.executeUpdate() != 1) throw new SQLException("No se pudo devolver el premio al pozo");
+                }
+                registrarMovimientoPozo(conn, "devolucion_cancelacion", precio,
+                        "Sorteo #" + raffleId + " cancelado");
                 ArrayList<int[]> entriesToRefund = new ArrayList<>();
                 try (PreparedStatement entries = conn.prepareStatement(
                         "SELECT user_id, tickets_asignados FROM raffle_entries WHERE raffle_id = ? ORDER BY user_id FOR UPDATE")) {
@@ -470,6 +520,8 @@ public class SorteoService {
     public void ejecutarSorteo(int raffleId) {
         String nombre;
         int ganadorId;
+        BigDecimal precio;
+        boolean administradorGano = false;
         String ganadorNombre = "Admin (Vacío)";
         String emailGanador = "N/A";
 
@@ -481,7 +533,7 @@ public class SorteoService {
             int tNecesarios;
             int tActuales;
             try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT nombre, tickets_necesarios, tickets_actuales FROM raffles WHERE id = ? AND estado = 'activo' FOR UPDATE")) {
+                    "SELECT nombre, precio, tickets_necesarios, tickets_actuales FROM raffles WHERE id = ? AND estado = 'activo' FOR UPDATE")) {
                 ps.setInt(1, raffleId);
                 try (ResultSet rs = ps.executeQuery()) {
                     if (!rs.next()) {
@@ -489,6 +541,7 @@ public class SorteoService {
                         return;
                     }
                     nombre = rs.getString("nombre");
+                    precio = rs.getBigDecimal("precio");
                     tNecesarios = rs.getInt("tickets_necesarios");
                     tActuales = rs.getInt("tickets_actuales");
                 }
@@ -519,16 +572,19 @@ public class SorteoService {
 
             if (ganadorId != -1) {
                 try (PreparedStatement ps = conn.prepareStatement(
-                        "SELECT username, email FROM users WHERE id = ?")) {
+                        "SELECT username, email, tipo_suscripcion FROM users WHERE id = ?")) {
                     ps.setInt(1, ganadorId);
                     try (ResultSet rs = ps.executeQuery()) {
                         if (rs.next()) {
                             ganadorNombre = rs.getString("username");
                             emailGanador = rs.getString("email");
+                            administradorGano = "admin".equalsIgnoreCase(rs.getString("tipo_suscripcion"));
                         }
                     }
                 }
             }
+            // Cuando se vence sin participaciones, el premio queda asignado al administrador.
+            administradorGano = administradorGano || ganadorId == -1;
 
             try (PreparedStatement ps = conn.prepareStatement(
                     "UPDATE raffles SET estado = 'completado', ganador_id = ?, ganador_nombre = ?, fecha_completado = NOW() " +
@@ -543,6 +599,25 @@ public class SorteoService {
                 if (ps.executeUpdate() == 0) {
                     conn.rollback();
                     return;
+                }
+            }
+
+            if (administradorGano) {
+                BigDecimal devolucionPozo = precio.divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP);
+                BigDecimal gananciaAdmin = precio.subtract(devolucionPozo);
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE raffle_pool SET monto = monto + ?, actualizado_en = CURRENT_TIMESTAMP WHERE id = 1")) {
+                    ps.setBigDecimal(1, devolucionPozo);
+                    if (ps.executeUpdate() != 1) throw new SQLException("No se pudo devolver la mitad del premio al pozo");
+                }
+                registrarMovimientoPozo(conn, "devolucion_admin", devolucionPozo,
+                        "Sorteo #" + raffleId + " ganado por el administrador");
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO admin_wallet (monto, razon, detalle, categoria) VALUES (?, ?, ?, 'sorteos')")) {
+                    ps.setBigDecimal(1, gananciaAdmin);
+                    ps.setString(2, "Premio de sorteo ganado por administrador");
+                    ps.setString(3, "Sorteo #" + raffleId + ": " + nombre);
+                    ps.executeUpdate();
                 }
             }
 
@@ -652,6 +727,17 @@ public class SorteoService {
             if (conn != null) {
                 try { conn.setAutoCommit(true); conn.close(); } catch (SQLException ignored) {}
             }
+        }
+    }
+
+    private static void registrarMovimientoPozo(Connection conn, String tipo, BigDecimal variacion,
+                                                String referencia) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO raffle_pool_movements (tipo, variacion, referencia) VALUES (?, ?, ?)")) {
+            ps.setString(1, tipo);
+            ps.setBigDecimal(2, variacion);
+            ps.setString(3, referencia);
+            ps.executeUpdate();
         }
     }
 }

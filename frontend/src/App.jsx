@@ -52,7 +52,7 @@ function App() {
         onClick={toggleTheme} 
         style={{
           position: 'fixed',
-          bottom: '20px',
+          bottom: '88px',
           right: '20px',
           zIndex: 9999,
           width: '50px',

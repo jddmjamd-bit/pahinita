@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
 import { API_BASE_URL } from '../store/llamarApi';
 import './Finance.css';
@@ -12,6 +13,7 @@ export default function Finance() {
     const [manualRef, setManualRef] = useState('');
     const [autoAmount, setAutoAmount] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
+    const [wompiPendientes, setWompiPendientes] = useState([]);
 
     // Withdraw states
     const [withdrawAmount, setWithdrawAmount] = useState('');
@@ -21,6 +23,33 @@ export default function Finance() {
     const currentUser = useAppStore(state => state.user);
     const setUser = useAppStore(state => state.setUser);
     const sincronizarSesion = useAppStore(state => state.sincronizarSesion);
+    const socket = useAppStore(state => state.socket);
+    const location = useLocation();
+    const navigate = useNavigate();
+
+    const cargarWompiPendientes = async () => {
+        if (!currentUser) return setWompiPendientes([]);
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/wompi/pending`, { credentials: 'include' });
+            if (res.ok) {
+                const data = await res.json();
+                setWompiPendientes(Array.isArray(data) ? data : []);
+            }
+        } catch (error) {
+            console.error('No se pudieron cargar los pagos pendientes de Wompi', error);
+        }
+    };
+
+    useEffect(() => {
+        cargarWompiPendientes();
+    }, [currentUser?.id]);
+
+    useEffect(() => {
+        if (!socket) return undefined;
+        const actualizarPago = () => cargarWompiPendientes();
+        socket.on('wompi_pago_actualizado', actualizarPago);
+        return () => socket.off('wompi_pago_actualizado', actualizarPago);
+    }, [socket, currentUser?.id]);
 
     const actualizarEstadoVerificacion = async () => {
         const resultado = await sincronizarSesion();
@@ -28,6 +57,29 @@ export default function Finance() {
             alert(resultado.data?.error || 'No se pudo actualizar el estado. Inténtalo de nuevo.');
         }
     };
+
+    const sincronizarPagoWompi = async (transactionId) => {
+        if (!transactionId) return null;
+        const res = await fetch(`${API_BASE_URL}/api/wompi/sync`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transactionId })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'No se pudo consultar el pago Wompi.');
+        if (data.status === 'APPROVED') await sincronizarSesion();
+        await cargarWompiPendientes();
+        return data;
+    };
+
+    useEffect(() => {
+        const transactionId = new URLSearchParams(location.search).get('id');
+        if (!transactionId) return;
+        sincronizarPagoWompi(transactionId)
+            .catch(error => alert(error.message || 'No se pudo verificar el pago con Wompi.'))
+            .finally(() => navigate({ pathname: location.pathname, hash: location.hash }, { replace: true }));
+    }, [location.search, location.pathname, location.hash, navigate, currentUser?.id]);
 
     // Calculos de comisión Wompi
     const calculateTotalAuto = (val) => {
@@ -71,14 +123,53 @@ export default function Finance() {
         }
     };
 
+    const abrirCheckoutWompi = (datos) => {
+        if (typeof window.WidgetCheckout !== 'function') {
+            throw new Error("El widget de pagos de Wompi aún no ha terminado de cargar o fue bloqueado por el navegador. Recarga la página e inténtalo de nuevo.");
+        }
+        const checkout = new window.WidgetCheckout({
+            currency: "COP",
+            amountInCents: datos.amountInCents,
+            reference: datos.reference,
+            publicKey: datos.publicKey,
+            signature: { integrity: datos.signature },
+            redirectUrl: window.location.href,
+        });
+        checkout.open((result) => {
+            const transaction = result?.transaction;
+            const status = transaction?.status;
+            if (transaction?.id) {
+                sincronizarPagoWompi(transaction.id)
+                    .then(data => {
+                        if (data.status === 'APPROVED') alert("Wompi aprobó el pago y el saldo fue actualizado.");
+                        else if (['DECLINED', 'ERROR', 'VOIDED'].includes(data.status)) alert("Wompi no aprobó el pago. Puedes iniciar otro desde esta pantalla.");
+                        else alert("El pago sigue en proceso con Wompi. Su estado se actualizará automáticamente.");
+                    })
+                    .catch(error => alert(error.message || 'Pago enviado. Estamos esperando la confirmación de Wompi.'));
+            } else {
+                alert("Pago recibido por Wompi. El saldo se actualizará cuando llegue la confirmación.");
+                cargarWompiPendientes();
+            }
+            setIsProcessing(false);
+        });
+        // Al cerrar el cuadro de Wompi se permite volver a abrir el mismo pago pendiente.
+        setIsProcessing(false);
+    };
+
+    const reanudarPagoWompi = (datos) => {
+        if (isProcessing) return;
+        setIsProcessing(true);
+        try {
+            abrirCheckoutWompi(datos);
+        } catch (error) {
+            alert(error.message || "Error iniciando Wompi");
+            setIsProcessing(false);
+        }
+    };
+
     const handleAutoDeposit = async () => {
         const monto = autoAmount;
-        if (!monto || monto < 1000 || !currentUser) return;
-        if (typeof window.WidgetCheckout !== 'function') {
-            alert("El widget de pagos de Wompi aún no ha terminado de cargar o fue bloqueado por el navegador. Recarga la página e inténtalo de nuevo.");
-            return;
-        }
-
+        if (!monto || monto < 1000 || !currentUser || isProcessing) return;
         setIsProcessing(true);
         try {
             const res = await fetch(API_BASE_URL + '/api/wompi/init', {
@@ -96,24 +187,7 @@ export default function Finance() {
             }
 
             const datos = await res.json();
-
-            // Configurar Widget
-            const checkout = new window.WidgetCheckout({
-                currency: "COP",
-                amountInCents: datos.amountInCents,
-                reference: datos.reference,
-                publicKey: datos.publicKey,
-                signature: { integrity: datos.signature },
-                redirectUrl: window.location.href,
-            });
-
-            checkout.open(function (result) {
-                const transaction = result.transaction;
-                console.log('Transaction ID: ', transaction.id);
-                // Confirmación real llega por Socket desde Webhook
-                alert("Pago en proceso con Wompi. Recibirás una notificación cuando se confirme.");
-                setIsProcessing(false);
-            });
+            abrirCheckoutWompi(datos);
 
         } catch (error) {
             console.error(error);
@@ -197,6 +271,26 @@ export default function Finance() {
                     ) : (
                         <div className="deposit-section">
                             <p className="info-text">Recarga inmediata automatizada.</p>
+                                {wompiPendientes.length > 0 && (
+                                    <div className="wompi-pending-box">
+                                        <strong>Tienes pagos Wompi pendientes</strong>
+                                        <p>Continúa el mismo pago o espera su confirmación. No necesitas crear otra solicitud.</p>
+                                        {wompiPendientes.map(pago => (
+                                            pago.transactionId ? (
+                                                <button key={pago.reference} type="button" className="wompi-resume-btn"
+                                                    disabled={isProcessing} onClick={() => sincronizarPagoWompi(pago.transactionId)
+                                                        .catch(error => alert(error.message || 'No se pudo consultar el pago.'))}>
+                                                    Consultar estado del pago de ${Number(pago.montoReal || 0).toLocaleString('es-CO')}
+                                                </button>
+                                            ) : (
+                                                <button key={pago.reference} type="button" className="wompi-resume-btn"
+                                                    disabled={isProcessing} onClick={() => reanudarPagoWompi(pago)}>
+                                                    {isProcessing ? 'Abriendo Wompi…' : `Continuar pago de $${Number(pago.montoReal || 0).toLocaleString('es-CO')}`}
+                                                </button>
+                                            )
+                                        ))}
+                                    </div>
+                                )}
                             <div className="calc-box">
                                 <label>Recibir en cuenta:</label>
                                 <input type="number" placeholder="10000" min="1000"

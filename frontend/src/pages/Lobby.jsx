@@ -11,7 +11,8 @@ export default function Lobby() {
     const logout = useAppStore(state => state.logout);
     const connectSocket = useAppStore(state => state.connectSocket);
     const disconnectSocket = useAppStore(state => state.disconnectSocket);
-    const inMatch = useAppStore(state => state.matchState.inMatch);
+    const matchState = useAppStore(state => state.matchState);
+    const inMatch = matchState.inMatch;
 
     // Al encontrar partida (o restaurarla) el usuario va a la sala, esté donde esté. Solo al cambiar a "en partida":
     // después puede moverse libremente por la app.
@@ -58,7 +59,13 @@ export default function Lobby() {
                     <h3>{currentUser.username}</h3>
                     <div className="status-indicator">
                         <span className="status-dot"></span>
-                        <span>{currentUser.estado === 'normal' ? 'Libre' : 'Jugando'}</span>
+                        <span>{matchState.status === 'searching'
+                            ? 'Buscando partida'
+                            : matchState.inMatch && matchState.status === 'playing'
+                                ? 'Jugando'
+                                : matchState.inMatch
+                                    ? 'En sala'
+                                    : currentUser.estado === 'normal' ? 'Libre' : 'Disponible'}</span>
                     </div>
                     <p className="money">${currentUser.saldo.toLocaleString()}</p>
                     

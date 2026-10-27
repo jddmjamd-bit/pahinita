@@ -939,11 +939,12 @@ public class WalletService {
 
             int userId;
             String tipo;
+            String metodo;
             BigDecimal monto;
             String estadoActual;
 
             try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT usuario_id, tipo, monto, estado FROM transactions WHERE id = ? FOR UPDATE")) {
+                    "SELECT usuario_id, tipo, metodo, monto, estado FROM transactions WHERE id = ? FOR UPDATE")) {
                 ps.setInt(1, transId);
                 try (ResultSet rs = ps.executeQuery()) {
                     if (!rs.next()) {
@@ -952,9 +953,15 @@ public class WalletService {
                     }
                     userId = rs.getInt("usuario_id");
                     tipo = rs.getString("tipo");
+                    metodo = rs.getString("metodo");
                     monto = rs.getBigDecimal("monto");
                     estadoActual = rs.getString("estado");
                 }
+            }
+
+            if ("wompi".equalsIgnoreCase(metodo)) {
+                conn.rollback();
+                throw ServicioException.prohibido("Los pagos Wompi solo se procesan por confirmación de Wompi");
             }
 
             if (!"pendiente".equals(estadoActual)) {
@@ -1102,8 +1109,9 @@ public class WalletService {
             // S7: Verificar que este transaction.id de Wompi no haya sido usado en ninguna otra referencia
             if (wompiTransactionId != null && !wompiTransactionId.isBlank()) {
                 try (PreparedStatement ps = conn.prepareStatement(
-                        "SELECT referencia FROM transactions WHERE external_id = ?")) {
+                        "SELECT referencia FROM transactions WHERE external_id = ? AND id <> ?")) {
                     ps.setString(1, wompiTransactionId);
+                    ps.setInt(2, transaccionId);
                     try (ResultSet rs = ps.executeQuery()) {
                         if (rs.next()) {
                             String otraRef = rs.getString("referencia");
@@ -1175,6 +1183,164 @@ public class WalletService {
             rollbackSilencioso(conn);
             logger.error("❌ Error SQL en acreditarDepositoWompi ref={}: {}", reference, e.getMessage());
             throw ServicioException.interno("Error de base de datos al procesar pago Wompi", e);
+        } finally {
+            cerrarConexion(conn);
+        }
+    }
+
+    /** Vincula el ID del pago PENDING a su referencia local sin acreditar dinero todavía. */
+    public int vincularDepositoWompi(String reference, String wompiTransactionId, long pagadoCentavos,
+                                     java.util.function.Function<BigDecimal, Long> calculadorCentavos) {
+        if (wompiTransactionId == null || wompiTransactionId.isBlank()) {
+            throw ServicioException.solicitudInvalida("Falta el identificador de la transacción Wompi");
+        }
+        Connection conn = null;
+        try {
+            conn = db.getConnection();
+            conn.setAutoCommit(false);
+            int transaccionId;
+            int userId;
+            BigDecimal monto;
+            String estado;
+            String externalId;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT id, usuario_id, monto, estado, external_id FROM transactions " +
+                            "WHERE referencia = ? AND tipo = 'deposito' AND metodo = 'wompi' FOR UPDATE")) {
+                ps.setString(1, reference);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        return 0;
+                    }
+                    transaccionId = rs.getInt("id");
+                    userId = rs.getInt("usuario_id");
+                    monto = rs.getBigDecimal("monto");
+                    estado = rs.getString("estado");
+                    externalId = rs.getString("external_id");
+                    if (rs.next()) {
+                        conn.rollback();
+                        throw ServicioException.solicitudInvalida("La referencia Wompi no identifica una sola transacción");
+                    }
+                }
+            }
+            if (!"pendiente".equals(estado)) {
+                conn.rollback();
+                return 0;
+            }
+            if (pagadoCentavos != calculadorCentavos.apply(monto)) {
+                conn.rollback();
+                throw ServicioException.solicitudInvalida("El monto pagado no coincide con la transacción registrada");
+            }
+            if (externalId != null && !wompiTransactionId.equals(externalId)) {
+                conn.rollback();
+                throw ServicioException.solicitudInvalida("La referencia ya está asociada a otro pago Wompi");
+            }
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT id FROM transactions WHERE external_id = ? AND id <> ?")) {
+                ps.setString(1, wompiTransactionId);
+                ps.setInt(2, transaccionId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        conn.rollback();
+                        throw ServicioException.solicitudInvalida("El identificador de pago Wompi ya fue utilizado");
+                    }
+                }
+            }
+            if (externalId == null) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE transactions SET external_id = ? WHERE id = ? AND estado = 'pendiente' AND external_id IS NULL")) {
+                    ps.setString(1, wompiTransactionId);
+                    ps.setInt(2, transaccionId);
+                    if (ps.executeUpdate() != 1) {
+                        conn.rollback();
+                        return 0;
+                    }
+                }
+            }
+            conn.commit();
+            return userId;
+        } catch (ServicioException e) {
+            rollbackSilencioso(conn);
+            throw e;
+        } catch (SQLException e) {
+            rollbackSilencioso(conn);
+            logger.error("❌ Error al vincular pago Wompi ref={}: {}", reference, e.getMessage());
+            throw ServicioException.interno("No se pudo actualizar el estado del pago Wompi", e);
+        } finally {
+            cerrarConexion(conn);
+        }
+    }
+
+    /** Marca un pago Wompi fallido sin tocar el saldo; solo una transición pendiente puede actualizarse. */
+    public int rechazarDepositoWompi(String reference, String wompiTransactionId) {
+        Connection conn = null;
+        try {
+            conn = db.getConnection();
+            conn.setAutoCommit(false);
+            int transaccionId;
+            int userId;
+            String estado;
+            String externalId;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT id, usuario_id, estado, external_id FROM transactions " +
+                            "WHERE referencia = ? AND tipo = 'deposito' AND metodo = 'wompi' FOR UPDATE")) {
+                ps.setString(1, reference);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        return 0;
+                    }
+                    transaccionId = rs.getInt("id");
+                    userId = rs.getInt("usuario_id");
+                    estado = rs.getString("estado");
+                    externalId = rs.getString("external_id");
+                    if (rs.next()) {
+                        conn.rollback();
+                        throw ServicioException.solicitudInvalida("La referencia Wompi no identifica una sola transacción");
+                    }
+                }
+            }
+            if (!"pendiente".equals(estado)) {
+                conn.rollback();
+                return 0;
+            }
+            if (wompiTransactionId != null && !wompiTransactionId.isBlank()) {
+                if (externalId != null && !wompiTransactionId.equals(externalId)) {
+                    conn.rollback();
+                    throw ServicioException.solicitudInvalida("La referencia ya está asociada a otro pago Wompi");
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT referencia FROM transactions WHERE external_id = ? AND id <> ?")) {
+                    ps.setString(1, wompiTransactionId);
+                    ps.setInt(2, transaccionId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next()) {
+                            conn.rollback();
+                            throw ServicioException.solicitudInvalida("El identificador de pago Wompi ya fue utilizado");
+                        }
+                    }
+                }
+            }
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE transactions SET estado = 'rechazado', external_id = ? " +
+                            "WHERE id = ? AND estado = 'pendiente'")) {
+                if (wompiTransactionId == null || wompiTransactionId.isBlank()) ps.setNull(1, Types.VARCHAR);
+                else ps.setString(1, wompiTransactionId);
+                ps.setInt(2, transaccionId);
+                if (ps.executeUpdate() != 1) {
+                    conn.rollback();
+                    return 0;
+                }
+            }
+            conn.commit();
+            return userId;
+        } catch (ServicioException e) {
+            rollbackSilencioso(conn);
+            throw e;
+        } catch (SQLException e) {
+            rollbackSilencioso(conn);
+            logger.error("❌ Error al rechazar pago Wompi ref={}: {}", reference, e.getMessage());
+            throw ServicioException.interno("No se pudo actualizar el estado del pago Wompi", e);
         } finally {
             cerrarConexion(conn);
         }
@@ -1330,6 +1496,20 @@ public class WalletService {
                 ps.setInt(8, idGanador);
                 ps.setInt(9, idPerdedor);
                 ps.executeUpdate();
+            }
+
+            if (comSorteos.compareTo(BigDecimal.ZERO) > 0) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE raffle_pool SET monto = monto + ?, actualizado_en = CURRENT_TIMESTAMP WHERE id = 1")) {
+                    ps.setBigDecimal(1, comSorteos);
+                    if (ps.executeUpdate() != 1) throw new SQLException("No existe el saldo del pozo de sorteos");
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO raffle_pool_movements (tipo, variacion, referencia) VALUES ('acumulacion', ?, ?)")) {
+                    ps.setBigDecimal(1, comSorteos);
+                    ps.setString(2, detalle);
+                    ps.executeUpdate();
+                }
             }
 
             // 3. Estadísticas de victoria/derrota (normales o por disputa dentro de la misma transacción)

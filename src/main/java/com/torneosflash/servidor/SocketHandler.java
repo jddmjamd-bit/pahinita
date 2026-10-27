@@ -91,11 +91,8 @@ public class SocketHandler {
                 }
             }
 
-            // El historial general es visible para la app; los logs internos solo para admins
-            // cuya identidad y rol se cargaron desde la sesión JWT y la BD en este handshake.
-            boolean puedeVerLogs = esAdminSocket(socket);
+            // El historial de búsqueda y cancelación de partidas forma parte del registro público.
             for (String canal : new String[]{"anuncios", "general", "clash", "clash_logs"}) {
-                if ("clash_logs".equals(canal) && !puedeVerLogs) continue;
                 ArrayList<JsonObject> msgs = db.query(
                         "SELECT * FROM (SELECT * FROM messages WHERE canal = ? ORDER BY id DESC LIMIT ?) t ORDER BY id ASC",
                         canal, config.getChatHistorialLimite()); // A7: CHAT_HISTORIAL_LIMITE (antes 50 fijo)
@@ -185,10 +182,14 @@ public class SocketHandler {
 
                     if (salaActual != null && activeMatches.containsKey(salaActual)) {
                         ActiveMatch match = activeMatches.get(salaActual);
+                        // Reemplazar primero el socket de este jugador. El evento disconnect del socket
+                        // anterior puede llegar después de esta reconexión.
+                        match.actualizarSocketJugador(userId, client);
                         // Cancelar timer de desconexión si estaba corriendo
                         ScheduledFuture<?> timer = match.disconnectTimers.remove(userId);
                         if (timer != null) {
                             timer.cancel(false);
+                            match.disconnectDeadlinesMs.remove(userId);
                             JsonObject reData = new JsonObject();
                             reData.addProperty("username", username);
                             client.to(salaActual).emit("rival_reconectado", reData);
@@ -197,10 +198,21 @@ public class SocketHandler {
                         client.setCurrentRoom(salaActual);
 
                         // Registrar o actualizar el socket del jugador en el match
-                        match.actualizarSocketJugador(userId, client);
+                        int rivalId = match.getRivalId(userId);
+                        if (!match.estaConectado(rivalId)) {
+                            JsonObject disconnData = new JsonObject();
+                            if (match.iniciado) {
+                                disconnData.addProperty("tiempo", "indefinido");
+                            } else {
+                                long venceEn = match.disconnectDeadlinesMs.getOrDefault(
+                                        rivalId, System.currentTimeMillis() + config.getNegociacionDesconexionSegundos() * 1000L);
+                                long segundos = Math.max(1L, (venceEn - System.currentTimeMillis() + 999L) / 1000L);
+                                disconnData.addProperty("tiempo", segundos);
+                            }
+                            client.emit("rival_desconectado", disconnData);
+                        }
 
                         // S6: el rival siempre se lee de la BD con lista blanca (nunca el userData del cliente ni SELECT *)
-                        int rivalId = match.getRivalId(userId);
                         JsonObject rivalData = null;
                         if (rivalId > 0) {
                             rivalData = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", rivalId);
@@ -842,6 +854,11 @@ public class SocketHandler {
             socket.on("disconnect", (client, data) -> {
                 colaEsperaClash.removeIf(s -> s.getSid().equals(client.getSid()));
 
+                Integer disconnectedUserId = idAutenticadoSocket(client);
+                // Al recargar la página, el socket nuevo toma la sala antes de cerrarse el anterior.
+                // El cierre tardío del socket viejo no debe marcar al usuario como desconectado.
+                if (disconnectedUserId != null && hayOtroSocketConectado(disconnectedUserId, client.getSid())) return;
+
                 if (client.getUserData() != null) {
                     int userId = client.getUserData().get("id").getAsInt();
                     usuariosOnline.remove(userId);
@@ -857,6 +874,7 @@ public class SocketHandler {
 
                     synchronized (match) {
                         if (activeMatches.get(salaId) != match) return;
+                        if (!match.esSocketActual(userId, client)) return;
                         if (match.iniciado) {
                             // Partida activa - esperamos indefinidamente
                             logger.info("🔌 " + uname + " desconectado de partida ACTIVA");
@@ -1093,13 +1111,21 @@ public class SocketHandler {
         if (previo != null) {
             previo.cancel(false);
         }
+        long venceEn = System.currentTimeMillis() + esperaSegundos * 1000L;
+        match.disconnectDeadlinesMs.put(userId, venceEn);
         ScheduledFuture<?> timer = scheduler.schedule(() -> {
             synchronized (match) {
                 if (activeMatches.get(salaId) != match || match.iniciado || match.inicioRevision) return;
+                if (match.estaConectado(userId)) {
+                    match.disconnectDeadlinesMs.remove(userId);
+                    match.disconnectTimers.remove(userId);
+                    return;
+                }
                 for (ScheduledFuture<?> f : match.disconnectTimers.values()) {
                     f.cancel(false);
                 }
                 match.disconnectTimers.clear();
+                match.disconnectDeadlinesMs.clear();
 
                 if (penalizarSalida) {
                     db.update("UPDATE users SET salidas_chat = salidas_chat + 1, salidas_desconexion = salidas_desconexion + 1 WHERE id = ?", userId);
@@ -1628,30 +1654,15 @@ public class SocketHandler {
         logData.addProperty("texto", texto);
         logData.addProperty("tipo", "log");
         logData.addProperty("fecha", fecha);
-        emitirClashLogSoloAdmins(logData);
+        io.emit("mensaje_chat", logData);
     }
 
-    private void emitirClashLogSoloAdmins(JsonObject logData) {
-        Set<Integer> admins = new HashSet<>();
-        for (JsonObject fila : db.query("SELECT id FROM users WHERE tipo_suscripcion = 'admin'")) {
-            if (fila.has("id") && !fila.get("id").isJsonNull()) admins.add(fila.get("id").getAsInt());
-        }
-        if (admins.isEmpty()) return;
+    private boolean hayOtroSocketConectado(int userId, String sidExcluido) {
         for (SocketIOClient conectado : io.getSockets().values()) {
-            Integer userId = conectado.getAuthenticatedUserId();
-            if (userId != null && admins.contains(userId)
-                    && AuthMiddleware.sesionVigente(userId, conectado.getAuthenticatedSessionJti())) {
-                conectado.emit("mensaje_chat", logData);
-            }
+            if (conectado == null || !conectado.isConnected() || Objects.equals(sidExcluido, conectado.getSid())) continue;
+            if (Objects.equals(idAutenticadoSocket(conectado), userId)) return true;
         }
-    }
-
-    private boolean esAdminSocket(SocketIOClient client) {
-        Integer authId = client.getAuthenticatedUserId();
-        if (authId == null || authId <= 0
-                || !AuthMiddleware.sesionVigente(authId, client.getAuthenticatedSessionJti())) return false;
-        JsonObject usuario = db.queryOne("SELECT tipo_suscripcion FROM users WHERE id = ?", authId);
-        return usuario != null && "admin".equals(str(usuario, "tipo_suscripcion"));
+        return false;
     }
 
     private Integer usuarioAutenticado(SocketIOClient client, String evento) {
@@ -1695,6 +1706,7 @@ public class SocketHandler {
         String matchStartTime = "";
         ConcurrentHashMap<Integer, JsonObject> votosInicio = new ConcurrentHashMap<>();
         ConcurrentHashMap<Integer, ScheduledFuture<?>> disconnectTimers = new ConcurrentHashMap<>();
+        ConcurrentHashMap<Integer, Long> disconnectDeadlinesMs = new ConcurrentHashMap<>();
         ConcurrentHashMap<Integer, Boolean> confirmaciones = new ConcurrentHashMap<>();
         String lastModo = "";
         String lastDinero = "";
@@ -1743,6 +1755,22 @@ public class SocketHandler {
                 }
             }
             players.add(client);
+        }
+
+        boolean esSocketActual(int userId, SocketIOClient client) {
+            for (SocketIOClient player : players) {
+                if (player != null && player.getUserData() != null && player.getUserData().has("id")
+                        && player.getUserData().get("id").getAsInt() == userId) return player == client;
+            }
+            return false;
+        }
+
+        boolean estaConectado(int userId) {
+            for (SocketIOClient player : players) {
+                if (player != null && player.isConnected() && player.getUserData() != null
+                        && player.getUserData().has("id") && player.getUserData().get("id").getAsInt() == userId) return true;
+            }
+            return false;
         }
     }
 

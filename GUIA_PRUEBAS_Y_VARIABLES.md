@@ -211,11 +211,11 @@ Los casos marcados como manuales se dejan así porque incluyen estado visual/ges
 
 ### Base de datos exclusiva de pruebas
 
-Configura `TEST_DATABASE_URL` en el entorno del servicio Render con la URL interna de una segunda base PostgreSQL. **No uses `DATABASE_URL` como valor de esta variable.** El nombre de la base debe incluir un segmento `test`, `prueba`, `pruebas` o `qa`, por ejemplo `torneosflash_test`. La prueba también rechaza el mismo nombre de base que `DATABASE_URL`.
+Configura `TEST_DATABASE_URL` en el entorno del servicio Render con la URL interna de una segunda base PostgreSQL. **No uses `DATABASE_URL` como valor de esta variable.** El nombre de la base puede ser cualquiera; la validación compara host, puerto y nombre para rechazar si apunta a la misma base que `DATABASE_URL`.
 
 Antes de iniciar el backend, JUnit aplica y valida Flyway en esa base, confirma que haya al menos 17 migraciones exitosas y que exista `public.users`. Luego crea un esquema con nombre aleatorio `tf_qa_*`, aplica allí las migraciones desde cero y ejecuta 23 pruebas de aceptación con usuarios sintéticos; algunas levantan un servidor HTTP en un puerto temporal y todas las conexiones de negocio apuntan al esquema aislado. Al terminar, cierra servidores y pools y elimina solo los esquemas con UUID generados por esa ejecución. Las operaciones nunca apuntan a `DATABASE_URL`. Flyway tiene `cleanDisabled=true`.
 
-`TEST_DATABASE_URL` debe estar disponible como variable de entorno en tiempo de ejecución de Render. Si falta, la conexión falla, el nombre no parece de pruebas o Flyway detecta un error, el backend no inicia. Mantén `DATABASE_URL` conectada a la base normal de la aplicación.
+`TEST_DATABASE_URL` debe estar disponible como variable de entorno en tiempo de ejecución de Render. Si falta, la conexión falla, apunta a la misma base que `DATABASE_URL` o Flyway detecta un error, el backend no inicia. Mantén `DATABASE_URL` conectada a la base normal de la aplicación.
 
 Render proporciona `RENDER=true`; no hace falta crear esa variable. En previews de pull request (`IS_PULL_REQUEST=true`) no se exige el conjunto de secretos de producción. Para iniciar en una instancia de producción deben existir `DATABASE_URL`, `JWT_SECRET` de al menos 32 caracteres, `CLASH_ROYALE_API_TOKEN` y las cuatro credenciales requeridas de Wompi (`WOMPI_PUBLIC_KEY`, `WOMPI_PRIVATE_KEY`, `WOMPI_EVENTS_SECRET`, `WOMPI_INTEGRITY_SECRET`). El error enumera nombres de variables, nunca sus valores.
 
@@ -302,7 +302,7 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | D5 | Enviar mensaje privado en sala de partida | Sanitizado, guardado, emitido solo a la sala. |
 | D6 | Enviar mensaje privado a sala ajena | Rechazado con log de warning. |
 | D7 | Enviar imagen con data URI SVG | Rechazado (solo png/jpeg/gif/webp). |
-| D8 | Verificar que `clash_logs` solo llegan a admins conectados con sesión vigente | Usuarios normales NO reciben logs de Clash. |
+| D8 | Verificar `clash_logs` con una cuenta normal | Recibe el historial y los eventos públicos de búsqueda/cancelación; el canal sigue siendo de solo lectura. |
 | D9 | Rate limiting de chat (por socket) | Mensajes excesivos silenciosamente descartados. |
 
 ### 🏆 E — Leaderboard
@@ -318,10 +318,11 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 
 | # | Prueba | Resultado esperado |
 |---|--------|-------------------|
-| F1 | Admin crea sorteo con nombre y precio válidos | Sorteo creado. |
+| F1 | Admin crea sorteo con nombre y precio válidos | Se crea si alcanza el pozo y el premio queda reservado de inmediato. |
 | F2 | Usuario participa con tickets suficientes | Participación registrada bajo bloqueo transaccional. |
 | F3 | Participar después de `fecha_limite` | Rechazado. |
-| F4 | Eliminar sorteo con participantes | Tickets devueltos en la misma transacción (no se pueden devolver dos veces). |
+| F4 | Cancelar sorteo con participantes | Se devuelven tickets y el premio completo al pozo en la misma transacción. |
+| F5 | Admin gana un sorteo | La mitad del premio vuelve al pozo y la otra mitad se registra como ganancia admin. |
 
 ### 🎫 G — Soporte (tickets)
 

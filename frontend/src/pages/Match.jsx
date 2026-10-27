@@ -67,6 +67,28 @@ export default function Match() {
         if (currentUser) connectSocket();
     }, [currentUser, connectSocket]);
 
+    // Mantiene la vista local sincronizada con el estado persistente que el socket restaura al reconectar.
+    useEffect(() => {
+        if (!matchState.inMatch) return;
+        setView(matchState.status === 'playing' || matchState.status === 'finished' ? 'game_result' : 'private');
+        if (matchState.rival) setRivalData(matchState.rival);
+        if (matchState.maxMonto) setMaxMontoPermitido(matchState.maxMonto);
+        if (matchState.gameMode !== undefined) setGameMode(matchState.gameMode || '');
+        if (matchState.monto !== undefined) setMonto(matchState.monto || '');
+        if (matchState.resultado !== undefined) setApiResult(matchState.resultado || null);
+        if (matchState.status === 'playing') setFlujoCompletado(false);
+
+        const desconexion = matchState.rivalDesconectado;
+        if (!desconexion) {
+            setRivalDesconectadoMsg('');
+        } else if (desconexion.tiempo === 'indefinido') {
+            setRivalDesconectadoMsg('⚠️ Rival desconectado. Esperando resultado de la API...');
+        } else {
+            setRivalDesconectadoMsg(`⚠️ Rival desconectado. Tiene ${desconexion.tiempo || 90}s para reconectarse.`);
+        }
+    }, [matchState.inMatch, matchState.status, matchState.rival, matchState.maxMonto,
+        matchState.gameMode, matchState.monto, matchState.resultado, matchState.rivalDesconectado]);
+
     useEffect(() => {
         // Auto-scroll chat
         if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -96,7 +118,10 @@ export default function Match() {
                 rival,
                 maxMonto: data.maxMonto || 10000,
                 status: 'negotiating',
-                resultado: null
+                    resultado: null,
+                    gameMode: '',
+                    monto: '',
+                    rivalDesconectado: null
             });
         };
 
@@ -175,7 +200,8 @@ export default function Match() {
                 setMatchState({ inMatch: true, salaId: data.salaId, rival: data.rival || null, maxMonto: data.maxMonto || 10000, status: 'playing', resultado: null });
             } else {
                 setView('private');
-                setMatchState({ inMatch: true, salaId: data.salaId, rival: data.rival || null, maxMonto: data.maxMonto || 10000, status: 'negotiating' });
+                setMatchState({ inMatch: true, salaId: data.salaId, rival: data.rival || null, maxMonto: data.maxMonto || 10000,
+                    status: 'negotiating', gameMode: data.lastModo || '', monto: data.lastDinero || '' });
             }
         };
 
@@ -221,6 +247,7 @@ export default function Match() {
             setMatchState({ status: 'finished', resultado });
         };
         const onRivalDesconectado = (data) => {
+            setMatchState({ rivalDesconectado: data || { tiempo: 90 } });
             if (data?.tiempo === 'indefinido') {
                 setRivalDesconectadoMsg('⚠️ Rival desconectado. Esperando resultado de la API...');
             } else {
@@ -229,6 +256,7 @@ export default function Match() {
             }
         };
         const onRivalReconectado = () => {
+            setMatchState({ rivalDesconectado: null });
             setRivalDesconectadoMsg('');
         };
 

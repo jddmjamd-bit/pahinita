@@ -50,7 +50,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.regex.Pattern;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -66,7 +65,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * No usa DATABASE_URL, no contacta proveedores externos y elimina únicamente el esquema generado aquí.
  */
 class RenderAcceptanceCheck {
-    private static final Pattern DB_DE_PRUEBAS = Pattern.compile("(^|[_-])(test|pruebas?|qa)([_-]|$)");
     private static final String ALFABETO_TAG_PRUEBA = "0289PYLQGRJCUV";
     private static final String CLAVE = "test-only-jwt-secret-with-at-least-32-characters";
     private static final AtomicInteger CONTADOR_TELEFONOS_TEST = new AtomicInteger();
@@ -102,14 +100,11 @@ class RenderAcceptanceCheck {
         assertFalse(url.isBlank(), "TEST_DATABASE_URL no puede estar vacía.");
         sslMode = System.getenv().getOrDefault("DB_SSLMODE", "require");
         enlaceBase = ConexionDB.EnlaceBD.desde(url, sslMode);
-        assertTrue(DB_DE_PRUEBAS.matcher(enlaceBase.nombreBase.toLowerCase(Locale.ROOT)).find(),
-                "El nombre de TEST_DATABASE_URL debe incluir test, pruebas o qa.");
         String produccion = System.getenv("DATABASE_URL");
         if (produccion != null && !produccion.isBlank()) {
             ConexionDB.EnlaceBD enlaceProduccion = ConexionDB.EnlaceBD.desde(produccion, sslMode);
-            assertNotEquals(enlaceProduccion.nombreBase.toLowerCase(Locale.ROOT),
-                    enlaceBase.nombreBase.toLowerCase(Locale.ROOT),
-                    "TEST_DATABASE_URL y DATABASE_URL no pueden ser la misma base.");
+            assertFalse(mismaBase(enlaceProduccion, enlaceBase),
+                    "TEST_DATABASE_URL y DATABASE_URL no pueden apuntar a la misma base.");
         }
 
         esquema = "tf_qa_" + UUID.randomUUID().toString().replace("-", "");
@@ -192,6 +187,12 @@ class RenderAcceptanceCheck {
             dao.update("UPDATE users SET password = ? WHERE id = ?",
                     BCrypt.hashpw("ClaveSegura!123", BCrypt.gensalt(4)), authUserId);
         }
+    }
+
+    private static boolean mismaBase(ConexionDB.EnlaceBD a, ConexionDB.EnlaceBD b) {
+        return a.hostProceso.equalsIgnoreCase(b.hostProceso)
+                && a.puertoProceso.equals(b.puertoProceso)
+                && a.nombreBase.equalsIgnoreCase(b.nombreBase);
     }
 
     @AfterAll

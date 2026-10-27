@@ -30,6 +30,7 @@ public final class PostgresBackupService {
     private static final String CONFIRMACION_RESTORE = "RESTAURAR BASE DE DATOS";
     private static final int BUFFER_BYTES = 64 * 1024;
     private static final long MAX_BYTES_LISTADO = 16L * 1024 * 1024;
+    private static final int MAX_DIAGNOSTICO_HERRAMIENTA = 8_000;
     private static final Duration TIEMPO_BACKUP = Duration.ofHours(2);
     private static final Duration TIEMPO_RESTORE = Duration.ofHours(3);
     private static final Duration TIEMPO_VALIDACION = Duration.ofMinutes(2);
@@ -317,12 +318,26 @@ public final class PostgresBackupService {
                 }
             }
             if (proceso.exitValue() != 0) {
-                logger.error("La herramienta PostgreSQL {} terminó con código {}", comando.get(0), proceso.exitValue());
+                String diagnostico = leerDiagnostico(archivoError);
+                logger.error("La herramienta PostgreSQL {} terminó con código {}. Diagnóstico: {}",
+                        comando.get(0), proceso.exitValue(), diagnostico);
                 throw ServicioException.noDisponible(mensajeError);
             }
         } catch (InterruptedException | RuntimeException e) {
             proceso.destroyForcibly();
             throw e;
+        }
+    }
+
+    private static String leerDiagnostico(Path archivoError) {
+        try {
+            String contenido = Files.readString(archivoError).trim();
+            if (contenido.length() > MAX_DIAGNOSTICO_HERRAMIENTA) {
+                contenido = contenido.substring(contenido.length() - MAX_DIAGNOSTICO_HERRAMIENTA);
+            }
+            return contenido.isEmpty() ? "sin salida de error" : contenido;
+        } catch (IOException e) {
+            return "no se pudo leer la salida de error";
         }
     }
 

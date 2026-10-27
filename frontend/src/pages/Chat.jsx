@@ -54,6 +54,7 @@ const formatoMonto = (monto) => `$${Number(monto || 0).toLocaleString('es-CO')}`
 
 export default function Chat() {
     const [canalActivo, setCanalActivo] = useState('general'); // 'general', 'anuncios', 'clash', 'clash_logs'
+    const [imagenAmpliada, setImagenAmpliada] = useState(null);
     const [inputValues, setInputValues] = useState({
         general: '',
         anuncios: '',
@@ -78,6 +79,15 @@ export default function Chat() {
     const sendChatMessage = useAppStore(state => state.sendChatMessage);
     const setChatHistory = useAppStore(state => state.setChatHistory);
     const esAdmin = currentUser?.tipo_suscripcion === 'admin';
+
+    useEffect(() => {
+        if (!imagenAmpliada) return undefined;
+        const cerrarConEscape = (event) => {
+            if (event.key === 'Escape') setImagenAmpliada(null);
+        };
+        document.addEventListener('keydown', cerrarConEscape);
+        return () => document.removeEventListener('keydown', cerrarConEscape);
+    }, [imagenAmpliada]);
 
     useEffect(() => {
         if (currentUser) {
@@ -222,7 +232,9 @@ export default function Chat() {
                         🧾 Retiro pagado a {ev.para} · {formatoMonto(ev.monto)}{ev.metodo ? ` · ${ev.metodo}` : ''}
                     </span>
                     {urlImagen ? (
-                        <img src={urlImagen} className="chat-image" alt="Comprobante de pago" onClick={() => window.open(urlImagen, '_blank', 'noopener,noreferrer')} />
+                        <button type="button" className="chat-image-button" onClick={() => setImagenAmpliada(urlImagen)} aria-label="Ampliar comprobante de pago">
+                            <img src={urlImagen} className="chat-image" alt="Comprobante de pago" />
+                        </button>
                     ) : (
                         <span className="msg-text">[contenido no permitido]</span>
                     )}
@@ -247,7 +259,9 @@ export default function Chat() {
             if (!urlMedia) {
                 content = <span className="msg-text">[contenido no permitido]</span>;
             } else if (msg.tipo === 'imagen') {
-                content = <img src={urlMedia} className="chat-image" alt="media" onClick={() => window.open(urlMedia, '_blank', 'noopener,noreferrer')} />;
+                content = <button type="button" className="chat-image-button" onClick={() => setImagenAmpliada(urlMedia)} aria-label="Ampliar imagen del chat">
+                    <img src={urlMedia} className="chat-image" alt="Imagen del chat" />
+                </button>;
             } else {
                 content = <video src={urlMedia} className="chat-video" controls />;
             }
@@ -366,6 +380,12 @@ export default function Chat() {
                     </form>
                 )}
             </div>
+            {imagenAmpliada && (
+                <div className="chat-lightbox" role="dialog" aria-modal="true" aria-label="Imagen ampliada" onClick={() => setImagenAmpliada(null)}>
+                    <button type="button" className="chat-lightbox-close" aria-label="Cerrar imagen" onClick={() => setImagenAmpliada(null)}>×</button>
+                    <img src={imagenAmpliada} alt="Imagen ampliada" onClick={event => event.stopPropagation()} />
+                </div>
+            )}
         </div>
     );
 }

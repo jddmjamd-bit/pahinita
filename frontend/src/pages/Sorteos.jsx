@@ -33,6 +33,16 @@ export default function Sorteos() {
         'emotes': '😄 Emotes', 'cartas': '🃏 Cartas', 'comodines': '🎴 Comodines', 'especial': '🎁 Oferta Especial'
     };
 
+    const cargarPozo = async () => {
+        try {
+            const poolRes = await fetch(`${API_BASE_URL}/api/raffle/pool`, { credentials: 'include' });
+            if (poolRes.ok) {
+                const poolData = await poolRes.json();
+                setPoolAmount(poolData.pool || 0);
+            }
+        } catch (e) { }
+    };
+
     const cargarSorteos = async () => {
         if (!currentUser) return;
         try {
@@ -44,12 +54,7 @@ export default function Sorteos() {
                 setUserAcumulado(ticketsData.acumulado || 0);
             }
 
-            // Pool
-            try {
-                const poolRes = await fetch(`${API_BASE_URL}/api/raffle/pool`, { credentials: 'include' });
-                const poolData = await poolRes.json();
-                setPoolAmount(poolData.pool || 0);
-            } catch (e) { }
+            await cargarPozo();
 
             // Encuesta
             await cargarEncuesta();
@@ -101,12 +106,13 @@ export default function Sorteos() {
         if (!socket) return;
 
         const onNuevoSorteo = () => cargarSorteos();
-        const onSorteoActualizado = () => cargarOfertas();
+        const onSorteoActualizado = () => { cargarOfertas(); cargarPozo(); };
         const onSorteoGanador = () => cargarSorteos();
-        const onSorteoEliminado = () => cargarOfertas();
+        const onSorteoEliminado = () => { cargarOfertas(); cargarPozo(); };
         const onPollReset = () => cargarEncuesta();
         const onPollUpdated = () => cargarEncuesta();
         const onTicketsGanados = (data) => {
+            cargarPozo();
             if (data?.cantidad) {
                 setUserTickets(prev => prev + data.cantidad);
             }

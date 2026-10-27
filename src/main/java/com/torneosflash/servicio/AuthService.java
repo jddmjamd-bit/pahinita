@@ -278,6 +278,17 @@ public class AuthService {
         }
     }
 
+    /** Valida un enlace al abrirlo sin consumirlo; el endpoint de cambio vuelve a validarlo atómicamente. */
+    public boolean validarTokenRecuperacion(String token) {
+        if (token == null || !TOKEN_RECUPERACION_VALIDO.matcher(token).matches()) return false;
+        try {
+            return usuarioDAO.tokenRecuperacionValido(hashToken(token));
+        } catch (SQLException e) {
+            logger.error("No se pudo validar el token de recuperación al abrir el enlace", e);
+            throw ServicioException.noDisponible("No se pudo validar el enlace en este momento");
+        }
+    }
+
     private static void validarPasswordNueva(String password) {
         if (password == null || password.length() < 6 || password.length() > PASSWORD_MAX_CARACTERES) {
             throw ServicioException.solicitudInvalida(
