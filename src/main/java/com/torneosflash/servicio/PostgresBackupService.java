@@ -149,7 +149,8 @@ public final class PostgresBackupService {
             conexion.iniciarModoRestauracion(ESPERA_CONEXIONES_MS, bloqueoOperacion);
             modoRestauracion = true;
             Path logRestore = directorio.resolve("pg_restore.log");
-            ejecutar(List.of("pg_restore", "--no-password", "--clean", "--if-exists",
+            ejecutar(List.of("pg_restore", "--dbname", entorno.get("PGDATABASE"),
+                            "--no-password", "--clean", "--if-exists",
                             "--single-transaction", "--exit-on-error", "--no-owner", "--no-acl", archivo.toString()),
                     entorno, logRestore, null, 0, null, 0, TIEMPO_RESTORE,
                     "La restauración falló y PostgreSQL revirtió la transacción completa.");
