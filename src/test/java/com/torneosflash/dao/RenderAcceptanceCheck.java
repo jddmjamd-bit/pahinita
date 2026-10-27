@@ -667,20 +667,24 @@ class RenderAcceptanceCheck {
 
     @Test
     void sorteoAceptaTicketsDentroDelLimiteYDevuelveLosTicketsAlEliminarlo() {
+        establecerPozoSorteos(new BigDecimal("10000"));
         dao.update("INSERT INTO user_tickets (user_id, cantidad, acumulado) VALUES (?, 3, 0) "
                 + "ON CONFLICT (user_id) DO UPDATE SET cantidad = 3, acumulado = 0", usuarioId);
         var sorteo = sorteos.crear("Sorteo QA " + UUID.randomUUID(), "gemas",
                 JsonParser.parseString("2000"), JsonParser.parseString("10"));
         int sorteoId = sorteo.getAsJsonObject("sorteo").get("id").getAsInt();
+        assertMonto(new BigDecimal("8000"), sorteos.pozo().get("pool").getAsBigDecimal());
         var participacion = sorteos.participar(usuarioId, sorteoId, 1);
         assertEquals(1, participacion.get("misTicketsEnSorteo").getAsInt());
         assertEquals(2, sorteos.ticketsDeUsuario(usuarioId).get("tickets").getAsInt());
         assertTrue(sorteos.eliminar(sorteoId).contains("tickets devueltos"));
         assertEquals(3, sorteos.ticketsDeUsuario(usuarioId).get("tickets").getAsInt());
+        assertMonto(new BigDecimal("10000"), sorteos.pozo().get("pool").getAsBigDecimal());
     }
 
     @Test
     void sorteoVencidoNoAceptaParticipacion() {
+        establecerPozoSorteos(new BigDecimal("10000"));
         dao.update("INSERT INTO user_tickets (user_id, cantidad, acumulado) VALUES (?, 2, 0) "
                 + "ON CONFLICT (user_id) DO UPDATE SET cantidad = 2", otroUsuarioId);
         int id = sorteos.crear("Sorteo vencido " + UUID.randomUUID(), "pass",
@@ -690,6 +694,12 @@ class RenderAcceptanceCheck {
         assertEquals(400, assertThrows(ServicioException.class,
                 () -> sorteos.participar(otroUsuarioId, id, 1)).getStatus());
         assertEquals(2, sorteos.ticketsDeUsuario(otroUsuarioId).get("tickets").getAsInt());
+        assertTrue(sorteos.eliminar(id).contains("tickets devueltos"));
+        assertMonto(new BigDecimal("10000"), sorteos.pozo().get("pool").getAsBigDecimal());
+    }
+
+    private static void establecerPozoSorteos(BigDecimal monto) {
+        assertEquals(1, dao.update("UPDATE raffle_pool SET monto = ?, actualizado_en = CURRENT_TIMESTAMP WHERE id = 1", monto));
     }
 
     @Test
