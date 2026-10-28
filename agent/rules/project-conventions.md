@@ -187,10 +187,14 @@
 
 1. **Backend:** `mvnw.cmd clean verify` debe pasar (es lo que corre Docker). **Frontend:** en `frontend/`, `npm run build`, `npm run test:acceptance` y `npm run lint`.
 2. Lógica pura nueva (validadores, cálculos, parsers) → prueba JUnit 5 en `src/test/java` en el mismo paquete.
-3. Flujos con BD, dinero o permisos → caso nuevo en `RenderAcceptanceCheck` (datos sintéticos, esquema aislado `tf_qa_*`, sin llamadas externas).
-4. **Nunca** apuntar `TEST_DATABASE_URL` a producción ni llamar a proveedores reales (Wompi, Clash, Brevo, FCM, Discord, IA) desde pruebas.
-5. Al agregar algo probable, actualiza la matriz de cobertura y los casos manuales de `GUIA_PRUEBAS_Y_VARIABLES.md`.
-6. Si no pudiste ejecutar una verificación (Maven colgado, falta BD), dilo explícitamente en la línea **Verificación** del `CHANGELOG.md`. Nunca afirmes que algo pasó si no lo ejecutaste.
+3. **Simulaciones de JUnit obligatorias (`RenderAcceptanceCheck` y `RenderDeploymentDatabaseCheck`):** en Render, `scripts/run-deploy-tests.sh` ejecuta ambas suites contra PostgreSQL **antes de iniciar el servidor** y aborta el despliegue si cualquiera falla (mientras que localmente `mvnw.cmd clean verify` omite `RenderAcceptanceCheck` si no existe `TEST_DATABASE_URL`). Por eso:
+   - Todo cambio en BD, dinero, rutas HTTP, sockets, permisos o estadísticas debe revisar y actualizar las simulaciones de `RenderAcceptanceCheck` (esquema aislado `tf_qa_*`, servidor HTTP/socket embebido o clientes falsos, sin llamadas externas).
+   - **Verifica siempre cada dato sintético de prueba contra las migraciones reales** en `src/main/resources/db/migration/V*.sql` (`VARCHAR(n)`, `NUMERIC`, `CHECK`, `NOT NULL`, `UNIQUE`, FKs) para que la simulación no falle al correr en PostgreSQL durante el despliegue.
+   - Mantén la salida de las pruebas limpia: no introduzcas `ERROR` espurios en los logs durante casos exitosos o negativos esperados.
+4. **Si se agrega una prueba manual y se puede automatizar en JUnit, se automatiza SIEMPRE:** cada vez que documentes o propongas una prueba manual (por ejemplo en `GUIA_PRUEBAS_Y_VARIABLES.md`) cuya lógica, endpoint HTTP, autorización, validación o persistencia pueda simularse con JUnit (prueba unitaria en `src/test/java` o simulación en `RenderAcceptanceCheck`), **es obligatorio implementarla también en JUnit dentro de la misma tarea**. Deja exclusivamente como verificación manual solo lo que dependa de revisión visual humana en navegador o de proveedores externos reales.
+5. **Nunca** apuntar `TEST_DATABASE_URL` a producción ni llamar a proveedores reales (Wompi, Clash, Brevo, FCM, Discord, IA) desde pruebas.
+6. Al agregar algo probable, actualiza la matriz de cobertura y los casos de `GUIA_PRUEBAS_Y_VARIABLES.md`, indicando o respaldando su contraparte automatizada en JUnit cuando aplique.
+7. Si no pudiste ejecutar una verificación (Maven colgado, falta BD), dilo explícitamente en la línea **Verificación** del `CHANGELOG.md`. Nunca afirmes que algo pasó si no lo ejecutaste.
 
 ## 17. Contenido de ayuda (FAQ, chatbot, tutorial)
 
@@ -231,7 +235,7 @@ Ya no hay bloqueos de Fase 0: todo se puede implementar, pero **cada grupo exige
    Archivos: `archivo1.java`, `archivo2.jsx`
    ```
 4. Editar `ARCHITECTURE.md` solo si el cambio es significativo (tabla, endpoint, evento, variable de entorno, flujo o estructura de carpetas nuevos), en su sección correspondiente.
-5. Actualizar `GUIA_PRUEBAS_Y_VARIABLES.md` si hay variables nuevas o casos de prueba manual nuevos.
+5. Actualizar `GUIA_PRUEBAS_Y_VARIABLES.md` si hay variables nuevas o casos de prueba manual nuevos; **si la prueba manual nueva se puede simular o verificar por JUnit (`*Test.java` o `RenderAcceptanceCheck`), automatizarla ahí mismo sin dejarla solo manual**.
 6. Si completaste un ítem del roadmap, marcarlo como hecho en `analisis_y_roadmap.md`.
 7. Agregar el contenido de ayuda correspondiente (sección 17).
 8. Ejecutar el archivo `actualizar-txt.bat`.
@@ -253,5 +257,5 @@ Ya no hay bloqueos de Fase 0: todo se puede implementar, pero **cada grupo exige
 - [ ] Esquema por migración Flyway nueva con el número correcto.
 - [ ] Configuración en `AppConfig` y documentada.
 - [ ] Sin `innerHTML`, sin datos de usuario en `localStorage`, sin "apuesta".
-- [ ] Pruebas agregadas/actualizadas y `clean verify` / `build` ejecutados.
+- [ ] Simulaciones de JUnit (`RenderAcceptanceCheck` y `*Test.java`) revisadas contra restricciones reales de `V*.sql`, toda prueba manual automatizable cubierta en JUnit, y `clean verify` / `build` ejecutados.
 - [ ] `CHANGELOG.md` (y `ARCHITECTURE.md`/guía si aplica) actualizados.

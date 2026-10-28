@@ -60,8 +60,11 @@ public class RutasDbAdmin {
                 && !CLAVE_ANTIGUA_PUBLICA.equalsIgnoreCase(secret.trim());
 
         if (!habilitado) {
-            logger.error("⛔ Panel DB deshabilitado: define DB_ADMIN_SECRET con una clave propia "
-                    + "(no vacía y distinta de la clave antigua publicada en el código).");
+            if (secret != null && CLAVE_ANTIGUA_PUBLICA.equalsIgnoreCase(secret.trim())) {
+                logger.warn("⛔ Panel DB deshabilitado: DB_ADMIN_SECRET usa la clave antigua publicada en el código; define una clave propia.");
+            } else {
+                logger.info("⚠️ Panel DB deshabilitado (define DB_ADMIN_SECRET para habilitarlo).");
+            }
         } else if (secret.length() < LARGO_RECOMENDADO) {
             logger.warn("⚠️ DB_ADMIN_SECRET tiene menos de {} caracteres. Usa una clave larga y aleatoria.", LARGO_RECOMENDADO);
         }

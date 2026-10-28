@@ -1,8 +1,13 @@
 package com.torneosflash.config;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
@@ -15,6 +20,21 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AppConfigTest {
+
+    private Logger logAppConfig;
+    private Level nivelAnterior;
+
+    @BeforeEach
+    void silenciarErroresEsperadosDeValidacion() {
+        logAppConfig = (Logger) LoggerFactory.getLogger(AppConfig.class);
+        nivelAnterior = logAppConfig.getLevel();
+        logAppConfig.setLevel(Level.OFF);
+    }
+
+    @AfterEach
+    void restaurarNivelDeLog() {
+        if (logAppConfig != null) logAppConfig.setLevel(nivelAnterior);
+    }
 
     @Test
     void usaValoresPorDefectoSegurosYDesactivaIntegracionesSinCredenciales() {

@@ -10,10 +10,14 @@ import com.torneosflash.config.Ejecutores;
 import com.torneosflash.eventos.EventBus;
 import com.torneosflash.eventos.Eventos;
 import com.torneosflash.servicio.*;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
 import com.torneosflash.servidor.AdminMiddleware;
 import com.torneosflash.servidor.AuthMiddleware;
 import com.torneosflash.servidor.ManejadorErrores;
+import com.torneosflash.servidor.RutasAdmin;
 import com.torneosflash.servidor.RutasAuth;
+import org.slf4j.LoggerFactory;
 import com.torneosflash.servidor.RutasFinanzas;
 import com.torneosflash.servidor.RutasVoz;
 import com.torneosflash.servidor.RutasDbAdmin;
@@ -254,6 +258,7 @@ class RenderAcceptanceCheck {
         AuthMiddleware.register(servidor, jwt, config, usuarios);
         AdminMiddleware.register(servidor, admin);
         RutasAuth.register(servidor, auth);
+        RutasAdmin.register(servidor, admin, config);
         RutasFinanzas.register(servidor, finanzas);
         RutasVoz.register(servidor, new VozDiscordService(dao, new DiscordApiCliente(config), config));
         RutasDbAdmin.register(servidor, new DbAdminService(dao, conexion, config), config);
@@ -324,11 +329,24 @@ class RenderAcceptanceCheck {
                     .get("usuario_id").getAsInt(), "El endpoint financiero debe ignorar el userId del body.");
 
             assertEquals(401, enviar(cliente, base, "GET", "/api/admin/probe", null, null).statusCode());
+            assertEquals(401, enviar(cliente, base, "GET", "/api/admin/stats", null, null).statusCode());
             assertEquals(403, enviar(cliente, base, "GET", "/api/admin/probe", "session=" + tokenDos, null).statusCode());
+            assertEquals(403, enviar(cliente, base, "GET", "/api/admin/stats", "session=" + tokenDos, null).statusCode());
             var tokenAdmin = jwt.generarToken(adminId, "free"); // El middleware debe consultar el rol real en la BD.
             usuarios.crearSesion(tokenAdmin.jti(), adminId, tokenAdmin.expiraEn());
             assertEquals(200, enviar(cliente, base, "GET", "/api/admin/probe",
                     "session=" + tokenAdmin.valor(), null).statusCode());
+            var statsAdminHttp = enviar(cliente, base, "GET", "/api/admin/stats",
+                    "session=" + tokenAdmin.valor(), null);
+            assertEquals(200, statsAdminHttp.statusCode());
+            JsonObject statsJson = JsonParser.parseString(statsAdminHttp.body()).getAsJsonObject();
+            assertTrue(statsJson.has("gananciaComisionesAdmin"));
+            assertTrue(statsJson.has("gananciaAdminLeaderboard"));
+            assertTrue(statsJson.has("gananciaTotalCombinadaAdmin"));
+            assertTrue(statsJson.getAsJsonArray("listaUsuarios").size() > 0);
+            JsonObject primerUsuarioStats = statsJson.getAsJsonArray("listaUsuarios").get(0).getAsJsonObject();
+            assertTrue(primerUsuarioStats.has("gen_sorteos"));
+            assertTrue(primerUsuarioStats.has("comision_total_aportada"));
 
             var logout = enviar(cliente, base, "POST", "/api/logout", "session=" + tokenRenovado, "{}");
             assertEquals(200, logout.statusCode());
@@ -362,6 +380,7 @@ class RenderAcceptanceCheck {
     @Test
     void rateLimitHttpResponde429EnAuthYFinanzasIgnoraXffYEximeWebhook() throws Exception {
         AppConfig rateConfig = new AppConfig(Map.of(
+                "JWT_SECRET", CLAVE,
                 "RATE_LIMIT_GENERAL_PER_MIN", "4",
                 "RATE_LIMIT_FINANCIAL_PER_MIN", "1",
                 "RATE_LIMIT_AUTH_PER_MIN", "1",
@@ -596,13 +615,15 @@ class RenderAcceptanceCheck {
 
     @Test
     void chatbotDesactivadoEsSeguroYConProveedorFalsoAplicaLimitesPorMinutoYDia() {
-        ChatbotService desactivado = new ChatbotService(dao, new ChatbotIaCliente(new AppConfig(Map.of())),
-                eventos, new AppConfig(Map.of()), new RateLimiter());
+        AppConfig configSinChatbot = new AppConfig(Map.of("JWT_SECRET", CLAVE));
+        ChatbotService desactivado = new ChatbotService(dao, new ChatbotIaCliente(configSinChatbot),
+                eventos, configSinChatbot, new RateLimiter());
         assertFalse(desactivado.estado(usuarioId).get("disponible").getAsBoolean());
         assertEquals(503, assertThrows(ServicioException.class,
                 () -> desactivado.responder(usuarioId, "¿Cómo recargo?")).getStatus());
 
         AppConfig chatbotConfig = new AppConfig(Map.of(
+                "JWT_SECRET", CLAVE,
                 "CHATBOT_API_KEY", "fake-only-never-used",
                 "CHATBOT_MAX_MENSAJES_POR_MIN", "1",
                 "CHATBOT_MAX_MENSAJES_DIA", "2"));
@@ -620,6 +641,7 @@ class RenderAcceptanceCheck {
                 () -> porMinuto.responder(usuarioMinuto, "Segunda pregunta de prueba")).getStatus());
 
         AppConfig limiteDiario = new AppConfig(Map.of(
+                "JWT_SECRET", CLAVE,
                 "CHATBOT_API_KEY", "fake-only-never-used",
                 "CHATBOT_MAX_MENSAJES_POR_MIN", "5",
                 "CHATBOT_MAX_MENSAJES_DIA", "1"));
@@ -691,8 +713,9 @@ class RenderAcceptanceCheck {
         dao.update("UPDATE users SET victorias_dia = 0");
         dao.update("UPDATE users SET victorias_dia = 1 WHERE id = ?", p1);
         dao.update("UPDATE leaderboard_pools SET dia = 1000 WHERE id = 1");
-        leaderboard.premiarYResetear("dia", "victorias_dia",
-                "qa-stats-cut-" + UUID.randomUUID().toString().replace("-", "").substring(0, 10));
+        String claveCorteStats = "qa-st-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        assertTrue(claveCorteStats.length() <= 20);
+        leaderboard.premiarYResetear("dia", "victorias_dia", claveCorteStats);
 
         JsonObject despues = admin.estadisticas(adminId);
         BigDecimal gananciaEsperada = gananciaAntes.add(new BigDecimal("500.00"));
@@ -941,9 +964,17 @@ class RenderAcceptanceCheck {
                     dup.executeUpdate();
                 }
             }
-            FlywayException error = assertThrows(FlywayException.class, () -> Flyway.configure()
-                    .dataSource(scoped).schemas(esquemaDuplicados).defaultSchema(esquemaDuplicados)
-                    .locations("classpath:db/migration").validateOnMigrate(true).cleanDisabled(true).load().migrate());
+            Logger logDbMigrate = (Logger) LoggerFactory.getLogger("org.flywaydb.core.internal.command.DbMigrate");
+            Level nivelAnterior = logDbMigrate.getLevel();
+            FlywayException error;
+            logDbMigrate.setLevel(Level.OFF);
+            try {
+                error = assertThrows(FlywayException.class, () -> Flyway.configure()
+                        .dataSource(scoped).schemas(esquemaDuplicados).defaultSchema(esquemaDuplicados)
+                        .locations("classpath:db/migration").validateOnMigrate(true).cleanDisabled(true).load().migrate());
+            } finally {
+                logDbMigrate.setLevel(nivelAnterior);
+            }
             assertTrue(error.getMessage().toLowerCase(Locale.ROOT).contains("migrat")
                     || error.getCause() != null);
             try (Connection c = scoped.getConnection(); PreparedStatement count = c.prepareStatement(

@@ -75,7 +75,8 @@ public final class PostgresBackupService {
             ejecutar(List.of("pg_dump", "--no-password", "--format=custom", "--compress=6",
                             "--no-owner", "--no-acl", "--quote-all-identifiers", "--file", archivo.toString()),
                     entorno, log, null, maxBytes, archivo, maxBytes, TIEMPO_BACKUP,
-                    "No se pudo crear el backup completo. Verifica permisos, espacio temporal y versión de PostgreSQL.");
+                    "No se pudo crear el backup completo. Verifica permisos, espacio temporal y versión de PostgreSQL.",
+                    false);
 
             long bytes = Files.size(archivo);
             if (bytes <= 0 || bytes > maxBytes) {
@@ -143,7 +144,8 @@ public final class PostgresBackupService {
             Path logValidacion = directorio.resolve("pg_restore-list.log");
             ejecutar(List.of("pg_restore", "--list", "--no-password", archivo.toString()),
                     entorno, logValidacion, lista, MAX_BYTES_LISTADO, null, 0, TIEMPO_VALIDACION,
-                    "El archivo no es un backup PostgreSQL custom válido o está dañado.");
+                    "El archivo no es un backup PostgreSQL custom válido o está dañado.",
+                    true);
             validarContenidoCompleto(lista);
 
             conexion.iniciarModoRestauracion(ESPERA_CONEXIONES_MS, bloqueoOperacion);
@@ -153,7 +155,8 @@ public final class PostgresBackupService {
                             "--no-password", "--clean", "--if-exists",
                             "--single-transaction", "--exit-on-error", "--no-owner", "--no-acl", archivo.toString()),
                     entorno, logRestore, null, 0, null, 0, TIEMPO_RESTORE,
-                    "La restauración falló y PostgreSQL revirtió la transacción completa.");
+                    "La restauración falló y PostgreSQL revirtió la transacción completa.",
+                    false);
 
             // Si el backup viene de una versión anterior, aplica las migraciones pendientes antes de reabrir tráfico.
             try {
@@ -278,7 +281,7 @@ public final class PostgresBackupService {
     private void ejecutar(List<String> comando, Map<String, String> variables,
                           Path archivoError, Path archivoSalida, long maximoSalida,
                           Path archivoConLimite, long limiteArchivoConLimite,
-                          Duration timeout, String mensajeError)
+                          Duration timeout, String mensajeError, boolean falloEsEntradaInvalida)
             throws IOException, InterruptedException {
         ProcessBuilder builder = new ProcessBuilder(comando);
         // Evita que variables heredadas cambien la BD destino o sustituyan la credencial del DATABASE_URL.
@@ -320,6 +323,11 @@ public final class PostgresBackupService {
             }
             if (proceso.exitValue() != 0) {
                 String diagnostico = leerDiagnostico(archivoError);
+                if (falloEsEntradaInvalida) {
+                    logger.warn("Archivo de backup rechazado por {} (código {}): {}",
+                            comando.get(0), proceso.exitValue(), diagnostico);
+                    throw ServicioException.solicitudInvalida(mensajeError);
+                }
                 logger.error("La herramienta PostgreSQL {} terminó con código {}. Diagnóstico: {}",
                         comando.get(0), proceso.exitValue(), diagnostico);
                 throw ServicioException.noDisponible(mensajeError);

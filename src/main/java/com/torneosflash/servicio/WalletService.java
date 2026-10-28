@@ -1116,7 +1116,7 @@ public class WalletService {
                         if (rs.next()) {
                             String otraRef = rs.getString("referencia");
                             conn.rollback();
-                            logger.error("⛔ Reutilización de transaction.id Wompi '{}' detectada (ya usado en ref '{}', intentado en '{}')",
+                            logger.warn("⛔ Reutilización de transaction.id Wompi '{}' detectada (ya usado en ref '{}', intentado en '{}')",
                                     wompiTransactionId, otraRef, reference);
                             throw ServicioException.solicitudInvalida("El identificador de pago Wompi ya fue utilizado");
                         }
@@ -1127,7 +1127,7 @@ public class WalletService {
             long esperadoCentavos = calculadorCentavos.apply(monto);
             if (pagadoCentavos != esperadoCentavos) {
                 conn.rollback();
-                logger.error("⚠️ Webhook Wompi rechazado ref {}: monto en centavos recibido ({}) != esperado ({})",
+                logger.warn("⚠️ Webhook Wompi rechazado ref {}: monto en centavos recibido ({}) != esperado ({})",
                         reference, pagadoCentavos, esperadoCentavos);
                 throw ServicioException.solicitudInvalida("El monto pagado no coincide con la transacción registrada");
             }

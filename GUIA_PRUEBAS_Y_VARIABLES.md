@@ -363,7 +363,7 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | J4 | Resolver disputa: asignar ganador | Liquidación atómica, comisiones distribuidas, estadísticas actualizadas. |
 | J5 | Resolver disputa de partida ya finalizada | Rechazado (idempotencia `WHERE estado = 'disputa'`). |
 | J6 | `GET /api/admin/check-ip` | Muestra IP efectiva del rate limit, configuración de hops y XFF recibido. |
-| J7 | Revisar pestaña `Finanzas` en `/admin` | Muestra la zona combinada `Ganancia por Partidas + Sobrantes de Rankings = Total Combinado Admin` sin alterar cada apartado individual, y en cada usuario el aporte dividido entre 2 de las 7 categorías (`ganancia`, `sorteos`, `misiones`, `logros`, `leaderboard`, `devolucion`, `referidos`). |
+| J7 | Revisar pestaña `Finanzas` en `/admin` *(backend/HTTP automatizado en `AdminServiceTest` y `RenderAcceptanceCheck`)* | Muestra la zona combinada `Ganancia por Partidas + Sobrantes de Rankings = Total Combinado Admin` sin alterar cada apartado individual, y en cada usuario el aporte dividido entre 2 de las 7 categorías (`ganancia`, `sorteos`, `misiones`, `logros`, `leaderboard`, `devolucion`, `referidos`). |
 
 ### 🗄️ K — Panel de Base de Datos (`/admin-db`)
 
