@@ -3,7 +3,6 @@ package com.torneosflash.servicio;
 import com.google.gson.JsonObject;
 import com.torneosflash.eventos.EventBus;
 import com.torneosflash.eventos.Eventos;
-import com.torneosflash.socketio.SocketIOServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,11 +20,9 @@ import java.math.RoundingMode;
 public class EvidenciaPagoListener {
     private static final Logger logger = LoggerFactory.getLogger(EvidenciaPagoListener.class);
 
-    private final SocketIOServer io;
     private final NotificadorUsuarios notificador;
 
-    public EvidenciaPagoListener(SocketIOServer io, NotificadorUsuarios notificador) {
-        this.io = io;
+    public EvidenciaPagoListener(NotificadorUsuarios notificador) {
         this.notificador = notificador;
     }
 

@@ -310,7 +310,7 @@ public class Main {
         new SoporteListener(correo, notificador, soporteService, config).registrar(eventBus);
         // Evidencias de pago (roadmap 7): el admin publica el comprobante de un retiro y el listener lo reparte al canal «pagos»
         EvidenciaPagoService evidenciaPagoService = new EvidenciaPagoService(db, eventBus, config);
-        new EvidenciaPagoListener(socketServer, notificador).registrar(eventBus);
+        new EvidenciaPagoListener(notificador).registrar(eventBus);
         // Chat de voz con Discord (roadmap 84): al empezar una partida se prepara el canal de voz y al terminar se borra.
         // Sin las variables DISCORD_* queda desactivado y no hace nada.
         DiscordApiCliente discordApi = new DiscordApiCliente(config);

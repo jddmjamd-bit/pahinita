@@ -151,7 +151,6 @@ public class FinanzasService {
         BigDecimal monto = exigirValido(validador.deposito(montoCrudo)); // REVIEW-MONEY
         String username = usernameDeUsuario(userId);
 
-        long montoCentavos = calcularMontoCentavosWompi(monto);
         JsonObject pendiente = db.queryOne(
                 "SELECT referencia FROM transactions WHERE usuario_id = ? AND tipo = 'deposito' " +
                         "AND metodo = 'wompi' AND estado = 'pendiente' AND external_id IS NULL AND monto = ? " +

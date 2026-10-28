@@ -354,7 +354,6 @@ public class LeaderboardService {
             bonoExacto = mitadJugadores.divide(BigDecimal.valueOf(top.size()), 6, RoundingMode.HALF_UP);
         }
         BigDecimal bonoEntero = bonoExacto.setScale(0, RoundingMode.FLOOR);
-        BigDecimal bonoDecimal = bonoExacto.subtract(bonoEntero);
 
         for (int i = 0; i < top.size(); i++) {
             Candidato jugador = top.get(i);

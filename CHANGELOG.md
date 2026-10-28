@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-28 — Eliminar variables y campo sin usar reportados por el analizador Java (Gemini)
+- Eliminado el campo no utilizado `io` (`SocketIOServer`) en `EvidenciaPagoListener` y ajustada su instanciación en `Main`.
+- Eliminadas las variables locales sin uso `montoCentavos` en `FinanzasService.iniciarWompi` (ya calculada en `datosCheckoutWompi`) y `bonoDecimal` en `LeaderboardService.insertarPagosJugadores` (los decimales sobrantes ya se contabilizan en `insertarPagosAdmins`), sin alterar ningún cálculo monetario.
+- Refrescadas las marcas de tiempo de `PostgresBackupService`, `WalletService`, `RenderAcceptanceCheck`, `ValidadorMontoTest` y `pom.xml` para forzar la resincronización del servidor de lenguaje Java del IDE frente a marcadores en caché de ediciones previas.
+- **Verificación:** `.\mvnw.cmd clean verify "-Dmaven.compiler.showWarnings=true" "-Dmaven.compiler.showDeprecation=true"` (56 pruebas JUnit, 0 warnings y 0 errores de compilación) pasó localmente. La suite conectada a PostgreSQL (`RenderAcceptanceCheck`) se verificará en Render con `TEST_DATABASE_URL`.
+Archivos: `EvidenciaPagoListener.java`, `Main.java`, `FinanzasService.java`, `LeaderboardService.java`
+
 ## 2026-10-28 — Corregir longitud de clave de corte en prueba de aceptación, limpiar errores espurios en rojo y reforzar reglas de JUnit (Gemini)
 - **Corrección del despliegue en Render (`RenderAcceptanceCheck`):** ajustado `clave_corte` en `estadisticasAdminSeparaYSumaGananciasYExponeAportePorJugador` a `<= 20` caracteres (`qa-st-...`, 18 caracteres) para respetar `leaderboard_cuts.clave_corte VARCHAR(20)` (`V13`), y automatizada también la verificación HTTP de `GET /api/admin/stats` (`401`, `403` y `200` con zona combinada de ganancias y aportes por jugador) en `rutasHttpDeAuthYAdminValidanCookiesSesionRevocableYRespuestasGenericas`.
 - **Eliminación de problemas en rojo que no bloqueaban el despliegue (logs de pruebas/Render e IDE):**
