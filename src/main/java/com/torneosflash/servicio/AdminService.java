@@ -106,22 +106,31 @@ public class AdminService {
         return db.query("SELECT * FROM matches WHERE estado = 'disputa' ORDER BY id DESC");
     }
 
-    public JsonObject estadisticas() {
+    public JsonObject estadisticas(int adminUserId) {
         JsonObject stats = new JsonObject();
 
         // Dinero en circulación = suma de saldos de todos los usuarios // REVIEW-MONEY
         JsonObject saldoSum = db.queryOne("SELECT COALESCE(SUM(saldo),0) as total FROM users");
         stats.addProperty("totalUsuarios", saldoSum != null ? saldoSum.get("total").getAsBigDecimal() : BigDecimal.ZERO);
 
-        // Ganancias del admin = suma de admin_wallet (histórico total) // REVIEW-MONEY
-        JsonObject walletSum = db.queryOne("SELECT COALESCE(SUM(monto),0) as total FROM admin_wallet");
+        // Ingreso histórico por comisiones: los cierres de leaderboard son distribución de fondos, no comisiones negativas.
+        JsonObject walletSum = db.queryOne(
+                "SELECT COALESCE(SUM(monto),0) as total FROM admin_wallet WHERE monto > 0");
         stats.addProperty("totalGanancias", walletSum != null ? walletSum.get("total").getAsBigDecimal() : BigDecimal.ZERO);
+
+        // Participación del administrador en los sobrantes del ranking ya pagados a sus cuentas.
+        JsonObject rankingAdminSum = db.queryOne(
+                "SELECT COALESCE(SUM(monto),0) as total FROM leaderboard_cut_payments " +
+                        "WHERE tipo_pago = 'admin' AND estado = 'pagado' AND user_id = ?", adminUserId);
+        stats.addProperty("gananciaAdminLeaderboard",
+                rankingAdminSum != null ? rankingAdminSum.get("total").getAsBigDecimal() : BigDecimal.ZERO);
 
         // Desglose por categorías (Actual e Histórico - por ahora es lo mismo)
         JsonObject desglose = new JsonObject();
         for (ComisionService.Categoria categoria : ComisionService.Categoria.values()) {
             String cat = categoria.getClave();
-            JsonObject catSum = db.queryOne("SELECT COALESCE(SUM(monto),0) as total FROM admin_wallet WHERE categoria = ?", cat);
+            JsonObject catSum = db.queryOne(
+                    "SELECT COALESCE(SUM(monto),0) as total FROM admin_wallet WHERE categoria = ? AND monto > 0", cat);
             desglose.addProperty(cat, catSum != null ? catSum.get("total").getAsBigDecimal() : BigDecimal.ZERO);
         }
         stats.add("desglose", desglose);

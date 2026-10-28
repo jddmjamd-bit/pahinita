@@ -78,7 +78,7 @@ public class LeaderboardService {
         // S6 / M5: no exponer tipo_suscripcion (quién es admin) ni ganancia_generada en el ranking público
         ArrayList<JsonObject> rows = db.query(
                 "SELECT id, username, " + selectAlias + ", total_partidas, total_victorias, total_derrotas, " +
-                "total_monto_torneos, total_ganado FROM users WHERE " +
+                "total_monto_torneos, total_ganado FROM users WHERE tipo_suscripcion IS DISTINCT FROM 'admin' AND " +
                 orderColumn + " > 0 ORDER BY " + orderColumn + " DESC LIMIT 50");
 
         JsonArray ranking = new JsonArray();
@@ -290,7 +290,7 @@ public class LeaderboardService {
                 ArrayList<Candidato> top = new ArrayList<>();
                 try (PreparedStatement ps = conn.prepareStatement(
                         "SELECT id, username, " + columnaVictorias + " AS victorias, ganancia_generada " +
-                        "FROM users WHERE " + columnaVictorias + " > 0 " +
+                        "FROM users WHERE tipo_suscripcion IS DISTINCT FROM 'admin' AND " + columnaVictorias + " > 0 " +
                         "ORDER BY " + columnaVictorias + " DESC, ganancia_generada DESC, id ASC LIMIT 10")) {
                     try (ResultSet rs = ps.executeQuery()) {
                         while (rs.next()) {
@@ -311,15 +311,6 @@ public class LeaderboardService {
                 }
                 try (PreparedStatement ps = conn.prepareStatement("UPDATE users SET " + columnaVictorias + " = 0")) {
                     ps.executeUpdate();
-                }
-                if (pozo.compareTo(BigDecimal.ZERO) > 0) {
-                    try (PreparedStatement ps = conn.prepareStatement(
-                            "INSERT INTO admin_wallet (monto, razon, detalle, categoria) " +
-                            "VALUES (?, 'cierre_leaderboard', ?, 'leaderboard')")) {
-                        ps.setBigDecimal(1, pozo.negate());
-                        ps.setString(2, "Cierre leaderboard " + nombrePeriodo(periodo) + " corte " + corteId);
-                        ps.executeUpdate();
-                    }
                 }
                 conn.commit();
                 logger.info("Corte leaderboard persistido: periodo={} corte={} pozo={} pagos pendientes", periodo, claveCorte, pozo);

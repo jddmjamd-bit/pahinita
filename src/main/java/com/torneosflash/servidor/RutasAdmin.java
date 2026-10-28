@@ -28,7 +28,7 @@ public class RutasAdmin {
         app.get("/api/admin/disputes", ctx -> ctx.json(admin.disputas()));
 
         // GET /api/admin/stats
-        app.get("/api/admin/stats", ctx -> ctx.json(admin.estadisticas()));
+        app.get("/api/admin/stats", ctx -> ctx.json(admin.estadisticas(Peticion.userIdDeSesion(ctx))));
 
         // GET /api/admin/clash-verifications (token visible solo para administradores)
         app.get("/api/admin/clash-verifications", ctx -> ctx.json(admin.verificacionesClashPendientes()));

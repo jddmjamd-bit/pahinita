@@ -333,6 +333,10 @@ export default function Admin() {
                                     <small>TOTAL HISTÓRICO (Comisiones)</small>
                                     <h2 style={{color:'#43b581'}}>${stats.totalGanancias?.toLocaleString() || 0}</h2>
                                 </div>
+                                <div className="stat-box" style={{borderColor: '#7289da'}}>
+                                    <small>GANANCIA ADMIN (Sobrantes de rankings)</small>
+                                    <h2 style={{color:'#7289da'}}>${stats.gananciaAdminLeaderboard?.toLocaleString() || 0}</h2>
+                                </div>
                             </div>
 
                             <h4 style={{marginBottom: 10, color: '#bbb'}}>Desglose de Comisiones</h4>
