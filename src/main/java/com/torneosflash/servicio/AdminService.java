@@ -106,24 +106,25 @@ public class AdminService {
         return db.query("SELECT * FROM matches WHERE estado = 'disputa' ORDER BY id DESC");
     }
 
+    // REVIEW-MONEY
     public JsonObject estadisticas(int adminUserId) {
         JsonObject stats = new JsonObject();
 
         // Dinero en circulación = suma de saldos de todos los usuarios // REVIEW-MONEY
         JsonObject saldoSum = db.queryOne("SELECT COALESCE(SUM(saldo),0) as total FROM users");
-        stats.addProperty("totalUsuarios", saldoSum != null ? saldoSum.get("total").getAsBigDecimal() : BigDecimal.ZERO);
+        stats.addProperty("totalUsuarios", obtenerMontoJson(saldoSum, "total"));
 
         // Ingreso histórico por comisiones: los cierres de leaderboard son distribución de fondos, no comisiones negativas.
         JsonObject walletSum = db.queryOne(
                 "SELECT COALESCE(SUM(monto),0) as total FROM admin_wallet WHERE monto > 0");
-        stats.addProperty("totalGanancias", walletSum != null ? walletSum.get("total").getAsBigDecimal() : BigDecimal.ZERO);
+        stats.addProperty("totalGanancias", obtenerMontoJson(walletSum, "total"));
 
         // Participación del administrador en los sobrantes del ranking ya pagados a sus cuentas.
         JsonObject rankingAdminSum = db.queryOne(
                 "SELECT COALESCE(SUM(monto),0) as total FROM leaderboard_cut_payments " +
                         "WHERE tipo_pago = 'admin' AND estado = 'pagado' AND user_id = ?", adminUserId);
         stats.addProperty("gananciaAdminLeaderboard",
-                rankingAdminSum != null ? rankingAdminSum.get("total").getAsBigDecimal() : BigDecimal.ZERO);
+                obtenerMontoJson(rankingAdminSum, "total"));
 
         // Desglose por categorías (Actual e Histórico - por ahora es lo mismo)
         JsonObject desglose = new JsonObject();
@@ -131,27 +132,71 @@ public class AdminService {
             String cat = categoria.getClave();
             JsonObject catSum = db.queryOne(
                     "SELECT COALESCE(SUM(monto),0) as total FROM admin_wallet WHERE categoria = ? AND monto > 0", cat);
-            desglose.addProperty(cat, catSum != null ? catSum.get("total").getAsBigDecimal() : BigDecimal.ZERO);
+            desglose.addProperty(cat, obtenerMontoJson(catSum, "total"));
         }
         stats.add("desglose", desglose);
 
+        // Resumen combinado de ganancias del dueño: suma Ganancia (25%) + sobrantes de ranking sin que una modifique a la otra. // REVIEW-MONEY
+        BigDecimal gananciaAdminLeaderboard = obtenerMontoJson(stats, "gananciaAdminLeaderboard");
+        BigDecimal gananciaComisionesAdmin = obtenerMontoJson(desglose, ComisionService.Categoria.GANANCIA.getClave());
+        BigDecimal gananciaTotalCombinadaAdmin = gananciaComisionesAdmin.add(gananciaAdminLeaderboard);
+        stats.addProperty("gananciaComisionesAdmin", gananciaComisionesAdmin);
+        stats.addProperty("gananciaTotalCombinadaAdmin", gananciaTotalCombinadaAdmin);
+
         // Lista de todos los usuarios con sus detalles
         ArrayList<JsonObject> usuarios = db.query(
-                "SELECT id, username, email, saldo, tipo_suscripcion, ganancia_generada, " +
-                "gen_sorteos, gen_misiones, gen_logros, gen_leaderboard, gen_devolucion, gen_referidos, " +
+                "SELECT id, username, email, saldo, tipo_suscripcion, " +
+                "COALESCE(ganancia_generada, 0) AS ganancia_generada, " +
+                "COALESCE(gen_sorteos, 0) AS gen_sorteos, COALESCE(gen_misiones, 0) AS gen_misiones, " +
+                "COALESCE(gen_logros, 0) AS gen_logros, COALESCE(gen_leaderboard, 0) AS gen_leaderboard, " +
+                "COALESCE(gen_devolucion, 0) AS gen_devolucion, COALESCE(gen_referidos, 0) AS gen_referidos, " +
                 "total_partidas, total_victorias, victorias_normales, victorias_disputa, " +
                 "total_derrotas, derrotas_normales, derrotas_disputa, " +
                 "faltas, salidas_chat, salidas_x, salidas_canal, salidas_desconexion " +
                 "FROM users ORDER BY saldo DESC");
         JsonArray listaUsuarios = new JsonArray();
-        for (JsonObject u : usuarios) listaUsuarios.add(u);
+        for (JsonObject u : usuarios) {
+            BigDecimal gananciaGenerada = normalizarColumnaMonto(u, "ganancia_generada");
+            BigDecimal genSorteos = normalizarColumnaMonto(u, "gen_sorteos");
+            BigDecimal genMisiones = normalizarColumnaMonto(u, "gen_misiones");
+            BigDecimal genLogros = normalizarColumnaMonto(u, "gen_logros");
+            BigDecimal genLeaderboard = normalizarColumnaMonto(u, "gen_leaderboard");
+            BigDecimal genDevolucion = normalizarColumnaMonto(u, "gen_devolucion");
+            BigDecimal genReferidos = normalizarColumnaMonto(u, "gen_referidos");
+            BigDecimal comisionTotalAportada = gananciaGenerada
+                    .add(genSorteos)
+                    .add(genMisiones)
+                    .add(genLogros)
+                    .add(genLeaderboard)
+                    .add(genDevolucion)
+                    .add(genReferidos);
+            u.addProperty("comision_total_aportada", comisionTotalAportada);
+            listaUsuarios.add(u);
+        }
         stats.add("listaUsuarios", listaUsuarios);
 
-        stats.addProperty("usuariosOnline", io.getSockets().size());
+        stats.addProperty("usuariosOnline", io != null ? io.getSockets().size() : 0);
         return stats;
     }
 
     // ------------------------------------------------------------------
+    private static BigDecimal obtenerMontoJson(JsonObject fila, String clave) {
+        if (fila == null || !fila.has(clave) || fila.get(clave).isJsonNull()) {
+            return BigDecimal.ZERO;
+        }
+        try {
+            return fila.get(clave).getAsBigDecimal();
+        } catch (RuntimeException e) {
+            return BigDecimal.ZERO;
+        }
+    }
+
+    private static BigDecimal normalizarColumnaMonto(JsonObject fila, String clave) {
+        BigDecimal valor = obtenerMontoJson(fila, clave);
+        fila.addProperty(clave, valor);
+        return valor;
+    }
+
     // Transacciones (aprobar / rechazar)
     // ------------------------------------------------------------------
 

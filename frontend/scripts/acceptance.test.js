@@ -13,6 +13,8 @@ const authJsx = await readFile(new URL('../src/pages/Auth.jsx', import.meta.url)
 const authCss = await readFile(new URL('../src/pages/Auth.css', import.meta.url), 'utf8')
 const matchJsx = await readFile(new URL('../src/pages/Match.jsx', import.meta.url), 'utf8')
 const matchCss = await readFile(new URL('../src/pages/Match.css', import.meta.url), 'utf8')
+const adminJsx = await readFile(new URL('../src/pages/Admin.jsx', import.meta.url), 'utf8')
+const adminCss = await readFile(new URL('../src/pages/Admin.css', import.meta.url), 'utf8')
 
 test('P2: las rutas privadas esperan la sesión, envían al login si no hay usuario y dejan /faq pública', () => {
   assert.match(app, /RUTAS_PUBLICAS\s*=\s*\[[^\]]*'\/faq'[^\]]*\]/)
@@ -67,4 +69,26 @@ test('P8: el chat privado define estilos propios de burbuja y habilita el canal 
   assert.match(matchCss, /\.mini-chat\s+\.msg\.other\b/)
   const aparicionesVozActiva = matchJsx.match(/<VozDiscord\s+enPartida=\{true\}\s*\/>/g) || []
   assert.equal(aparicionesVozActiva.length, 2)
+})
+
+test('P9: Admin Finanzas muestra la zona combinada de ganancias y el aporte por jugador en las 7 categorías sin fetch suelto', () => {
+  assert.doesNotMatch(adminJsx, /\bfetch\s*\(/)
+  assert.match(adminJsx, /admin-earnings-zone/)
+  assert.match(adminJsx, /gananciaComisionesAdmin/)
+  assert.match(adminJsx, /gananciaAdminLeaderboard/)
+  assert.match(adminJsx, /gananciaTotalCombinadaAdmin/)
+  for (const campo of [
+    'ganancia_generada',
+    'gen_sorteos',
+    'gen_misiones',
+    'gen_logros',
+    'gen_leaderboard',
+    'gen_devolucion',
+    'gen_referidos',
+    'comision_total_aportada'
+  ]) {
+    assert.match(adminJsx, new RegExp(`\\b${campo}\\b`))
+  }
+  assert.match(adminCss, /\.admin-earnings-zone\b/)
+  assert.match(adminCss, /\.user-contributions-grid\b/)
 })

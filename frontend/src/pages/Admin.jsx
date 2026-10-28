@@ -1,9 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { API_BASE_URL, llamarApi } from '../store/llamarApi';
+import { llamarApi } from '../store/llamarApi';
 import AdminChatbot from './AdminChatbot';
 import AdminSoporte from './AdminSoporte';
 import './Admin.css';
+
+const CATEGORIAS_COMISION = [
+    { clave: 'ganancia', campoUsuario: 'ganancia_generada', icono: '💰', nombre: 'Ganancia' },
+    { clave: 'sorteos', campoUsuario: 'gen_sorteos', icono: '🎰', nombre: 'Sorteos' },
+    { clave: 'misiones', campoUsuario: 'gen_misiones', icono: '📋', nombre: 'Misiones' },
+    { clave: 'logros', campoUsuario: 'gen_logros', icono: '🏅', nombre: 'Logros' },
+    { clave: 'leaderboard', campoUsuario: 'gen_leaderboard', icono: '🏆', nombre: 'Leaderboard' },
+    { clave: 'devolucion', campoUsuario: 'gen_devolucion', icono: '🔄', nombre: 'Devolución' },
+    { clave: 'referidos', campoUsuario: 'gen_referidos', icono: '👥', nombre: 'Referidos' }
+];
+
+const formatearMonto = (valor) => Number(valor ?? 0).toLocaleString('es-CO', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+});
 
 export default function Admin() {
     const [view, setView] = useState('transactions'); // 'transactions', 'stats', 'chatbot', 'soporte' o 'clash-verifications'
@@ -134,12 +149,9 @@ export default function Admin() {
     };
 
     const cargarDistribucionComisiones = async () => {
-        try {
-            const res = await fetch(`${API_BASE_URL}/api/comisiones/distribucion`);
-            const data = await res.json();
-            if (data.success) setDistribucion(data.distribucion || {});
-        } catch (e) {
-            console.error(e);
+        const { ok, data } = await llamarApi('/api/comisiones/distribucion');
+        if (ok && data?.success) {
+            setDistribucion(data.distribucion || {});
         }
     };
 
@@ -327,29 +339,69 @@ export default function Admin() {
                             <div className="stats-summary">
                                 <div className="stat-box">
                                     <small>Dinero en Circulación (Usuarios)</small>
-                                    <h2 style={{color:'#faa61a'}}>${stats.totalUsuarios?.toLocaleString() || 0}</h2>
+                                    <h2 className="stat-amount-warning">${formatearMonto(stats.totalUsuarios)}</h2>
                                 </div>
-                                <div className="stat-box" style={{borderColor: '#43b581'}}>
-                                    <small>TOTAL HISTÓRICO (Comisiones)</small>
-                                    <h2 style={{color:'#43b581'}}>${stats.totalGanancias?.toLocaleString() || 0}</h2>
+                                <div className="stat-box stat-box-success">
+                                    <small>TOTAL HISTÓRICO (Comisiones · 7 categorías)</small>
+                                    <h2 className="stat-amount-success">${formatearMonto(stats.totalGanancias)}</h2>
                                 </div>
-                                <div className="stat-box" style={{borderColor: '#7289da'}}>
+                                <div className="stat-box stat-box-primary">
                                     <small>GANANCIA ADMIN (Sobrantes de rankings)</small>
-                                    <h2 style={{color:'#7289da'}}>${stats.gananciaAdminLeaderboard?.toLocaleString() || 0}</h2>
+                                    <h2 className="stat-amount-primary">${formatearMonto(stats.gananciaAdminLeaderboard)}</h2>
                                 </div>
                             </div>
 
-                            <h4 style={{marginBottom: 10, color: '#bbb'}}>Desglose de Comisiones</h4>
+                            <section className="admin-earnings-zone" aria-label="Resumen combinado de ganancias del admin">
+                                <div className="admin-earnings-header">
+                                    <div>
+                                        <h4>💎 Ganancias del Admin (Separadas + Suma Total)</h4>
+                                        <p className="admin-earnings-subtitle">
+                                            Cada apartado mantiene su registro propio sin descontar ni alterar al otro.
+                                        </p>
+                                    </div>
+                                    <span className="admin-earnings-badge">Cuentas independientes</span>
+                                </div>
+                                <div className="admin-earnings-grid">
+                                    <div className="admin-earning-card">
+                                        <span className="admin-earning-label">
+                                            💰 Ganancia por Partidas{distribucion.ganancia !== undefined ? ` (${distribucion.ganancia}%)` : ''}
+                                        </span>
+                                        <strong className="admin-earning-value val-green">
+                                            ${formatearMonto(stats.gananciaComisionesAdmin ?? stats.desglose?.ganancia)}
+                                        </strong>
+                                        <small className="admin-earning-note">Solo categoría Ganancia de comisiones</small>
+                                    </div>
+                                    <div className="admin-earning-operator" aria-hidden="true">+</div>
+                                    <div className="admin-earning-card">
+                                        <span className="admin-earning-label">🏆 Sobrantes de Rankings</span>
+                                        <strong className="admin-earning-value val-primary">
+                                            ${formatearMonto(stats.gananciaAdminLeaderboard)}
+                                        </strong>
+                                        <small className="admin-earning-note">Pagos acreditados al cerrar rankings</small>
+                                    </div>
+                                    <div className="admin-earning-operator" aria-hidden="true">=</div>
+                                    <div className="admin-earning-card is-total">
+                                        <span className="admin-earning-label">👑 Total Combinado Admin</span>
+                                        <strong className="admin-earning-value val-gold">
+                                            ${formatearMonto(stats.gananciaTotalCombinadaAdmin)}
+                                        </strong>
+                                        <small className="admin-earning-note">Suma de ambas ganancias del dueño</small>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <h4 className="admin-subsection-title">Desglose de Comisiones</h4>
                             <div className="admin-category-breakdown">
                                 {Object.entries(stats.desglose || {}).map(([cat, monto]) => {
-                                    const iconos = { sorteos: '🎰', misiones: '📋', logros: '🏅', leaderboard: '🏆', devolucion: '🔄', ganancia: '💰', referidos: '👥' };
-                                    const nombres = { sorteos: 'Sorteos', misiones: 'Misiones', logros: 'Logros', leaderboard: 'Leaderboard', devolucion: 'Devolución', ganancia: 'Ganancia', referidos: 'Referidos' };
+                                    const meta = CATEGORIAS_COMISION.find(c => c.clave === cat);
+                                    const icono = meta ? meta.icono : '📌';
+                                    const nombre = meta ? meta.nombre : cat;
                                     return (
                                         <div key={cat} className="breakdown-box">
-                                            <div className="bd-icon">{iconos[cat] || '📌'}</div>
-                                            <div className="bd-title">{(nombres[cat] || cat) + (distribucion[cat] !== undefined ? ` (${distribucion[cat]}%)` : '')}</div>
-                                            <div className="bd-actual">Actual: ${monto.toLocaleString()}</div>
-                                            <div className="bd-hist">Histórico: ${monto.toLocaleString()}</div>
+                                            <div className="bd-icon">{icono}</div>
+                                            <div className="bd-title">{nombre + (distribucion[cat] !== undefined ? ` (${distribucion[cat]}%)` : '')}</div>
+                                            <div className="bd-actual">Actual: ${formatearMonto(monto)}</div>
+                                            <div className="bd-hist">Histórico: ${formatearMonto(monto)}</div>
                                         </div>
                                     );
                                 })}
@@ -361,18 +413,39 @@ export default function Admin() {
                                     <div key={u.id} className="user-card">
                                         <div className="user-header-row">
                                             <div className="user-basic">
-                                                <span style={{fontSize:'1.1rem'}}>{u.tipo_suscripcion === 'admin' ? '👑' : '👤'} <strong>{u.username}</strong></span><br/>
-                                                <span style={{color:'#bbb', fontSize:'0.8rem'}}>{u.email}</span>
+                                                <span className="user-title-line">{u.tipo_suscripcion === 'admin' ? '👑' : '👤'} <strong>{u.username}</strong></span>
+                                                <span className="user-email">{u.email}</span>
                                             </div>
                                             <div className="user-financials">
-                                                <div>Saldo: <span style={{color:'#4ecca3'}}>${u.saldo?.toLocaleString() || 0}</span></div>
-                                                <div style={{fontSize:'0.8rem'}}>Generado: <span style={{color:'#faa61a'}}>+${(u.ganancia_generada || 0).toLocaleString()}</span></div>
+                                                <div className="user-balance-line">Saldo: <span className="val-green">${formatearMonto(u.saldo)}</span></div>
+                                                <div className="user-total-contrib-line">Total comisiones (÷2): <span className="val-gold">+${formatearMonto(u.comision_total_aportada)}</span></div>
+                                            </div>
+                                        </div>
+                                        <div className="user-contributions">
+                                            <div className="user-contributions-title">
+                                                Aporte por categoría (dividido entre 2 por jugador)
+                                            </div>
+                                            <div className="user-contributions-grid">
+                                                {CATEGORIAS_COMISION.map(cat => (
+                                                    <div
+                                                        key={cat.clave}
+                                                        className={`user-contrib-item ${cat.clave === 'ganancia' ? 'is-ganancia' : ''}`}
+                                                    >
+                                                        <span className="user-contrib-name">
+                                                            {cat.icono} {cat.nombre}
+                                                            {distribucion[cat.clave] !== undefined ? ` (${distribucion[cat.clave]}%)` : ''}
+                                                        </span>
+                                                        <strong className="user-contrib-amount">
+                                                            +${formatearMonto(u[cat.campoUsuario])}
+                                                        </strong>
+                                                    </div>
+                                                ))}
                                             </div>
                                         </div>
                                         <div className="stats-grid">
                                             <div className="stat-item"><span className="stat-label">PARTIDAS</span><span className="stat-val">{u.total_partidas || 0}</span></div>
-                                            <div className="stat-item"><span className="stat-label">VICTORIAS</span><span className="stat-val val-green">{u.total_victorias || 0}</span> <span style={{fontSize:'0.6em'}}>({u.victorias_normales}/{u.victorias_disputa})</span></div>
-                                            <div className="stat-item"><span className="stat-label">DERROTAS</span><span className="stat-val val-red">{u.total_derrotas || 0}</span> <span style={{fontSize:'0.6em'}}>({u.derrotas_normales}/{u.derrotas_disputa})</span></div>
+                                            <div className="stat-item"><span className="stat-label">VICTORIAS</span><span className="stat-val val-green">{u.total_victorias || 0}</span> <span className="stat-subdetail">({u.victorias_normales}/{u.victorias_disputa})</span></div>
+                                            <div className="stat-item"><span className="stat-label">DERROTAS</span><span className="stat-val val-red">{u.total_derrotas || 0}</span> <span className="stat-subdetail">({u.derrotas_normales}/{u.derrotas_disputa})</span></div>
                                             <div className="stat-item"><span className="stat-label">FALTAS (JUEZ)</span><span className="stat-val val-red">{u.faltas || 0}</span></div>
                                             <div className="stat-item"><span className="stat-label">HUIDAS TOTALES</span><span className="stat-val val-gold">{u.salidas_chat || 0}</span></div>
                                         </div>

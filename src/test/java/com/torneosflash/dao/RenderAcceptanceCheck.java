@@ -667,6 +667,62 @@ class RenderAcceptanceCheck {
     }
 
     @Test
+    void estadisticasAdminSeparaYSumaGananciasYExponeAportePorJugador() {
+        JsonObject antes = admin.estadisticas(adminId);
+        BigDecimal gananciaAntes = antes.getAsJsonObject("desglose").get("ganancia").getAsBigDecimal();
+        BigDecimal sobrantesAntes = antes.get("gananciaAdminLeaderboard").getAsBigDecimal();
+
+        int p1 = usuarioConSaldo(new BigDecimal("10000"));
+        int p2 = usuarioConSaldo(new BigDecimal("10000"));
+        String nombre1 = dao.queryOne("SELECT username FROM users WHERE id = ?", p1).get("username").getAsString();
+        String nombre2 = dao.queryOne("SELECT username FROM users WHERE id = ?", p2).get("username").getAsString();
+        String sala = "qa-stats-" + UUID.randomUUID();
+        dao.update("INSERT INTO active_matches (sala_id, player1_id, player1_username, player2_id, player2_username, "
+                + "last_modo, last_dinero) VALUES (?, ?, ?, ?, ?, 'friendly', '10000')",
+                sala, p1, nombre1, p2, nombre2);
+
+        var inicio = wallet.iniciarPartidaTorneo(p1, nombre1, p2, nombre2, sala, "friendly",
+                new BigDecimal("10000"), "#PQL123", "#PQL124", "2026-10-22T00:00:00Z");
+        assertTrue(inicio.success);
+        var liq = wallet.liquidar(p1, p2, new BigDecimal("10000"), inicio.matchId,
+                "comision_match", "en_curso", nombre1, null);
+        assertTrue(liq.success);
+
+        dao.update("UPDATE users SET victorias_dia = 0");
+        dao.update("UPDATE users SET victorias_dia = 1 WHERE id = ?", p1);
+        dao.update("UPDATE leaderboard_pools SET dia = 1000 WHERE id = 1");
+        leaderboard.premiarYResetear("dia", "victorias_dia",
+                "qa-stats-cut-" + UUID.randomUUID().toString().replace("-", "").substring(0, 10));
+
+        JsonObject despues = admin.estadisticas(adminId);
+        BigDecimal gananciaEsperada = gananciaAntes.add(new BigDecimal("500.00"));
+        BigDecimal sobrantesEsperados = sobrantesAntes.add(new BigDecimal("375.00"));
+
+        assertMonto(gananciaEsperada, despues.getAsJsonObject("desglose").get("ganancia").getAsBigDecimal());
+        assertMonto(gananciaEsperada, despues.get("gananciaComisionesAdmin").getAsBigDecimal());
+        assertMonto(sobrantesEsperados, despues.get("gananciaAdminLeaderboard").getAsBigDecimal());
+        assertMonto(gananciaEsperada.add(sobrantesEsperados), despues.get("gananciaTotalCombinadaAdmin").getAsBigDecimal());
+
+        JsonObject filaJugador = null;
+        for (var elem : despues.getAsJsonArray("listaUsuarios")) {
+            JsonObject u = elem.getAsJsonObject();
+            if (u.get("id").getAsInt() == p1) {
+                filaJugador = u;
+                break;
+            }
+        }
+        assertNotNull(filaJugador);
+        assertMonto(new BigDecimal("250.00"), filaJugador.get("ganancia_generada").getAsBigDecimal());
+        assertMonto(new BigDecimal("200.00"), filaJugador.get("gen_sorteos").getAsBigDecimal());
+        assertMonto(new BigDecimal("100.00"), filaJugador.get("gen_misiones").getAsBigDecimal());
+        assertMonto(new BigDecimal("50.00"), filaJugador.get("gen_logros").getAsBigDecimal());
+        assertMonto(new BigDecimal("150.00"), filaJugador.get("gen_leaderboard").getAsBigDecimal());
+        assertMonto(new BigDecimal("150.00"), filaJugador.get("gen_devolucion").getAsBigDecimal());
+        assertMonto(new BigDecimal("100.00"), filaJugador.get("gen_referidos").getAsBigDecimal());
+        assertMonto(new BigDecimal("1000.00"), filaJugador.get("comision_total_aportada").getAsBigDecimal());
+    }
+
+    @Test
     void sorteoAceptaTicketsDentroDelLimiteYDevuelveLosTicketsAlEliminarlo() {
         establecerPozoSorteos(new BigDecimal("10000"));
         dao.update("INSERT INTO user_tickets (user_id, cantidad, acumulado) VALUES (?, 3, 0) "
