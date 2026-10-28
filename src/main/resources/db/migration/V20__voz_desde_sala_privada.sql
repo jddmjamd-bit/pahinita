@@ -27,3 +27,4 @@ ALTER TABLE voice_channels
     DROP CONSTRAINT IF EXISTS chk_voice_channels_origen,
     ADD CONSTRAINT chk_voice_channels_origen
     CHECK (match_id IS NOT NULL OR (sala_id IS NOT NULL AND sala_id <> ''));
+
