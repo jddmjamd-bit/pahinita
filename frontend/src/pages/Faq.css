@@ -5,6 +5,39 @@
     animation: slideInUp var(--transition-normal);
 }
 
+.faq-container.faq-publica {
+    padding-top: 28px;
+}
+
+.faq-public-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 24px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.faq-public-nav a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.92rem;
+    transition: color var(--transition-fast);
+}
+
+.faq-public-nav a:hover {
+    color: var(--accent-secondary);
+}
+
+.faq-public-links {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
 .faq-header h2 {
     margin: 0 0 8px;
 }
@@ -305,6 +338,10 @@
 @media (max-width: 600px) {
     .faq-container {
         padding: 64px 14px 80px; /* deja sitio al botón ☰ del menú en móvil */
+    }
+
+    .faq-container.faq-publica {
+        padding-top: 20px;
     }
 
     .faq-respuesta {

@@ -349,8 +349,8 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | I1 | Sin variables `DISCORD_*` | `GET /api/voz/estado` → `{disponible:false}`. No se muestra nada en el frontend. |
 | I2 | Vincular cuenta Discord (OAuth2) | Redirige a Discord, vuelve con `?discord=ok`, registro en `discord_links`. |
 | I3 | Vincular la misma cuenta Discord desde otro usuario | Rechazado ("ya está vinculada"). |
-| I4 | Partida con ambos vinculados | Canal `partida-<id>` creado en Discord, privado para solo los 2 jugadores. |
-| I5 | Partida termina o se resuelve disputa | Canal de voz borrado automáticamente. Verificar `voice_channels.estado = 'cerrado'`. |
+| I4 | Sala privada / partida con ambos vinculados | Canal `sala-<sufijo>` creado en Discord desde la sala privada, reutilizado al comenzar la partida y privado para solo los 2 jugadores. |
+| I5 | Sala cancelada, partida termina o se resuelve disputa | Canal de voz borrado automáticamente. Verificar `voice_channels.estado = 'cerrado'`. |
 | I6 | `GET /api/voz/mi-canal` sin sesión | 401. |
 
 ### 🔧 J — Panel Admin
@@ -420,7 +420,7 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | # | Prueba | Resultado esperado |
 |---|--------|-------------------|
 | P1 | `npm run build` en `frontend/` | Build exitoso sin errores. |
-| P2 | Navegar a la app sin sesión | Redirige a login. No hay datos en `localStorage` (solo tema). |
+| P2 | Navegar a rutas privadas sin sesión (`/chat`, `/match`) y a `/faq` sin sesión | Rutas privadas redirigen a `/auth`; `/faq`, `/terminos` y `/privacidad` abren sin sesión. Solo el tema persiste en `localStorage`. |
 | P3 | Login → verificar que `currentUser` NO se guarda en localStorage | Solo en memoria (store). |
 | P4 | Verificar que la FAQ tiene las preguntas de: pagos, Discord, sorteos, recuperación | Todas presentes. |
 | P5 | Responsive en móvil | Layout adaptable. |
@@ -430,6 +430,6 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 
 | # | Prueba | Resultado esperado |
 |---|--------|-------------------|
-| Q1 | Verificar `SELECT version, success FROM flyway_schema_history ORDER BY installed_rank` | V1 a V17, todas con `success = true`. |
-| Q2 | Arrancar con BD vacía | Flyway aplica las 17 migraciones automáticamente. |
+| Q1 | Verificar `SELECT version, success FROM flyway_schema_history ORDER BY installed_rank` | V1 a V20, todas con `success = true`. |
+| Q2 | Arrancar con BD vacía | Flyway aplica las migraciones actuales (V1–V20) automáticamente. |
 | Q3 | V17 con duplicados existentes | Migración aborta con mensaje explicativo (no borra datos). |

@@ -19,7 +19,7 @@ const PREFIJO_CANAL = 'https://discord.com/channels/';
  * Chat de voz opcional con Discord (roadmap 84).
  * - Si el servidor no tiene Discord configurado, no se muestra nada.
  * - Sin cuenta vinculada: botón para vincularla (Discord es gratis; quien no quiera, juega sin voz).
- * - Con cuenta vinculada y partida en curso (`enPartida`): botón que abre el canal de voz de la partida.
+ * - Con cuenta vinculada y sala privada o partida activa (`enPartida`): botón que abre el canal de voz compartido.
  * Todo el texto se pinta con React (nada de innerHTML).
  */
 export default function VozDiscord({ enPartida }) {
@@ -117,7 +117,7 @@ export default function VozDiscord({ enPartida }) {
                             🎧 Abrir chat de voz
                         </button>
                     ) : (
-                        <p className="voz-texto">El canal de voz se crea cuando empieza la partida.</p>
+                        <p className="voz-texto">Podrás abrir el canal de voz apenas entres a la sala privada con tu rival.</p>
                     )}
                     <button className="voz-link" onClick={desvincular} disabled={ocupado}>
                         Desvincular Discord

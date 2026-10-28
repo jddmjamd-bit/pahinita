@@ -597,7 +597,7 @@ Los JWT anteriores a la migración V15 no tienen JTI persistido y se rechazan; l
 - **S3 (resuelto):** el claim `rol` puede quedar viejo hasta el siguiente `/api/session` o login, por eso las rutas de admin NO lo usan: `AdminMiddleware` consulta `users.tipo_suscripcion` en la BD en cada petición (sección 18).
 - **App nativa / React en otro origen:** con `SameSite=Lax` el navegador no envía la cookie en `fetch` entre sitios (igual que antes con la cookie sin SameSite). Si la app Capacitor necesita la sesión, usar `COOKIE_SAMESITE=None` **y** cambiar CORS `anyHost()` + `allowCredentials` por una lista de orígenes permitidos; con `None` y `anyHost()` cualquier web podría hacer peticiones autenticadas.
 
-**Cabeceras web y datos persistidos (S10):** `Main` aplica CSP global con `default-src 'self'`, sin scripts inline y con permisos explícitos para el widget de Wompi, fuentes de Google, videos YouTube y los orígenes configurados para API/Socket.IO. Los estilos inline se mantienen porque React usa atributos `style`. `RutasDbAdmin` tiene una política independiente: ese HTML heredado todavía usa scripts y manejadores inline, restringidos a recursos y conexiones del mismo origen. HSTS (`max-age=31536000`) se envía cuando `APP_BASE_URL` comienza por `https://`; no se agrega `includeSubDomains` hasta verificar todos los subdominios. En el navegador solo se conserva el tema en `localStorage`; `currentUser` se elimina al cargar y la identidad/saldo permanecen en memoria. En cada arranque se valida la cookie httpOnly con `/api/session` antes de mostrar las rutas privadas.
+**Cabeceras web y datos persistidos (S10):** `Main` aplica CSP global con `default-src 'self'`, sin scripts inline y con permisos explícitos para el widget de Wompi, fuentes de Google, videos YouTube y los orígenes configurados para API/Socket.IO. Los estilos inline se mantienen porque React usa atributos `style`. `RutasDbAdmin` tiene una política independiente: ese HTML heredado todavía usa scripts y manejadores inline, restringidos a recursos y conexiones del mismo origen. HSTS (`max-age=31536000`) se envía cuando `APP_BASE_URL` comienza por `https://`; no se agrega `includeSubDomains` hasta verificar todos los subdominios. En el navegador solo se conserva el tema en `localStorage`; `currentUser` se elimina al cargar y la identidad/saldo permanecen en memoria. En cada arranque se valida la cookie httpOnly con `/api/session` antes de mostrar las rutas privadas (`/auth`, `/terminos`, `/privacidad` y `/faq` son públicas para poder consultar ayuda antes o durante el registro).
 
 ## Términos de Servicio y Política de Privacidad (roadmap 1.6)
 
@@ -772,17 +772,19 @@ Usuario ── POST /api/voz/discord/vincular ── VozDiscordService.iniciarVi
 Discord ── GET /api/voz/discord/callback?code&state ── completarVinculacion: canjea el código, lee la cuenta, guarda discord_links,
              mete al usuario al servidor (guilds.join) y redirige a /match?discord=<resultado>   (el token OAuth no se guarda)
 
-SocketHandler ── emit match.started ── VozListener ──(pool IO)── prepararCanal: si algún jugador vinculó Discord crea el canal privado
-                                                                  `partida-<id>` y da acceso a quien esté en el servidor
-Usuario ── GET /api/voz/mi-canal ── miCanal: crea el canal si falta, da acceso a quien lo pide y devuelve https://discord.com/channels/<servidor>/<canal>
-SocketHandler / AdminService ── emit match.finished ── VozListener ──(pool IO)── cerrarCanal: borra el canal
-Main ── cada minuto ──(pool IO)── limpiarVencidos: borra canales de partidas que ya no están `en_curso` o de más de DISCORD_VOICE_MAX_MINUTOS
+SocketHandler ── emit match.room_created / match.started ── VozListener ──(pool IO)── prepararCanalSala / prepararCanal:
+             si algún jugador vinculó Discord crea el canal privado (`sala-<sufijo>` o `partida-<id>`) desde la sala privada
+             y reutiliza el mismo canal cuando arranca la partida (asociando `match_id`)
+Usuario ── GET /api/voz/mi-canal ── miCanal: crea el canal si falta (en sala privada o en partida), da acceso a quien lo pide
+             y devuelve https://discord.com/channels/<servidor>/<canal>
+SocketHandler / AdminService ── emit match.room_cancelled / match.finished ── VozListener ──(pool IO)── cerrarCanalDeSala / cerrarCanal
+Main ── cada minuto ──(pool IO)── limpiarVencidos: borra canales cuya sala ya no existe y cuya partida no está `en_curso`, o de más de DISCORD_VOICE_MAX_MINUTOS
 ```
 
-| Tabla (`V8`) | Qué guarda |
+| Tabla (`V8`, `V20`) | Qué guarda |
 |---|---|
 | `discord_links` | `user_id` (PK) → `discord_id` (UNIQUE: una cuenta de Discord = un usuario) y `discord_username` |
-| `voice_channels` | Un canal por partida (`match_id` UNIQUE): jugadores, `discord_channel_id` y `estado` activo/cerrado |
+| `voice_channels` | Un canal por sala privada (`sala_id` UNIQUE parcial) y/o partida (`match_id` UNIQUE, nullable desde `V20`): jugadores, `discord_channel_id` y `estado` activo/cerrado |
 
 | Endpoint | Qué hace |
 |---|---|
@@ -808,8 +810,8 @@ Permisos del bot en el servidor: *Gestionar canales*, *Gestionar roles*, *Ver ca
 - **REST desde Java, sin Discord.js ni proceso aparte** (`DiscordApiCliente`): crear y borrar canales solo requiere el token del bot por HTTPS. Un solo deploy en Render y la lógica sigue el patrón del proyecto (servicio + listener del bus + migración Flyway). Si en el futuro se quisieran comandos o presencia en Discord, ahí sí haría falta un bot conectado.
 - **Canal privado por permisos**: @everyone no puede ver ni conectarse; cada jugador recibe un permiso propio (ver, conectar, hablar). Discord solo deja dar permisos a miembros del servidor: por eso se les mete al vincular y, si aún no están, `mi-canal` responde `falta_servidor` con la invitación.
 - **El `state` de OAuth es sin estado en el servidor** (HMAC-SHA256 con una clave derivada de `JWT_SECRET`, 10 min de vigencia): no hay mapas en memoria (A2). Si `JWT_SECRET` no está definido y el servidor se reinicia en medio de una vinculación, el usuario solo debe repetirla.
-- **Un canal por partida, nunca se reabre**: si el canal se cerró (por tiempo máximo) y la partida sigue, `mi-canal` responde `caducado`.
-- **Privacidad**: el canal se llama `partida-<id>`; al rival nunca se le muestra el usuario de Discord del otro. Solo se guarda el id y el nombre de Discord de quien vincula; nunca su token.
+- **Un canal compartido por sala y partida, nunca se reabre**: el canal se puede abrir apenas los jugadores entran al chat privado (`active_matches`) y se conserva cuando inicia la partida (`matches`). Si el canal se cerró (por cancelación de sala, fin de partida o tiempo máximo), `mi-canal` responde `caducado`.
+- **Privacidad**: el canal se llama `sala-<sufijo>` (o `partida-<id>`); al rival nunca se le muestra el usuario de Discord del otro. Solo se guarda el id y el nombre de Discord de quien vincula; nunca su token.
 - Los errores de Discord no rompen la partida: `emit` no lanza, el trabajo corre en el pool de IO y la limpieza de cada minuto reintenta los borrados que fallaron.
 - Frontend: `components/VozDiscord.jsx`, usado en `pages/Match.jsx`.
 

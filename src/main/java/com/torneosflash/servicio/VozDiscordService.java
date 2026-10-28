@@ -28,16 +28,19 @@ import java.util.List;
  *       {@code guilds.join}) y volvemos a {@code /api/voz/discord/callback}. Guardamos SOLO su id y su nombre de Discord
  *       (nunca el token) y lo metemos al servidor de la plataforma. Una cuenta de Discord solo puede estar vinculada a un
  *       usuario.</li>
- *   <li><b>Canal por partida:</b> al empezar la partida ({@code match.started}) se crea un canal de voz privado
- *       ({@code partida-<id>}, 2 personas, invisible para el resto del servidor) y se da acceso a los jugadores que
- *       vincularon Discord. Si nadie lo vinculó no se crea nada; si alguien lo vincula o lo pide después,
+ *   <li><b>Canal por sala y partida:</b> al crearse la sala privada ({@code match.room_created}) o al empezar la partida
+ *       ({@code match.started}) se crea un canal de voz privado (2 personas, invisible para el resto del servidor) y se
+ *       da acceso a los jugadores que vincularon Discord. El mismo canal sirve durante el chat privado de negociación y
+ *       durante la partida. Si nadie lo vinculó al inicio no se crea nada; si alguien lo vincula o lo pide después,
  *       {@link #miCanal} lo crea en ese momento.</li>
- *   <li><b>Cerrar:</b> al terminar la partida ({@code match.finished}) se borra el canal. {@link #limpiarVencidos} es la
- *       red de seguridad (disputas, canales que no se pudieron borrar, partidas muy largas, reinicios del servidor).</li>
+ *   <li><b>Cerrar:</b> al cancelarse la sala ({@code match.room_cancelled}) o terminar la partida
+ *       ({@code match.finished}) se borra el canal. {@link #limpiarVencidos} es la red de seguridad (disputas, canales
+ *       que no se pudieron borrar, partidas muy largas, reinicios del servidor).</li>
  * </ol>
  *
  * <p>El estado de los canales vive en la BD ({@code voice_channels}), no en memoria (A2). Ningún dato de Discord de un
- * jugador se le muestra al rival: el canal solo se llama {@code partida-<id>}.</p>
+ * jugador se le muestra al rival: el canal solo usa un identificador neutro ({@code sala-<sufijo>} o
+ * {@code partida-<id>}).</p>
  */
 public class VozDiscordService {
     private static final Logger logger = LoggerFactory.getLogger(VozDiscordService.class);
@@ -148,12 +151,14 @@ public class VozDiscordService {
         return r;
     }
 
-    // ═══════════════ Canal de voz de la partida ═══════════════
+    // ═══════════════ Canal de voz de la sala / partida ═══════════════
+
+    private record ContextoVoz(String salaId, int matchId, int user1Id, int user2Id) {}
 
     /**
-     * El usuario pide entrar al chat de voz de su partida en curso. Crea el canal si todavía no existe y le da acceso.
-     * Respuesta: {@code {estado, mensaje, url?, servidorUrl?}} con estado {@code listo} | {@code sin_vincular} |
-     * {@code sin_partida} | {@code falta_servidor} | {@code caducado}.
+     * El usuario pide entrar al chat de voz de su sala privada o partida en curso. Crea el canal si todavía no existe y
+     * le da acceso. Respuesta: {@code {estado, mensaje, url?, servidorUrl?}} con estado {@code listo} |
+     * {@code sin_vincular} | {@code sin_partida} | {@code falta_servidor} | {@code caducado}.
      */
     public JsonObject miCanal(int userId) {
         exigirSesion(userId);
@@ -163,14 +168,14 @@ public class VozDiscordService {
         if (vinculo == null) {
             return respuesta("sin_vincular", "Vincula tu cuenta de Discord para usar el chat de voz.");
         }
-        JsonObject partida = partidaEnCursoDe(userId);
-        if (partida == null) {
-            return respuesta("sin_partida", "El chat de voz se abre cuando empieza tu partida.");
+        ContextoVoz contexto = contextoVozActivoDe(userId);
+        if (contexto == null) {
+            return respuesta("sin_partida", "El chat de voz se abre al entrar a la sala privada con tu rival.");
         }
 
         try {
-            String canalId = obtenerOCrearCanal(partida.get("match_id").getAsInt(),
-                    partida.get("user1_id").getAsInt(), partida.get("user2_id").getAsInt());
+            String canalId = obtenerOCrearCanal(contexto.salaId(), contexto.matchId(),
+                    contexto.user1Id(), contexto.user2Id());
             if (!darAcceso(canalId, texto(vinculo, "discord_id"))) {
                 JsonObject r = respuesta("falta_servidor",
                         "Primero únete al servidor de Discord de la plataforma y vuelve a intentarlo.");
@@ -182,7 +187,7 @@ public class VozDiscordService {
             return r;
         } catch (DiscordException e) {
             if (e.getStatus() == 409) {
-                return respuesta("caducado", "El chat de voz de esta partida ya se cerró.");
+                return respuesta("caducado", "El chat de voz de esta sala ya se cerró.");
             }
             logger.error("No se pudo preparar el canal de voz para el usuario {}: {}", userId, e.getMessage());
             throw ServicioException.noDisponible("No pudimos preparar el canal de voz. Inténtalo de nuevo en unos segundos.");
@@ -190,11 +195,13 @@ public class VozDiscordService {
     }
 
     /**
-     * Lo llama el listener de {@code match.started} (desde el pool de IO). Si algún jugador vinculó Discord crea el
-     * canal y le da acceso; si ninguno lo hizo no crea nada. No lanza: un fallo de Discord solo se registra.
+     * Lo llama el listener de {@code match.room_created} (desde el pool de IO) al entrar al chat privado de negociación.
+     * Si algún jugador vinculó Discord crea el canal y le da acceso; si ninguno lo hizo no crea nada.
      */
-    public void prepararCanal(int matchId, List<Integer> participantes) {
-        if (!disponible() || participantes == null || participantes.size() != 2) return;
+    public void prepararCanalSala(String salaId, List<Integer> participantes) {
+        if (!disponible() || salaId == null || salaId.isBlank() || participantes == null || participantes.size() != 2) {
+            return;
+        }
         int jugador1 = participantes.get(0);
         int jugador2 = participantes.get(1);
         ArrayList<JsonObject> vinculos = db.query(
@@ -202,18 +209,63 @@ public class VozDiscordService {
         if (vinculos.isEmpty()) return;
 
         try {
-            String canalId = obtenerOCrearCanal(matchId, jugador1, jugador2);
-            for (JsonObject vinculo : vinculos) {
-                try {
-                    darAcceso(canalId, texto(vinculo, "discord_id"));
-                } catch (DiscordException e) {
-                    logger.warn("Partida #{}: no se pudo dar acceso al canal al usuario {}: {}",
-                            matchId, vinculo.get("user_id").getAsInt(), e.getMessage());
-                }
+            String canalId = obtenerOCrearCanal(salaId, 0, jugador1, jugador2);
+            concederAccesos(canalId, vinculos, "Sala " + salaId);
+            logger.info("🎙️ Canal de voz listo para la sala {}", salaId);
+        } catch (DiscordException e) {
+            if (e.getStatus() != 409) {
+                logger.error("Sala {}: no se pudo crear el canal de voz: {}", salaId, e.getMessage());
             }
+        }
+    }
+
+    /**
+     * Lo llama el listener de {@code match.started} (desde el pool de IO). Reutiliza el canal creado durante la sala
+     * privada (asociándole {@code match_id}) o lo crea si aún no existía. No lanza: un fallo de Discord solo se registra.
+     */
+    public void prepararCanal(int matchId, List<Integer> participantes) {
+        if (!disponible() || matchId <= 0 || participantes == null || participantes.size() != 2) return;
+        int jugador1 = participantes.get(0);
+        int jugador2 = participantes.get(1);
+        JsonObject matchFila = db.queryOne("SELECT sala_id, estado FROM matches WHERE id = ?", matchId);
+        if (matchFila != null && !"en_curso".equals(texto(matchFila, "estado"))) return;
+        String salaId = texto(matchFila, "sala_id");
+
+        ArrayList<JsonObject> vinculos = db.query(
+                "SELECT user_id, discord_id FROM discord_links WHERE user_id IN (?, ?)", jugador1, jugador2);
+        if (vinculos.isEmpty()) {
+            if (!salaId.isEmpty()) {
+                db.update("UPDATE voice_channels SET match_id = ? WHERE sala_id = ? AND match_id IS NULL", matchId, salaId);
+            }
+            return;
+        }
+
+        try {
+            String canalId = obtenerOCrearCanal(salaId, matchId, jugador1, jugador2);
+            concederAccesos(canalId, vinculos, "Partida #" + matchId);
             logger.info("🎙️ Canal de voz listo para la partida #{}", matchId);
         } catch (DiscordException e) {
-            logger.error("Partida #{}: no se pudo crear el canal de voz: {}", matchId, e.getMessage());
+            if (e.getStatus() != 409) {
+                logger.error("Partida #{}: no se pudo crear el canal de voz: {}", matchId, e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Borra el canal de voz de una sala privada cancelada antes de comenzar la partida.
+     */
+    public void cerrarCanalDeSala(String salaId) {
+        if (!disponible() || salaId == null || salaId.isBlank()) return;
+        synchronized (candadoCreacion) {
+            JsonObject fila = db.queryOne(
+                    "SELECT vc.id, vc.discord_channel_id FROM voice_channels vc "
+                            + "WHERE vc.sala_id = ? AND vc.estado = 'activo' "
+                            + "AND NOT EXISTS (SELECT 1 FROM matches m "
+                            + "WHERE (m.id = vc.match_id OR m.sala_id = vc.sala_id) AND m.estado = 'en_curso') "
+                            + "LIMIT 1",
+                    salaId.trim());
+            if (fila == null) return;
+            cerrarFilaCanal(fila.get("id").getAsInt(), texto(fila, "discord_channel_id"), "Sala " + salaId);
         }
     }
 
@@ -222,44 +274,76 @@ public class VozDiscordService {
      * {@link #limpiarVencidos} lo reintenta.
      */
     public void cerrarCanal(int matchId) {
-        JsonObject fila = db.queryOne(
-                "SELECT id, discord_channel_id FROM voice_channels WHERE match_id = ? AND estado = 'activo'", matchId);
-        if (fila == null) return;
-        try {
-            discord.borrarCanal(texto(fila, "discord_channel_id"));
-            db.update("UPDATE voice_channels SET estado = 'cerrado', fecha_cierre = CURRENT_TIMESTAMP "
-                    + "WHERE id = ? AND estado = 'activo'", fila.get("id").getAsInt());
-            logger.info("🎙️ Canal de voz de la partida #{} cerrado", matchId);
-        } catch (DiscordException e) {
-            logger.warn("Partida #{}: no se pudo borrar el canal de voz (se reintenta en la próxima limpieza): {}",
-                    matchId, e.getMessage());
+        if (!disponible() || matchId <= 0) return;
+        synchronized (candadoCreacion) {
+            JsonObject fila = db.queryOne(
+                    "SELECT vc.id, vc.discord_channel_id FROM voice_channels vc "
+                            + "WHERE vc.estado = 'activo' AND (vc.match_id = ? "
+                            + "OR (vc.sala_id IS NOT NULL AND vc.sala_id = (SELECT m.sala_id FROM matches m WHERE m.id = ?))) "
+                            + "ORDER BY vc.id DESC LIMIT 1",
+                    matchId, matchId);
+            if (fila == null) return;
+            cerrarFilaCanal(fila.get("id").getAsInt(), texto(fila, "discord_channel_id"), "Partida #" + matchId);
         }
     }
 
     /**
-     * Red de seguridad, se ejecuta cada minuto: borra los canales activos cuya partida ya no está en curso (terminó,
-     * pasó a disputa o fue cancelada) o que superaron {@code DISCORD_VOICE_MAX_MINUTOS}. Procesa pocos por pasada
-     * para no saturar a Discord.
+     * Red de seguridad, se ejecuta cada minuto: borra los canales activos cuya sala ya no existe y cuya partida ya no
+     * está en curso (terminó, pasó a disputa o fue cancelada) o que superaron {@code DISCORD_VOICE_MAX_MINUTOS}.
      */
     public void limpiarVencidos() {
         if (!disponible()) return;
         ArrayList<JsonObject> filas = db.query(
-                "SELECT vc.match_id FROM voice_channels vc LEFT JOIN matches m ON m.id = vc.match_id "
-                        + "WHERE vc.estado = 'activo' AND (m.id IS NULL OR m.estado <> 'en_curso' "
-                        + "OR vc.fecha_creacion < NOW() - make_interval(mins => ?)) "
+                "SELECT vc.id, vc.discord_channel_id "
+                        + "FROM voice_channels vc "
+                        + "LEFT JOIN active_matches am ON vc.sala_id IS NOT NULL AND am.sala_id = vc.sala_id "
+                        + "LEFT JOIN matches m ON m.id = vc.match_id "
+                        + "OR (vc.sala_id IS NOT NULL AND m.sala_id = vc.sala_id) "
+                        + "WHERE vc.estado = 'activo' AND ("
+                        + "vc.fecha_creacion < NOW() - make_interval(mins => ?) "
+                        + "OR (am.id IS NULL AND (m.id IS NULL OR m.estado <> 'en_curso'))) "
                         + "ORDER BY vc.id LIMIT 20",
                 config.getDiscordVozMaxMinutos());
         for (JsonObject fila : filas) {
-            cerrarCanal(fila.get("match_id").getAsInt());
+            synchronized (candadoCreacion) {
+                cerrarFilaCanal(fila.get("id").getAsInt(), texto(fila, "discord_channel_id"),
+                        "Canal #" + fila.get("id").getAsInt());
+            }
         }
     }
 
     // ═══════════════ Internos ═══════════════
 
+    /** Sala privada activa o partida en curso del usuario, o null si no está en ninguna. */
+    private ContextoVoz contextoVozActivoDe(int userId) {
+        JsonObject sala = db.queryOne(
+                "SELECT am.sala_id, am.player1_id AS user1_id, am.player2_id AS user2_id, am.iniciado, am.match_db_id "
+                        + "FROM active_matches am "
+                        + "LEFT JOIN matches m ON m.id = am.match_db_id "
+                        + "WHERE (am.player1_id = ? OR am.player2_id = ?) "
+                        + "AND (am.iniciado = FALSE OR am.match_db_id <= 0 OR m.estado = 'en_curso') "
+                        + "ORDER BY am.id DESC LIMIT 1",
+                userId, userId);
+        if (sala != null) {
+            boolean iniciado = sala.has("iniciado") && !sala.get("iniciado").isJsonNull() && sala.get("iniciado").getAsBoolean();
+            int matchId = iniciado && sala.has("match_db_id") && !sala.get("match_db_id").isJsonNull()
+                    ? sala.get("match_db_id").getAsInt() : 0;
+            return new ContextoVoz(texto(sala, "sala_id"), matchId,
+                    sala.get("user1_id").getAsInt(), sala.get("user2_id").getAsInt());
+        }
+
+        JsonObject partida = partidaEnCursoDe(userId);
+        if (partida != null) {
+            return new ContextoVoz(texto(partida, "sala_id"), partida.get("match_id").getAsInt(),
+                    partida.get("user1_id").getAsInt(), partida.get("user2_id").getAsInt());
+        }
+        return null;
+    }
+
     /** La partida en curso del usuario con los ids de los dos jugadores, o null si no tiene (matches guarda nombres). */
     private JsonObject partidaEnCursoDe(int userId) {
         return db.queryOne(
-                "SELECT m.id AS match_id, u1.id AS user1_id, u2.id AS user2_id "
+                "SELECT m.id AS match_id, m.sala_id, u1.id AS user1_id, u2.id AS user2_id "
                         + "FROM matches m "
                         + "JOIN users u1 ON u1.username = m.jugador1 "
                         + "JOIN users u2 ON u2.username = m.jugador2 "
@@ -268,23 +352,81 @@ public class VozDiscordService {
                 userId, userId);
     }
 
+    private JsonObject buscarFilaCanal(String salaLimpia, int matchId) {
+        if (!salaLimpia.isEmpty() && matchId > 0) {
+            return db.queryOne(
+                    "SELECT id, match_id, discord_channel_id, estado FROM voice_channels "
+                            + "WHERE sala_id = ? OR match_id = ? ORDER BY id DESC LIMIT 1",
+                    salaLimpia, matchId);
+        }
+        if (!salaLimpia.isEmpty()) {
+            return db.queryOne(
+                    "SELECT id, match_id, discord_channel_id, estado FROM voice_channels WHERE sala_id = ? LIMIT 1",
+                    salaLimpia);
+        }
+        if (matchId > 0) {
+            return db.queryOne(
+                    "SELECT id, match_id, discord_channel_id, estado FROM voice_channels WHERE match_id = ? LIMIT 1",
+                    matchId);
+        }
+        return null;
+    }
+
+    static String nombreCanal(String salaId, int matchId) {
+        String salaLimpia = salaId == null ? "" : salaId.trim();
+        if (!salaLimpia.isEmpty()) {
+            String alfanum = salaLimpia.replaceAll("[^A-Za-z0-9]", "");
+            if (alfanum.toLowerCase().startsWith("sala")) {
+                alfanum = alfanum.substring(4);
+            }
+            String sufijo = alfanum.length() > 6 ? alfanum.substring(alfanum.length() - 6) : alfanum;
+            return "sala-" + (sufijo.isEmpty() ? "privada" : sufijo.toLowerCase());
+        }
+        return "partida-" + matchId;
+    }
+
     /**
-     * Devuelve el canal activo de la partida o lo crea. Lanza {@link DiscordException} con estado 409 si el canal
-     * de esta partida ya se había cerrado (no se vuelve a abrir uno nuevo).
+     * Devuelve el canal activo de la sala/partida o lo crea. Lanza {@link DiscordException} con estado 409 si el canal
+     * ya se había cerrado o la sala dejó de estar activa (no se vuelve a abrir uno nuevo).
      */
-    private String obtenerOCrearCanal(int matchId, int jugador1, int jugador2) throws DiscordException {
+    private String obtenerOCrearCanal(String salaId, int matchId, int jugador1, int jugador2) throws DiscordException {
+        String salaLimpia = salaId == null ? "" : salaId.trim();
         synchronized (candadoCreacion) {
-            JsonObject existente = db.queryOne("SELECT discord_channel_id, estado FROM voice_channels WHERE match_id = ?", matchId);
+            JsonObject existente = buscarFilaCanal(salaLimpia, matchId);
             if (existente != null) {
-                if ("activo".equals(texto(existente, "estado"))) return texto(existente, "discord_channel_id");
-                throw new DiscordException(409, "El canal de la partida #" + matchId + " ya se cerró");
+                if (!"activo".equals(texto(existente, "estado"))) {
+                    throw new DiscordException(409, "El canal de voz de esta sala ya se cerró");
+                }
+                if (matchId > 0 && (!existente.has("match_id") || existente.get("match_id").isJsonNull())) {
+                    db.update("UPDATE voice_channels SET match_id = ? WHERE id = ? AND match_id IS NULL",
+                            matchId, existente.get("id").getAsInt());
+                }
+                return texto(existente, "discord_channel_id");
             }
 
-            String canalId = discord.crearCanalDeVoz("partida-" + matchId);
-            int filas = db.update(
-                    "INSERT INTO voice_channels (match_id, user1_id, user2_id, discord_channel_id) VALUES (?, ?, ?, ?) "
-                            + "ON CONFLICT (match_id) DO NOTHING",
-                    matchId, jugador1, jugador2, canalId);
+            if (matchId <= 0 && !salaLimpia.isEmpty()
+                    && db.queryOne("SELECT id FROM active_matches WHERE sala_id = ?", salaLimpia) == null) {
+                throw new DiscordException(409, "La sala ya no está activa");
+            }
+
+            String canalId = discord.crearCanalDeVoz(nombreCanal(salaLimpia, matchId));
+            int filas;
+            if (!salaLimpia.isEmpty() && matchId > 0) {
+                filas = db.update(
+                        "INSERT INTO voice_channels (sala_id, match_id, user1_id, user2_id, discord_channel_id) "
+                                + "VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                        salaLimpia, matchId, jugador1, jugador2, canalId);
+            } else if (!salaLimpia.isEmpty()) {
+                filas = db.update(
+                        "INSERT INTO voice_channels (sala_id, user1_id, user2_id, discord_channel_id) "
+                                + "VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                        salaLimpia, jugador1, jugador2, canalId);
+            } else {
+                filas = db.update(
+                        "INSERT INTO voice_channels (match_id, user1_id, user2_id, discord_channel_id) "
+                                + "VALUES (?, ?, ?, ?) ON CONFLICT (match_id) DO NOTHING",
+                        matchId, jugador1, jugador2, canalId);
+            }
             if (filas == 0) {
                 // No quedó guardado: se borra el canal recién creado para no dejarlo huérfano en Discord
                 try {
@@ -292,9 +434,33 @@ public class VozDiscordService {
                 } catch (DiscordException e) {
                     logger.warn("Canal huérfano {} no se pudo borrar: {}", canalId, e.getMessage());
                 }
-                throw new DiscordException(500, "No se pudo guardar el canal de voz de la partida #" + matchId);
+                throw new DiscordException(500, "No se pudo guardar el canal de voz");
             }
             return canalId;
+        }
+    }
+
+    private void concederAccesos(String canalId, List<JsonObject> vinculos, String etiquetaLog) {
+        for (JsonObject vinculo : vinculos) {
+            try {
+                darAcceso(canalId, texto(vinculo, "discord_id"));
+            } catch (DiscordException e) {
+                logger.warn("{}: no se pudo dar acceso al canal al usuario {}: {}",
+                        etiquetaLog, vinculo.get("user_id").getAsInt(), e.getMessage());
+            }
+        }
+    }
+
+    private void cerrarFilaCanal(int filaId, String discordChannelId, String etiquetaLog) {
+        if (discordChannelId.isEmpty()) return;
+        try {
+            discord.borrarCanal(discordChannelId);
+            db.update("UPDATE voice_channels SET estado = 'cerrado', fecha_cierre = CURRENT_TIMESTAMP "
+                    + "WHERE id = ? AND estado = 'activo'", filaId);
+            logger.info("🎙️ Canal de voz cerrado ({})", etiquetaLog);
+        } catch (DiscordException e) {
+            logger.warn("{}: no se pudo borrar el canal de voz (se reintenta en la próxima limpieza): {}",
+                    etiquetaLog, e.getMessage());
         }
     }
 

@@ -67,10 +67,20 @@ export const PREGUNTAS = [
         categoria: 'inicio',
         pregunta: '¿Qué es el Player Tag y dónde lo encuentro?',
         respuesta: [
-            'Es el código único de tu cuenta de Clash Royale. Empieza con # y se compone de letras y números (por ejemplo #2PP). Lo usamos para saber cuáles partidas son tuyas y quién ganó.',
-            'Lo encuentras dentro del juego, en tu perfil, justo debajo de tu nombre. Escríbelo con el # al inicio. La página muestra el nombre y los trofeos para identificarlo; durante el registro también debes ingresar el token de API generado en los ajustes del juego. Un administrador lo comprobará manualmente con el bot de Discord. Se conserva cifrado hasta la verificación y luego se elimina; mientras tanto, los retiros quedan bloqueados.'
+            'Es el código único de tu cuenta de Clash Royale. Empieza con # y combina letras y números (por ejemplo #2PP). En la página sirve para identificar tus batallas automáticamente y acreditar el premio al ganador.',
+            'Lo encuentras dentro de Clash Royale abriendo tu perfil (toca tu nombre arriba a la izquierda), justo debajo de tu nombre de jugador. Puedes tocarlo para copiarlo y pegarlo en el registro.'
         ],
         video: { titulo: 'Dónde encontrar tu Player Tag en Clash Royale', youtube: '', archivo: '' }
+    },
+    {
+        id: 'token-api',
+        categoria: 'inicio',
+        pregunta: '¿Qué es el Token de API de Clash Royale, dónde está y para qué sirve?',
+        respuesta: [
+            'Es una clave temporal que genera Clash Royale dentro de los ajustes del juego para comprobar que tú eres el dueño real de ese Player Tag y evitar que otra persona registre tu cuenta.',
+            'Lo encuentras abriendo Clash Royale → menú ☰ (arriba a la derecha) → Ajustes → Más ajustes → baja hasta la sección «Token de API» y pulsa «Mostrar» o «Copiar».',
+            'En la página un administrador lo comprueba manualmente. Se guarda cifrado solo mientras tu cuenta está pendiente de verificación y se elimina apenas queda confirmada; mientras tanto ya puedes jugar, y al verificarse se habilitan los retiros.'
+        ]
     },
     {
         id: 'registro-no-disponible',
@@ -244,11 +254,11 @@ export const PREGUNTAS = [
         categoria: 'partidas',
         pregunta: '¿Qué hago dentro de la sala privada?',
         respuesta: [
-            'Es donde tú y tu rival se ponen de acuerdo antes de jugar. Arriba ves contra quién juegas y el tope máximo de monto permitido. Puedes chatear con el rival en el mini chat.',
+            'Es donde tú y tu rival se ponen de acuerdo antes de jugar. Arriba ves contra quién juegas y el tope máximo de monto permitido. Puedes escribirle a tu rival en el chat con burbujas o pulsar «🎧 Abrir chat de voz» si vinculaste tu cuenta de Discord.',
             'En «Configuración» escriben el modo de juego (texto libre, por ejemplo «Elección») y el monto. Lo que escribe uno lo ve el otro en vivo. Al poner un monto válido, la página te muestra cuánto recibirías si ganas.'
         ],
         pasos: [
-            'Acuerden el modo y el monto por el chat.',
+            'Acuerden el modo y el monto por el chat escrito o en el canal de voz de la sala.',
             'Escribe el modo y el monto en los campos de Configuración.',
             'Pulsa «Comenzar». Quedas esperando a que el rival también pulse.',
             'Cuando los dos pulsan, aparece una ventana para aceptar la partida con el modo y el monto: pulsa «Aceptar».',
@@ -462,7 +472,7 @@ export const PREGUNTAS = [
         pregunta: '¿Puedo hablar por voz con mi rival? ¿Necesito una cuenta de Discord?',
         respuesta: [
             'Sí, el chat de voz es opcional y funciona con Discord. Para usarlo necesitas una cuenta de Discord (es gratis); si no tienes o no quieres usarla, puedes jugar igual sin voz.',
-            'Vincula tu cuenta una sola vez desde la pantalla de partidas con el botón «Vincular Discord»: Discord te pide autorizar y te devuelve a la plataforma. Cuando empieza tu partida aparece el botón «Abrir chat de voz», que te lleva a un canal privado solo para ti y tu rival. El canal se borra solo cuando la partida termina.',
+            'Vincula tu cuenta una sola vez desde la pantalla de partidas con el botón «Vincular Discord»: Discord te pide autorizar y te devuelve a la plataforma. Apenas entres a la sala privada con tu rival —y también cuando empiece la partida— tendrás el botón «🎧 Abrir chat de voz», que abre el mismo canal privado solo para ustedes dos. El canal se cierra automáticamente si la sala se cancela o cuando la partida termina.',
             'Tu rival no ve tu usuario de Discord, y una misma cuenta de Discord solo puede estar vinculada a un usuario de la plataforma. Puedes desvincularla cuando quieras.'
         ]
     },
@@ -475,7 +485,7 @@ export const PREGUNTAS = [
         respuesta: [
             'En la pantalla de entrada elige «¿Olvidaste tu contraseña?» y escribe tu correo. Si está asociado a una cuenta, recibirás un enlace de Brevo; revisa también la carpeta de correo no deseado y úsalo antes de que venza.',
             'El enlace funciona una sola vez. Al guardar una contraseña nueva se cerrarán las demás sesiones de tu cuenta. Nunca compartas el enlace con nadie.',
-            'La contraseña debe tener entre 6 y 128 caracteres y no superar 72 bytes UTF-8. Los acentos y emojis pueden ocupar más de un byte.'
+            'La contraseña nueva debe tener al menos 6 caracteres.'
         ],
         enlace: { texto: 'Ir a iniciar sesión', to: '/auth' }
     },

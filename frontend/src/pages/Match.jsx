@@ -4,6 +4,23 @@ import { API_BASE_URL } from '../store/llamarApi';
 import './Match.css';
 import VozDiscord from '../components/VozDiscord';
 
+const URL_SEGURA_REGEX = /(https?:\/\/[^\s]+)/g;
+
+const renderTextoPrivado = (texto) => {
+    const partes = String(texto ?? '').split(URL_SEGURA_REGEX);
+    return partes.map((parte, idx) => (
+        /^https?:\/\/[^\s]+$/.test(parte)
+            ? <a key={idx} href={parte} target="_blank" rel="noopener noreferrer" className="chat-link">{parte}</a>
+            : parte
+    ));
+};
+
+const formatearHoraPrivada = (fecha) => {
+    if (!fecha) return '';
+    const d = new Date(fecha);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
 export default function Match() {
     // Si el usuario sale de esta pantalla y vuelve a mitad de partida, el estado sale del store (no se pierde la sala)
     const [view, setView] = useState(() => {
@@ -487,21 +504,32 @@ export default function Match() {
                         </div>
 
                         <div className="mini-chat">
-                            {chatMessages.map((m, i) => (
-                                <div key={i} className={`msg ${m.usuario === currentUser?.username ? 'own' : 'other'}`}>
-                                    <span className="msg-user">{m.usuario}</span>
-                                    <span className="msg-text">{m.texto}</span>
+                            {chatMessages.length === 0 ? (
+                                <div className="mini-chat-empty">
+                                    Saluda a tu rival y acuerden aquí el modo y el monto.
                                 </div>
-                            ))}
+                            ) : (
+                                chatMessages.map((m, i) => {
+                                    const esPropio = m.usuario === currentUser?.username;
+                                    const hora = formatearHoraPrivada(m.fecha);
+                                    return (
+                                        <div key={i} className={`msg ${esPropio ? 'own' : 'other'}`}>
+                                            <span className="msg-user">{m.usuario}</span>
+                                            <span className="msg-text">{renderTextoPrivado(m.texto)}</span>
+                                            {hora && <span className="msg-time">{hora}</span>}
+                                        </div>
+                                    );
+                                })
+                            )}
                             <div ref={chatEndRef} />
                         </div>
 
                         <form className="chat-input-area mini" onSubmit={handleChatSubmit}>
-                            <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Chatea..." style={{margin:0}} />
+                            <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Escribe un mensaje..." style={{margin:0}} />
                             <button type="submit">Enviar</button>
                         </form>
 
-                        <VozDiscord enPartida={false} />
+                        <VozDiscord enPartida={true} />
 
                         <div className="negotiation-box">
                             <h4>⚙️ Configuración</h4>

@@ -11,6 +11,15 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-28 — Mejorar registro/login, ayudas de Clash, burbujas de chat privado, voz desde sala y FAQ público (Gemini)
+- **Autenticación (`/auth`):** rediseñado el espaciado de registro, inicio de sesión y recuperación en `Auth.jsx` y `Auth.css` (contenedor más amplio, separación uniforme por campo y sin alertas rojas en campos aún vacíos). Acortados los textos técnicos innecesarios en formulario, validaciones en vivo (`AuthService`) y respuesta genérica de `/api/register` (`RutasAuth`), manteniendo las respuestas idénticas frente a colisiones de identidad.
+- **Ayudas `?` para Player Tag y Token de API:** añadidos botones desplegables accesibles (`?`) junto a ambos campos en `Auth.jsx`, indicando dónde encontrarlos dentro de Clash Royale y qué función cumplen en la página, con enlace directo a su entrada en `/faq` (`#player-tag` y `#token-api`).
+- **Burbujas en chat privado:** añadidos estilos propios de burbuja para `.mini-chat` en `Match.css` (con soporte de enlaces `https`, hora del mensaje y contraste en tema claro/oscuro, sin depender de `Chat.css`) y ajustado el contraste de `.msg` en `Chat.css`.
+- **Canal de voz Discord desde el chat privado y en partida (`V20`):** migración `V20__voz_desde_sala_privada.sql` permite asociar `voice_channels` a `sala_id` antes de existir `match_id`; `SocketHandler` emite `match.room_created` y `match.room_cancelled`; `VozListener` y `VozDiscordService` abren el canal al entrar a la sala privada, reutilizan el mismo canal al comenzar la partida y lo cierran al cancelar la sala o finalizar la partida; `Match.jsx` habilita `<VozDiscord enPartida={true} />` en ambas vistas.
+- **FAQ accesible sin sesión:** `/faq` se incluye en `RUTAS_PUBLICAS` (`App.jsx`), muestra barra de navegación pública con retorno a registro/login cuando no hay sesión (`Faq.jsx`, `Faq.css`) y se enlaza directamente desde `/auth`. Actualizados `faq.js` y `ChatbotService.java`.
+- **Verificación:** `npm.cmd run test:acceptance` (7/7), `npm.cmd run lint` (0 errores), `npm.cmd run build` y `.\mvnw.cmd clean verify` (55 pruebas JUnit) pasaron localmente. La suite de aceptación conectada a PostgreSQL (`RenderAcceptanceCheck`, incluido el nuevo caso de voz desde sala privada) se ejecutará en Render con `TEST_DATABASE_URL`.
+Archivos: `V20__voz_desde_sala_privada.sql`, `Eventos.java`, `VozDiscordService.java`, `VozListener.java`, `SocketHandler.java`, `AuthService.java`, `RutasAuth.java`, `ChatbotService.java`, `VozDiscordServiceTest.java`, `RenderAcceptanceCheck.java`, `App.jsx`, `Auth.jsx`, `Auth.css`, `Faq.jsx`, `Faq.css`, `faq.js`, `Match.jsx`, `Match.css`, `Chat.css`, `VozDiscord.jsx`, `acceptance.test.js`, `ARCHITECTURE.md`, `GUIA_PRUEBAS_Y_VARIABLES.md`
+
 ## 2026-10-23 — Responder correctamente cuando el retiro supera el saldo (GPT-6)
 - Los retiros con saldo insuficiente ahora devuelven HTTP 400; los errores internos al registrar el retiro se reportan como HTTP 500.
 - La prueba de aceptación indica explícitamente por qué se espera el 400 y sigue comprobando que el saldo no cambie si el retiro se rechaza.

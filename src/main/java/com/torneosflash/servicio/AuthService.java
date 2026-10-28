@@ -130,7 +130,7 @@ public class AuthService {
         // S5 (XSS): el username se muestra en chat, rankings y paneles de admin
         if (!ChatSanitizer.esNombreUsuarioSeguro(username)) {
             throw ServicioException.solicitudInvalida(
-                    "El nombre de usuario debe tener entre 3 y 30 caracteres y no puede incluir < > \" ' & ` ni caracteres de control");
+                    "El usuario debe tener entre 3 y 30 caracteres sin símbolos especiales (< > \" ' & `)");
         }
 
         try {
@@ -292,11 +292,11 @@ public class AuthService {
     private static void validarPasswordNueva(String password) {
         if (password == null || password.length() < 6 || password.length() > PASSWORD_MAX_CARACTERES) {
             throw ServicioException.solicitudInvalida(
-                    "La contraseña debe tener entre 6 y 128 caracteres y ocupar como máximo 72 bytes UTF-8");
+                    "La contraseña debe tener al menos 6 caracteres");
         }
         if (bytesUtf8(password) > PASSWORD_MAX_BYTES_BCRYPT) {
             throw ServicioException.solicitudInvalida(
-                    "La contraseña puede ocupar como máximo 72 bytes UTF-8 para ser compatible con BCrypt");
+                    "La contraseña es demasiado larga. Usa una más corta");
         }
     }
 
@@ -328,15 +328,15 @@ public class AuthService {
     public JsonObject usernameDisponible(String username) {
         String normalizado = username == null ? "" : username.trim();
         boolean formatoValido = ChatSanitizer.esNombreUsuarioSeguro(normalizado);
-        return resultadoValidacion(formatoValido, "Formato válido. Confirmaremos los datos al enviar el registro.",
-                "El formato del nombre no es válido");
+        return resultadoValidacion(formatoValido, "✓ Formato válido",
+                "Usa entre 3 y 30 caracteres sin símbolos especiales");
     }
 
     public JsonObject emailDisponible(String email) {
         String normalizado = email == null ? "" : email.trim().toLowerCase();
         boolean formatoValido = normalizado.length() <= 120 && EMAIL_VALIDO.matcher(normalizado).matches();
-        return resultadoValidacion(formatoValido, "Formato válido. Confirmaremos los datos al enviar el registro.",
-                "El formato del correo no es válido");
+        return resultadoValidacion(formatoValido, "✓ Correo válido",
+                "Ingresa un correo válido");
     }
 
     private static JsonObject resultadoValidacion(boolean valido, String msgSi, String msgNo) {

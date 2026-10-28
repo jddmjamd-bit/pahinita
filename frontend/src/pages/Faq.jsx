@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useAppStore } from '../store/useAppStore';
 import { CATEGORIAS, PREGUNTAS } from '../data/faq';
 import './Faq.css';
+
+const RUTAS_SIN_SESION = new Set(['/auth', '/terminos', '/privacidad', '/faq']);
 
 // Minúsculas y sin tildes, para que "recargar" encuentre "Recárgar" y "sesion" encuentre "sesión".
 const normalizar = (t) => String(t ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -49,7 +52,9 @@ function VideoPregunta({ video }) {
 }
 
 export default function Faq() {
-    const { hash } = useLocation();
+    const { hash, state } = useLocation();
+    const user = useAppStore(s => s.user);
+    const modoAuthRetorno = state?.modo === 'login' ? 'login' : 'registro';
     const [busqueda, setBusqueda] = useState('');
     const [categoria, setCategoria] = useState('todas');
     const [soloVideo, setSoloVideo] = useState(false);
@@ -113,7 +118,18 @@ export default function Faq() {
     };
 
     return (
-        <div className="faq-container">
+        <div className={`faq-container ${!user ? 'faq-publica' : ''}`}>
+            {!user && (
+                <nav className="faq-public-nav" aria-label="Navegación pública">
+                    <Link to="/auth" state={{ modo: modoAuthRetorno }}>
+                        ← {modoAuthRetorno === 'login' ? 'Volver a iniciar sesión' : 'Volver al registro'}
+                    </Link>
+                    <div className="faq-public-links">
+                        <Link to="/terminos">Términos de Servicio</Link>
+                        <Link to="/privacidad">Política de Privacidad</Link>
+                    </div>
+                </nav>
+            )}
             <header className="faq-header">
                 <h2>❓ Preguntas frecuentes y ayuda</h2>
                 <p>Aquí encuentras cómo hacer cada cosa en la plataforma. Las preguntas con 🎬 incluyen un video para que lo veas paso a paso.</p>
@@ -173,7 +189,11 @@ export default function Faq() {
                     <p>Prueba con otras palabras, o pregúntale directamente al Asistente.</p>
                     <div className="faq-vacio-acciones">
                         {hayFiltros && <button type="button" className="faq-btn-sec" onClick={limpiarFiltros}>Quitar filtros</button>}
-                        <Link to="/chatbot" className="faq-btn-link">🤖 Preguntar al Asistente</Link>
+                        {user ? (
+                            <Link to="/chatbot" className="faq-btn-link">🤖 Preguntar al Asistente</Link>
+                        ) : (
+                            <Link to="/auth" state={{ modo: modoAuthRetorno }} className="faq-btn-link">Crear cuenta o iniciar sesión</Link>
+                        )}
                     </div>
                 </div>
             ) : (
@@ -215,7 +235,13 @@ export default function Faq() {
                                         )}
                                         {p.video && <VideoPregunta video={p.video} />}
                                         {p.enlace && (
-                                            <Link to={p.enlace.to} className="faq-btn-link">{p.enlace.texto} →</Link>
+                                            user || RUTAS_SIN_SESION.has(p.enlace.to) ? (
+                                                <Link to={p.enlace.to} className="faq-btn-link">{p.enlace.texto} →</Link>
+                                            ) : (
+                                                <Link to="/auth" state={{ modo: 'login' }} className="faq-btn-link">
+                                                    Inicia sesión para {p.enlace.texto.toLowerCase()} →
+                                                </Link>
+                                            )
                                         )}
                                     </div>
                                 )}
@@ -226,7 +252,12 @@ export default function Faq() {
             )}
 
             <footer className="faq-pie">
-                ¿No encontraste lo que buscabas? <Link to="/chatbot">Pregúntale al Asistente</Link> · <Link to="/terminos">Términos de Servicio</Link> · <Link to="/privacidad">Política de Privacidad</Link>
+                {user ? (
+                    <>¿No encontraste lo que buscabas? <Link to="/chatbot">Pregúntale al Asistente</Link> · </>
+                ) : (
+                    <>¿Ya resolviste tu duda? <Link to="/auth" state={{ modo: modoAuthRetorno }}>Crear cuenta o iniciar sesión</Link> · </>
+                )}
+                <Link to="/terminos">Términos de Servicio</Link> · <Link to="/privacidad">Política de Privacidad</Link>
             </footer>
         </div>
     );

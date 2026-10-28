@@ -43,6 +43,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -903,6 +904,95 @@ class RenderAcceptanceCheck {
                 ps.execute();
             }
         }
+    }
+
+    @Test
+    void vozDiscordAbreCanalEnSalaPrivadaLoReutilizaAlIniciarPartidaYLoCierraAlFinalizarOCancelar() {
+        int u1 = crearUsuario("qa_voz1_" + UUID.randomUUID().toString().replace("-", "").substring(0, 6),
+                "user", new BigDecimal("5000"));
+        int u2 = crearUsuario("qa_voz2_" + UUID.randomUUID().toString().replace("-", "").substring(0, 6),
+                "user", new BigDecimal("5000"));
+        String u1Nombre = dao.queryOne("SELECT username FROM users WHERE id = ?", u1).get("username").getAsString();
+        String u2Nombre = dao.queryOne("SELECT username FROM users WHERE id = ?", u2).get("username").getAsString();
+
+        dao.update("INSERT INTO discord_links (user_id, discord_id, discord_username) VALUES (?, ?, ?), (?, ?, ?)",
+                u1, "dc_u1_" + u1, "voz_uno", u2, "dc_u2_" + u2, "voz_dos");
+
+        AppConfig discordCfg = new AppConfig(Map.of(
+                "DISCORD_CLIENT_ID", "100000000000000001",
+                "DISCORD_CLIENT_SECRET", "secreto-prueba-discord",
+                "DISCORD_BOT_TOKEN", "bot-token-ficticio",
+                "DISCORD_GUILD_ID", "200000000000000002",
+                "JWT_SECRET", CLAVE));
+        AtomicInteger secuenciaCanales = new AtomicInteger(5000);
+        ArrayList<String> borrados = new ArrayList<>();
+        DiscordApiCliente discordFalso = new DiscordApiCliente(discordCfg) {
+            @Override
+            public boolean esMiembro(String discordId) {
+                return true;
+            }
+
+            @Override
+            public String crearCanalDeVoz(String nombre) {
+                return "ch_" + secuenciaCanales.incrementAndGet();
+            }
+
+            @Override
+            public void concederAcceso(String canalId, String discordId) {
+                // Sin red externa en aceptación
+            }
+
+            @Override
+            public void borrarCanal(String canalId) {
+                borrados.add(canalId);
+            }
+        };
+        VozDiscordService voz = new VozDiscordService(dao, discordFalso, discordCfg);
+
+        // 1. Sala privada activa (antes de empezar la partida): ambos entran al mismo canal y al iniciar se reutiliza
+        String salaActiva = "sala_voz_activa_" + u1;
+        dao.update("INSERT INTO active_matches (sala_id, player1_id, player1_username, player2_id, player2_username) "
+                + "VALUES (?, ?, ?, ?, ?)", salaActiva, u1, u1Nombre, u2, u2Nombre);
+
+        JsonObject respSalaU1 = voz.miCanal(u1);
+        assertEquals("listo", respSalaU1.get("estado").getAsString());
+        String urlSala = respSalaU1.get("url").getAsString();
+        assertTrue(urlSala.startsWith("https://discord.com/channels/200000000000000002/ch_"));
+        assertEquals(urlSala, voz.miCanal(u2).get("url").getAsString(),
+                "Ambos jugadores de la sala privada deben compartir el mismo canal de voz.");
+
+        int matchId = dao.insertReturningId(
+                "INSERT INTO matches (jugador1, jugador2, monto, modo, estado, sala_id) "
+                        + "VALUES (?, ?, 1000, 'Elección', 'en_curso', ?) RETURNING id",
+                u1Nombre, u2Nombre, salaActiva);
+        dao.update("UPDATE active_matches SET iniciado = TRUE, match_db_id = ? WHERE sala_id = ?", matchId, salaActiva);
+
+        voz.prepararCanal(matchId, List.of(u1, u2));
+        assertEquals(urlSala, voz.miCanal(u1).get("url").getAsString(),
+                "Al comenzar la partida debe reutilizarse el mismo canal creado en el chat privado.");
+        assertEquals(matchId, dao.queryOne("SELECT match_id FROM voice_channels WHERE sala_id = ?", salaActiva)
+                .get("match_id").getAsInt());
+
+        dao.update("UPDATE matches SET estado = 'finalizada' WHERE id = ?", matchId);
+        dao.update("DELETE FROM active_matches WHERE sala_id = ?", salaActiva);
+        voz.cerrarCanal(matchId);
+        assertEquals("cerrado", dao.queryOne("SELECT estado FROM voice_channels WHERE match_id = ?", matchId)
+                .get("estado").getAsString());
+        assertEquals(1, borrados.size());
+
+        // 2. Sala privada cancelada en negociación (nunca llegó a iniciar partida): su canal se borra al cancelar
+        String salaCancelada = "sala_voz_cancel_" + u1;
+        dao.update("INSERT INTO active_matches (sala_id, player1_id, player1_username, player2_id, player2_username) "
+                + "VALUES (?, ?, ?, ?, ?)", salaCancelada, u1, u1Nombre, u2, u2Nombre);
+        voz.prepararCanalSala(salaCancelada, List.of(u1, u2));
+        assertEquals("activo", dao.queryOne("SELECT estado FROM voice_channels WHERE sala_id = ?", salaCancelada)
+                .get("estado").getAsString());
+
+        dao.update("DELETE FROM active_matches WHERE sala_id = ?", salaCancelada);
+        voz.cerrarCanalDeSala(salaCancelada);
+        assertEquals("cerrado", dao.queryOne("SELECT estado FROM voice_channels WHERE sala_id = ?", salaCancelada)
+                .get("estado").getAsString());
+        assertEquals(2, borrados.size());
     }
 
     private static String tagPruebaUnico() {

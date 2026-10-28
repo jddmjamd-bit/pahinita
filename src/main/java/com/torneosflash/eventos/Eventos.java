@@ -250,9 +250,37 @@ public final class Eventos {
     // ═════════════════════════════════════════════
 
     /**
+     * Se creó una sala privada al emparejar a dos jugadores (antes de comenzar la partida).
+     * Datos: {@link SalaPartidaCreada}. Lo emite {@code SocketHandler} justo después de avisar
+     * {@code partida_encontrada}; {@code VozListener} prepara el canal de voz de Discord si algún jugador vinculó su
+     * cuenta para que puedan hablar también durante el chat privado de negociación.
+     */
+    public static final String MATCH_ROOM_CREATED = "match.room_created";
+
+    /**
+     * Datos de {@link #MATCH_ROOM_CREATED}.
+     *
+     * @param salaId        identificador de la sala en {@code active_matches}
+     * @param participantes ids de los dos jugadores. Lista inmutable
+     */
+    public record SalaPartidaCreada(String salaId, List<Integer> participantes) {
+        public SalaPartidaCreada {
+            participantes = List.copyOf(participantes);
+        }
+    }
+
+    /**
+     * Una sala privada se canceló antes de comenzar la partida (botón salir o abandono en negociación).
+     * Datos: {@link SalaPartidaCancelada}. {@code VozListener} cierra el canal de voz si se había creado.
+     */
+    public static final String MATCH_ROOM_CANCELLED = "match.room_cancelled";
+
+    public record SalaPartidaCancelada(String salaId) {}
+
+    /**
      * Una partida empezó: los dos jugadores aceptaron, ya se cobró el monto y la fila de {@code matches} existe.
      * Datos: {@link PartidaIniciada}. Lo emite {@code SocketHandler} justo después de avisar {@code juego_iniciado};
-     * el listener {@code VozListener} prepara el canal de voz de Discord si algún jugador vinculó su cuenta.
+     * el listener {@code VozListener} reutiliza el canal de voz de la sala privada o lo prepara si aún no existía.
      * El canal se borra con {@link #MATCH_FINISHED} (o, si la partida termina en disputa o se alarga, con la limpieza
      * periódica de {@code VozDiscordService}).
      */

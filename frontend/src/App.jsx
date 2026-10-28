@@ -17,7 +17,7 @@ const Soporte = lazy(() => import('./pages/Soporte'))
 const Legal = lazy(() => import('./pages/Legal'))
 const Faq = lazy(() => import('./pages/Faq'))
 
-const RUTAS_PUBLICAS = ['/auth', '/terminos', '/privacidad'];
+const RUTAS_PUBLICAS = ['/auth', '/terminos', '/privacidad', '/faq'];
 
 function App() {
   const theme = useAppStore(state => state.theme);
@@ -76,6 +76,7 @@ function App() {
           <Route path="/auth" element={<Auth />} />
           <Route path="/terminos" element={<Legal tipo="terminos" />} />
           <Route path="/privacidad" element={<Legal tipo="privacidad" />} />
+          {!user && <Route path="/faq" element={<Faq />} />}
           <Route path="/" element={<Lobby />}>
             <Route index element={<Navigate to="/chat" replace />} />
             <Route path="chat" element={<Chat />} />

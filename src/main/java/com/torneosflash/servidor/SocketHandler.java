@@ -1146,6 +1146,7 @@ public class SocketHandler {
                 }
                 eliminarMatchDeBD(salaId);
                 activeMatches.remove(salaId, match);
+                eventos.emit(Eventos.MATCH_ROOM_CANCELLED, new Eventos.SalaPartidaCancelada(salaId));
             }
         }, esperaSegundos, TimeUnit.SECONDS);
         match.disconnectTimers.put(userId, timer);
@@ -1357,6 +1358,7 @@ public class SocketHandler {
 
                 meSocket.emit("partida_encontrada", matchData);
                 if (rivalConectado) rivalSocket.emit("partida_encontrada", matchData);
+                eventos.emit(Eventos.MATCH_ROOM_CREATED, new Eventos.SalaPartidaCreada(salaId, List.of(myId, rival.userId)));
 
                 // Push: notificar a ambos que se encontró partida
                 pushService.enviarPush(db, myId, "🎮 ¡Rival encontrado!", "Se encontró partida contra " + rival.username);
@@ -1592,6 +1594,7 @@ public class SocketHandler {
             }
             eliminarMatchDeBD(salaId);
             activeMatches.remove(salaId, match);
+            eventos.emit(Eventos.MATCH_ROOM_CANCELLED, new Eventos.SalaPartidaCancelada(salaId));
             emitirCancelacionCompletada(socket, "cancelar_match");
         }
     }

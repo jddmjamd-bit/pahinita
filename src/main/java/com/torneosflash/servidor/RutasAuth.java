@@ -41,7 +41,7 @@ public class RutasAuth {
             // La respuesta es idéntica si se creó la cuenta o si algún dato ya está en uso.
             // El registro no inicia sesión; el usuario debe usar el formulario de login.
             ctx.status(200).json(successJson(
-                    "Solicitud recibida. Si los datos permiten crear una cuenta, podrás iniciar sesión. Las cuentas nuevas quedan pendientes de verificación manual y no podrán retirar hasta que se confirme el Player Tag.", 0));
+                    "Solicitud recibida. Si tus datos son válidos ya puedes iniciar sesión; los retiros se habilitan tras verificar tu cuenta.", 0));
         });
 
         // POST /api/login

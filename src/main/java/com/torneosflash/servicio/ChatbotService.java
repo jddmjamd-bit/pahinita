@@ -85,10 +85,11 @@ public class ChatbotService {
 
     /** Temas que la IA puede preguntarle al admin para aprender la plataforma. */
     private static final List<String> TEMAS = List.of(
-            "registro de la cuenta y verificación del tag de Clash Royale",
+            "registro de la cuenta, Player Tag y token de API de Clash Royale",
             "recargas (Nequi manual, tarjeta/PSE con Wompi): tiempos, montos mínimos y máximos, costos",
             "retiros: montos, tiempos y requisitos",
             "cómo funciona un torneo 1 contra 1 (montos permitidos, buscar rival, negociar el monto)",
+            "chat privado de la sala y canal de voz opcional con Discord (antes y durante la partida)",
             "cómo se decide el ganador y qué pasa si el resultado no aparece o hay una disputa",
             "la comisión de la plataforma y cuánto recibe el ganador",
             "faltas, abandonos, desconexiones y sanciones",
@@ -113,7 +114,8 @@ public class ChatbotService {
             "¿Qué son las faltas y qué sanciones tienen?",
             "¿Cómo funcionan los sorteos y cómo gano tickets?",
             "¿Cómo funciona el ranking y qué premios da?",
-            "¿Cómo registro mi cuenta y para qué sirve el tag de Clash Royale?",
+            "¿Dónde encuentro mi Player Tag y mi token de API de Clash Royale y para qué sirve cada uno en el registro?",
+            "¿Cómo funciona el canal de voz de Discord desde el chat privado y durante la partida?",
             "¿Cómo puedo contactar al administrador si tengo un problema con un pago?",
             "¿Qué canales tiene el chat y para qué sirve cada uno?",
             "¿Es seguro mi saldo y qué hago si creo que alguien entró a mi cuenta?");
