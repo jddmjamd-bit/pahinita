@@ -26,6 +26,22 @@ public final class Eventos {
     public record PasswordResetCompletado(int userId) {}
 
     /**
+     * Se creó una cuenta nueva en la BD.
+     * Datos: {@link UsuarioRegistrado}. Nunca lleva email, teléfono ni secretos (S6, A4);
+     * {@code CuentaRegistradaListener} consulta la BD para avisar al usuario y al administrador.
+     */
+    public static final String USER_REGISTERED = "user.registered";
+
+    /**
+     * Datos de {@link #USER_REGISTERED}.
+     *
+     * @param userId      id de la cuenta creada en {@code users}
+     * @param username    nombre de usuario registrado
+     * @param nombreClash nombre público del perfil en Clash Royale (puede ser vacío)
+     */
+    public record UsuarioRegistrado(int userId, String username, String nombreClash) {}
+
+    /**
      * Una partida terminó y ya se liquidó (el dinero ya se movió y el match quedó {@code finalizada} en la BD).
      * Datos: {@link PartidaFinalizada}. Lo emiten {@code SocketHandler} (resultado automático por la API de Clash)
      * y {@code AdminService.resolverDisputa} (resultado decidido por un admin).
@@ -297,4 +313,12 @@ public final class Eventos {
             participantes = List.copyOf(participantes);
         }
     }
+
+    /**
+     * Un jugador pidió abrir o vincular Discord mientras está en una sala privada de negociación.
+     * Datos: {@link AperturaDiscordSala}. {@code TemporizadorSalaService} activa su exención única de desconexión.
+     */
+    public static final String VOICE_DISCORD_OPENED = "voice.discord_opened";
+
+    public record AperturaDiscordSala(int userId, String salaId) {}
 }

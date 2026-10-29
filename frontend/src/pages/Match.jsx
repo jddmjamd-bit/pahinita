@@ -1,10 +1,28 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { API_BASE_URL } from '../store/llamarApi';
+import { llamarApi } from '../store/llamarApi';
 import './Match.css';
 import VozDiscord from '../components/VozDiscord';
 
 const URL_SEGURA_REGEX = /(https?:\/\/[^\s]+)/g;
+
+const formatearRelojIndividual = (ms) => {
+    const totalSeg = Math.max(0, Math.ceil((Number(ms) || 0) / 1000));
+    const min = Math.floor(totalSeg / 60);
+    const seg = totalSeg % 60;
+    return `${min}:${String(seg).padStart(2, '0')}`;
+};
+
+const leerMsReloj = (valor, respaldo) => {
+    const n = Number(valor);
+    return Number.isFinite(n) ? n : respaldo;
+};
+
+const claseUrgenciaReloj = (ms) => {
+    if (ms <= 15000) return 'reloj-peligro';
+    if (ms <= 35000) return 'reloj-alerta';
+    return '';
+};
 
 const renderTextoPrivado = (texto) => {
     const partes = String(texto ?? '').split(URL_SEGURA_REGEX);
@@ -48,7 +66,7 @@ export default function Match() {
     const [apiStatusText, setApiStatusText] = useState('Buscando resultado en Clash Royale...');
     const [apiResult, setApiResult] = useState(() => useAppStore.getState().matchState.resultado || null); // { esGanador, premio, ganador, mensaje } o { disputa: true, mensaje }
     const [flujoCompletado, setFlujoCompletado] = useState(() => useAppStore.getState().matchState.status === 'finished');
-    const [rivalDesconectadoMsg, setRivalDesconectadoMsg] = useState('');
+    const [ahoraMs, setAhoraMs] = useState(() => Date.now());
 
     const currentUser = useAppStore(state => state.user);
     const socket = useAppStore(state => state.socket);
@@ -71,7 +89,6 @@ export default function Match() {
         setWinText('Ganancia: $0');
         setBtnState({ text: '🎮 COMENZAR', disabled: true, cssClass: '' });
         setShowConfirmModal(false);
-        setRivalDesconectadoMsg('');
     }, [clearMatchState]);
 
     const chatEndRef = useRef(null);
@@ -94,17 +111,20 @@ export default function Match() {
         if (matchState.monto !== undefined) setMonto(matchState.monto || '');
         if (matchState.resultado !== undefined) setApiResult(matchState.resultado || null);
         if (matchState.status === 'playing') setFlujoCompletado(false);
-
-        const desconexion = matchState.rivalDesconectado;
-        if (!desconexion) {
-            setRivalDesconectadoMsg('');
-        } else if (desconexion.tiempo === 'indefinido') {
-            setRivalDesconectadoMsg('⚠️ Rival desconectado. Esperando resultado de la API...');
-        } else {
-            setRivalDesconectadoMsg(`⚠️ Rival desconectado. Tiene ${desconexion.tiempo || 90}s para reconectarse.`);
-        }
     }, [matchState.inMatch, matchState.status, matchState.rival, matchState.maxMonto,
-        matchState.gameMode, matchState.monto, matchState.resultado, matchState.rivalDesconectado]);
+        matchState.gameMode, matchState.monto, matchState.resultado]);
+
+    useEffect(() => {
+        const hayRelojEnVivo = Boolean(
+            matchState.inMatch && view === 'private' && (
+                matchState.timerNegociacion?.activo ||
+                (matchState.rivalDesconectado && matchState.rivalDesconectado.tiempo !== 'indefinido')
+            )
+        );
+        if (!hayRelojEnVivo) return undefined;
+        const tick = setInterval(() => setAhoraMs(Date.now()), 250);
+        return () => clearInterval(tick);
+    }, [matchState.inMatch, view, matchState.timerNegociacion?.activo, matchState.rivalDesconectado]);
 
     useEffect(() => {
         // Auto-scroll chat
@@ -135,10 +155,11 @@ export default function Match() {
                 rival,
                 maxMonto: data.maxMonto || 10000,
                 status: 'negotiating',
-                    resultado: null,
-                    gameMode: '',
-                    monto: '',
-                    rivalDesconectado: null
+                resultado: null,
+                gameMode: '',
+                monto: '',
+                rivalDesconectado: null,
+                timerNegociacion: null
             });
         };
 
@@ -170,6 +191,7 @@ export default function Match() {
         };
 
         const onRivalCanceloInicio = () => {
+            setShowConfirmModal(false);
             setBtnState({ text: '🎮 COMENZAR', disabled: false, cssClass: 'enabled' });
         };
 
@@ -184,7 +206,7 @@ export default function Match() {
             setShowConfirmModal(false);
             setView('game_result');
             setApiStatusText('Buscando resultado en Clash Royale...');
-            setMatchState({ inMatch: true, status: 'playing' });
+            setMatchState({ inMatch: true, status: 'playing', rivalDesconectado: null, timerNegociacion: null });
         };
 
         const onResultadoApi = (data) => {
@@ -210,15 +232,36 @@ export default function Match() {
             if (data.lastModo) setGameMode(data.lastModo);
             if (data.lastDinero) setMonto(data.lastDinero);
             if (data.historial && Array.isArray(data.historial)) setChatMessages(data.historial);
+            const desconexionPrev = data.rivalDesconectado ? useAppStore.getState().matchState.rivalDesconectado : null;
             if (data.iniciado) {
                 setView('game_result');
                 setApiResult(null);
                 setFlujoCompletado(false);
-                setMatchState({ inMatch: true, salaId: data.salaId, rival: data.rival || null, maxMonto: data.maxMonto || 10000, status: 'playing', resultado: null });
+                setMatchState({
+                    inMatch: true,
+                    salaId: data.salaId,
+                    rival: data.rival || null,
+                    maxMonto: data.maxMonto || 10000,
+                    status: 'playing',
+                    resultado: null,
+                    rivalDesconectado: desconexionPrev,
+                    timerNegociacion: null
+                });
             } else {
                 setView('private');
-                setMatchState({ inMatch: true, salaId: data.salaId, rival: data.rival || null, maxMonto: data.maxMonto || 10000,
-                    status: 'negotiating', gameMode: data.lastModo || '', monto: data.lastDinero || '' });
+                setMatchState({
+                    inMatch: true,
+                    salaId: data.salaId,
+                    rival: data.rival || null,
+                    maxMonto: data.maxMonto || 10000,
+                    status: 'negotiating',
+                    gameMode: data.lastModo || '',
+                    monto: data.lastDinero || '',
+                    rivalDesconectado: desconexionPrev,
+                    timerNegociacion: data.timerNegociacion
+                        ? { ...data.timerNegociacion, recibidoEn: Date.now() }
+                        : null
+                });
             }
         };
 
@@ -228,8 +271,8 @@ export default function Match() {
         };
 
         const onErrorSocket = (data) => {
-            if (!data || !['cancelar_busqueda', 'cancelar_inicio', 'cancelar_match'].includes(data.evento)) return;
-            alert(data.mensaje || 'No se pudo completar la cancelación. Inténtalo de nuevo.');
+            if (!data || !['cancelar_busqueda', 'cancelar_inicio', 'cancelar_match', 'activar_timer_negociacion'].includes(data.evento)) return;
+            alert(data.mensaje || 'No se pudo completar la operación. Inténtalo de nuevo.');
             if (data.evento === 'cancelar_busqueda') setMatchState({ status: 'searching' });
         };
         const onCancelacionCompletada = (data) => {
@@ -264,17 +307,12 @@ export default function Match() {
             setMatchState({ status: 'finished', resultado });
         };
         const onRivalDesconectado = (data) => {
-            setMatchState({ rivalDesconectado: data || { tiempo: 90 } });
-            if (data?.tiempo === 'indefinido') {
-                setRivalDesconectadoMsg('⚠️ Rival desconectado. Esperando resultado de la API...');
-            } else {
-                const segs = data?.tiempo || 90;
-                setRivalDesconectadoMsg(`⚠️ Rival desconectado. Tiene ${segs}s para reconectarse.`);
-            }
+            setMatchState({
+                rivalDesconectado: { ...(data || { tiempo: 90 }), recibidoEn: Date.now() }
+            });
         };
         const onRivalReconectado = () => {
             setMatchState({ rivalDesconectado: null });
-            setRivalDesconectadoMsg('');
         };
 
         socket.on('partida_encontrada', onPartidaEncontrada);
@@ -331,14 +369,9 @@ export default function Match() {
     // D4: la comisión la calcula el servidor (ComisionService). El frontend ya no replica la fórmula.
     const actualizarGanancia = async (dinero) => {
         const id = ++simulacionRef.current;
-        try {
-            const res = await fetch(`${API_BASE_URL}/api/comisiones/simular?monto=${dinero}`);
-            const data = await res.json();
-            if (id !== simulacionRef.current) return; // llegó una consulta más nueva
-            setWinText(data.success ? `Si ganas recibes: $${data.premio}` : "Ganancia: $0");
-        } catch (e) {
-            if (id === simulacionRef.current) setWinText("Ganancia: $0");
-        }
+        const { ok, data } = await llamarApi(`/api/comisiones/simular?monto=${encodeURIComponent(dinero)}`);
+        if (id !== simulacionRef.current) return; // llegó una consulta más nueva
+        setWinText(ok && data?.success ? `Si ganas recibes: $${data.premio}` : "Ganancia: $0");
     };
 
     const validarNegociacion = (modo, dineroRaw) => {
@@ -440,6 +473,35 @@ export default function Match() {
         socket.emit('cancelar_match', { motivo: 'Oprimió X' });
     };
 
+    const timerNeg = matchState.timerNegociacion;
+    const timerActivo = Boolean(timerNeg?.activo);
+    const duracionBaseTimerMs = (Number(timerNeg?.duracionSegundos) || 150) * 1000;
+    const transcurridoTimerMs = timerActivo && timerNeg?.recibidoEn ? Math.max(0, ahoraMs - timerNeg.recibidoEn) : 0;
+    const soyJugador1Timer = Number(timerNeg?.p1Id) === Number(currentUser?.id);
+    const miRestanteMs = timerActivo
+        ? Math.max(0, leerMsReloj(soyJugador1Timer ? timerNeg?.p1RestanteMs : timerNeg?.p2RestanteMs, duracionBaseTimerMs) - transcurridoTimerMs)
+        : duracionBaseTimerMs;
+    const rivalRestanteMs = timerActivo
+        ? Math.max(0, leerMsReloj(soyJugador1Timer ? timerNeg?.p2RestanteMs : timerNeg?.p1RestanteMs, duracionBaseTimerMs) - transcurridoTimerMs)
+        : duracionBaseTimerMs;
+
+    const handleActivarTimer = () => {
+        if (!socket || !currentUser || !matchState.salaId || timerActivo) return;
+        socket.emit('activar_timer_negociacion');
+    };
+
+    const desconexionActiva = matchState.rivalDesconectado;
+    const rivalDesconectadoMsg = !desconexionActiva
+        ? ''
+        : desconexionActiva.tiempo === 'indefinido'
+            ? '⚠️ Rival desconectado. Esperando resultado de la API...'
+            : (() => {
+                const baseMs = (Number(desconexionActiva.tiempo) || 90) * 1000;
+                const transcurrido = desconexionActiva.recibidoEn ? Math.max(0, ahoraMs - desconexionActiva.recibidoEn) : 0;
+                const segsRest = Math.max(1, Math.ceil((baseMs - transcurrido) / 1000));
+                return `⚠️ Rival desconectado. Tiene ${segsRest}s para reconectarse.`;
+            })();
+
     // Sin partida en curso: pantalla para buscar rival
     if (!matchState.inMatch) {
         const buscando = matchState.status === 'searching';
@@ -502,6 +564,33 @@ export default function Match() {
                                 </span>
                             )}
                         </div>
+
+                        {!timerActivo ? (
+                            <div className="negotiation-timer-bar">
+                                <span className="negotiation-timer-hint">
+                                    ⏱️ Reloj individual opcional (2:30 por jugador)
+                                </span>
+                                <button type="button" className="timer-toggle-btn" onClick={handleActivarTimer}>
+                                    ⏱️ Activar temporizador (2:30)
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="negotiation-timer-panel">
+                                <div className="timer-panel-caption">
+                                    ⏱️ Temporizador individual activo{timerNeg?.activadoPor ? ` · Activado por ${timerNeg.activadoPor}` : ''} · Tus acciones solo reinician tu reloj
+                                </div>
+                                <div className="timer-clocks-row">
+                                    <div className={`timer-clock-card own ${claseUrgenciaReloj(miRestanteMs)}`}>
+                                        <span className="timer-clock-label">Tu tiempo</span>
+                                        <span className="timer-clock-value">{formatearRelojIndividual(miRestanteMs)}</span>
+                                    </div>
+                                    <div className={`timer-clock-card rival ${claseUrgenciaReloj(rivalRestanteMs)}`}>
+                                        <span className="timer-clock-label">Tiempo de {rivalData?.username || 'Rival'}</span>
+                                        <span className="timer-clock-value">{formatearRelojIndividual(rivalRestanteMs)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         <div className="mini-chat">
                             {chatMessages.length === 0 ? (
@@ -607,6 +696,24 @@ export default function Match() {
                         <div style={{marginTop: 20, display: 'flex', gap: 10, justifyContent: 'center'}}>
                             <button style={{background:'#43b581', padding:'10px 20px', border:'none', color:'white', borderRadius:4}} onClick={handleAcceptMatch}>{confirmBtnText}</button>
                             <button style={{background:'#ed4245', padding:'10px 20px', border:'none', color:'white', borderRadius:4}} onClick={handleRejectMatch}>Rechazar</button>
+                        </div>
+                        <div className="modal-timer-strip">
+                            {!timerActivo ? (
+                                <button type="button" className="timer-toggle-btn" onClick={handleActivarTimer}>
+                                    ⏱️ Activar temporizador (2:30)
+                                </button>
+                            ) : (
+                                <div className="timer-clocks-row">
+                                    <div className={`timer-clock-card own ${claseUrgenciaReloj(miRestanteMs)}`}>
+                                        <span className="timer-clock-label">Tu tiempo</span>
+                                        <span className="timer-clock-value">{formatearRelojIndividual(miRestanteMs)}</span>
+                                    </div>
+                                    <div className={`timer-clock-card rival ${claseUrgenciaReloj(rivalRestanteMs)}`}>
+                                        <span className="timer-clock-label">{rivalData?.username || 'Rival'}</span>
+                                        <span className="timer-clock-value">{formatearRelojIndividual(rivalRestanteMs)}</span>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

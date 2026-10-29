@@ -46,9 +46,11 @@ public class AppConfig {
     private final int socketIoPort;
     private final Set<String> corsAllowedOrigins;
 
-    // --- Temporizadores y límites de partidas/chat (A7). Los usa SocketHandler. ---
+    // --- Temporizadores y límites de partidas/chat (A7). Los usa SocketHandler / TemporizadorSalaService. ---
     private final int busquedaTimeoutMinutos;
+    private final int negociacionGraciaDesconexionSegundos;
     private final int negociacionDesconexionSegundos;
+    private final int negociacionTimerAccionSegundos;
     private final int pollingIntervaloSegundos;
     private final int pollingMaxIntentos;
     private final int chatHistorialLimite;
@@ -170,7 +172,9 @@ public class AppConfig {
         this.corsAllowedOrigins = construirOrigenesCors(this.appBaseUrl, getEnv("CORS_ALLOWED_ORIGINS", ""));
 
         this.busquedaTimeoutMinutos = getEnvEntero("BUSQUEDA_TIMEOUT_MINUTOS", 10, 1, 1440);
+        this.negociacionGraciaDesconexionSegundos = getEnvEntero("NEGOCIACION_GRACIA_DESCONEXION_SEGUNDOS", 30, 1, 600);
         this.negociacionDesconexionSegundos = getEnvEntero("NEGOCIACION_DESCONEXION_SEGUNDOS", 90, 1, 3600);
+        this.negociacionTimerAccionSegundos = getEnvEntero("NEGOCIACION_TIMER_ACCION_SEGUNDOS", 150, 2, 3600);
         // Cada cuántos segundos se consulta la API de Clash Royale para saber el resultado, y cuántas veces como máximo.
         // Tiempo máximo de espera = intervalo x intentos (default 5 s x 120 = 10 min) y luego se crea la disputa.
         this.pollingIntervaloSegundos = getEnvEntero("POLLING_INTERVALO_SEGUNDOS", 5, 2, 60);
@@ -464,7 +468,9 @@ public class AppConfig {
     public int getWsMaxMessageBytes() { return wsMaxMessageBytes; }
     public int getSocketIoPort() { return socketIoPort; }
     public int getBusquedaTimeoutMinutos() { return busquedaTimeoutMinutos; }
+    public int getNegociacionGraciaDesconexionSegundos() { return negociacionGraciaDesconexionSegundos; }
     public int getNegociacionDesconexionSegundos() { return negociacionDesconexionSegundos; }
+    public int getNegociacionTimerAccionSegundos() { return negociacionTimerAccionSegundos; }
     public int getPollingIntervaloSegundos() { return pollingIntervaloSegundos; }
     public int getPollingMaxIntentos() { return pollingMaxIntentos; }
     public int getChatHistorialLimite() { return chatHistorialLimite; }

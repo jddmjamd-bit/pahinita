@@ -27,7 +27,102 @@
 }
 .icon-btn-danger:hover { background: rgba(239, 68, 68, 0.1); transform: none; box-shadow: none; }
 .private-room-content { padding: 30px; }
-.match-info { text-align: center; margin-bottom: 30px; }
+.match-info { text-align: center; margin-bottom: 18px; }
+.negotiation-timer-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+    margin-bottom: 14px;
+}
+.negotiation-timer-hint {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+.timer-toggle-btn {
+    width: auto;
+    padding: 7px 14px;
+    font-size: 0.84rem;
+    font-weight: 600;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    box-shadow: none;
+    white-space: nowrap;
+}
+.timer-toggle-btn:hover {
+    border-color: var(--accent-primary);
+    color: var(--accent-secondary);
+    transform: none;
+}
+.negotiation-timer-panel {
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    margin-bottom: 14px;
+}
+.timer-panel-caption {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    text-align: center;
+    margin-bottom: 8px;
+}
+.timer-clocks-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+.timer-clock-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: var(--bg-base);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+}
+.timer-clock-card.own {
+    border-color: var(--border-glow);
+}
+.timer-clock-card.reloj-alerta {
+    border-color: var(--accent-warning);
+}
+.timer-clock-card.reloj-peligro {
+    border-color: var(--accent-danger);
+    animation: pulse 1s infinite;
+}
+.timer-clock-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.timer-clock-value {
+    font-size: 1.25rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+}
+.timer-clock-card.reloj-alerta .timer-clock-value {
+    color: var(--accent-warning);
+}
+.timer-clock-card.reloj-peligro .timer-clock-value {
+    color: var(--accent-danger);
+}
+.modal-timer-strip {
+    margin-top: 14px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-color);
+}
 .rival-stats-box {
     display: flex;
     justify-content: center;
@@ -188,5 +283,7 @@
     .match-container { max-height: calc(100vh - 32px); margin: 16px auto; }
     .private-room-content { padding: 18px; }
     .rival-stats-box { gap: 10px; flex-wrap: wrap; }
+    .negotiation-timer-bar { flex-direction: column; align-items: stretch; text-align: center; }
+    .timer-toggle-btn { width: 100%; }
     .inputs-row { flex-direction: column; }
 }

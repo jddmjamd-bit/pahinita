@@ -58,7 +58,7 @@ export const PREGUNTAS = [
         respuesta: [
             'En la pantalla de entrada elige «Crear cuenta» y llena usuario, correo, contraseña, Player Tag, token de API de Clash Royale y celular. Mientras escribes, la página revisa los formatos y consulta si el Player Tag existe.',
             'Genera el token desde los ajustes del juego. Un administrador lo comprobará manualmente con el bot de Discord. Se conserva cifrado mientras la cuenta está pendiente y se elimina al confirmarla. Puedes usar la plataforma mientras esperas, excepto retirar saldo. El celular debe ser tuyo y no estar registrado en otra cuenta; escribirlo con o sin +57 no crea un número distinto.',
-            'También debes aceptar los Términos de Servicio y la Política de Privacidad; sin eso el botón de registro no te deja continuar. Al terminar, vuelves a la pantalla de entrada e inicias sesión con tu correo y contraseña.'
+            'También debes aceptar los Términos de Servicio y la Política de Privacidad; sin eso el botón de registro no te deja continuar. Al crearse la cuenta recibirás un correo confirmando que fue creada, y podrás iniciar sesión con tu correo y contraseña.'
         ],
         video: { titulo: 'Cómo crear tu cuenta paso a paso', youtube: '', archivo: '' }
     },
@@ -267,6 +267,16 @@ export const PREGUNTAS = [
         video: { titulo: 'Cómo acordar modo y monto con tu rival', youtube: '', archivo: '' }
     },
     {
+        id: 'temporizador-sala',
+        categoria: 'partidas',
+        pregunta: '¿Cómo funciona el temporizador opcional de 2:30 en la sala privada?',
+        respuesta: [
+            'En cualquier momento de la negociación, cualquiera de los dos jugadores puede pulsar «⏱️ Activar temporizador (2:30)». Funciona con relojes individuales al estilo Pokémon Showdown: cada jugador tiene sus propios 2 minutos y 30 segundos.',
+            'Tu reloj de 2:30 se reinicia cada vez que realizas una acción en la sala (enviar un mensaje en el chat privado, cambiar el modo o el monto, o pulsar Comenzar / Aceptar). Tus acciones nunca aumentan ni reinician el tiempo de tu rival.',
+            'Si el reloj individual de un jugador llega a 0:00 sin que actúe, la sala se cancela por inactividad y cuenta como una salida de sala para ese jugador.'
+        ]
+    },
+    {
         id: 'montos-partida',
         categoria: 'partidas',
         pregunta: '¿Cuánto dinero puedo poner en una partida?',
@@ -324,7 +334,8 @@ export const PREGUNTAS = [
         categoria: 'partidas',
         pregunta: 'Se me cerró la página o me desconecté en plena partida',
         respuesta: [
-            'No pierdes la sala. Vuelve a entrar con tu cuenta y la plataforma te devuelve a la partida donde ibas, con el chat y el estado en que estaba.',
+            'No pierdes la sala. Vuelve a entrar con tu cuenta y la plataforma te devuelve a la partida donde ibas, con el chat, los relojes y el estado en que estaba.',
+            'En la sala privada tienes una gracia de 30 segundos antes de que empiece a contar el tiempo de desconexión. Además, la primera vez que entras o vinculas Discord desde esa sala (por ejemplo en el celular) no cuenta tiempo de desconexión; si te desconectas una segunda vez en la misma sala, sí empieza a contar tras los 30 segundos de gracia.',
             'Ojo: abrir tu cuenta en otro dispositivo o pestaña cierra la sesión anterior.'
         ]
     },
@@ -386,7 +397,7 @@ export const PREGUNTAS = [
         categoria: 'sorteos',
         pregunta: 'Gané un sorteo, ¿cómo recibo el premio?',
         respuesta: [
-            'El administrador te contacta al número de WhatsApp que pusiste al registrarte, por eso es importante que ese número sea correcto y que lo tengas activo.',
+            'Al salir elegido recibes un correo electrónico de aviso en el correo de tu cuenta, además de la notificación en la plataforma. El administrador también te contacta al número de WhatsApp que pusiste al registrarte para entregarte el premio.',
             'El sorteo completado queda a la vista un rato mostrando quién fue el ganador.'
         ]
     },
@@ -472,7 +483,7 @@ export const PREGUNTAS = [
         pregunta: '¿Puedo hablar por voz con mi rival? ¿Necesito una cuenta de Discord?',
         respuesta: [
             'Sí, el chat de voz es opcional y funciona con Discord. Para usarlo necesitas una cuenta de Discord (es gratis); si no tienes o no quieres usarla, puedes jugar igual sin voz.',
-            'Vincula tu cuenta una sola vez desde la pantalla de partidas con el botón «Vincular Discord»: Discord te pide autorizar y te devuelve a la plataforma. Apenas entres a la sala privada con tu rival —y también cuando empiece la partida— tendrás el botón «🎧 Abrir chat de voz», que abre el mismo canal privado solo para ustedes dos. El canal se cierra automáticamente si la sala se cancela o cuando la partida termina.',
+            'Vincula tu cuenta una sola vez desde la pantalla de partidas con el botón «Vincular Discord»: Discord te pide autorizar y te devuelve a la plataforma. Apenas entres a la sala privada con tu rival —y también cuando empiece la partida— tendrás el botón «🎧 Abrir chat de voz», que abre el mismo canal privado solo para ustedes dos. En el celular, la primera vez que abras Discord desde la sala privada no te contará tiempo de desconexión; una segunda desconexión sí contará tras los 30 segundos de gracia. El canal se cierra automáticamente si la sala se cancela o cuando la partida termina.',
             'Tu rival no ve tu usuario de Discord, y una misma cuenta de Discord solo puede estar vinculada a un usuario de la plataforma. Puedes desvincularla cuando quieras.'
         ]
     },

@@ -49,6 +49,8 @@ import com.torneosflash.servicio.DiscordApiCliente;
 import com.torneosflash.servicio.VozDiscordService;
 import com.torneosflash.servicio.VozListener;
 import com.torneosflash.servicio.RecuperacionPasswordListener;
+import com.torneosflash.servicio.CuentaRegistradaListener;
+import com.torneosflash.servicio.TemporizadorSalaService;
 
 /**
  * Punto de entrada principal de Torneos Flash.
@@ -294,6 +296,7 @@ public class Main {
         AuthService authService = new AuthService(usuarioDAO, db, clashApi, ejecutores, config, eventBus,
                 cifradoTokenJugador);
         new RecuperacionPasswordListener(correo, socketServer).registrar(eventBus);
+        new CuentaRegistradaListener(correo, db, cifradoTokenJugador, config).registrar(eventBus);
         FinanzasService finanzasService = new FinanzasService(db, config, wallet, validadorMonto, notificador);
         SorteoService sorteoService = new SorteoService(db, socketServer, correo, pushService, validadorMonto);
 
@@ -314,7 +317,7 @@ public class Main {
         // Chat de voz con Discord (roadmap 84): al empezar una partida se prepara el canal de voz y al terminar se borra.
         // Sin las variables DISCORD_* queda desactivado y no hace nada.
         DiscordApiCliente discordApi = new DiscordApiCliente(config);
-        VozDiscordService vozService = new VozDiscordService(db, discordApi, config);
+        VozDiscordService vozService = new VozDiscordService(db, discordApi, config, eventBus);
         new VozListener(vozService, ejecutores).registrar(eventBus);
         AdminService adminService = new AdminService(db, usuarioDAO, wallet, eventBus, notificador, socketServer,
                 cifradoTokenJugador);
@@ -344,8 +347,11 @@ public class Main {
         // ============================================
         // 8. REGISTRAR SOCKET HANDLERS
         // ============================================
+        TemporizadorSalaService temporizadorSala = new TemporizadorSalaService(db, socketServer, config,
+                ejecutores.timers());
+        temporizadorSala.registrar(eventBus);
         SocketHandler socketHandler = new SocketHandler(db, socketServer, clashApi, pushService, wallet, validadorMonto,
-                eventBus, config, ejecutores);
+                eventBus, config, ejecutores, temporizadorSala);
         socketHandler.registrar();
 
         // ============================================

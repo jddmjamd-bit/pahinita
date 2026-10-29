@@ -92,3 +92,14 @@ test('P9: Admin Finanzas muestra la zona combinada de ganancias y el aporte por 
   assert.match(adminCss, /\.admin-earnings-zone\b/)
   assert.match(adminCss, /\.user-contributions-grid\b/)
 })
+
+test('P10: Match usa llamarApi sin fetch suelto, expone el temporizador individual de 2:30 y documenta su uso en FAQ', () => {
+  assert.doesNotMatch(matchJsx, /\bfetch\s*\(/)
+  assert.match(matchJsx, /\bllamarApi\s*\(/)
+  assert.match(matchJsx, /activar_timer_negociacion/)
+  assert.match(matchJsx, /timer-clock-card/)
+  assert.match(store, /newSocket\.on\('timer_negociacion'/)
+  assert.match(matchCss, /\.negotiation-timer-panel\b/)
+  assert.match(matchCss, /\.timer-clock-card\b/)
+  assert.ok(PREGUNTAS.some(p => p.id === 'temporizador-sala'))
+})

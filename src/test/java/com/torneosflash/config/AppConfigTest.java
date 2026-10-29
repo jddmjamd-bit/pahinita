@@ -42,6 +42,8 @@ class AppConfigTest {
 
         assertAll(
                 () -> assertEquals(5000, config.getPort()),
+                () -> assertEquals(30, config.getNegociacionGraciaDesconexionSegundos()),
+                () -> assertEquals(150, config.getNegociacionTimerAccionSegundos()),
                 () -> assertEquals("", config.getDatabaseUrl()),
                 () -> assertEquals("require", config.getDbSslMode()),
                 () -> assertEquals("0.0.0.0", config.getBindHost()),
@@ -92,6 +94,8 @@ class AppConfigTest {
                 Map.entry("CORS_ALLOWED_ORIGINS", "https://one.example.test/, https://two.example.test"),
                 Map.entry("BUSQUEDA_TIMEOUT_MINUTOS", "1"),
                 Map.entry("NEGOCIACION_DESCONEXION_SEGUNDOS", "3600"),
+                Map.entry("NEGOCIACION_GRACIA_DESCONEXION_SEGUNDOS", "45"),
+                Map.entry("NEGOCIACION_TIMER_ACCION_SEGUNDOS", "180"),
                 Map.entry("POLLING_INTERVALO_SEGUNDOS", "60"),
                 Map.entry("POLLING_MAX_INTENTOS", "10000"),
                 Map.entry("CHAT_HISTORIAL_LIMITE", "500"),
@@ -182,6 +186,8 @@ class AppConfigTest {
                 () -> assertFalse(config.esOrigenPermitido("https://attacker.example.test")),
                 () -> assertEquals(1, config.getBusquedaTimeoutMinutos()),
                 () -> assertEquals(3600, config.getNegociacionDesconexionSegundos()),
+                () -> assertEquals(45, config.getNegociacionGraciaDesconexionSegundos()),
+                () -> assertEquals(180, config.getNegociacionTimerAccionSegundos()),
                 () -> assertEquals(60, config.getPollingIntervaloSegundos()),
                 () -> assertEquals(10000, config.getPollingMaxIntentos()),
                 () -> assertEquals(500, config.getChatHistorialLimite()),
@@ -266,11 +272,15 @@ class AppConfigTest {
                 Map.entry("MONTO_MIN_DEPOSITO", "9000"),
                 Map.entry("MONTO_MAX_DEPOSITO", "2000"),
                 Map.entry("HTTP_MAX_THREADS", "16"),
-                Map.entry("HTTP_MIN_THREADS", "40")
+                Map.entry("HTTP_MIN_THREADS", "40"),
+                Map.entry("NEGOCIACION_GRACIA_DESCONEXION_SEGUNDOS", "0"),
+                Map.entry("NEGOCIACION_TIMER_ACCION_SEGUNDOS", "1")
         ));
 
         assertAll(
                 () -> assertEquals(5000, config.getPort()),
+                () -> assertEquals(30, config.getNegociacionGraciaDesconexionSegundos()),
+                () -> assertEquals(150, config.getNegociacionTimerAccionSegundos()),
                 () -> assertEquals(30L * 24 * 3600, config.getJwtExpirationSeconds()),
                 () -> assertEquals(1_073_741_824L, config.getDbAdminMaxBackupBytes()),
                 () -> assertTrue(config.isRateLimitEnabled()),

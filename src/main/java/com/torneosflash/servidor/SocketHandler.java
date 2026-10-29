@@ -12,6 +12,7 @@ import com.torneosflash.servicio.ChatSanitizer;
 import com.torneosflash.servicio.ClashApiServicio;
 import com.torneosflash.servicio.NotificacionPushServicio;
 import com.torneosflash.servicio.RateLimiter;
+import com.torneosflash.servicio.TemporizadorSalaService;
 import com.torneosflash.servicio.UsuarioVista;
 import com.torneosflash.servicio.ValidadorMonto;
 import com.torneosflash.servicio.WalletService;
@@ -51,13 +52,20 @@ public class SocketHandler {
     private final AppConfig config; // A7: timeouts y límites configurables por variable de entorno
     private final ScheduledExecutorService scheduler; // A8: temporizadores cortos (Ejecutores.timers()), nunca HTTP externo
     private final Ejecutores ejecutores; // A8: pool de IO para el sondeo de la API de Clash
+    private final TemporizadorSalaService temporizadorSala;
     private final RateLimiter socketRateLimiter = new RateLimiter(); // A3: límite por usuario para eventos de socket
     private final ConcurrentHashMap<String, AtomicLong> ultimoPushChatPorCanal = new ConcurrentHashMap<>();
     private static final int LIMITE_CHAT_SOCKET_POR_MIN = 25;
     private static final int LIMITE_BUSQUEDA_SOCKET_POR_MIN = 6;
+    private static final int LIMITE_TIMER_SOCKET_POR_MIN = 10;
     private final Gson gson = new Gson();
 
     public SocketHandler(GenericDAO db, SocketIOServer io, ClashApiServicio clashApi, NotificacionPushServicio pushService, WalletService wallet, ValidadorMonto validador, EventBus eventos, AppConfig config, Ejecutores ejecutores) {
+        this(db, io, clashApi, pushService, wallet, validador, eventos, config, ejecutores,
+                new TemporizadorSalaService(db, io, config, ejecutores.timers()));
+    }
+
+    public SocketHandler(GenericDAO db, SocketIOServer io, ClashApiServicio clashApi, NotificacionPushServicio pushService, WalletService wallet, ValidadorMonto validador, EventBus eventos, AppConfig config, Ejecutores ejecutores, TemporizadorSalaService temporizadorSala) {
         this.db = db;
         this.io = io;
         this.clashApi = clashApi;
@@ -68,6 +76,7 @@ public class SocketHandler {
         this.config = config;
         this.ejecutores = ejecutores;
         this.scheduler = ejecutores.timers();
+        this.temporizadorSala = temporizadorSala;
     }
 
     /**
@@ -182,33 +191,37 @@ public class SocketHandler {
 
                     if (salaActual != null && activeMatches.containsKey(salaActual)) {
                         ActiveMatch match = activeMatches.get(salaActual);
-                        // Reemplazar primero el socket de este jugador. El evento disconnect del socket
-                        // anterior puede llegar después de esta reconexión.
-                        match.actualizarSocketJugador(userId, client);
-                        // Cancelar timer de desconexión si estaba corriendo
-                        ScheduledFuture<?> timer = match.disconnectTimers.remove(userId);
-                        if (timer != null) {
-                            timer.cancel(false);
-                            match.disconnectDeadlinesMs.remove(userId);
-                            JsonObject reData = new JsonObject();
-                            reData.addProperty("username", username);
-                            client.to(salaActual).emit("rival_reconectado", reData);
-                        }
-                        client.join(salaActual);
-                        client.setCurrentRoom(salaActual);
+                        int rivalId;
+                        boolean rivalDesconectadoEnJuego = false;
+                        Long rivalDesconexionSegs = null;
+                        JsonObject estadoTimerJson = null;
+                        synchronized (match) {
+                            // Reemplazar primero el socket de este jugador y cancelar timers/exención antes de unirse a la sala
+                            match.actualizarSocketJugador(userId, client);
+                            temporizadorSala.alReconectarJugador(salaActual, match, userId, username);
+                            client.join(salaActual);
+                            client.setCurrentRoom(salaActual);
 
-                        // Registrar o actualizar el socket del jugador en el match
-                        int rivalId = match.getRivalId(userId);
-                        if (!match.estaConectado(rivalId)) {
-                            JsonObject disconnData = new JsonObject();
-                            if (match.iniciado) {
-                                disconnData.addProperty("tiempo", "indefinido");
-                            } else {
-                                long venceEn = match.disconnectDeadlinesMs.getOrDefault(
-                                        rivalId, System.currentTimeMillis() + config.getNegociacionDesconexionSegundos() * 1000L);
-                                long segundos = Math.max(1L, (venceEn - System.currentTimeMillis() + 999L) / 1000L);
-                                disconnData.addProperty("tiempo", segundos);
+                            rivalId = match.getRivalId(userId);
+                            if (!match.estaConectado(rivalId)) {
+                                if (match.iniciado) {
+                                    rivalDesconectadoEnJuego = true;
+                                } else {
+                                    rivalDesconexionSegs = temporizadorSala.obtenerSegundosDesconexionRestantes(match, rivalId);
+                                }
                             }
+                            if (!match.iniciado) {
+                                estadoTimerJson = temporizadorSala.construirEstadoTimerJson(salaActual, match, false);
+                            }
+                        }
+
+                        if (rivalDesconectadoEnJuego) {
+                            JsonObject disconnData = new JsonObject();
+                            disconnData.addProperty("tiempo", "indefinido");
+                            client.emit("rival_desconectado", disconnData);
+                        } else if (rivalDesconexionSegs != null) {
+                            JsonObject disconnData = new JsonObject();
+                            disconnData.addProperty("tiempo", rivalDesconexionSegs);
                             client.emit("rival_desconectado", disconnData);
                         }
 
@@ -240,6 +253,8 @@ public class SocketHandler {
                         restoreData.add("historial", gson.toJsonTree(msgs));
                         restoreData.addProperty("lastModo", match.lastModo);
                         restoreData.addProperty("lastDinero", match.lastDinero);
+                        restoreData.addProperty("rivalDesconectado", rivalDesconectadoEnJuego || rivalDesconexionSegs != null);
+                        if (estadoTimerJson != null) restoreData.add("timerNegociacion", estadoTimerJson);
 
                         client.emit("restaurar_partida", restoreData);
                         if (match.inicioRevision) {
@@ -459,8 +474,10 @@ public class SocketHandler {
                                 && match.votosInicio.containsKey(match.player2Id)) return;
 
                         JsonObject d = ((JsonElement) data[0]).getAsJsonObject();
-                        String modo = match.lastModo;
-                        String dinero = match.lastDinero;
+                        String modoPrevio = match.lastModo;
+                        String dineroPrevio = match.lastDinero;
+                        String modo = modoPrevio;
+                        String dinero = dineroPrevio;
                         JsonObject limpio = new JsonObject();
                         limpio.addProperty("salaId", salaId);
                         if (d.has("modo") && !d.get("modo").isJsonNull()) {
@@ -479,9 +496,47 @@ public class SocketHandler {
                         match.lastModo = modo;
                         match.lastDinero = dinero;
                         client.to(salaId).emit("actualizar_negociacion", limpio);
+                        if (!Objects.equals(modoPrevio, modo) || !Objects.equals(dineroPrevio, dinero)) {
+                            temporizadorSala.registrarAccionJugador(salaId, match, myId);
+                        }
                     }
                 } catch (Exception e) {
                     logger.warn("Error procesando negociacion_live ({})", e.getClass().getSimpleName());
+                }
+            });
+
+            // --- ACTIVAR TEMPORIZADOR OPCIONAL DE NEGOCIACIÓN (2:30 INDIVIDUAL) ---
+            socket.on("activar_timer_negociacion", (client, data) -> {
+                String evento = "activar_timer_negociacion";
+                Integer myId = usuarioAutenticado(client, evento);
+                if (myId == null) return;
+                if (!socketRateLimiter.intentar("timer_neg|" + myId, LIMITE_TIMER_SOCKET_POR_MIN).isPermitido()) {
+                    emitirErrorSocket(client, evento, "RATE_LIMIT", "Estás activando el temporizador demasiado rápido.");
+                    return;
+                }
+                try {
+                    String salaId = client.getCurrentRoom();
+                    if (salaId == null) salaId = buscarSalaDeJugador(myId);
+                    ActiveMatch match = salaId != null ? activeMatches.get(salaId) : null;
+                    if (match == null) {
+                        emitirErrorSocket(client, evento, "SALA_NO_ENCONTRADA", "No estás en una sala activa.");
+                        return;
+                    }
+                    JsonObject estado = temporizadorSala.activarTimerAccion(salaId, match, myId);
+                    if (estado == null) {
+                        emitirErrorSocket(client, evento, "NO_DISPONIBLE", "El temporizador solo se puede activar en negociación.");
+                        return;
+                    }
+                    if (estado.has("recienActivado") && estado.get("recienActivado").getAsBoolean()) {
+                        int rivalId = match.getRivalId(myId);
+                        if (rivalId > 0 && !usuarioConectadoEnSala(rivalId, salaId)) {
+                            pushService.enviarPush(db, rivalId, "⏱️ Temporizador activado",
+                                    match.getUsername(myId) + " activó el temporizador de 2:30 en la sala privada");
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.error("Error activar_timer_negociacion: {}", e.getMessage(), e);
+                    emitirErrorSocket(client, evento, "ERROR_INTERNO", "No se pudo activar el temporizador.");
                 }
             });
 
@@ -543,6 +598,7 @@ public class SocketHandler {
                             client.emit("error_negociacion", new JsonPrimitive("No se pudo guardar el voto. Inténtalo de nuevo."));
                             return;
                         }
+                        temporizadorSala.registrarAccionJugador(salaId, match, myId);
                         client.to(salaId).emit("rival_listo_inicio");
 
                         // Verificar ambos votos dentro del mismo candado para que modo y monto sean una sola versión.
@@ -658,6 +714,7 @@ public class SocketHandler {
                             match.votosInicio.clear();
                             match.confirmaciones.clear();
                             persistirMatchEnBD(salaId, match);
+                            temporizadorSala.registrarAccionJugador(salaId, match, myId);
                             io.to(salaId).emit("confirmacion_rechazada");
                             return;
                         }
@@ -680,6 +737,7 @@ public class SocketHandler {
                                 match.votosInicio.clear();
                                 match.confirmaciones.clear();
                                 persistirMatchEnBD(salaId, match);
+                                temporizadorSala.registrarAccionJugador(salaId, match, myId);
                                 return;
                             }
 
@@ -693,6 +751,7 @@ public class SocketHandler {
                                 match.votosInicio.clear();
                                 match.confirmaciones.clear();
                                 persistirMatchEnBD(salaId, match);
+                                temporizadorSala.registrarAccionJugador(salaId, match, myId);
                                 return;
                             }
                             // Obtener tags antes de cobrar (C5: ambos deben tener Player Tag configurado)
@@ -705,6 +764,7 @@ public class SocketHandler {
                                 match.votosInicio.clear();
                                 match.confirmaciones.clear();
                                 persistirMatchEnBD(salaId, match);
+                                temporizadorSala.registrarAccionJugador(salaId, match, myId);
                                 return;
                             }
 
@@ -722,6 +782,11 @@ public class SocketHandler {
                                 // Guardar el rechazo sin tocar actualizado_en: se usa como límite temporal al
                                 // reconciliar un posible cobro legado después de un COMMIT incierto.
                                 persistirVotosMatchSinAvanzarFecha(salaId, match);
+                                if (match.inicioRevision) {
+                                    temporizadorSala.desregistrarSala(salaId, match);
+                                } else {
+                                    temporizadorSala.registrarAccionJugador(salaId, match, myId);
+                                }
                                 return;
                             }
 
@@ -755,8 +820,7 @@ public class SocketHandler {
                             }
                             match.votosInicio.clear();
                             match.confirmaciones.clear();
-                            for (ScheduledFuture<?> timer : match.disconnectTimers.values()) timer.cancel(false);
-                            match.disconnectTimers.clear();
+                            temporizadorSala.desregistrarSala(salaId, match);
 
                             // Notificar saldos actualizados a ambos jugadores
                             SocketIOClient sock1 = buscarSocketJugador(match, match.player1Id);
@@ -781,6 +845,8 @@ public class SocketHandler {
 
                             // Iniciar polling de la API
                             iniciarPollingApi(salaId, match, ids);
+                        } else {
+                            temporizadorSala.registrarAccionJugador(salaId, match, myId);
                         }
                     }
                 } catch (Exception e) {
@@ -819,6 +885,9 @@ public class SocketHandler {
                                 limpio.salaId(), limpio.usuario(), limpio.texto());
                         d.addProperty("fecha", fecha);
                         io.to(limpio.salaId()).emit("mensaje_privado", d);
+                        if (!match.iniciado && !match.inicioRevision) {
+                            temporizadorSala.registrarAccionJugador(limpio.salaId(), match, senderId);
+                        }
 
                         int rivalId = match.getRivalId(senderId);
                         if (rivalId > 0 && !usuarioConectadoEnSala(rivalId, limpio.salaId())) {
@@ -883,23 +952,8 @@ public class SocketHandler {
                             disconnData.addProperty("mensaje", "Rival desconectado. Esperando...");
                             client.to(salaId).emit("rival_desconectado", disconnData);
                         } else {
-                            // Negociación - timer de desconexión (NEGOCIACION_DESCONEXION_SEGUNDOS, default 90) // A7
-                            final int esperaSegundos = config.getNegociacionDesconexionSegundos();
-                            logger.info("🔌 " + uname + " se fue en negociación. Timer " + esperaSegundos + "s.");
-
-                            // Cancelar su voto si lo tenía
-                            if (match.votosInicio.containsKey(userId)) {
-                                match.votosInicio.remove(userId);
-                                match.confirmaciones.clear();
-                                persistirMatchEnBD(salaId, match);
-                                client.to(salaId).emit("rival_cancelo_inicio");
-                            }
-
-                            JsonObject timerData = new JsonObject();
-                            timerData.addProperty("tiempo", esperaSegundos);
-                            client.to(salaId).emit("rival_desconectado", timerData);
-
-                            programarTimerDesconexionNegociacion(salaId, match, userId, uname, true);
+                            // Negociación: gracia de 30 s, exención única al abrir Discord y conteo posterior de desconexión
+                            temporizadorSala.alDesconectarEnNegociacion(salaId, match, userId, uname, true);
                         }
                     }
                 }
@@ -915,7 +969,14 @@ public class SocketHandler {
      */
     private void recuperarEstadoDesdeBD() {
         try {
-            ArrayList<JsonObject> filasMatches = db.query("SELECT * FROM active_matches ORDER BY id ASC");
+            ArrayList<JsonObject> filasMatches = db.query(
+                    "SELECT sala_id, player1_id, player1_username, player2_id, player2_username, " +
+                    "iniciado, inicio_revision, monto, match_db_id, player_tag1, player_tag2, " +
+                    "match_start_time, last_modo, last_dinero, poll_count, votos_json, confirmaciones_json, " +
+                    "discord_exencion_p1, discord_exencion_p2, timer_activo, timer_activado_por, " +
+                    "EXTRACT(EPOCH FROM (timer_p1_vence_en - CURRENT_TIMESTAMP)) * 1000 AS timer_p1_restante_ms, " +
+                    "EXTRACT(EPOCH FROM (timer_p2_vence_en - CURRENT_TIMESTAMP)) * 1000 AS timer_p2_restante_ms " +
+                    "FROM active_matches ORDER BY id ASC");
             int matchesEnJuego = 0;
             int matchesNegociando = 0;
 
@@ -929,6 +990,7 @@ public class SocketHandler {
                 String p2Name = str(row, "player2_username");
 
                 ActiveMatch match = new ActiveMatch(
+                        salaId,
                         p1Id, p1Name != null ? p1Name : "Jugador 1",
                         p2Id, p2Name != null ? p2Name : "Jugador 2");
                 match.iniciado = row.has("iniciado") && !row.get("iniciado").isJsonNull() && row.get("iniciado").getAsBoolean();
@@ -968,9 +1030,11 @@ public class SocketHandler {
                     if (match.inicioRevision) {
                         logger.error("Sala {} bloqueada para revisión; se conserva para evitar perder un cobro legado", salaId);
                     } else {
+                        temporizadorSala.registrarSala(salaId, match);
+                        temporizadorSala.restaurarDesdeBD(salaId, match, row);
                         // Si tras el reinicio alguno no reconecta dentro del tiempo de negociación, se libera la sala sin penalizar
-                        programarTimerDesconexionNegociacion(salaId, match, p1Id, match.player1Username, false);
-                        programarTimerDesconexionNegociacion(salaId, match, p2Id, match.player2Username, false);
+                        temporizadorSala.alDesconectarEnNegociacion(salaId, match, p1Id, match.player1Username, false);
+                        temporizadorSala.alDesconectarEnNegociacion(salaId, match, p2Id, match.player2Username, false);
                     }
                 }
             }
@@ -1103,53 +1167,6 @@ public class SocketHandler {
         } else {
             busquedasActivas.remove(userId);
         }
-    }
-
-    private void programarTimerDesconexionNegociacion(String salaId, ActiveMatch match, int userId, String username, boolean penalizarSalida) {
-        final int esperaSegundos = config.getNegociacionDesconexionSegundos();
-        ScheduledFuture<?> previo = match.disconnectTimers.remove(userId);
-        if (previo != null) {
-            previo.cancel(false);
-        }
-        long venceEn = System.currentTimeMillis() + esperaSegundos * 1000L;
-        match.disconnectDeadlinesMs.put(userId, venceEn);
-        ScheduledFuture<?> timer = scheduler.schedule(() -> {
-            synchronized (match) {
-                if (activeMatches.get(salaId) != match || match.iniciado || match.inicioRevision) return;
-                if (match.estaConectado(userId)) {
-                    match.disconnectDeadlinesMs.remove(userId);
-                    match.disconnectTimers.remove(userId);
-                    return;
-                }
-                for (ScheduledFuture<?> f : match.disconnectTimers.values()) {
-                    f.cancel(false);
-                }
-                match.disconnectTimers.clear();
-                match.disconnectDeadlinesMs.clear();
-
-                if (penalizarSalida) {
-                    db.update("UPDATE users SET salidas_chat = salidas_chat + 1, salidas_desconexion = salidas_desconexion + 1 WHERE id = ?", userId);
-                }
-                logClash("⚠️ ABANDONO Negociación: " + username + " no volvió (" + esperaSegundos + "s)");
-
-                JsonObject cancelData = new JsonObject();
-                cancelData.addProperty("motivo", username + " abandonó por desconexión");
-                io.to(salaId).emit("match_cancelado", cancelData);
-
-                db.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id IN (?, ?)",
-                        match.player1Id, match.player2Id);
-                for (SocketIOClient p : match.players) {
-                    if (p != null) {
-                        p.leave(salaId);
-                        p.setCurrentRoom(null);
-                    }
-                }
-                eliminarMatchDeBD(salaId);
-                activeMatches.remove(salaId, match);
-                eventos.emit(Eventos.MATCH_ROOM_CANCELLED, new Eventos.SalaPartidaCancelada(salaId));
-            }
-        }, esperaSegundos, TimeUnit.SECONDS);
-        match.disconnectTimers.put(userId, timer);
     }
 
     private boolean persistirMatchEnBD(String salaId, ActiveMatch match) {
@@ -1320,12 +1337,13 @@ public class SocketHandler {
                 meSocket.join(salaId);
                 if (rivalConectado) { rivalSocket.setCurrentRoom(salaId); rivalSocket.join(salaId); }
 
-                ActiveMatch match = new ActiveMatch(myId, myUsername, rival.userId, rival.username);
+                ActiveMatch match = new ActiveMatch(salaId, myId, myUsername, rival.userId, rival.username);
                 match.players.add(meSocket);
                 if (rivalSocket != null) {
                     match.players.add(rivalSocket);
                 }
                 activeMatches.put(salaId, match);
+                temporizadorSala.registrarSala(salaId, match);
 
                 // A2: Persistir la sala en active_matches y retirar a ambos de match_queue
                 db.update(
@@ -1336,7 +1354,7 @@ public class SocketHandler {
 
                 // Si el rival se emparejó estando temporalmente desconectado (ej. tras un reinicio), darle margen de reconexión
                 if (!rivalConectado) {
-                    programarTimerDesconexionNegociacion(salaId, match, rival.userId, rival.username, false);
+                    temporizadorSala.alDesconectarEnNegociacion(salaId, match, rival.userId, rival.username, false);
                 }
 
                 JsonObject rivalData = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", rival.userId);
@@ -1516,6 +1534,7 @@ public class SocketHandler {
     }
 
     private void liberarJugadores(String salaId, ActiveMatch match) {
+        temporizadorSala.desregistrarSala(salaId, match);
         db.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id IN (?, ?)",
                 match.player1Id, match.player2Id);
         for (int pid : match.playerIds()) {
@@ -1568,10 +1587,7 @@ public class SocketHandler {
             String motivo = ChatSanitizer.limpiarTexto(motivoCrudo, 60);
             if (motivo.isEmpty()) motivo = "Abandonado";
 
-            for (ScheduledFuture<?> f : match.disconnectTimers.values()) {
-                f.cancel(false);
-            }
-            match.disconnectTimers.clear();
+            temporizadorSala.desregistrarSala(salaId, match);
 
             db.update("UPDATE users SET salidas_chat = salidas_chat + 1 WHERE id = ?", userId);
             if ("Oprimió X".equals(motivo)) db.update("UPDATE users SET salidas_x = salidas_x + 1 WHERE id = ?", userId);
@@ -1673,7 +1689,7 @@ public class SocketHandler {
         JsonObject usuario = client.getUserData();
         if (authId == null || authId <= 0 || usuario == null || !usuario.has("id")
                 || usuario.get("id").isJsonNull() || usuario.get("id").getAsInt() != authId) {
-            emitirErrorSocket(client, evento, "SESION_REQUERIDA", "Inicia sesión para cancelar esta operación.");
+            emitirErrorSocket(client, evento, "SESION_REQUERIDA", "Inicia sesión para realizar esta operación.");
             return null;
         }
         return authId;
@@ -1695,7 +1711,9 @@ public class SocketHandler {
     }
 
     // --- Clases internas ---
-    static class ActiveMatch {
+    class ActiveMatch implements TemporizadorSalaService.SalaNegociacion {
+        final String salaId;
+        final TemporizadorSalaService.EstadoTimers timers = new TemporizadorSalaService.EstadoTimers();
         List<SocketIOClient> players = new CopyOnWriteArrayList<>();
         int player1Id;
         int player2Id;
@@ -1708,19 +1726,66 @@ public class SocketHandler {
         String playerTag1 = "", playerTag2 = "";
         String matchStartTime = "";
         ConcurrentHashMap<Integer, JsonObject> votosInicio = new ConcurrentHashMap<>();
-        ConcurrentHashMap<Integer, ScheduledFuture<?>> disconnectTimers = new ConcurrentHashMap<>();
-        ConcurrentHashMap<Integer, Long> disconnectDeadlinesMs = new ConcurrentHashMap<>();
         ConcurrentHashMap<Integer, Boolean> confirmaciones = new ConcurrentHashMap<>();
         String lastModo = "";
         String lastDinero = "";
         int pollCount = 0;
         ScheduledFuture<?> pollFuture;
 
-        ActiveMatch(int player1Id, String player1Username, int player2Id, String player2Username) {
+        ActiveMatch(String salaId, int player1Id, String player1Username, int player2Id, String player2Username) {
+            this.salaId = salaId;
             this.player1Id = player1Id;
             this.player1Username = player1Username != null ? player1Username : "";
             this.player2Id = player2Id;
             this.player2Username = player2Username != null ? player2Username : "";
+        }
+
+        @Override public int player1Id() { return player1Id; }
+        @Override public int player2Id() { return player2Id; }
+        @Override public String player1Username() { return player1Username; }
+        @Override public String player2Username() { return player2Username; }
+        @Override public boolean estaActivaEnServidor() { return activeMatches.get(salaId) == this; }
+        @Override public boolean estaIniciadaOBloqueada() { return iniciado || inicioRevision; }
+        @Override public TemporizadorSalaService.EstadoTimers estadoTimers() { return timers; }
+
+        @Override
+        public boolean cancelarVotoInicioSiExiste(int userId) {
+            if (!votosInicio.containsKey(userId)) return false;
+            votosInicio.remove(userId);
+            confirmaciones.clear();
+            persistirMatchEnBD(salaId, this);
+            return true;
+        }
+
+        @Override
+        public void cerrarSalaPorTimeout(int userIdCulpable, String motivo, String logTexto,
+                                         boolean penalizarDesconexion, boolean penalizarSalidaChat) {
+            if (activeMatches.get(salaId) != this || iniciado || inicioRevision) return;
+            temporizadorSala.cancelarTodosLosTimers(this);
+            if (penalizarDesconexion && penalizarSalidaChat) {
+                db.update("UPDATE users SET salidas_chat = salidas_chat + 1, salidas_desconexion = salidas_desconexion + 1 WHERE id = ?", userIdCulpable);
+            } else if (penalizarSalidaChat) {
+                db.update("UPDATE users SET salidas_chat = salidas_chat + 1 WHERE id = ?", userIdCulpable);
+            } else if (penalizarDesconexion) {
+                db.update("UPDATE users SET salidas_desconexion = salidas_desconexion + 1 WHERE id = ?", userIdCulpable);
+            }
+            logClash(logTexto);
+
+            JsonObject cancelData = new JsonObject();
+            cancelData.addProperty("motivo", motivo);
+            io.to(salaId).emit("match_cancelado", cancelData);
+
+            db.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id IN (?, ?)",
+                    player1Id, player2Id);
+            for (SocketIOClient p : players) {
+                if (p != null) {
+                    p.leave(salaId);
+                    p.setCurrentRoom(null);
+                }
+            }
+            eliminarMatchDeBD(salaId);
+            activeMatches.remove(salaId, this);
+            eventos.emit(Eventos.MATCH_ROOM_CANCELLED, new Eventos.SalaPartidaCancelada(salaId));
         }
 
         List<Integer> playerIds() {
@@ -1768,7 +1833,8 @@ public class SocketHandler {
             return false;
         }
 
-        boolean estaConectado(int userId) {
+        @Override
+        public boolean estaConectado(int userId) {
             for (SocketIOClient player : players) {
                 if (player != null && player.isConnected() && player.getUserData() != null
                         && player.getUserData().has("id") && player.getUserData().get("id").getAsInt() == userId) return true;

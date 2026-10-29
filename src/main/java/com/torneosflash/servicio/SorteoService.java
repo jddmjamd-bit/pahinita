@@ -18,6 +18,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * Lógica de sorteos: tickets, encuesta de categorías, participación, creación/eliminación y ejecución (A3).
@@ -35,6 +36,7 @@ public class SorteoService {
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final Set<String> CATEGORIAS_VALIDAS = Set.of(
             "gemas", "pass", "evoluciones", "emotes", "cartas", "comodines", "especial");
+    private static final Pattern CORREO_VALIDO = Pattern.compile("^[^\\s@<>\",;]+@[^\\s@<>\",;]+\\.[^\\s@<>\",;]+$");
 
     private final GenericDAO db;
     private final SocketIOServer io;
@@ -623,15 +625,19 @@ public class SorteoService {
 
             conn.commit();
 
-            correo.notificarAdmin("SORTEO COMPLETADO: " + nombre,
-                    "Ganador: " + ganadorNombre + " | Email: " + emailGanador);
+            if (correo != null) {
+                correo.notificarAdmin("SORTEO COMPLETADO: " + nombre,
+                        "Ganador: " + ganadorNombre + (ganadorId != -1 ? " (id " + ganadorId + ")" : ""));
+                enviarCorreoGanadorSorteo(nombre, ganadorId, ganadorNombre, emailGanador);
+            }
+
 
             JsonObject ganadorData = new JsonObject();
             ganadorData.addProperty("raffleId", raffleId);
             ganadorData.addProperty("nombre", nombre);
             ganadorData.addProperty("ganadorNombre", ganadorNombre);
             ganadorData.addProperty("ganadorId", ganadorId);
-            io.emit("sorteo_ganador", ganadorData);
+            if (io != null) io.emit("sorteo_ganador", ganadorData);
 
             if (push != null && ganadorId != -1) {
                 push.enviarPush(db, ganadorId, "🏆 ¡Ganaste el sorteo!", "¡Felicidades! Ganaste \"" + nombre + "\"");
@@ -646,6 +652,20 @@ public class SorteoService {
                 try { conn.setAutoCommit(true); conn.close(); } catch (SQLException ignored) {}
             }
         }
+    }
+
+    // ------------------------------------------------------------------
+    void enviarCorreoGanadorSorteo(String nombreSorteo, int ganadorId, String ganadorNombre, String emailGanador) {
+        if (correo == null || ganadorId == -1 || emailGanador == null) return;
+        String destino = emailGanador.trim();
+        if (destino.isEmpty() || destino.length() > 254 || !CORREO_VALIDO.matcher(destino).matches()) return;
+        String asunto = "🏆 ¡Ganaste el sorteo \"" + nombreSorteo + "\"!";
+        String cuerpo = "¡Felicidades, " + ganadorNombre + "!\n\n"
+                + "Ganaste el sorteo «" + nombreSorteo + "» en Torneos Flash.\n\n"
+                + "El administrador se pondrá en contacto contigo pronto para coordinar la entrega de tu premio. "
+                + "También puedes escribir desde la sección de Soporte en la plataforma si tienes cualquier consulta.\n\n"
+                + "— Torneos Flash";
+        correo.enviar(destino, asunto, cuerpo);
     }
 
     // ------------------------------------------------------------------

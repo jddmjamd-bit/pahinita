@@ -89,7 +89,7 @@ export const useAppStore = create((set, get) => ({
             authRevision: get().authRevision + 1,
             pushTokenAnterior: null,
             chatMessages: { general: [], anuncios: [], clash: [], clash_logs: [], pagos: [] },
-            matchState: { inMatch: false, salaId: null, rival: null, gameMode: '', monto: 0, maxMonto: 10000, status: 'idle' }
+            matchState: { inMatch: false, salaId: null, rival: null, gameMode: '', monto: 0, maxMonto: 10000, status: 'idle', rivalDesconectado: null, timerNegociacion: null }
         });
     },
 
@@ -199,7 +199,8 @@ export const useAppStore = create((set, get) => ({
                 resultado: null,
                 gameMode: '',
                 monto: '',
-                rivalDesconectado: null
+                rivalDesconectado: null,
+                timerNegociacion: null
             });
         });
 
@@ -216,7 +217,26 @@ export const useAppStore = create((set, get) => ({
                 gameMode: data.lastModo || '',
                 monto: data.lastDinero || '',
                 resultado: data.iniciado ? get().matchState.resultado : null,
-                rivalDesconectado: get().matchState.rivalDesconectado || null
+                rivalDesconectado: data.rivalDesconectado ? get().matchState.rivalDesconectado : null,
+                timerNegociacion: !data.iniciado && data.timerNegociacion
+                    ? { ...data.timerNegociacion, recibidoEn: Date.now() }
+                    : null
+            });
+        });
+
+        newSocket.on('timer_negociacion', (data) => {
+            if (!data) return;
+            get().setMatchState({
+                timerNegociacion: { ...data, recibidoEn: Date.now() }
+            });
+        });
+
+        newSocket.on('juego_iniciado', () => {
+            get().setMatchState({
+                inMatch: true,
+                status: 'playing',
+                rivalDesconectado: null,
+                timerNegociacion: null
             });
         });
 
@@ -258,7 +278,9 @@ export const useAppStore = create((set, get) => ({
                 get().setMatchState({ inMatch: false, salaId: null, rival: null, status: 'idle' });
             }
         });
-        newSocket.on('rival_desconectado', (data) => get().setMatchState({ rivalDesconectado: data || { tiempo: 90 } }));
+        newSocket.on('rival_desconectado', (data) => get().setMatchState({
+            rivalDesconectado: { ...(data || { tiempo: 90 }), recibidoEn: Date.now() }
+        }));
         newSocket.on('rival_reconectado', () => get().setMatchState({ rivalDesconectado: null }));
         newSocket.on('match_cancelado', () => get().clearMatchState());
 
@@ -287,10 +309,11 @@ export const useAppStore = create((set, get) => ({
         monto: 0,
         maxMonto: 10000,
         status: 'idle', // idle, searching, negotiating, waiting, playing, finished
-        rivalDesconectado: null
+        rivalDesconectado: null,
+        timerNegociacion: null
     },
     setMatchState: (newState) => set((state) => ({ matchState: { ...state.matchState, ...newState } })),
     clearMatchState: () => set({ 
-        matchState: { inMatch: false, salaId: null, rival: null, gameMode: '', monto: 0, maxMonto: 10000, status: 'idle' } 
+        matchState: { inMatch: false, salaId: null, rival: null, gameMode: '', monto: 0, maxMonto: 10000, status: 'idle', rivalDesconectado: null, timerNegociacion: null }
     }),
 }));

@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — UltimateClash (TorneosFlash)
 
 > Documento de referencia para que cualquier modelo o desarrollador entienda el sistema.
-> Última actualización: 2026-10-22
+> Última actualización: 2026-10-29
 
 ---
 
@@ -47,11 +47,13 @@ TorneosFlash/
 │   │   └── UsuarioDAO.java          # Queries específicas de usuarios
 │   ├── eventos/
 │   │   ├── EventBus.java            # Bus de eventos en memoria: `emit()` / `on()`, síncrono y aislado por listener. Ver sección 13
-│   │   └── Eventos.java             # Catálogo: nombres de eventos (`match.finished`, `chatbot.duda_sin_respuesta`, `chatbot.duda_respondida`) y sus datos (`PartidaFinalizada`, `DudaSinRespuesta`, `DudaRespondida`)
+│   │   └── Eventos.java             # Catálogo: nombres de eventos (`user.registered`, `match.*`, `voice.discord_opened`, `chatbot.*`, `soporte.*`, `pagos.*`) y sus records
 │   ├── servicio/
 │   │   ├── ClashApiServicio.java    # Integración con API de Clash Royale
 │   │   ├── ChatSanitizer.java       # Validación/limpieza de mensajes de chat y usernames (anti-XSS)
 │   │   ├── CorreoServicio.java      # Envío de emails vía Brevo
+│   │   ├── CuentaRegistradaListener.java # Listener de `user.registered`: correo simple al usuario + correo inmediato al admin con token descifrado y nametag
+│   │   ├── TemporizadorSalaService.java  # Gracia de 30s por desconexión, exención única al entrar a Discord y temporizador individual opcional de 2:30 en negociación
 │   │   ├── NotificacionPushServicio.java # Push FCM
 │   │   ├── RateLimiter.java         # Contador de solicitudes por clave, ventana deslizante de 1 min (lógica pura, sin HTTP). Ver sección 10
 │   │   ├── WalletService.java       # Todo movimiento de dinero (D2): transacciones atómicas, BigDecimal, emite eventos al bus (A4). Ver sección 5
@@ -100,7 +102,7 @@ TorneosFlash/
 │       ├── SocketIOServer.java      # Parseo de paquetes Engine.IO/Socket.IO
 │       └── SocketIOClient.java      # Wrapper del cliente WS
 ├── src/main/resources/
-│   └── db/migration/                # Migraciones Flyway V1–V17; V17 aplica unicidad normalizada de identidades
+│   └── db/migration/                # Migraciones Flyway V1–V21; V21 persiste exención única de Discord y temporizador individual 2:30 en salas
 ├── agent/rules/                     # Reglas para modelos IA
 │   ├── auto-push.md
 │   └── project-conventions.md       # ← NUEVO
@@ -141,7 +143,7 @@ TorneosFlash/
 | `support_tickets` | Tickets de "Hablar con el admin" (24.5) | `user_id`, `categoria` (pregunta/sugerencia/bug/cuenta/otro), `asunto`, `mensaje`, `estado` (abierto/resuelto), `respuesta`, `respondido_por`, `fecha_creacion`, `fecha_respuesta` |
 | `payment_evidences` | Comprobantes de retiros pagados que el admin publica en el canal «pagos» (7) | `transaction_id` (UNIQUE: una por retiro), `user_id` (a quien se pagó), `admin_id`, `monto`, `metodo`, `nota`, `imagen` (data URI base64), `fecha`. Usuario, monto y método se copian de la transacción |
 | `match_queue` | Cola de búsquedas de partida activas persistidas en BD (A2) | `id`, `user_id` (UNIQUE), `username`, `creado_en`, `expira_en` |
-| `active_matches` | Salas en negociación y partidas en curso persistidas en BD (A2) | `id`, `sala_id` (UNIQUE), `player1_id`, `player2_id`, `iniciado`, `inicio_revision`, `monto`, `match_db_id`, `player_tag1`, `player_tag2`, `match_start_time`, `last_modo`, `last_dinero`, `votos_json`, `confirmaciones_json`, `poll_count` |
+| `active_matches` | Salas en negociación y partidas en curso persistidas en BD (A2, V21) | `id`, `sala_id` (UNIQUE), `player1_id`, `player2_id`, `iniciado`, `inicio_revision`, `monto`, `match_db_id`, `player_tag1`, `player_tag2`, `match_start_time`, `last_modo`, `last_dinero`, `votos_json`, `confirmaciones_json`, `poll_count`, `discord_exencion_p1`, `discord_exencion_p2`, `timer_activo`, `timer_activado_por`, `timer_p1_vence_en`, `timer_p2_vence_en` |
 
 **Tokens FCM en Capacitor:** `useCapacitor` escucha el evento nativo `registration`, conserva el token solo en memoria y lo registra en `POST /api/register-token` cuando existe una sesión; una renovación envía el token anterior para reemplazarlo en la misma transacción. Al cerrar sesión, el cliente incluye los tokens de este dispositivo en `POST /api/logout`, que los elimina por usuario antes de borrar la cookie. Los tokens que FCM invalide se eliminan al recibir el error correspondiente del proveedor.
 
@@ -171,7 +173,7 @@ sequenceDiagram
 
 **Autorización por canal y cancelaciones:** el historial y los eventos de `clash_logs` son públicos para todas las conexiones, incluidas las sesiones de jugadores normales. Publicar en `general`, `clash` y el registro del sistema requiere sesión; `anuncios` además requiere admin. Los mensajes privados se envían únicamente a la room de la partida. `reportar_resultado` no se registra porque no existe handler. `cancelar_busqueda`, `cancelar_inicio` y `cancelar_match` requieren la identidad JWT del socket y la pertenencia/estado correspondiente; la cancelación de búsqueda solo confirma si elimina una fila persistida mientras el usuario sigue en cola y no tiene una sala activa. El alta, la cancelación y el vencimiento de búsqueda se coordinan con el emparejamiento bajo el mismo bloqueo. Sus fallos devuelven `error_socket` con `{evento, codigo, mensaje}` y sus éxitos `cancelacion_completada`. La UI cambia de estado al recibir confirmación.
 
-**Negociación e inicio de partidas:** los votos, las confirmaciones, la vista en vivo y los temporizadores de desconexión usan el candado del `ActiveMatch`. Los dos votos deben coincidir en monto y modo; una vez registrados, la vista en vivo no puede sobrescribir esos valores. El timeout de polling solo pasa `matches.estado` de `en_curso` a `disputa` si la actualización condicional afecta la fila; si ya tiene un estado terminal, limpia la sala sin reabrir la disputa.
+**Negociación e inicio de partidas:** los votos, las confirmaciones, la vista en vivo y los temporizadores de sala (`TemporizadorSalaService`) usan el candado del `ActiveMatch`. Los dos votos deben coincidir en monto y modo; una vez registrados, la vista en vivo no puede sobrescribir esos valores. Al desconectarse un jugador en negociación se otorga primero un margen de gracia (`NEGOCIACION_GRACIA_DESCONEXION_SEGUNDOS`, 30 s por defecto) antes de iniciar la cuenta regresiva de desconexión (`NEGOCIACION_DESCONEXION_SEGUNDOS`, 90 s) y de cancelar votos/confirmaciones; si el jugador abrió la integración de voz/bot de Discord desde esa sala (`voice.discord_opened`), dispone de una única exención por sala (`disponible → armada → activa → usada`) que omite ese conteo la primera vez, mientras que una segunda desconexión sí aplica los 30 s + 90 s. Además, cualquiera de los dos jugadores puede activar en cualquier momento el temporizador opcional individual de acción (`activar_timer_negociacion` → `timer_negociacion`, 2:30 por defecto): cada jugador tiene su propio reloj independiente estilo Pokémon Showdown y enviar `mensaje_privado`, cambiar modo/monto en `negociacion_live` o presionar `iniciar_juego`/`confirmar_partida_resp` reinicia únicamente su propio reloj sin modificar el del rival. El timeout de polling solo pasa `matches.estado` de `en_curso` a `disputa` si la actualización condicional afecta la fila; si ya tiene un estado terminal, limpia la sala sin reabrir la disputa.
 
 **Puente de polling:** Engine.IO mantiene solicitudes GET long-polling y publica `pingInterval` y `pingTimeout` en el handshake. Este servidor usa 25 s + 20 s; el proxy HTTP espera 60 s para dejar margen al long-poll. El presupuesto total de solicitudes se limita a la mitad de los hilos HTTP (32 por defecto) y se divide entre semáforos GET y POST, para que los GET pendientes no bloqueen el envío de eventos. El tope se configura con `SOCKET_IO_POLLING_MAX_CONCURRENT`. El cliente React actual fuerza WebSocket, así que no ocupa esos cupos.
 
@@ -393,7 +395,9 @@ Toda configuración de despliegue se lee en `config/AppConfig` (nada de números
 | `SOCKET_IO_PORT` | `9092` | 0 - 65535 | Puerto interno donde escucha `netty-socketio` (Javalin expone `/socket.io/` en `PORT` y redirige internamente; si está ocupado elige uno libre) |
 | `SOCKET_IO_POLLING_MAX_CONCURRENT` | la mitad de `HTTP_MAX_THREADS` (32 por defecto) | 2–la mitad de `HTTP_MAX_THREADS` | Presupuesto total de solicitudes del puente HTTP long-polling, repartido por igual entre GET largos y POST de eventos; reserva al menos la mitad del pool HTTP para otras rutas. React usa WebSocket directo (`transports: ['websocket']`) |
 | `BUSQUEDA_TIMEOUT_MINUTOS` | `10` | 1 - 1440 | Minutos de búsqueda de rival antes de cancelarla (`SocketHandler`) |
-| `NEGOCIACION_DESCONEXION_SEGUNDOS` | `90` | 1 - 3600 | Segundos que se espera a un jugador desconectado durante la negociación antes de cancelar el match |
+| `NEGOCIACION_GRACIA_DESCONEXION_SEGUNDOS` | `30` | 1 - 600 | Segundos de gracia tras caer el socket en negociación antes de iniciar el conteo de desconexión |
+| `NEGOCIACION_DESCONEXION_SEGUNDOS` | `90` | 1 - 3600 | Segundos que se espera a un jugador desconectado durante la negociación (pasada la gracia de 30 s) antes de cancelar el match |
+| `NEGOCIACION_TIMER_ACCION_SEGUNDOS` | `150` | 2 - 3600 | Duración individual (2:30 por defecto) del temporizador opcional de acción por jugador en la sala privada |
 | `POLLING_INTERVALO_SEGUNDOS` | `5` | 2 - 60 | Cada cuánto se consulta la API de Clash Royale por el resultado de una partida |
 | `POLLING_MAX_INTENTOS` | `120` | 1 - 10000 | Intentos máximos; espera total = intervalo x intentos (default 10 min) y luego se crea la disputa |
 | `CHAT_HISTORIAL_LIMITE` | `50` | 1 - 500 | Mensajes de historial que recibe cada canal al conectarse |
@@ -439,6 +443,8 @@ Todos los pools se crean en `config/Ejecutores` (con tamaños de `AppConfig`) y 
 | `chatbot.duda_respondida` | `Eventos.DudaRespondida`: `dudaId`, `pregunta`, `respuesta`, `usuarios` | `ChatbotService.responderDuda` (solo si estaba pendiente) | `chatbot-aviso-usuarios` (`ChatbotListener`): historial del chat + socket `chatbot_respuesta` + push |
 | `soporte.ticket_creado` | `Eventos.TicketCreado`: `ticketId`, `userId`, `username`, `categoria`, `asunto`, `mensaje` (nunca email ni teléfono) | `SoporteService.crear` (ya guardado el ticket) | `soporte-correo-admin` (`SoporteListener`): correo al admin con tope por hora |
 | `soporte.ticket_respondido` | `Eventos.TicketRespondido`: `ticketId`, `userId`, `username`, `categoria`, `asunto`, `respuesta` | `SoporteService.responder` (solo la primera respuesta) | `soporte-aviso-usuario` (`SoporteListener`): socket `soporte_respuesta` + push + correo a la cuenta del usuario |
+| `user.registered` | `Eventos.UsuarioRegistrado`: `userId`, `username`, `playerTag`, `clashName` (sin email ni teléfono) | `AuthService.registrar` (tras confirmar el alta en BD) | `cuenta-registrada-correos` (`CuentaRegistradaListener`): correo simple de cuenta creada al usuario + correo inmediato al admin con nametag y token de API descifrado |
+| `voice.discord_opened` | `Eventos.AperturaDiscordSala`: `userId`, `salaId` | `VozDiscordService.iniciarVinculacion` y `miCanal` (cuando el jugador está en sala privada sin iniciar) | `temporizador-sala-discord` (`TemporizadorSalaService`): arma o consume la exención única de desconexión por Discord en esa sala |
 
 ```
 SocketHandler (sondeo) ── WalletService.liquidar()  ← transacción SQL: saldo, comisiones, gen_*, victorias_*, pozos del leaderboard
@@ -485,6 +491,8 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | `V15__sesiones_revocables.sql` | Crea `user_sessions`, que vincula cada JTI de JWT a un usuario y una expiración para validar y revocar sesiones |
 | `V16__recuperacion_segura_password.sql` | Crea `password_reset_tokens`, que persiste solo hashes SHA-256 de tokens de recuperación de un solo uso |
 | `V19__pozo_sorteos_y_premios.sql` | Persiste el saldo disponible del pozo, reserva premios al crear sorteos y registra sus movimientos |
+| `V20__voz_desde_sala_privada.sql` | Permite asociar `voice_channels` a `sala_id` desde la sala privada antes de existir `match_id` |
+| `V21__temporizadores_sala_y_gracia_discord.sql` | Persiste en `active_matches` el estado de exención única de Discord (`discord_exencion_p1/p2`) y los vencimientos individuales del temporizador opcional de 2:30 (`timer_*`) |
 
 **Cómo se comporta según el estado de la BD** (`baselineOnMigrate=true`, `baselineVersion=0`):
 
@@ -831,6 +839,6 @@ El formulario React envía el token solo al registrar y limpia el campo después
 
 La imagen bloquea el deploy si falla `npm run build`, los contratos automáticos del frontend o `mvn clean verify`. En cada inicio, `scripts/run-deploy-tests.sh` ejecuta JUnit antes de `Main`: primero valida que `TEST_DATABASE_URL` sea distinta de `DATABASE_URL` y verifica Flyway en su esquema `public`; después ejecuta `RenderAcceptanceCheck`.
 
-`RenderAcceptanceCheck` crea un esquema efímero `tf_qa_<uuid>` dentro de la base dedicada de pruebas, migra el esquema desde cero y ejecuta 23 pruebas con datos sintéticos. Cubre servicios y rutas HTTP de sesión, permisos, recuperación, rate limit, voz opcional y panel de DB, además de backup temporal, pagos/ledger, partidas/disputas, leaderboard, chatbot simulado, soporte, sorteos, evidencias y migraciones. Cierra sus servidores/pools, elimina el backup temporal y elimina únicamente los esquemas cuyo nombre generó. Las credenciales Wompi y de Clash usadas por el test son ficticias; el chatbot usa una respuesta simulada; no se hacen llamadas externas ni se usan usuarios de producción. `cleanDisabled=true` permanece activo.
+`RenderAcceptanceCheck` crea un esquema efímero `tf_qa_<uuid>` dentro de la base dedicada de pruebas, migra el esquema desde cero y ejecuta 27 pruebas con datos sintéticos. Cubre servicios y rutas HTTP de sesión, permisos, recuperación, correos de alta y ganador de sorteo, rate limit, voz opcional desde sala privada, temporizadores de negociación (gracia, exención única Discord y reloj individual 2:30) y panel de DB, además de backup temporal, pagos/ledger, partidas/disputas, leaderboard, chatbot simulado, soporte, sorteos, evidencias y migraciones. Cierra sus servidores/pools, elimina el backup temporal y elimina únicamente los esquemas cuyo nombre generó. Las credenciales Wompi y de Clash usadas por el test son ficticias; el chatbot usa una respuesta simulada; no se hacen llamadas externas ni se usan usuarios de producción. `cleanDisabled=true` permanece activo.
 
 La cobertura y sus límites están enumerados caso por caso en `GUIA_PRUEBAS_Y_VARIABLES.md`. Los recorridos que necesitan requests/cookies HTTP reales, browser visual, sockets en vivo, proveedores externos o herramientas de restore permanecen manuales; las pruebas de servicio no se presentan como cobertura de esos límites.

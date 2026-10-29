@@ -1082,6 +1082,121 @@ class RenderAcceptanceCheck {
         assertEquals(2, borrados.size());
     }
 
+    @Test
+    void correosDeAltaYSorteoYTemporizadoresDeSalaPersistenEnPostgres() {
+        record EnvioCorreo(String para, String asunto, String cuerpo) {}
+        ArrayList<EnvioCorreo> bandeja = new ArrayList<>();
+        CorreoServicio correoMemoria = new CorreoServicio("fake-brevo-key", "remitente@qa.test", null) {
+            @Override
+            public void enviar(String to, String subject, String body) {
+                bandeja.add(new EnvioCorreo(to, subject, body));
+            }
+        };
+
+        EventBus busLocal = new EventBus();
+        CifradoTokenJugador cifrado = new CifradoTokenJugador(CLAVE);
+        AppConfig cfgCorreo = new AppConfig(Map.of(
+                "JWT_SECRET", CLAVE,
+                "BREVO_API_KEY", "fake-brevo-key",
+                "BREVO_SENDER_EMAIL", "remitente@qa.test",
+                "SOPORTE_ADMIN_EMAIL", "admin@qa.test",
+                "APP_BASE_URL", "https://example.invalid"
+        ));
+        new CuentaRegistradaListener(correoMemoria, dao, cifrado, cfgCorreo).registrar(busLocal);
+
+        ClashApiServicio clashQa = new ClashApiServicio("") {
+            @Override
+            public JsonObject verificarTag(String tag) {
+                JsonObject jugador = new JsonObject();
+                jugador.addProperty("tag", tag);
+                jugador.addProperty("name", "CampeonReal");
+                return jugador;
+            }
+        };
+        AuthService authConCorreo = new AuthService(usuarios, dao, clashQa, ejecutores, cfgCorreo, busLocal, cifrado);
+
+        String sufijo = UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase(Locale.ROOT);
+        String uname = "correo_" + sufijo;
+        String email = "correo_" + sufijo.toLowerCase(Locale.ROOT) + "@example.test";
+        String tag = tagPruebaUnico();
+        String tel = "316" + String.format("%07d", Math.floorMod(UUID.randomUUID().hashCode(), 10_000_000));
+        authConCorreo.registrar(uname, email, "ClaveSegura!123", tag, tel, "tok_qa_8899", true);
+
+        assertEquals(2, bandeja.size());
+        assertEquals(email, bandeja.get(0).para());
+        assertFalse(bandeja.get(0).cuerpo().contains("tok_qa_8899"));
+        assertEquals("admin@qa.test", bandeja.get(1).para());
+        assertTrue(bandeja.get(1).cuerpo().contains("Token: tok_qa_8899"));
+        assertTrue(bandeja.get(1).cuerpo().contains("Nametag: " + tag + " (CampeonReal)"));
+        assertFalse(bandeja.get(1).cuerpo().contains(email));
+        assertFalse(bandeja.get(1).cuerpo().contains(tel));
+
+        // Sorteo completado: avisa por correo tanto al admin como al ganador
+        bandeja.clear();
+        SorteoService sorteosConCorreo = new SorteoService(dao, io, correoMemoria, null, new ValidadorMonto(config));
+        establecerPozoSorteos(new BigDecimal("10000"));
+        int idGanador = crearUsuario("qa_gan_sorteo_" + sufijo.toLowerCase(Locale.ROOT), "user", BigDecimal.ZERO);
+        dao.update("INSERT INTO user_tickets (user_id, cantidad, acumulado) VALUES (?, 2, 0) "
+                + "ON CONFLICT (user_id) DO UPDATE SET cantidad = 2, acumulado = 0", idGanador);
+        int sorteoId = sorteosConCorreo.crear("Sorteo Correo " + sufijo, "gemas",
+                JsonParser.parseString("1000"), JsonParser.parseString("10"))
+                .getAsJsonObject("sorteo").get("id").getAsInt();
+        sorteosConCorreo.participar(idGanador, sorteoId, 1); // 1 ticket de 1 necesario -> ejecuta el sorteo
+        String emailGanador = dao.queryOne("SELECT email FROM users WHERE id = ?", idGanador).get("email").getAsString();
+        assertTrue(bandeja.stream().anyMatch(c -> emailGanador.equals(c.para()) && c.asunto().contains("Sorteo Correo")));
+        assertTrue(bandeja.stream().anyMatch(c -> "remitente@qa.test".equals(c.para())));
+
+        // Persistencia V21 en active_matches: exención única Discord + temporizador 2:30 individual
+        int u1 = crearUsuario("qa_tmr1_" + sufijo.toLowerCase(Locale.ROOT), "user", new BigDecimal("5000"));
+        int u2 = crearUsuario("qa_tmr2_" + sufijo.toLowerCase(Locale.ROOT), "user", new BigDecimal("5000"));
+        String salaTimer = "sala_tmr_" + u1;
+        dao.update("INSERT INTO active_matches (sala_id, player1_id, player1_username, player2_id, player2_username) "
+                + "VALUES (?, ?, 'U1', ?, 'U2')", salaTimer, u1, u2);
+
+        TemporizadorSalaService tempSvc = new TemporizadorSalaService(dao, io, config, ejecutores.timers());
+        tempSvc.registrar(busLocal);
+        TemporizadorSalaService.EstadoTimers est = new TemporizadorSalaService.EstadoTimers();
+        boolean[] u1Conectado = {true};
+        TemporizadorSalaService.SalaNegociacion salaMock = new TemporizadorSalaService.SalaNegociacion() {
+            @Override public int player1Id() { return u1; }
+            @Override public int player2Id() { return u2; }
+            @Override public String player1Username() { return "U1"; }
+            @Override public String player2Username() { return "U2"; }
+            @Override public boolean estaActivaEnServidor() { return true; }
+            @Override public boolean estaIniciadaOBloqueada() { return false; }
+            @Override public boolean estaConectado(int userId) { return userId != u1 || u1Conectado[0]; }
+            @Override public boolean cancelarVotoInicioSiExiste(int userId) { return false; }
+            @Override public void cerrarSalaPorTimeout(int u, String m, String l, boolean pd, boolean ps) { }
+            @Override public TemporizadorSalaService.EstadoTimers estadoTimers() { return est; }
+        };
+        tempSvc.registrarSala(salaTimer, salaMock);
+        busLocal.emit(Eventos.VOICE_DISCORD_OPENED, new Eventos.AperturaDiscordSala(u1, salaTimer));
+        assertEquals("armada", dao.queryOne("SELECT discord_exencion_p1 FROM active_matches WHERE sala_id = ?", salaTimer)
+                .get("discord_exencion_p1").getAsString());
+
+        u1Conectado[0] = false;
+        tempSvc.alDesconectarEnNegociacion(salaTimer, salaMock, u1, "U1", true);
+        assertEquals("activa", dao.queryOne("SELECT discord_exencion_p1 FROM active_matches WHERE sala_id = ?", salaTimer)
+                .get("discord_exencion_p1").getAsString());
+
+        u1Conectado[0] = true;
+        tempSvc.alReconectarJugador(salaTimer, salaMock, u1, "U1");
+        assertEquals("usada", dao.queryOne("SELECT discord_exencion_p1 FROM active_matches WHERE sala_id = ?", salaTimer)
+                .get("discord_exencion_p1").getAsString());
+
+        assertNotNull(tempSvc.activarTimerAccion(salaTimer, salaMock, u1));
+        JsonObject persistido = dao.queryOne(
+                "SELECT timer_activo, timer_activado_por, " +
+                "EXTRACT(EPOCH FROM (timer_p1_vence_en - CURRENT_TIMESTAMP)) * 1000 AS timer_p1_restante_ms " +
+                "FROM active_matches WHERE sala_id = ?", salaTimer);
+        assertTrue(persistido.get("timer_activo").getAsBoolean());
+        assertEquals(u1, persistido.get("timer_activado_por").getAsInt());
+        assertTrue(persistido.get("timer_p1_restante_ms").getAsBigDecimal().longValue() > 100_000L);
+
+        tempSvc.desregistrarSala(salaTimer, salaMock);
+        dao.update("DELETE FROM active_matches WHERE sala_id = ?", salaTimer);
+    }
+
     private static String tagPruebaUnico() {
         StringBuilder tag = new StringBuilder("#");
         for (int i = 0; i < 8; i++) {

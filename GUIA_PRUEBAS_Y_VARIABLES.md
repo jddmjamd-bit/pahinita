@@ -1,6 +1,6 @@
 # Guía de Pruebas Manuales y Variables de Entorno
 
-> Actualizada el 22 de octubre de 2026. Esta guía separa las pruebas JUnit que bloquean el arranque de los recorridos manuales que dependen de usuarios, navegador o servicios externos.
+> Actualizada el 29 de octubre de 2026. Esta guía separa las pruebas JUnit que bloquean el arranque de los recorridos manuales que dependen de usuarios, navegador o servicios externos.
 
 ---
 
@@ -23,7 +23,7 @@
 | Variable | Default | Descripción |
 |----------|---------|-------------|
 | `APP_BASE_URL` | `https://torneos-beta.onrender.com` | URL pública del sitio. Usado en push, CORS, HSTS, recovery links. |
-| `BREVO_API_KEY` | *(vacío)* | API key de Brevo. Sin ella no se envían correos (recuperación de contraseña, soporte, chatbot). |
+| `BREVO_API_KEY` | *(vacío)* | API key de Brevo. Sin ella no se envían correos (alta de cuenta, ganador de sorteo, recuperación de contraseña, soporte, chatbot). |
 | `BREVO_SENDER_EMAIL` | *(vacío)* | Email remitente de Brevo. |
 | `FIREBASE_SERVICE_ACCOUNT` | *(vacío)* | JSON de service account de Firebase. Sin él no hay push notifications. |
 | `DB_ADMIN_SECRET` | *(vacío)* | Secreto para acceder al panel `/admin-db`. **Sin él, el panel queda deshabilitado.** |
@@ -99,7 +99,9 @@
 | Variable | Default | Rango | Descripción |
 |----------|---------|-------|-------------|
 | `BUSQUEDA_TIMEOUT_MINUTOS` | `10` | 1-1440 | Tiempo máximo de búsqueda de rival. |
-| `NEGOCIACION_DESCONEXION_SEGUNDOS` | `90` | 1-3600 | Timer de abandono por desconexión en negociación. |
+| `NEGOCIACION_GRACIA_DESCONEXION_SEGUNDOS` | `30` | 1-600 | Segundos de gracia tras desconexión en negociación antes de iniciar el conteo de abandono. |
+| `NEGOCIACION_DESCONEXION_SEGUNDOS` | `90` | 1-3600 | Timer de abandono por desconexión en negociación (corre pasado el margen de gracia). |
+| `NEGOCIACION_TIMER_ACCION_SEGUNDOS` | `150` | 2-3600 | Duración individual (2:30 por defecto) del temporizador opcional de acción en sala privada. |
 | `POLLING_INTERVALO_SEGUNDOS` | `5` | 2-60 | Intervalo de sondeo a la API de Clash. |
 | `POLLING_MAX_INTENTOS` | `120` | 1-10000 | Intentos máximos de sondeo (120 × 5s = 10 min). |
 | `CHAT_HISTORIAL_LIMITE` | `50` | 1-500 | Mensajes de historial cargados al conectar. |
@@ -179,15 +181,15 @@ La guía A–Q sigue siendo el inventario completo de aceptación. La tabla sigu
 
 | Casos | Estado | Alcance de la automatización |
 |---|---|---|
-| A1–A14, A16 | Docker runtime | JUnit prueba rutas HTTP de registro, login, cookies, sesión deslizante, JWT manipulado, sesiones simultáneas, logout/revocación, respuestas de recuperación genéricas, reset de un uso y cooldown; verifica además colisiones de username/tag en PostgreSQL. Clash se simula. La entrega real por Brevo sigue manual. |
+| A1–A14, A16–A17 | Docker runtime | JUnit prueba rutas HTTP de registro, login, cookies, sesión deslizante, JWT manipulado, sesiones simultáneas, logout/revocación, respuestas de recuperación genéricas, reset de un uso, cooldown y los 2 correos de alta (bienvenida simple al usuario y token + nametag inmediato al admin sin email/teléfono del jugador, con 0 correos en duplicados); verifica además colisiones de username/tag en PostgreSQL. Clash se simula. La entrega real por Brevo sigue manual. |
 | A15 | Manual / parcial | El alta normal confirma el flujo del tag con un proveedor Clash falso. La respuesta de Supercell y la API key real requieren una prueba manual o sandbox externo. |
 | B1–B2, B4–B10 | Parcial, Docker runtime | Inicio Wompi, rangos, firma inválida, monto alterado, acreditación idempotente, retiro, rechazo por saldo y ledger con DB real. La aprobación positiva de Wompi y su consulta externa no se simulan como pago real. |
 | B3, B6 | Parcial, Docker runtime | Se verifica el núcleo transaccional e idempotente del wallet. El webhook válido completo, incluida correlación con API Wompi, queda manual/sandbox. |
-| C8–C9, C16 | Parcial, Docker runtime | Inicio de partida contra PostgreSQL, rollback por saldo insuficiente y dos confirmaciones concurrentes sin doble cobro. Emparejamiento, negociación por socket, timers y resultado de Clash siguen manuales. |
+| C8–C9, C14, C16, C18–C19 | Parcial, build + Docker runtime | Inicio de partida contra PostgreSQL, rollback por saldo insuficiente y dos confirmaciones concurrentes sin doble cobro; `TemporizadorSalaServiceTest` y `RenderAcceptanceCheck` validan gracia de 30s, exención única por Discord (segunda desconexión sí cuenta) y temporizador opcional individual de 2:30 con reinicio independiente por jugador y persistencia `V21`. Emparejamiento en vivo por socket y resultado de Clash siguen manuales. |
 | D1–D2, D5, D7, M6 | Parcial, build | Sanitización de HTML, mensajes privados, canales no permitidos, SVG y rutas multimedia. Emisión/persistencia por socket y permisos de sala siguen manuales. |
 | E1–E2, E4 | Docker runtime | Crea un corte con pozo y victorias sintéticos, verifica snapshot, reset de contador/pozo, distribución a jugador/admin, ledger, historial e idempotencia. Invoca la misma operación del servicio, sin esperar al cron. |
 | E3 | Parcial, Docker runtime | Repetir un corte persistido no duplica pagos. No mata el proceso en mitad de una transacción ni simula una indisponibilidad de PostgreSQL. |
-| F1–F4 | Docker runtime | Crear sorteo, participación, vencimiento y reembolso de tickets al eliminar con PostgreSQL real. |
+| F1–F4, F6 | Docker runtime | Crear sorteo, participación, vencimiento, envío de correo al ganador al completarse y reembolso de tickets al eliminar con PostgreSQL real. La entrega real por Brevo sigue manual. |
 | G1–G4 | Parcial, Docker runtime | Alta, cuotas abiertas y diarias, privacidad, rol admin y respuesta. El envío de correo/push queda fuera. |
 | H1–H4 | Docker runtime | JUnit confirma desactivación sin clave, ejecuta el servicio con un proveedor IA falso y valida respuesta, límite por minuto y límite diario en PostgreSQL. La conexión y calidad de respuesta de Gemini/OpenAI se siguen verificando manualmente. |
 | I1, I6 | Docker runtime | Sin credenciales Discord, la ruta autenticada informa que voz está desactivada y `/api/voz/mi-canal` rechaza solicitudes sin sesión. |
@@ -203,7 +205,7 @@ La guía A–Q sigue siendo el inventario completo de aceptación. La tabla sigu
 | N4 | Manual | La IP que Render entrega y el número correcto de saltos confiables solo se confirman desde una instancia detrás de su proxy. |
 | O5 | Docker runtime | La reconciliación de un inicio legado verifica el vínculo sin volver a cobrar. O1–O4 necesitan reiniciar el servidor con sockets, colas y timers vivos. |
 | P1 | Docker build | `npm run build` se ejecuta en la imagen. |
-| P2–P6 | Parcial, Docker build | Pruebas de contrato sobre rutas privadas, persistencia en memoria, credenciales cookie, contenido FAQ, media queries y tema. No son una prueba visual en navegador ni reemplazan verificar tamaños/dispositivos reales. |
+| P2–P10 | Parcial, Docker build | Pruebas de contrato sobre rutas privadas, persistencia en memoria, credenciales cookie (`llamarApi`), contenido FAQ, media queries, tema y controles/relojes del temporizador 2:30 en `Match.jsx`. No son una prueba visual en navegador ni reemplazan verificar tamaños/dispositivos reales. |
 | Q1–Q2 | Docker runtime | Se validan las migraciones de la base de prueba y se aplican todas en un esquema vacío aislado. |
 | Q3 | Docker runtime | Se crea un esquema aparte con duplicados de referencia Wompi; la migración debe fallar y conservar ambas filas. |
 
@@ -213,7 +215,7 @@ Los casos marcados como manuales se dejan así porque incluyen estado visual/ges
 
 Configura `TEST_DATABASE_URL` en el entorno del servicio Render con la URL interna de una segunda base PostgreSQL. **No uses `DATABASE_URL` como valor de esta variable.** El nombre de la base puede ser cualquiera; la validación compara host, puerto y nombre para rechazar si apunta a la misma base que `DATABASE_URL`.
 
-Antes de iniciar el backend, JUnit aplica y valida Flyway en esa base, confirma que haya al menos 17 migraciones exitosas y que exista `public.users`. Luego crea un esquema con nombre aleatorio `tf_qa_*`, aplica allí las migraciones desde cero y ejecuta 23 pruebas de aceptación con usuarios sintéticos; algunas levantan un servidor HTTP en un puerto temporal y todas las conexiones de negocio apuntan al esquema aislado. Al terminar, cierra servidores y pools y elimina solo los esquemas con UUID generados por esa ejecución. Las operaciones nunca apuntan a `DATABASE_URL`. Flyway tiene `cleanDisabled=true`.
+Antes de iniciar el backend, JUnit aplica y valida Flyway en esa base, confirma que haya al menos 17 migraciones exitosas y que exista `public.users`. Luego crea un esquema con nombre aleatorio `tf_qa_*`, aplica allí las migraciones desde cero y ejecuta 27 pruebas de aceptación con usuarios sintéticos; algunas levantan un servidor HTTP en un puerto temporal y todas las conexiones de negocio apuntan al esquema aislado. Al terminar, cierra servidores y pools y elimina solo los esquemas con UUID generados por esa ejecución. Las operaciones nunca apuntan a `DATABASE_URL`. Flyway tiene `cleanDisabled=true`.
 
 `TEST_DATABASE_URL` debe estar disponible como variable de entorno en tiempo de ejecución de Render. Si falta, la conexión falla, apunta a la misma base que `DATABASE_URL` o Flyway detecta un error, el backend no inicia. Mantén `DATABASE_URL` conectada a la base normal de la aplicación.
 
@@ -253,6 +255,7 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | A14 | Solicitar recuperación dos veces rápido | Segunda solicitud rechazada por cooldown. |
 | A15 | Registro con Player Tag + API token del juego | Tag verificado contra API de Supercell. Sin API key válida → fallo cerrado. |
 | A16 | Registro con Player Tag ya vinculado a otra cuenta | Respuesta genérica (no revela que está en uso). |
+| A17 | Correos al registrar cuenta nueva *(lógica automatizada en `CuentaRegistradaYSorteoCorreoTest` y `RenderAcceptanceCheck`; entrega Brevo manual)* | El usuario recibe únicamente que su cuenta fue creada (sin token ni tag); el admin recibe de inmediato el token de API descifrado y el nametag `#TAG (NombreClash)` sin email ni teléfono del jugador. |
 
 ### 💰 B — Finanzas y Wompi
 
@@ -286,10 +289,12 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | C11 | Polling agota intentos sin resultado | `matches.estado='disputa'` (verificar que incluye `AND estado = 'en_curso'` — **Bug 4 fix**). |
 | C12 | Cancelar partida en negociación | `salidas_chat` +1, sala limpiada, ambos liberados. |
 | C13 | Cancelar partida ya iniciada | Rechazado ("La partida ya inició"). |
-| C14 | Desconexión en negociación | Timer de 90s. Si no reconecta → sala cancelada, penalización `salidas_desconexion`. |
+| C14 | Desconexión en negociación *(lógica automatizada en `TemporizadorSalaServiceTest`)* | Espera 30s de gracia; si sigue desconectado inicia el conteo de 90s y limpia votos. Reconectar antes de 30s cancela en silencio; agotar los 90s cancela la sala con `salidas_desconexion`. |
 | C15 | Desconexión durante partida activa | Sin timer (espera indefinida). La API resuelve sin importar la conexión. |
 | C16 | Doble confirmación simultánea (race condition) | Solo se cobra una vez (`synchronized(match)` + `FOR UPDATE` + `WHERE estado`) — **Bug 2 fix**. |
 | C17 | `negociacion_live` después de que ambos votaron | Bloqueado si ya hay 2 votos — **Bug 3 fix**. |
+| C18 | Exención única de desconexión al entrar a Discord desde sala privada *(lógica automatizada en `TemporizadorSalaServiceTest` y `RenderAcceptanceCheck`)* | Al abrir voz/bot de Discord en sala privada, esa primera desconexión no cuenta tiempo; si se desconecta una segunda vez en la misma sala sí aplica 30s de gracia + 90s de desconexión. |
+| C19 | Temporizador opcional individual de 2:30 en negociación *(lógica automatizada en `TemporizadorSalaServiceTest` y `RenderAcceptanceCheck`)* | Cualquiera de los dos puede activarlo en cualquier momento; enviar mensaje privado, cambiar modo/monto o presionar Comenzar/confirmar reinicia solo el propio reloj a 2:30 sin aumentar el del rival; llegar a 0 cancela la sala (`salidas_chat` +1). |
 
 ### 💬 D — Chat
 
@@ -323,6 +328,7 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | F3 | Participar después de `fecha_limite` | Rechazado. |
 | F4 | Cancelar sorteo con participantes | Se devuelven tickets y el premio completo al pozo en la misma transacción. |
 | F5 | Admin gana un sorteo | La mitad del premio vuelve al pozo y la otra mitad se registra como ganancia admin. |
+| F6 | Usuario gana un sorteo *(lógica automatizada en `CuentaRegistradaYSorteoCorreoTest` y `RenderAcceptanceCheck`; entrega Brevo manual)* | Además del aviso en la plataforma y al admin, el ganador recibe correo electrónico de felicitación con el nombre y monto del sorteo. |
 
 ### 🎫 G — Soporte (tickets)
 
@@ -431,6 +437,6 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 
 | # | Prueba | Resultado esperado |
 |---|--------|-------------------|
-| Q1 | Verificar `SELECT version, success FROM flyway_schema_history ORDER BY installed_rank` | V1 a V20, todas con `success = true`. |
-| Q2 | Arrancar con BD vacía | Flyway aplica las migraciones actuales (V1–V20) automáticamente. |
+| Q1 | Verificar `SELECT version, success FROM flyway_schema_history ORDER BY installed_rank` | V1 a V21, todas con `success = true`. |
+| Q2 | Arrancar con BD vacía | Flyway aplica las migraciones actuales (V1–V21) automáticamente. |
 | Q3 | V17 con duplicados existentes | Migración aborta con mensaje explicativo (no borra datos). |

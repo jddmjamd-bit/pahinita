@@ -3,6 +3,8 @@ package com.torneosflash.servicio;
 import com.google.gson.JsonObject;
 import com.torneosflash.config.AppConfig;
 import com.torneosflash.dao.GenericDAO;
+import com.torneosflash.eventos.EventBus;
+import com.torneosflash.eventos.Eventos;
 import com.torneosflash.servicio.DiscordApiCliente.DiscordException;
 import com.torneosflash.servicio.DiscordApiCliente.UsuarioDiscord;
 import org.slf4j.Logger;
@@ -52,14 +54,20 @@ public class VozDiscordService {
     private final GenericDAO db;
     private final DiscordApiCliente discord;
     private final AppConfig config;
+    private final EventBus eventos;
 
     /** Evita crear dos canales para la misma partida si los dos jugadores lo piden a la vez. */
     private final Object candadoCreacion = new Object();
 
     public VozDiscordService(GenericDAO db, DiscordApiCliente discord, AppConfig config) {
+        this(db, discord, config, null);
+    }
+
+    public VozDiscordService(GenericDAO db, DiscordApiCliente discord, AppConfig config, EventBus eventos) {
         this.db = db;
         this.discord = discord;
         this.config = config;
+        this.eventos = eventos;
     }
 
     /** ¿Está configurado el chat de voz (variables DISCORD_*)? Si no, todo lo demás queda inactivo. */
@@ -87,6 +95,7 @@ public class VozDiscordService {
     public JsonObject iniciarVinculacion(int userId) {
         exigirSesion(userId);
         exigirDisponible();
+        notificarAperturaDiscordEnSala(userId, null);
         JsonObject r = new JsonObject();
         r.addProperty("url", discord.urlAutorizacion(firmarEstado(userId)));
         return r;
@@ -172,6 +181,7 @@ public class VozDiscordService {
         if (contexto == null) {
             return respuesta("sin_partida", "El chat de voz se abre al entrar a la sala privada con tu rival.");
         }
+        notificarAperturaDiscordEnSala(userId, contexto);
 
         try {
             String canalId = obtenerOCrearCanal(contexto.salaId(), contexto.matchId(),
@@ -313,6 +323,14 @@ public class VozDiscordService {
     }
 
     // ═══════════════ Internos ═══════════════
+
+    private void notificarAperturaDiscordEnSala(int userId, ContextoVoz contextoConocido) {
+        if (eventos == null || db == null) return;
+        ContextoVoz ctx = contextoConocido != null ? contextoConocido : contextoVozActivoDe(userId);
+        if (ctx != null && ctx.matchId() <= 0 && !ctx.salaId().isEmpty()) {
+            eventos.emit(Eventos.VOICE_DISCORD_OPENED, new Eventos.AperturaDiscordSala(userId, ctx.salaId()));
+        }
+    }
 
     /** Sala privada activa o partida en curso del usuario, o null si no está en ninguna. */
     private ContextoVoz contextoVozActivoDe(int userId) {

@@ -133,8 +133,12 @@ public class AuthService {
                     "El usuario debe tener entre 3 y 30 caracteres sin símbolos especiales (< > \" ' & `)");
         }
 
+        String nombreClash = "";
         try {
-            clashApi.verificarTag(playerTag);
+            JsonObject perfilClash = clashApi.verificarTag(playerTag);
+            if (perfilClash != null && perfilClash.has("name") && !perfilClash.get("name").isJsonNull()) {
+                nombreClash = ChatSanitizer.limpiarTexto(perfilClash.get("name").getAsString(), 60);
+            }
         } catch (Exception e) {
             if (e.getMessage() != null && e.getMessage().contains("(Código 404)")) {
                 throw ServicioException.solicitudInvalida("No se encontró ese Player Tag en Clash Royale");
@@ -162,6 +166,9 @@ public class AuthService {
         }
         if (newId <= 0) {
             throw ServicioException.interno("No se pudo completar el registro", null);
+        }
+        if (eventos != null) {
+            eventos.emit(Eventos.USER_REGISTERED, new Eventos.UsuarioRegistrado(newId, username, nombreClash));
         }
     }
 
