@@ -28,6 +28,8 @@ public class AppConfig {
     private final String dbSslMode;
     private final String clashApiToken;
     private final String firebaseServiceAccount;
+    private final String firebaseWebConfig;
+    private final String firebaseVapidKey;
     private final String brevoApiKey;
     private final String brevoSenderEmail;
     private final String wompiPublicKey;
@@ -144,6 +146,8 @@ public class AppConfig {
         this.dbSslMode = getEnv("DB_SSLMODE", "require");
         this.clashApiToken = getEnv("CLASH_ROYALE_API_TOKEN", "");
         this.firebaseServiceAccount = getEnv("FIREBASE_SERVICE_ACCOUNT", "");
+        this.firebaseWebConfig = getEnv("FIREBASE_WEB_CONFIG", "").trim();
+        this.firebaseVapidKey = getEnv("FIREBASE_VAPID_KEY", "").trim();
         this.brevoApiKey = getEnv("BREVO_API_KEY", "");
         this.brevoSenderEmail = normalizarCorreo(getEnv("BREVO_SENDER_EMAIL", ""), "BREVO_SENDER_EMAIL");
         this.wompiPublicKey = getEnv("WOMPI_PUBLIC_KEY", "");
@@ -453,6 +457,8 @@ public class AppConfig {
     public String getDbSslMode() { return dbSslMode; }
     public String getClashApiToken() { return clashApiToken; }
     public String getFirebaseServiceAccount() { return firebaseServiceAccount; }
+    public String getFirebaseWebConfig() { return firebaseWebConfig; }
+    public String getFirebaseVapidKey() { return firebaseVapidKey; }
     public String getBrevoApiKey() { return brevoApiKey; }
     public String getBrevoSenderEmail() { return brevoSenderEmail; }
     public String getWompiPublicKey() { return wompiPublicKey; }
@@ -551,6 +557,9 @@ public class AppConfig {
 
     public boolean hasClashApi() { return !clashApiToken.isEmpty(); }
     public boolean hasFirebase() { return !firebaseServiceAccount.isEmpty(); }
+    public boolean hasFirebaseWebPush() {
+        return hasFirebase() && !firebaseWebConfig.isEmpty() && !firebaseVapidKey.isEmpty();
+    }
     public boolean hasBrevo() { return !brevoApiKey.isEmpty() && !brevoSenderEmail.isEmpty(); }
     /** El chatbot IA necesita clave y modelo; sin alguno de los dos queda desactivado. */
     public boolean hasChatbot() { return !chatbotApiKey.isEmpty() && !chatbotModelo.isEmpty(); }

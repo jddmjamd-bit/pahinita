@@ -1,7 +1,8 @@
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, lazy, Suspense } from 'react'
 import { useAppStore } from './store/useAppStore'
 import { useCapacitor } from './hooks/useCapacitor'
+import { limpiarPushVisibles } from './services/browserPush'
 import Auth from './pages/Auth'
 import Lobby from './pages/Lobby'
 
@@ -25,7 +26,10 @@ function App() {
   const user = useAppStore(state => state.user);
   const sessionReady = useAppStore(state => state.sessionReady);
   const sincronizarSesion = useAppStore(state => state.sincronizarSesion);
-  const { pathname } = useLocation();
+  const marcarNotificacionLeida = useAppStore(state => state.marcarNotificacionLeida);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { pathname, search, hash } = location;
 
   useCapacitor();
 
@@ -37,6 +41,19 @@ function App() {
   useEffect(() => {
     sincronizarSesion();
   }, [sincronizarSesion]);
+
+  useEffect(() => {
+    void limpiarPushVisibles();
+  }, []);
+
+  useEffect(() => {
+    const id = new URLSearchParams(search).get('notificacionId');
+    if (!user?.id || !id || !/^\d+$/.test(id)) return;
+    void marcarNotificacionLeida(id);
+    const parametros = new URLSearchParams(search);
+    parametros.delete('notificacionId');
+    navigate({ pathname, search: parametros.toString() ? `?${parametros}` : '', hash }, { replace: true });
+  }, [hash, marcarNotificacionLeida, navigate, pathname, search, user?.id]);
 
   // No se muestra contenido protegido hasta terminar la validación de sesión en el servidor.
   if (!sessionReady && !RUTAS_PUBLICAS.includes(pathname)) {

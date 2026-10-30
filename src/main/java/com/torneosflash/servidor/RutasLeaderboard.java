@@ -14,6 +14,16 @@ public class RutasLeaderboard {
 
     public static void register(Javalin app, LeaderboardService leaderboard) {
 
+        // GET /api/leaderboard/mi-posicion/:periodo: incluye puestos fuera del top 50.
+        app.get("/api/leaderboard/mi-posicion/{periodo}", ctx -> {
+            int userId = Peticion.userIdDeSesion(ctx);
+            if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
+            ctx.json(leaderboard.posicionUsuario(ctx.pathParam("periodo"), userId));
+        });
+
+        // GET /api/leaderboard/ganadores: historial público de los diez puestos de cada corte.
+        app.get("/api/leaderboard/ganadores", ctx -> ctx.json(leaderboard.ganadoresRecientes()));
+
         // GET /api/leaderboard/history (S2: desde sesión JWT)
         app.get("/api/leaderboard/history", ctx -> {
             int userId = Peticion.userIdDeSesion(ctx);

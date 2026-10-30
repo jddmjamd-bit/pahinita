@@ -25,7 +25,9 @@
 | `APP_BASE_URL` | `https://torneos-beta.onrender.com` | URL pública del sitio. Usado en push, CORS, HSTS, recovery links. |
 | `BREVO_API_KEY` | *(vacío)* | API key de Brevo. Sin ella no se envían correos (alta de cuenta, ganador de sorteo, recuperación de contraseña, soporte, chatbot). |
 | `BREVO_SENDER_EMAIL` | *(vacío)* | Email remitente de Brevo. |
-| `FIREBASE_SERVICE_ACCOUNT` | *(vacío)* | JSON de service account de Firebase. Sin él no hay push notifications. |
+| `FIREBASE_SERVICE_ACCOUNT` | *(vacío)* | JSON privado de service account de Firebase. Necesario para enviar push desde el servidor; no publicarlo en el frontend. |
+| `FIREBASE_WEB_CONFIG` | *(vacío)* | JSON público de configuración de la app web en Firebase Console. Se entrega desde `/api/push/config`; no es la cuenta de servicio. |
+| `FIREBASE_VAPID_KEY` | *(vacío)* | Clave pública Web Push de Firebase Console → Cloud Messaging → Web Push certificates. |
 | `DB_ADMIN_SECRET` | *(vacío)* | Secreto para acceder al panel `/admin-db`. **Sin él, el panel queda deshabilitado.** |
 | `CORS_ALLOWED_ORIGINS` | *(vacío)* | Orígenes extra para CORS separados por coma. Ya incluye `APP_BASE_URL`, localhost y capacitor. |
 | `RATE_LIMIT_PROXY_HOPS` | `0` | Saltos de proxy confiables en `X-Forwarded-For`. **En Render debe ser `1`.** Con `0` ignora XFF y usa IP directa. Rango: 0-10. |
@@ -160,6 +162,19 @@
 | `WOMPI_X_API_KEY` | *(vacío)* | Para consultas admin a Wompi. |
 
 ---
+
+## Configuración y recorrido manual de avisos
+
+Configura `FIREBASE_SERVICE_ACCOUNT`, `FIREBASE_WEB_CONFIG` y `FIREBASE_VAPID_KEY` para push web. El navegador debe abrir el sitio por HTTPS (localhost sirve para desarrollo) y el usuario concede el permiso desde «Activar avisos». La configuración web y la VAPID key son públicas; el JSON de service account es privado. No se necesitan variables `VITE_*`: el frontend consulta `/api/push/config` al activarse.
+
+1. Entra en dos cuentas y confirma que el número de usuarios conectados cuente personas/cuentas, no sockets abiertos.
+2. Envía mensajes por General, Clash, Anuncios, Pagos, asistente y chat privado; comprueba los puntos del menú y que Registro no genere avisos.
+3. Con una cuenta sin sesión web activa, recibe una búsqueda push; cancélala, emparéjala y deja vencer una búsqueda para comprobar que el aviso desaparezca en cada caso.
+4. Comprueba tarjetas por resultado de partida, corte/ganador de ranking, resultado/cancelación de sorteo y reinicio de encuesta; X descarta y pulsar abre la sección y marca leído.
+5. Revisa respuesta de soporte y aprobación/rechazo de recarga y retiro en línea y con el navegador cerrado. Al volver al sitio, las alertas del sistema deben limpiarse.
+6. En Rankings, comprueba la flecha y cantidad de puestos, el puesto propio fuera del top 50 y el historial después de un corte real completado.
+
+Estos recorridos dependen del permiso del navegador, FCM y actividad con cuentas; no los cubren las pruebas automáticas de la imagen.
 
 ## Pruebas automatizadas y arranque en Render
 
@@ -437,6 +452,6 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 
 | # | Prueba | Resultado esperado |
 |---|--------|-------------------|
-| Q1 | Verificar `SELECT version, success FROM flyway_schema_history ORDER BY installed_rank` | V1 a V21, todas con `success = true`. |
-| Q2 | Arrancar con BD vacía | Flyway aplica las migraciones actuales (V1–V21) automáticamente. |
+| Q1 | Verificar `SELECT version, success FROM flyway_schema_history ORDER BY installed_rank` | V1 a V22, todas con `success = true`. |
+| Q2 | Arrancar con BD vacía | Flyway aplica las migraciones actuales (V1–V22) automáticamente. |
 | Q3 | V17 con duplicados existentes | Migración aborta con mensaje explicativo (no borra datos). |

@@ -18,7 +18,7 @@
 | **Frontend** | React + Vite (`frontend/`) | SPA web compilada por Docker y servida por Javalin desde `public/` en el contenedor |
 | **Mobile App** | Capacitor | Genera builds nativos para Android e iOS encapsulando React. El hook mantiene los permisos y el ciclo del token push |
 | **Pagos** | Wompi (tarjeta), Nequi (manual) | Webhook Wompi verifica firma SHA-256, monto y moneda (S7) |
-| **Notificaciones** | Firebase Cloud Messaging (FCM) | Push via `NotificacionPushServicio` y `@capacitor/push-notifications` en cliente |
+| **Notificaciones** | Centro persistente + Firebase Cloud Messaging (FCM) | Avisos en vivo y push web/native; el navegador usa service worker |
 | **Email** | Brevo (Sendinblue) | Vía `CorreoServicio` |
 | **Deploy** | Render (Docker) | UTC timezone, free tier |
 
@@ -31,8 +31,10 @@ TorneosFlash/
 ├── public/                          # Fuente auxiliar del backend
 │   └── admin-db.html                # Panel admin (fuente única; el Dockerfile lo copia a /app/admin-db.html y RutasDbAdmin lo sirve)
 ├── frontend/                        # Frontend activo (React + Vite + Capacitor)
+│   ├── public/firebase-messaging-sw.js # Worker FCM para recibir avisos web y cerrar búsquedas expiradas
 │   ├── android/                     # Proyecto nativo Android (Capacitor)
 │   ├── ios/                         # Proyecto nativo iOS (Capacitor)
+│   ├── src/services/browserPush.js  # Permiso y registro FCM Web
 │   ├── src/
 │   │   ├── hooks/useCapacitor.js    # Permisos, registro/renovación FCM y asociación tras login
 │   │   └── App.jsx                  # Raíz de React
@@ -55,6 +57,8 @@ TorneosFlash/
 │   │   ├── CuentaRegistradaListener.java # Listener de `user.registered`: correo simple al usuario + correo inmediato al admin con token descifrado y nametag
 │   │   ├── TemporizadorSalaService.java  # Gracia de 30s por desconexión, exención única al entrar a Discord y temporizador individual opcional de 2:30 en negociación
 │   │   ├── NotificacionPushServicio.java # Push FCM
+│   │   ├── NotificacionesService.java # Persistencia, lectura, descarte y reparto en vivo/push
+│   │   ├── NotificacionesListener.java # Avisos para chat, búsquedas, cortes, sorteos y encuestas
 │   │   ├── RateLimiter.java         # Contador de solicitudes por clave, ventana deslizante de 1 min (lógica pura, sin HTTP). Ver sección 10
 │   │   ├── WalletService.java       # Todo movimiento de dinero (D2): transacciones atómicas, BigDecimal, emite eventos al bus (A4). Ver sección 5
 │   │   ├── ComisionService.java     # Política de comisiones: % escalonado + reparto por categoría. Ver sección 9
@@ -92,6 +96,7 @@ TorneosFlash/
 │   │   ├── RutasDbAdmin.java        # CRUD admin sobre BD
 │   │   ├── RutasFinanzas.java       # Depósitos, retiros, Wompi webhook
 │   │   ├── RutasLeaderboard.java    # Rankings diario/semanal/mensual/anual
+│   │   ├── RutasNotificaciones.java # Centro de avisos y configuración pública FCM Web
 │   │   ├── RutasComisiones.java     # GET /api/comisiones/simular y /distribucion (solo lectura). Ver sección 9
 │   │   ├── RutasMedia.java          # Upload/descarga de videos
 │   │   ├── RutasChatbot.java        # `/api/chatbot/*` (usuario) y `/api/admin/chatbot/*` (admin). Ver sección 17
@@ -102,7 +107,7 @@ TorneosFlash/
 │       ├── SocketIOServer.java      # Parseo de paquetes Engine.IO/Socket.IO
 │       └── SocketIOClient.java      # Wrapper del cliente WS
 ├── src/main/resources/
-│   └── db/migration/                # Migraciones Flyway V1–V21; V21 persiste exención única de Discord y temporizador individual 2:30 en salas
+│   └── db/migration/                # Migraciones Flyway V1–V22; V22 añade avisos persistentes y snapshots de rankings
 ├── agent/rules/                     # Reglas para modelos IA
 │   ├── auto-push.md
 │   └── project-conventions.md       # ← NUEVO
@@ -132,6 +137,9 @@ TorneosFlash/
 | `leaderboard_pools` | Acumulado de premios del ranking y marcas del último corte | `dia`, `semana`, `mes`, `ano`, `ultimo_corte_*` |
 | `leaderboard_cuts` | Cortes recuperables del leaderboard | `periodo`, `clave_corte`, `pozo`, `estado` |
 | `leaderboard_cut_payments` | Snapshot de destinatarios y estado recuperable de cada pago | `corte_id`, `user_id`, `tipo_pago`, `monto`, `estado`, `intentos`, `ultimo_error` |
+| `leaderboard_cut_snapshots` | Puestos y ganadores publicados en cada corte completado | `corte_id`, `user_id`, `posicion`, `victorias`, `premio` |
+| `leaderboard_live_positions` | Posición previa/actual para calcular movimientos en los rankings | `periodo`, `user_id`, `posicion`, `posicion_previa` |
+| `user_notifications` | Centro persistente de avisos, estado leído y descarte | `user_id`, `categoria`, `ruta`, `evento_clave`, `leida_en`, `descartada_en` |
 | `media_files` | Videos subidos (como BYTEA) | `filename`, `content_type`, `data` |
 | `chatbot_conocimiento` | Base de conocimiento del chatbot y dudas pendientes | `pregunta`, `pregunta_normalizada`, `respuesta`, `origen` (ia/usuario/admin), `estado` (pendiente/respondida/descartada), `veces` |
 | `chatbot_duda_usuarios` | Quiénes hicieron cada duda pendiente (para avisarles) | `duda_id`, `user_id` |
@@ -385,6 +393,8 @@ Toda configuración de despliegue se lee en `config/AppConfig` (nada de números
 | Variable | Default | Rango | Qué controla |
 |---|---|---|---|
 | `APP_BASE_URL` | `https://torneos-beta.onrender.com` | http(s) | URL del sitio para push y enlaces de recuperación (`/auth#reset=...`). Se quita la `/` final |
+| `FIREBASE_WEB_CONFIG` | vacío | JSON | Configuración pública de la app web de Firebase. Se entrega al navegador por `/api/push/config`; no incluir aquí la cuenta de servicio |
+| `FIREBASE_VAPID_KEY` | vacío | texto | Clave pública Web Push generada en Firebase Console → Cloud Messaging → Web Push certificates |
 | `PASSWORD_RESET_TOKEN_MINUTES` | `15` | 5–60 | Vigencia del enlace de recuperación enviado por Brevo |
 | `PASSWORD_RESET_COOLDOWN_SECONDS` | `60` | 30–600 | Pausa mínima entre correos de recuperación para una cuenta |
 | `PUSH_POOL_THREADS` | `4` | 1–32 | Hilos exclusivos para entregas FCM |
@@ -427,7 +437,7 @@ Todos los pools se crean en `config/Ejecutores` (con tamaños de `AppConfig`) y 
 - **Apagado:** `Main` registra un shutdown hook: `app.stop()` → `Ejecutores.cerrar()` (cancela timers, deja terminar IO y push 5 s, CPU 2 s) → `ConexionDB.cerrar()`.
 - **Pools con nombre:** hilos daemon `io-N`, `push-N`, `cpu-N`, `timer-N`, Jetty `http-N`, Hikari `torneos-db ...`; un volcado de hilos (`jstack`) los distingue.
 - **Ajuste:** los hilos HTTP bloquean esperando BD; con `HTTP_MAX_THREADS` muy por encima de `DB_POOL_MAX_SIZE` solo se acumulan esperas de hasta 5 s. Si hay latencia por cola de Jetty, sube `HTTP_MAX_THREADS`; si `PostgreSQL` rechaza conexiones, baja `DB_POOL_MAX_SIZE`.
-- **Push por actividad:** los broadcasts recorren usuarios por páginas y encolan una tarea acotada por destinatario; cada usuario tiene un límite móvil de push/minuto. El chat público excluye sockets conectados que ya recibieron el evento en vivo, y el chat privado solo manda push si el rival no está conectado a esa sala.
+- **Push por actividad:** los avisos persistentes guardan primero el evento y envían push solo a usuarios sin socket activo; cada usuario conserva el límite móvil de push/minuto. El service worker permite retirar las alertas efímeras de búsqueda.
 - **Fuera de A8 (pendiente):** `GET /api/verify-tag` llama a Clash en el hilo HTTP; `GET /api/media/{id}` carga el archivo completo en RAM por petición; el ping de Socket.IO envía de forma secuencial (un cliente lento retrasa a los demás).
 
 ---
@@ -438,7 +448,11 @@ Todos los pools se crean en `config/Ejecutores` (con tamaños de `AppConfig`) y 
 
 | Evento | Datos | Lo emiten | Listeners (en orden) |
 |---|---|---|---|
-| `match.finished` | `Eventos.PartidaFinalizada`: `matchId`, `origen` (`API` / `DISPUTA`), `participantes` (ids de los 2 jugadores), `ganadorId`, `ganadorNombre`, `monto`, `premio`, `nuevoSaldoGanador`, `desglose` (`ComisionService.Desglose`) | `SocketHandler` (sondeo de la API de Clash, `API`) y `AdminService.resolverDisputa` (`DISPUTA`) | 1. `tickets-sorteo` (`TicketsPartidaListener`) · 2. `notificacion-resultado` (`ResultadoPartidaListener`) |
+| `match.finished` | `Eventos.PartidaFinalizada`: `matchId`, `origen` (`API` / `DISPUTA`), `participantes` (ids de los 2 jugadores), `ganadorId`, `ganadorNombre`, `monto`, `premio`, `nuevoSaldoGanador`, `desglose` (`ComisionService.Desglose`) | `SocketHandler` (sondeo de la API de Clash, `API`) y `AdminService.resolverDisputa` (`DISPUTA`) | `tickets-sorteo` (`TicketsPartidaListener`), `notificacion-resultado` (`ResultadoPartidaListener`), `cambio-posicion-ranking` (`LeaderboardService`) |
+| `match.search_started` / `match.search_ended` | `Eventos.BusquedaMatch`: `userId`, `username` | `SocketHandler` al iniciar, cancelar o vencer una búsqueda | `NotificacionesListener`: aviso push temporal a desconectados; lo elimina al emparejar/cancelar/vencer |
+| `chat.message_published` / `match.private_message_published` | Canal, emisor, destinatario, mensaje y sala | `SocketHandler` tras guardar mensajes públicos o privados | `NotificacionesListener`: tarjeta/unread y push desconectado; excluye `clash_logs` |
+| `leaderboard.cut_completed` | `Eventos.CorteLeaderboard`: `corteId`, `periodo` | `LeaderboardService` tras pagar y cerrar el corte | `NotificacionesListener`: avisa a todos y notifica a los diez ganadores |
+| `raffle.created` / `raffle.finished` / `raffle.cancelled` / `raffle.poll_reset` | Datos del sorteo, ganadores, motivo y participantes | `SorteoService` después de confirmar la transacción | `NotificacionesListener`: resultado con motivo, victoria/derrota, cancelación, encuesta nueva |
 | `chatbot.duda_sin_respuesta` | `Eventos.DudaSinRespuesta`: `dudaId`, `userId`, `username`, `pregunta`, `nueva`, `veces` | `ChatbotService.responder` (la IA dijo `[SIN_RESPUESTA]`, ya guardada la duda) | `chatbot-correo-admin` (`ChatbotListener`): correo al admin solo si `nueva` y con tope por hora |
 | `chatbot.duda_respondida` | `Eventos.DudaRespondida`: `dudaId`, `pregunta`, `respuesta`, `usuarios` | `ChatbotService.responderDuda` (solo si estaba pendiente) | `chatbot-aviso-usuarios` (`ChatbotListener`): historial del chat + socket `chatbot_respuesta` + push |
 | `soporte.ticket_creado` | `Eventos.TicketCreado`: `ticketId`, `userId`, `username`, `categoria`, `asunto`, `mensaje` (nunca email ni teléfono) | `SoporteService.crear` (ya guardado el ticket) | `soporte-correo-admin` (`SoporteListener`): correo al admin con tope por hora |
@@ -452,7 +466,8 @@ SocketHandler (sondeo) ── WalletService.liquidar()  ← transacción SQL: sa
         ├── UPDATE matches SET estado='finalizada'
         ├── EventBus.emit("match.finished", PartidaFinalizada)
         │       1. tickets-sorteo         → SorteoService.acumularTicketsPorPartida + socket `tickets_ganados` a cada jugador
-        │       2. notificacion-resultado → (solo origen API) `actualizar_saldo` al ganador + `resultado_api` y push a ambos
+        │       2. notificacion-resultado → saldo al ganador + resultado en vivo y aviso persistente/push a ambos
+        │       3. cambio-posicion-ranking → recalcula movimientos y avisa a quienes subieron/bajaron
         └── liberarJugadores()  (estado normal + `flujo_completado`)
 ```
 
@@ -469,11 +484,20 @@ SocketHandler (sondeo) ── WalletService.liquidar()  ← transacción SQL: sa
 2. Listener nuevo: clase en `servicio/` con un método `registrar(EventBus)` que hace `bus.on(Eventos.X, "id-unico", this::metodo)`, y una línea en `Main` (el orden de las líneas es el orden de ejecución). No hay que tocar `SocketHandler` ni `AdminService`.
 
 **Pendiente / fuera de A4**
-- Misiones y logros (aún no existen; la comisión ya les reserva `misiones` 10% y `logros` 5%) y el ranking en vivo del leaderboard serán listeners de `match.finished` cuando se construyan. Los contadores `victorias_*` del leaderboard no se movieron a un listener porque deben ser atómicos con la liquidación.
-- Todavía no emiten evento: la disputa creada (`disputa_creada` / `disputa_timeout` en el sondeo), la partida cancelada, los movimientos de dinero de `WalletService` (depósito, retiro, premio; D2/D3 y "Notificaciones de dinero" del roadmap), el rate limiting (S8) ni los sorteos.
-- La notificación de `DISPUTA` sigue en `AdminService.resolverDisputa` (`actualizar_saldo` + `flujo_completado`, sin `resultado_api` ni push): no se cambió lo que ve el jugador.
+- Misiones y logros aún no existen; la comisión ya les reserva `misiones` 10% y `logros` 5%. Los contadores `victorias_*` siguen dentro de la liquidación para conservar atomicidad.
+- La notificación de resultado también cubre `DISPUTA`; conserva el evento de saldo y el cierre de sala de `AdminService.resolverDisputa`.
 
 ---
+
+### Centro persistente, push y ranking en vivo
+
+`NotificacionesService` guarda avisos en `user_notifications`, emite `notificacion_nueva` a los sockets del usuario y manda FCM solo si no tiene un socket conectado. La X registra el descarte; abrir el aviso lo marca leído y navega a su ruta. Las búsquedas usan tags push que se cierran al emparejarse, cancelarse o vencer. Al volver a abrir el sitio, el service worker cierra las notificaciones visibles del navegador.
+
+El menú muestra puntos por categoría (chat, soporte, asistente, ranking, sorteos y partida/privada); finanzas también aparece en las tarjetas. `usuarios_online` publica el conteo de usuarios únicos autenticados, no el número de sockets. Los mensajes de `clash_logs` no generan aviso.
+
+La web pide permiso desde el botón «Activar avisos» y registra el token FCM web con la sesión. `/api/push/config` solo entrega la configuración pública y la clave VAPID; nunca la cuenta de servicio. Para Web Push se requieren `FIREBASE_SERVICE_ACCOUNT`, `FIREBASE_WEB_CONFIG` y `FIREBASE_VAPID_KEY`. El FCM Web SDK se carga desde el CDN oficial; Capacitor conserva su registro nativo.
+
+`leaderboard_cut_snapshots` conserva el top 10 de cada corte completado. `/api/leaderboard/ganadores` da ese historial; `/api/leaderboard/mi-posicion/{periodo}` devuelve el puesto personal aunque supere el top 50. `leaderboard_live_positions` permite mostrar ▲/▼ y cuántos puestos cambió cada jugador tras una liquidación. Al completar un corte se reinicia la base de movimiento del periodo.
 
 ## 14. Migraciones de BD con Flyway (A5)
 
@@ -493,6 +517,7 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | `V19__pozo_sorteos_y_premios.sql` | Persiste el saldo disponible del pozo, reserva premios al crear sorteos y registra sus movimientos |
 | `V20__voz_desde_sala_privada.sql` | Permite asociar `voice_channels` a `sala_id` desde la sala privada antes de existir `match_id` |
 | `V21__temporizadores_sala_y_gracia_discord.sql` | Persiste en `active_matches` el estado de exención única de Discord (`discord_exencion_p1/p2`) y los vencimientos individuales del temporizador opcional de 2:30 (`timer_*`) |
+| `V22__notificaciones_persistentes_y_posiciones_leaderboard.sql` | Crea el centro de avisos, snapshots públicos de ganadores de cortes y posiciones anteriores para movimientos del ranking |
 
 **Cómo se comporta según el estado de la BD** (`baselineOnMigrate=true`, `baselineVersion=0`):
 
@@ -503,7 +528,7 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | Ya migrada | Aplica solo los scripts nuevos; si no hay, no hace nada |
 
 **Reglas**
-- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente es `V18`). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
+- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente número disponible es V23). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
 - **Nunca editar un `V*` ya aplicado:** Flyway guarda el checksum y `validateOnMigrate` hace fallar el arranque. Para corregir algo, una migración nueva.
 - **Fail-fast:** si una migración falla, `Main` loguea el error y sale con código 1 (no se sirve tráfico con el esquema a medias). Cada script corre en su propia transacción en PostgreSQL: si falla se revierte entero.
 - `cleanDisabled=true`: la app nunca puede ejecutar `flyway clean`.
@@ -538,6 +563,7 @@ RutasX (servidor/)                        XService (servicio/)
 | `RutasAdmin` | `AdminService` | Calcular la IP del cliente en `/check-ip` |
 | `RutasSorteos` | `SorteoService` | Leer el userId de la sesión JWT (`Peticion.userIdDeSesion`) en las rutas de consulta |
 | `RutasLeaderboard` | `LeaderboardService` | Nada más que parsear `periodo` / `userId` |
+| `RutasNotificaciones` | `NotificacionesService` | Configuración pública del push web y operaciones autenticadas del centro (listar, leer, descartar) |
 | `RutasMedia` | `MediaService` | Headers de la respuesta (`Content-Range`, `nosniff`, caché) |
 | `RutasDbAdmin` | `DbAdminService` | Acceso al panel: clave `X-DB-Admin-Key`, bloqueo por IP, cabeceras de seguridad (S10) |
 | `RutasComisiones` | `ComisionService` + `ValidadorMonto` | Ya era delgada (D4); no se tocó |

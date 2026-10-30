@@ -91,8 +91,9 @@ public class SoporteListener {
             datos.addProperty("asunto", ticket.asunto());
             datos.addProperty("respuesta", ticket.respuesta());
             notificador.emitirA(userId, "soporte_respuesta", datos);
-            notificador.enviarPush(userId, "Torneos Flash",
-                    "El administrador respondió tu consulta «" + recortar(ticket.asunto(), MAX_ASUNTO_RESUMEN) + "».");
+            notificador.notificar(userId, "soporte", "Respondieron tu consulta",
+                    "El administrador respondió «" + recortar(ticket.asunto(), MAX_ASUNTO_RESUMEN) + "».",
+                    "/soporte", "soporte-respuesta:" + ticket.ticketId(), datos, true);
         } catch (Exception e) {
             logger.error("No se pudo avisar al usuario {} de la respuesta del ticket #{}: {}",
                     userId, ticket.ticketId(), e.getMessage());

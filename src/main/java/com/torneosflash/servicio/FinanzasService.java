@@ -317,9 +317,12 @@ public class FinanzasService {
         // Los pagos rechazados o anulados dejan de ser solicitudes pendientes y nunca pasan por el flujo admin.
         int usuarioId = wallet.rechazarDepositoWompi(reference, transactionId);
         if (usuarioId > 0) {
-            notificador.emitirA(usuarioId, "wompi_pago_actualizado", eventoWompi(reference, status));
-            notificador.enviarPush(usuarioId, "Pago Wompi no aprobado",
-                    "El pago fue " + status.toLowerCase(Locale.ROOT) + ". Puedes iniciar otro pago desde Finanzas.");
+            JsonObject evento = eventoWompi(reference, status);
+            notificador.emitirA(usuarioId, "wompi_pago_actualizado", evento);
+            notificador.notificar(usuarioId, "finanzas", "Pago Wompi no aprobado",
+                    "El pago fue " + status.toLowerCase(Locale.ROOT) +
+                            ". Puedes iniciar otro pago desde Finanzas.", "/finance",
+                    "wompi-rechazado:" + reference, evento, true);
         }
     }
 
@@ -379,9 +382,12 @@ public class FinanzasService {
             } else if ("DECLINED".equals(status) || "ERROR".equals(status) || "VOIDED".equals(status)) {
                 int afectado = wallet.rechazarDepositoWompi(reference, id);
                 if (afectado > 0) {
-                    notificador.emitirA(userId, "wompi_pago_actualizado", eventoWompi(reference, status));
-                    notificador.enviarPush(userId, "Pago Wompi no aprobado",
-                            "El pago fue " + status.toLowerCase(Locale.ROOT) + ". Puedes iniciar otro pago desde Finanzas.");
+                    JsonObject evento = eventoWompi(reference, status);
+                    notificador.emitirA(userId, "wompi_pago_actualizado", evento);
+                    notificador.notificar(userId, "finanzas", "Pago Wompi no aprobado",
+                            "El pago fue " + status.toLowerCase(Locale.ROOT) +
+                                    ". Puedes iniciar otro pago desde Finanzas.", "/finance",
+                            "wompi-rechazado:" + reference, evento, true);
                 }
             }
         }

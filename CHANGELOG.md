@@ -11,6 +11,14 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-10-29 — Centro de avisos, push web y rankings con historial (Codex)
+- Agregado centro persistente con tarjetas descartables, puntos por sección y conteo de usuarios en línea; conectado a chats (salvo Registro), soporte, asistente, finanzas, partidas, rankings y sorteos.
+- Añadidos push web FCM con navegación por aviso, cierre de búsquedas al emparejar/cancelar/vencer y configuración pública del SDK separada de la cuenta privada de Firebase.
+- Persistido el top 10 de cada corte, añadido endpoint para historial y puesto personal fuera del top 50, y flechas con cantidad de puestos ganados/perdidos.
+- Añadidas preguntas de ayuda, documentación de Firebase y recorrido manual.
+- **Verificación:** `npm run build` pasó. La compilación Java quedó pendiente: Maven Wrapper no respondió mientras intentaba descargar Maven Central; no se ejecutaron pruebas.
+Archivos: `NotificacionesService.java`, `NotificacionesListener.java`, `RutasNotificaciones.java`, `V22__notificaciones_persistentes_y_posiciones_leaderboard.sql`, `LeaderboardService.java`, `Leaderboard.jsx`, `Lobby.jsx`, `useAppStore.js`, `browserPush.js`, `firebase-messaging-sw.js`
+
 ## 2026-10-29 — Correos al crear cuenta y ganar sorteo, gracia de desconexión con exención única de Discord y temporizador individual 2:30 (Gemini)
 - **Correos al crear cuenta (`AuthService`, `CuentaRegistradaListener`, `Eventos.USER_REGISTERED`):** al completarse un registro real (`newId > 0`), se envía al usuario únicamente la confirmación de creación de cuenta (sin token ni Player Tag) y se envía de inmediato al administrador (`SOPORTE_ADMIN_EMAIL`, con respaldo en `CHATBOT_ADMIN_EMAIL` / `BREVO_SENDER_EMAIL`) el token de verificación de API descifrado desde `CifradoTokenJugador` junto con el nametag `#TAG (NombreClash)` y el `username`/`id` de plataforma, sin incluir correo ni teléfono del jugador. En duplicados no se emite evento ni correos.
 - **Correo al ganador de sorteo (`SorteoService`):** al cerrarse un sorteo con ganador válido (`ganadorId != -1`), se envía correo de felicitación al ganador con el nombre y monto del sorteo, y se retira el correo del usuario del aviso administrativo.

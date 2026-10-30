@@ -89,3 +89,47 @@
 }
 .lb-money-torneos { color: var(--accent-danger); }
 .lb-money-ganado { color: var(--accent-success); }
+.lb-my-position {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 20px;
+    padding: 14px 16px;
+    border: 1px solid var(--accent-primary);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface-elevated);
+}
+.lb-my-position > div { display: flex; flex: 1; flex-direction: column; gap: 3px; }
+.lb-my-position > div span, .lb-outside { color: var(--text-secondary); font-size: 0.86rem; }
+.lb-movement {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 4px;
+    margin: 0 8px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+.lb-movement.subio { color: var(--accent-success); }
+.lb-movement.bajo { color: var(--accent-danger); }
+.lb-message, .lb-error { padding: 20px; text-align: center; }
+.lb-message { color: var(--text-secondary); }
+.lb-error { color: var(--accent-danger); }
+.lb-history { margin-top: 42px; }
+.lb-history h3 { margin: 0 0 14px; }
+.lb-history > p { color: var(--text-secondary); }
+.lb-cut {
+    margin: 8px 0;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+}
+.lb-cut summary { padding: 13px 16px; cursor: pointer; font-weight: 700; }
+.lb-cut ol { margin: 0; padding: 0 16px 12px 42px; }
+.lb-cut li { padding: 7px 0; color: var(--text-secondary); }
+.lb-cut li span:last-child { float: right; color: var(--text-primary); text-align: right; }
+@media (max-width: 560px) {
+    .lb-movement { margin: 0 4px; font-size: 0.85rem; }
+    .lb-cut li span:last-child { float: none; display: block; margin-top: 2px; }
+    .lb-outside { display: none; }
+}

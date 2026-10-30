@@ -43,6 +43,11 @@ public class TicketsPartidaListener {
                 ticketData.addProperty("cantidad", resultado[0]);
                 ticketData.addProperty("acumulado", resultado[1]);
                 notificador.emitirA(jugadorId, "tickets_ganados", ticketData);
+                if (resultado[0] > 0) {
+                    notificador.notificar(jugadorId, "sorteos", "Ganaste tickets de sorteo",
+                            "Sumaste " + resultado[0] + " ticket(s) para tus sorteos.", "/sorteos",
+                            "tickets-partida:" + partida.matchId(), ticketData, false);
+                }
             } catch (Exception e) {
                 logger.error("Error acreditando tickets al jugador {} (match #{}): {}",
                         jugadorId, partida.matchId(), e.getMessage());

@@ -4,6 +4,8 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.torneosflash.dao.GenericDAO;
+import com.torneosflash.eventos.EventBus;
+import com.torneosflash.eventos.Eventos;
 import com.torneosflash.socketio.SocketIOClient;
 import com.torneosflash.socketio.SocketIOServer;
 import org.slf4j.Logger;
@@ -20,6 +22,11 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Lógica del leaderboard: rankings por periodo, historial y premios periódicos con reset (A3).
@@ -46,11 +53,19 @@ public class LeaderboardService {
     private final GenericDAO db;
     private final SocketIOServer io;
     private final WalletService wallet;
+    private final NotificacionesService notificaciones;
+    private EventBus eventos;
 
     public LeaderboardService(GenericDAO db, SocketIOServer io, WalletService wallet) {
+        this(db, io, wallet, null);
+    }
+
+    public LeaderboardService(GenericDAO db, SocketIOServer io, WalletService wallet,
+                              NotificacionesService notificaciones) {
         this.db = db;
         this.io = io;
         this.wallet = wallet;
+        this.notificaciones = notificaciones;
     }
 
     // ------------------------------------------------------------------
@@ -73,18 +88,31 @@ public class LeaderboardService {
         }
 
         boolean isMoneyTab = "monto_torneos".equals(periodo) || "ganado".equals(periodo);
-        String selectAlias = isMoneyTab ? orderColumn + " as monto" : orderColumn + " as victorias";
+        String selectAlias = isMoneyTab ? "u." + orderColumn + " as monto" : "u." + orderColumn + " as victorias";
+        String orden = ordenRanking(periodo, orderColumn);
 
         // S6 / M5: no exponer tipo_suscripcion (quién es admin) ni ganancia_generada en el ranking público
         ArrayList<JsonObject> rows = db.query(
-                "SELECT id, username, " + selectAlias + ", total_partidas, total_victorias, total_derrotas, " +
-                "total_monto_torneos, total_ganado FROM users WHERE tipo_suscripcion IS DISTINCT FROM 'admin' AND " +
-                orderColumn + " > 0 ORDER BY " + orderColumn + " DESC LIMIT 50");
+                "SELECT u.id, u.username, " + selectAlias + ", u.total_partidas, u.total_victorias, " +
+                        "u.total_derrotas, u.total_monto_torneos, u.total_ganado, " +
+                        "ROW_NUMBER() OVER (ORDER BY " + orden + ") AS posicion, p.posicion_previa " +
+                        "FROM users u LEFT JOIN leaderboard_live_positions p ON p.periodo = ? AND p.user_id = u.id " +
+                        "WHERE u.tipo_suscripcion IS DISTINCT FROM 'admin' AND u." + orderColumn + " > 0 " +
+                        "ORDER BY " + orden + " LIMIT 50", periodo);
 
         JsonArray ranking = new JsonArray();
         for (int i = 0; i < rows.size(); i++) {
             JsonObject row = rows.get(i);
-            row.addProperty("posicion", i + 1);
+            int posicion = row.has("posicion") ? row.get("posicion").getAsInt() : i + 1;
+            row.addProperty("posicion", posicion);
+            if (row.has("posicion_previa") && !row.get("posicion_previa").isJsonNull()) {
+                int previa = row.get("posicion_previa").getAsInt();
+                row.addProperty("posicion_previa", previa);
+                row.addProperty("cambio_posicion", previa - posicion);
+            } else {
+                row.add("posicion_previa", com.google.gson.JsonNull.INSTANCE);
+                row.addProperty("cambio_posicion", 0);
+            }
             ranking.add(row);
         }
 
@@ -103,6 +131,73 @@ public class LeaderboardService {
 
     public ArrayList<JsonObject> historial(int userId) {
         return db.query("SELECT * FROM leaderboard_history WHERE user_id = ? ORDER BY fecha DESC LIMIT 20", userId);
+    }
+
+    /** Puestos de todos los usuarios con puntaje, incluso cuando el jugador está por fuera del top 50. */
+    public JsonObject posicionUsuario(String periodo, int userId) {
+        String columna = columnaRanking(periodo);
+        String orden = ordenRanking(periodo, columna);
+        JsonObject fila = db.queryOne(
+                "SELECT posicion, total_usuarios FROM (" +
+                        "SELECT u.id, ROW_NUMBER() OVER (ORDER BY " + orden + ") AS posicion, " +
+                        "COUNT(*) OVER () AS total_usuarios FROM users u " +
+                        "WHERE u.tipo_suscripcion IS DISTINCT FROM 'admin' AND u." + columna + " > 0" +
+                        ") puestos WHERE id = ?", userId);
+        JsonObject resultado = new JsonObject();
+        resultado.addProperty("periodo", periodo);
+        if (fila == null) {
+            JsonObject total = db.queryOne("SELECT COUNT(*) AS total FROM users " +
+                    "WHERE tipo_suscripcion IS DISTINCT FROM 'admin' AND " + columna + " > 0");
+            resultado.add("posicion", com.google.gson.JsonNull.INSTANCE);
+            resultado.addProperty("totalUsuarios", total == null ? 0 : total.get("total").getAsInt());
+        } else {
+            resultado.add("posicion", fila.get("posicion"));
+            resultado.add("totalUsuarios", fila.get("total_usuarios"));
+        }
+        JsonObject movimiento = db.queryOne(
+                "SELECT posicion_previa FROM leaderboard_live_positions WHERE periodo = ? AND user_id = ?",
+                periodo, userId);
+        if (movimiento != null && !movimiento.get("posicion_previa").isJsonNull()
+                && !resultado.get("posicion").isJsonNull()) {
+            int anterior = movimiento.get("posicion_previa").getAsInt();
+            resultado.addProperty("posicionPrevia", anterior);
+            resultado.addProperty("cambioPosicion", anterior - resultado.get("posicion").getAsInt());
+        } else {
+            resultado.add("posicionPrevia", com.google.gson.JsonNull.INSTANCE);
+            resultado.addProperty("cambioPosicion", 0);
+        }
+        resultado.addProperty("enTop50", !resultado.get("posicion").isJsonNull()
+                && resultado.get("posicion").getAsInt() <= 50);
+        return resultado;
+    }
+
+    /** Últimos ganadores guardados con cada corte, ordenados por fecha y puesto. */
+    public ArrayList<JsonObject> ganadoresRecientes() {
+        return db.query(
+                "SELECT s.corte_id, s.user_id, s.username, s.posicion, s.victorias, s.ganancias, s.premio, " +
+                        "c.periodo, c.clave_corte, c.completado_en " +
+                        "FROM leaderboard_cut_snapshots s JOIN leaderboard_cuts c ON c.id = s.corte_id " +
+                        "WHERE c.estado = 'completado' AND s.posicion <= 10 " +
+                        "ORDER BY c.completado_en DESC, s.posicion ASC LIMIT 100");
+    }
+
+    /** Conserva la posición actual al reiniciar y guarda los últimos cambios para las flechas. */
+    public void registrar(EventBus bus) {
+        this.eventos = bus;
+        if (bus != null) bus.on(Eventos.MATCH_FINISHED, "cambio-posicion-ranking", this::actualizarMovimientos);
+    }
+
+    /** Rellena posiciones faltantes en un reinicio sin borrar los últimos cambios que ya vio el usuario. */
+    public void inicializarPosiciones() {
+        for (Map.Entry<String, String> periodo : columnasRanking().entrySet()) {
+            String orden = ordenRanking(periodo.getKey(), periodo.getValue());
+            db.update("INSERT INTO leaderboard_live_positions (periodo, user_id, posicion) " +
+                            "SELECT ?, puestos.id, puestos.posicion FROM (" +
+                            "SELECT u.id, ROW_NUMBER() OVER (ORDER BY " + orden + ") AS posicion " +
+                            "FROM users u WHERE u.tipo_suscripcion IS DISTINCT FROM 'admin' " +
+                            "AND u." + periodo.getValue() + " > 0) puestos " +
+                            "ON CONFLICT (periodo, user_id) DO NOTHING", periodo.getKey());
+        }
     }
 
     private static JsonArray calcularPremiosDinamicos(BigDecimal pozoTotal) {
@@ -303,6 +398,7 @@ public class LeaderboardService {
 
                 insertarPagosJugadores(conn, corteId, pozo, top);
                 insertarPagosAdmins(conn, corteId, pozo, top);
+                insertarSnapshotCorte(conn, corteId, periodo, columnaVictorias);
 
                 try (PreparedStatement ps = conn.prepareStatement(
                         "UPDATE leaderboard_pools SET " + columnaPozo + " = 0, " + colCorte + " = ? WHERE id = 1")) {
@@ -486,9 +582,20 @@ public class LeaderboardService {
             if (!completo) return;
             boolean cerrado = cerrarCorteSiCompleto(corteId);
             if (cerrado) {
+                JsonObject periodoCorte = db.queryOne("SELECT periodo FROM leaderboard_cuts WHERE id = ?", corteId);
+                String clavePeriodo = periodoCorte == null ? "" : periodoCorte.get("periodo").getAsString();
+                if (!clavePeriodo.isEmpty()) {
+                    db.update("DELETE FROM leaderboard_live_positions WHERE periodo = ?", clavePeriodo);
+                }
                 JsonObject resetData = new JsonObject();
                 resetData.addProperty("periodo", nombrePeriodoDeCorte(corteId));
+                resetData.addProperty("periodoClave", clavePeriodo);
+                resetData.addProperty("corteId", corteId);
                 io.emit("leaderboard_reset", resetData);
+                if (eventos != null) {
+                    eventos.emit(Eventos.LEADERBOARD_CUT_COMPLETED,
+                            new Eventos.CorteLeaderboard(corteId, clavePeriodo));
+                }
                 logger.info("Corte leaderboard {} completado", corteId);
             }
         } catch (Exception e) {
@@ -513,6 +620,128 @@ public class LeaderboardService {
             ps.setLong(3, pagoId);
             ps.executeUpdate();
         }
+    }
+
+    /** Snapshot del ranking completo al corte; el top 10 se usa como historial público de ganadores. */
+    private void insertarSnapshotCorte(Connection conn, long corteId, String periodo,
+                                       String columnaVictorias) throws SQLException {
+        String orden = "u." + columnaVictorias + " DESC, u.ganancia_generada DESC, u.id ASC";
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO leaderboard_cut_snapshots " +
+                        "(corte_id, user_id, username, posicion, victorias, ganancias, premio) " +
+                        "SELECT ?, u.id, u.username, ROW_NUMBER() OVER (ORDER BY " + orden + "), " +
+                        "u." + columnaVictorias + ", COALESCE(u.ganancia_generada, 0), COALESCE(p.monto, 0) " +
+                        "FROM users u LEFT JOIN leaderboard_cut_payments p ON p.corte_id = ? " +
+                        "AND p.user_id = u.id AND p.tipo_pago = 'jugador' " +
+                        "WHERE u.tipo_suscripcion IS DISTINCT FROM 'admin' AND u." + columnaVictorias + " > 0 " +
+                        "ON CONFLICT (corte_id, user_id) DO NOTHING")) {
+            ps.setLong(1, corteId);
+            ps.setLong(2, corteId);
+            ps.executeUpdate();
+        }
+    }
+
+    private synchronized void actualizarMovimientos(EventBus.Evento evento) {
+        Eventos.PartidaFinalizada partida = evento.datos(Eventos.PartidaFinalizada.class);
+        if (partida == null) return;
+        Map<Integer, JsonArray> detallesPorUsuario = new LinkedHashMap<>();
+        Map<Integer, ArrayList<String>> mensajesPorUsuario = new LinkedHashMap<>();
+
+        for (Map.Entry<String, String> periodo : columnasRanking().entrySet()) {
+            String clave = periodo.getKey();
+            String columna = periodo.getValue();
+            Map<Integer, Integer> anteriores = new HashMap<>();
+            for (JsonObject fila : db.query(
+                    "SELECT user_id, posicion FROM leaderboard_live_positions WHERE periodo = ?", clave)) {
+                anteriores.put(fila.get("user_id").getAsInt(), fila.get("posicion").getAsInt());
+            }
+
+            String orden = ordenRanking(clave, columna);
+            Set<Integer> presentes = new HashSet<>();
+            for (JsonObject fila : db.query(
+                    "SELECT puestos.id, puestos.posicion FROM (" +
+                            "SELECT u.id, ROW_NUMBER() OVER (ORDER BY " + orden + ") AS posicion " +
+                            "FROM users u WHERE u.tipo_suscripcion IS DISTINCT FROM 'admin' " +
+                            "AND u." + columna + " > 0) puestos")) {
+                int userId = fila.get("id").getAsInt();
+                int nueva = fila.get("posicion").getAsInt();
+                presentes.add(userId);
+                Integer anterior = anteriores.get(userId);
+                if (anterior == null) {
+                    db.update("INSERT INTO leaderboard_live_positions (periodo, user_id, posicion) " +
+                                    "VALUES (?, ?, ?) ON CONFLICT (periodo, user_id) DO NOTHING",
+                            clave, userId, nueva);
+                    continue;
+                }
+                if (anterior == nueva) continue;
+                db.update("UPDATE leaderboard_live_positions SET posicion_previa = ?, posicion = ?, " +
+                                "actualizado_en = CURRENT_TIMESTAMP WHERE periodo = ? AND user_id = ?",
+                        anterior, nueva, clave, userId);
+                JsonObject cambio = new JsonObject();
+                cambio.addProperty("periodo", clave);
+                cambio.addProperty("desde", anterior);
+                cambio.addProperty("hasta", nueva);
+                detallesPorUsuario.computeIfAbsent(userId, ignorado -> new JsonArray()).add(cambio);
+                mensajesPorUsuario.computeIfAbsent(userId, ignorado -> new ArrayList<>())
+                        .add(etiquetaPeriodo(clave) + (nueva < anterior ? " subiste" : " bajaste") +
+                                " del #" + anterior + " al #" + nueva);
+            }
+            for (Integer userId : anteriores.keySet()) {
+                if (!presentes.contains(userId)) {
+                    db.update("DELETE FROM leaderboard_live_positions WHERE periodo = ? AND user_id = ?",
+                            clave, userId);
+                }
+            }
+        }
+
+        if (notificaciones == null) return;
+        for (Map.Entry<Integer, ArrayList<String>> cambio : mensajesPorUsuario.entrySet()) {
+            JsonObject datos = new JsonObject();
+            datos.addProperty("matchId", partida.matchId());
+            datos.add("cambios", detallesPorUsuario.get(cambio.getKey()));
+            notificaciones.notificar(cambio.getKey(), "ranking", "Cambió tu posición en rankings",
+                    String.join(" · ", cambio.getValue()), "/leaderboard",
+                    "ranking-movimiento:" + partida.matchId(), datos, false);
+        }
+    }
+
+    private static Map<String, String> columnasRanking() {
+        Map<String, String> columnas = new LinkedHashMap<>();
+        columnas.put("dia", "victorias_dia");
+        columnas.put("semana", "victorias_semana");
+        columnas.put("mes", "victorias_mes");
+        columnas.put("ano", "victorias_ano");
+        columnas.put("global", "total_victorias");
+        columnas.put("monto_torneos", "total_monto_torneos");
+        columnas.put("ganado", "total_ganado");
+        return columnas;
+    }
+
+    private static String columnaRanking(String periodo) {
+        String columna = columnasRanking().get(periodo);
+        if (columna == null) throw ServicioException.solicitudInvalida("Periodo no válido");
+        return columna;
+    }
+
+    private static String ordenRanking(String periodo, String columna) {
+        String orden = "u." + columna + " DESC";
+        if ("dia".equals(periodo) || "semana".equals(periodo) || "mes".equals(periodo) || "ano".equals(periodo)) {
+            orden += ", u.ganancia_generada DESC";
+        }
+        return orden + ", u.id ASC";
+    }
+
+    private static String etiquetaPeriodo(String periodo) {
+        return switch (periodo) {
+            case "dia" -> "Diario:";
+            case "semana" -> "Semanal:";
+            case "mes" -> "Mensual:";
+            case "ano" -> "Anual:";
+            case "global" -> "Global:";
+            case "monto_torneos" -> "Monto en torneos:";
+            case "ganado" -> "Ganado:";
+            default -> "Ranking:";
+        };
     }
 
     private boolean cerrarCorteSiCompleto(long corteId) throws SQLException {

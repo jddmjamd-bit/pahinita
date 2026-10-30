@@ -96,8 +96,9 @@ public class ChatbotService {
             "faltas, abandonos, desconexiones (gracia de 30 segundos) y sanciones",
             "sorteos y tickets: cómo se ganan, cómo se usan y aviso por correo al ganador",
             "ranking (leaderboard) y sus premios",
+            "historial de ganadores por corte, puesto personal, flechas de movimiento y cantidad de usuarios conectados",
             "canales del chat y reglas de conducta",
-            "notificaciones y app móvil",
+            "notificaciones en vivo, puntos de mensajes nuevos y push del navegador",
             "seguridad de la cuenta y de los pagos",
             "soporte: cómo contactar al administrador");
 
@@ -116,6 +117,8 @@ public class ChatbotService {
             "¿Qué son las faltas y qué sanciones tienen?",
             "¿Cómo funcionan los sorteos y cómo gano tickets?",
             "¿Cómo funciona el ranking y qué premios da?",
+            "¿Dónde veo mi puesto, los ganadores de cortes anteriores y si subí o bajé posiciones?",
+            "¿Cómo activo las notificaciones push del navegador y cuántos usuarios están conectados?",
             "¿Dónde encuentro mi Player Tag y mi token de API de Clash Royale y para qué sirve cada uno en el registro?",
             "¿Cómo funciona el canal de voz de Discord desde el chat privado y durante la partida?",
             "¿Cómo puedo contactar al administrador si tengo un problema con un pago?",

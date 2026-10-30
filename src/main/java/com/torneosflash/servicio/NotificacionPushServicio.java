@@ -93,7 +93,21 @@ public class NotificacionPushServicio {
      */
     public void enviarPush(GenericDAO db, int userId, String titulo, String body) {
         if (!disponible || userId <= 0) return;
-        encolarPushUsuario(db, userId, titulo, body, "push a usuario " + userId);
+        enviarPush(db, userId, titulo, body, siteUrl, "", "");
+    }
+
+    /** Push de una notificación del centro, con ruta y etiqueta para el service worker web. */
+    public void enviarPush(GenericDAO db, int userId, String titulo, String body,
+                           String link, String tag, String notificationId) {
+        if (!disponible || userId <= 0) return;
+        encolarPushUsuario(db, userId, titulo, body, link, tag, notificationId,
+                "push a usuario " + userId);
+    }
+
+    /** Mensaje de control sin aviso visible: el service worker cierra una push efímera, como búsqueda cancelada. */
+    public void enviarControlPush(GenericDAO db, int userId, String tag) {
+        if (!disponible || userId <= 0) return;
+        encolarPushUsuario(db, userId, "", "", "", tag, "", "cerrar push a usuario " + userId);
     }
 
     /**
@@ -126,7 +140,8 @@ public class NotificacionPushServicio {
                     int userId = destinatario.get("user_id").getAsInt();
                     despuesDeUserId = Math.max(despuesDeUserId, userId);
                     if (excluidos.contains(userId)) continue;
-                    if (!encolarPushUsuario(db, userId, titulo, body, "push broadcast a usuario " + userId)) {
+                    if (!encolarPushUsuario(db, userId, titulo, body, siteUrl, "", "",
+                            "push broadcast a usuario " + userId)) {
                         logger.warn("🔔 Broadcast FCM parcial: se detuvo al llenarse la cola de push.");
                         return;
                     }
@@ -138,21 +153,26 @@ public class NotificacionPushServicio {
         }
     }
 
-    private boolean encolarPushUsuario(GenericDAO db, int userId, String titulo, String body, String descripcion) {
-        return ejecutores.ejecutarPush(descripcion, () -> enviarPushUsuario(db, userId, titulo, body));
+    private boolean encolarPushUsuario(GenericDAO db, int userId, String titulo, String body,
+                                       String link, String tag, String notificationId, String descripcion) {
+        return ejecutores.ejecutarPush(descripcion,
+                () -> enviarPushUsuario(db, userId, titulo, body, link, tag, notificationId));
     }
 
-    private void enviarPushUsuario(GenericDAO db, int userId, String titulo, String body) {
+    private void enviarPushUsuario(GenericDAO db, int userId, String titulo, String body,
+                                   String link, String tag, String notificationId) {
         try {
             ArrayList<JsonObject> tokens = db.query(
                     "SELECT fcm_token FROM user_tokens WHERE user_id = ? " +
                             "AND fcm_token IS NOT NULL AND fcm_token <> '' ORDER BY id DESC LIMIT ?",
                     userId, MAX_TOKENS_POR_USUARIO);
-            if (tokens.isEmpty() || !permitirPushUsuario(userId)) return;
+            boolean mensajeDeControl = titulo == null || titulo.isBlank();
+            if (tokens.isEmpty() || (!mensajeDeControl && !permitirPushUsuario(userId))) return;
             String accessToken = getAccessToken();
             if (accessToken == null) return;
             for (JsonObject row : tokens) {
-                enviarFCM(db, accessToken, row.get("fcm_token").getAsString(), titulo, body);
+                enviarFCM(db, accessToken, row.get("fcm_token").getAsString(), titulo, body,
+                        link, tag, notificationId);
             }
         } catch (Exception e) {
             logger.error("🔔 Error enviando push a usuario {}: {}", userId, e.getMessage(), e);
@@ -198,28 +218,46 @@ public class NotificacionPushServicio {
      * Envía un mensaje FCM a un token específico usando la HTTP v1 API.
      * Si el token es inválido (404/410), lo elimina de la base de datos.
      */
-    private void enviarFCM(GenericDAO db, String accessToken, String fcmToken, String titulo, String body) {
+    private void enviarFCM(GenericDAO db, String accessToken, String fcmToken, String titulo, String body,
+                           String link, String tag, String notificationId) {
         try {
             JsonObject message = new JsonObject();
             JsonObject msg = new JsonObject();
             msg.addProperty("token", fcmToken);
 
-            // Notification payload (se muestra automáticamente en background)
-            JsonObject notification = new JsonObject();
-            notification.addProperty("title", titulo);
-            notification.addProperty("body", body);
-            msg.add("notification", notification);
+            JsonObject payloadDatos = new JsonObject();
+            boolean cerrar = titulo == null || titulo.isBlank();
+            payloadDatos.addProperty("accion", cerrar ? "cerrar" : "abrir");
+            if (tag != null && !tag.isBlank()) payloadDatos.addProperty("tag", tag);
+            if (notificationId != null && !notificationId.isBlank()) {
+                payloadDatos.addProperty("notificationId", notificationId);
+            }
+            if (link != null && !link.isBlank()) payloadDatos.addProperty("link", link);
+            msg.add("data", payloadDatos);
 
             // Web Push config
             JsonObject webpush = new JsonObject();
-            JsonObject fcmOptions = new JsonObject();
-            fcmOptions.addProperty("link", siteUrl);
-            webpush.add("fcm_options", fcmOptions);
+            if (cerrar) {
+                JsonObject headers = new JsonObject();
+                headers.addProperty("TTL", "60");
+                webpush.add("headers", headers);
+            } else {
+                // El payload común mantiene la entrega nativa; en web el service worker personaliza el click.
+                JsonObject notification = new JsonObject();
+                notification.addProperty("title", titulo);
+                notification.addProperty("body", body);
+                msg.add("notification", notification);
 
-            JsonObject webNotif = new JsonObject();
-            webNotif.addProperty("icon", siteUrl + "/icon-192.png");
-            webNotif.addProperty("badge", siteUrl + "/icon-192.png");
-            webpush.add("notification", webNotif);
+                JsonObject fcmOptions = new JsonObject();
+                fcmOptions.addProperty("link", link == null || link.isBlank() ? siteUrl : link);
+                webpush.add("fcm_options", fcmOptions);
+
+                JsonObject webNotif = new JsonObject();
+                webNotif.addProperty("icon", siteUrl + "/icon-192.png");
+                webNotif.addProperty("badge", siteUrl + "/icon-192.png");
+                if (tag != null && !tag.isBlank()) webNotif.addProperty("tag", tag);
+                webpush.add("notification", webNotif);
+            }
 
             msg.add("webpush", webpush);
             message.add("message", msg);

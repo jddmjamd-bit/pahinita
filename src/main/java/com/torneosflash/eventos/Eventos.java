@@ -48,6 +48,40 @@ public final class Eventos {
      */
     public static final String MATCH_FINISHED = "match.finished";
 
+    /** Alguien empezó a buscar partida. Se elimina al emparejar, cancelar o vencer la búsqueda. */
+    public static final String MATCH_SEARCH_STARTED = "match.search_started";
+    public static final String MATCH_SEARCH_ENDED = "match.search_ended";
+    public record BusquedaMatch(int userId, String username) {}
+
+    /** Mensaje guardado en un canal público, excepto el registro técnico de partidas. */
+    public static final String CHAT_MESSAGE_PUBLISHED = "chat.message_published";
+    public record MensajeChatPublicado(int messageId, int emisorId, String username,
+                                       String canal, String preview) {}
+
+    /** Mensaje privado de la sala de negociación; el push solo se muestra fuera de la sala. */
+    public static final String PRIVATE_MESSAGE_PUBLISHED = "match.private_message_published";
+    public record MensajePrivadoPublicado(int messageId, int destinatarioId, String username,
+                                          String preview, String salaId) {}
+
+    /** Corte completado y pagado del ranking. */
+    public static final String LEADERBOARD_CUT_COMPLETED = "leaderboard.cut_completed";
+    public record CorteLeaderboard(long corteId, String periodo) {}
+
+    /** Ciclo de vida de sorteos, con todos los participantes para avisar también a los perdedores. */
+    public static final String RAFFLE_CREATED = "raffle.created";
+    public static final String RAFFLE_FINISHED = "raffle.finished";
+    public static final String RAFFLE_CANCELLED = "raffle.cancelled";
+    public static final String RAFFLE_POLL_RESET = "raffle.poll_reset";
+    public record SorteoCreado(int raffleId, String nombre) {}
+    public record SorteoFinalizado(int raffleId, String nombre, int ganadorId,
+                                   String ganadorNombre, List<Integer> participantes, String motivo) {
+        public SorteoFinalizado { participantes = List.copyOf(participantes); }
+    }
+    public record SorteoCancelado(int raffleId, String nombre, List<Integer> participantes) {
+        public SorteoCancelado { participantes = List.copyOf(participantes); }
+    }
+    public record EncuestaSorteosReiniciada() {}
+
     /** Cómo se decidió el resultado de la partida. */
     public enum Origen {
         /** El sondeo a la API de Clash Royale encontró la batalla. */

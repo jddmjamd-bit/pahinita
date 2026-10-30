@@ -419,6 +419,14 @@ public class AuthService {
                         borrar.executeUpdate();
                     }
                 }
+                // Un token identifica un dispositivo: al iniciar sesión con otra cuenta no debe seguir
+                // asociado a la cuenta anterior ni recibir sus notificaciones.
+                try (PreparedStatement borrarOtroUsuario = conn.prepareStatement(
+                        "DELETE FROM user_tokens WHERE fcm_token = ? AND user_id <> ?")) {
+                    borrarOtroUsuario.setString(1, limpio);
+                    borrarOtroUsuario.setInt(2, userId);
+                    borrarOtroUsuario.executeUpdate();
+                }
                 try (PreparedStatement insertar = conn.prepareStatement(
                         "INSERT INTO user_tokens (user_id, fcm_token) VALUES (?, ?) " +
                                 "ON CONFLICT (user_id, fcm_token) DO NOTHING")) {

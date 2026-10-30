@@ -146,7 +146,11 @@ public class SocketHandler {
                             s.getUserData().get("id").getAsInt() == userId && !s.getSid().equals(client.getSid()));
 
                     client.setUserData(dbUser);
-                    usuariosOnline.add(userId);
+                    boolean nuevoUsuarioOnline = usuariosOnline.add(userId);
+                    JsonObject online = new JsonObject();
+                    online.addProperty("total", usuariosOnline.size());
+                    client.emit("usuarios_online", online);
+                    if (nuevoUsuarioOnline) io.emit("usuarios_online", online);
                     logger.info("✅ Usuario " + username + " (" + userId + ") está ONLINE");
 
                     // Enviar búsquedas activas de otros usuarios
@@ -326,7 +330,8 @@ public class SocketHandler {
                     String tipo = limpio.tipo();
                     String fecha = java.time.Instant.now().toString();
 
-                    db.update("INSERT INTO messages (canal, usuario, texto, tipo) VALUES (?, ?, ?, ?)",
+                    int messageId = db.insertReturningId(
+                            "INSERT INTO messages (canal, usuario, texto, tipo) VALUES (?, ?, ?, ?) RETURNING id",
                             canal, usuario, texto, tipo);
                     // Solo se reenvían los campos permitidos (nunca propiedades arbitrarias del cliente)
                     JsonObject salida = new JsonObject();
@@ -336,19 +341,12 @@ public class SocketHandler {
                     salida.addProperty("tipo", tipo);
                     salida.addProperty("fecha", fecha);
                     io.emit("mensaje_chat", salida);
-
-                    // Un push por canal/minuto y exclusión de sockets conectados: el mensaje
-                    // ya llegó en tiempo real a esos usuarios.
-                    if (client.getUserData() != null && permitirPushChat(canal)) {
-                        String nombreCanal = canal.equals("general") ? "General"
-                                : canal.equals("clash") ? "Clash"
-                                : canal.equals("anuncios") ? "Anuncios" : canal;
+                    if (messageId > 0 && !"clash_logs".equals(canal)) {
                         String preview = tipo.equals("texto")
                                 ? (texto.length() > 50 ? texto.substring(0, 50) + "..." : texto)
                                 : usuario + " envió " + (tipo.equals("imagen") ? "una imagen" : "un video");
-                        pushService.enviarPushATodos(db, excluirConectadosEnTiempoReal(senderId),
-                                "💬 Mensaje en " + nombreCanal,
-                                tipo.equals("texto") ? usuario + ": " + preview : preview);
+                        eventos.emit(Eventos.CHAT_MESSAGE_PUBLISHED,
+                                new Eventos.MensajeChatPublicado(messageId, senderId, usuario, canal, preview));
                     }
                 } catch (Exception e) { logger.error("Error mensaje_chat: " + e.getMessage()); }
             });
@@ -404,10 +402,7 @@ public class SocketHandler {
                         buscandoData.addProperty("username", username);
                         buscandoData.addProperty("oderId", userId);
                         io.emit("alguien_buscando", buscandoData);
-
-                        // Push: notificar a todos que alguien busca partida
-                        pushService.enviarPushATodos(db, excluirConectadosEnTiempoReal(userId),
-                                "🔍 Partida disponible", username + " está buscando partida!");
+                        eventos.emit(Eventos.MATCH_SEARCH_STARTED, new Eventos.BusquedaMatch(userId, username));
 
                         logClash("🔍 " + username + " busca...");
 
@@ -447,6 +442,7 @@ public class SocketHandler {
                         cancelData.addProperty("oderId", userId);
                         cancelData.addProperty("username", username);
                         io.emit("busqueda_cancelada", cancelData);
+                        eventos.emit(Eventos.MATCH_SEARCH_ENDED, new Eventos.BusquedaMatch(userId, username));
                         emitirCancelacionCompletada(client, "cancelar_busqueda");
                     }
                 } catch (Exception e) {
@@ -881,7 +877,8 @@ public class SocketHandler {
                         d.addProperty("texto", limpio.texto());
                         d.addProperty("tipo", "texto");
                         String fecha = java.time.Instant.now().toString();
-                        db.update("INSERT INTO messages (canal, usuario, texto, tipo) VALUES (?, ?, ?, 'texto')",
+                        int messageId = db.insertReturningId(
+                                "INSERT INTO messages (canal, usuario, texto, tipo) VALUES (?, ?, ?, 'texto') RETURNING id",
                                 limpio.salaId(), limpio.usuario(), limpio.texto());
                         d.addProperty("fecha", fecha);
                         io.to(limpio.salaId()).emit("mensaje_privado", d);
@@ -890,11 +887,12 @@ public class SocketHandler {
                         }
 
                         int rivalId = match.getRivalId(senderId);
-                        if (rivalId > 0 && !usuarioConectadoEnSala(rivalId, limpio.salaId())) {
+                        if (messageId > 0 && rivalId > 0) {
                             String texto = limpio.texto();
                             String preview = texto.length() > 50 ? texto.substring(0, 50) + "..." : texto;
-                            pushService.enviarPush(db, rivalId,
-                                    "💬 Mensaje privado", limpio.usuario() + ": " + preview);
+                            eventos.emit(Eventos.PRIVATE_MESSAGE_PUBLISHED,
+                                    new Eventos.MensajePrivadoPublicado(messageId, rivalId,
+                                            limpio.usuario(), preview, limpio.salaId()));
                         }
                     }
                 } catch (Exception e) {
@@ -930,7 +928,12 @@ public class SocketHandler {
 
                 if (client.getUserData() != null) {
                     int userId = client.getUserData().get("id").getAsInt();
-                    usuariosOnline.remove(userId);
+                    boolean removido = usuariosOnline.remove(userId);
+                    if (removido) {
+                        JsonObject online = new JsonObject();
+                        online.addProperty("total", usuariosOnline.size());
+                        io.emit("usuarios_online", online);
+                    }
                     logger.info("❌ Usuario " + client.getUserData().get("username").getAsString() + " está OFFLINE");
                 }
 
@@ -1111,6 +1114,7 @@ public class SocketHandler {
                 cancelData.addProperty("oderId", userId);
                 cancelData.addProperty("username", username);
                 io.emit("busqueda_cancelada", cancelData);
+                eventos.emit(Eventos.MATCH_SEARCH_ENDED, new Eventos.BusquedaMatch(userId, username));
             }
         }, Math.max(1L, delaySegundos), TimeUnit.SECONDS);
     }
@@ -1377,10 +1381,6 @@ public class SocketHandler {
                 meSocket.emit("partida_encontrada", matchData);
                 if (rivalConectado) rivalSocket.emit("partida_encontrada", matchData);
                 eventos.emit(Eventos.MATCH_ROOM_CREATED, new Eventos.SalaPartidaCreada(salaId, List.of(myId, rival.userId)));
-
-                // Push: notificar a ambos que se encontró partida
-                pushService.enviarPush(db, myId, "🎮 ¡Rival encontrado!", "Se encontró partida contra " + rival.username);
-                pushService.enviarPush(db, rival.userId, "🎮 ¡Rival encontrado!", "Se encontró partida contra " + myUsername);
 
                 // Limpiar búsquedas en memoria
                 colaEsperaClash.removeIf(s -> s.getUserData() != null &&

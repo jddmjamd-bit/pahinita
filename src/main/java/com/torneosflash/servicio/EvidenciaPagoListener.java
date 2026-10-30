@@ -40,17 +40,17 @@ public class EvidenciaPagoListener {
                     e.monto(), e.metodo(), e.nota(), e.imagen(), e.fecha());
             // El comprobante solo se entrega al usuario dueño de la transacción.
             notificador.emitirA(e.userId(), "mensaje_chat", mensaje);
+            JsonObject aviso = new JsonObject();
+            aviso.addProperty("evidenciaId", e.evidenciaId());
+            aviso.addProperty("transaccionId", e.transaccionId());
+            notificador.notificar(e.userId(), "finanzas", "Comprobante de retiro publicado",
+                    "Publicamos el comprobante de tu retiro de $" +
+                            e.monto().setScale(0, RoundingMode.HALF_UP).toPlainString() +
+                            ". Míralo en el canal Pagos.", "/chat?canal=pagos",
+                    "evidencia-pago:" + e.evidenciaId(), aviso, true);
         } catch (Exception ex) {
             logger.error("No se pudo repartir en vivo la evidencia #{}: {}", e.evidenciaId(), ex.getMessage());
         }
 
-        try {
-            notificador.enviarPush(e.userId(), "Torneos Flash",
-                    "Publicamos el comprobante de tu retiro de $" + e.monto().setScale(0, RoundingMode.HALF_UP).toPlainString()
-                            + ". Míralo en el chat, canal Pagos.");
-        } catch (Exception ex) {
-            logger.error("No se pudo avisar por push al usuario {} de la evidencia #{}: {}",
-                    e.userId(), e.evidenciaId(), ex.getMessage());
-        }
     }
 }

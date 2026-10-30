@@ -22,11 +22,18 @@ public class NotificadorUsuarios {
     private final SocketIOServer io;
     private final GenericDAO db;
     private final NotificacionPushServicio push;
+    private final NotificacionesService notificaciones;
 
     public NotificadorUsuarios(SocketIOServer io, GenericDAO db, NotificacionPushServicio push) {
+        this(io, db, push, null);
+    }
+
+    public NotificadorUsuarios(SocketIOServer io, GenericDAO db, NotificacionPushServicio push,
+                               NotificacionesService notificaciones) {
         this.io = io;
         this.db = db;
         this.push = push;
+        this.notificaciones = notificaciones;
     }
 
     /** Notificación in-app + saldo actualizado por socket (D1: BigDecimal), y push. // REVIEW-MONEY */
@@ -51,8 +58,11 @@ public class NotificadorUsuarios {
             logger.debug("Usuario {} sin socket conectado; solo se envía push", userId);
         }
 
-        // Push (llega incluso con el navegador cerrado)
-        if (push != null) {
+        if (notificaciones != null) {
+            notificar(userId, "finanzas", "Movimiento de saldo", mensaje, "/finance", null,
+                    notifData, true);
+        } else if (push != null) {
+            // Compatibilidad con llamadas antiguas y pruebas que crean el notificador sin el centro nuevo.
             push.enviarPush(db, userId, "Torneos Flash", mensaje);
         }
     }
@@ -62,6 +72,32 @@ public class NotificadorUsuarios {
         if (push != null) {
             push.enviarPush(db, userId, titulo, mensaje);
         }
+    }
+
+    public JsonObject notificar(int userId, String categoria, String titulo, String mensaje,
+                                String ruta, String eventoClave, JsonElement datos, boolean pushSiDesconectado) {
+        if (notificaciones != null) {
+            return notificaciones.notificar(userId, categoria, titulo, mensaje, ruta,
+                    eventoClave, datos, pushSiDesconectado);
+        }
+        JsonObject payload = new JsonObject();
+        if (datos != null) payload.add("datos", datos);
+        emitirA(userId, "notificacion_nueva", payload);
+        if (pushSiDesconectado && push != null) push.enviarPush(db, userId, titulo, mensaje);
+        return null;
+    }
+
+    public void notificarATodos(java.util.Set<Integer> excluir, String categoria, String titulo,
+                                String mensaje, String ruta, String eventoClave, JsonElement datos,
+                                boolean pushSiDesconectado) {
+        if (notificaciones != null) {
+            notificaciones.notificarATodos(excluir, categoria, titulo, mensaje, ruta,
+                    eventoClave, datos, pushSiDesconectado);
+        }
+    }
+
+    public void eliminarPorEvento(String eventoClave) {
+        if (notificaciones != null) notificaciones.eliminarPorEvento(eventoClave);
     }
 
     /** Emite un evento a todos los sockets abiertos de un usuario. */

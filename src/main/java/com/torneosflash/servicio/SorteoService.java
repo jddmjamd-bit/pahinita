@@ -4,6 +4,8 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.torneosflash.dao.GenericDAO;
+import com.torneosflash.eventos.EventBus;
+import com.torneosflash.eventos.Eventos;
 import com.torneosflash.socketio.SocketIOServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,14 +45,21 @@ public class SorteoService {
     private final CorreoServicio correo;
     private final NotificacionPushServicio push;
     private final ValidadorMonto validador;
+    private final EventBus eventos;
 
     public SorteoService(GenericDAO db, SocketIOServer io, CorreoServicio correo,
                          NotificacionPushServicio push, ValidadorMonto validador) {
+        this(db, io, correo, push, validador, null);
+    }
+
+    public SorteoService(GenericDAO db, SocketIOServer io, CorreoServicio correo,
+                         NotificacionPushServicio push, ValidadorMonto validador, EventBus eventos) {
         this.db = db;
         this.io = io;
         this.correo = correo;
         this.push = push;
         this.validador = validador;
+        this.eventos = eventos;
     }
 
     // ------------------------------------------------------------------
@@ -136,7 +145,9 @@ public class SorteoService {
     public void reiniciarEncuesta() {
         db.update("DELETE FROM raffle_votes");
         io.emit("poll_reset", new JsonObject());
-        if (push != null) {
+        if (eventos != null) {
+            eventos.emit(Eventos.RAFFLE_POLL_RESET, new Eventos.EncuestaSorteosReiniciada());
+        } else if (push != null) {
             push.enviarPushATodos(db, Set.of(), "📊 ¡Nueva Encuesta de Sorteos!",
                     "La encuesta se ha reiniciado. ¡Entra y vota por tu premio favorito!");
         }
@@ -305,7 +316,7 @@ public class SorteoService {
         }
 
         if (tActuales >= tNecesarios) {
-            ejecutarSorteo(raffleId);
+            ejecutarSorteo(raffleId, "se llenaron los tickets");
         } else {
             JsonObject updateData = new JsonObject();
             updateData.addProperty("raffleId", raffleId);
@@ -408,7 +419,9 @@ public class SorteoService {
         JsonObject nuevoSorteo = db.queryOne("SELECT * FROM raffles WHERE id = ?", newId);
         io.emit("nuevo_sorteo", nuevoSorteo);
 
-        if (push != null) {
+        if (eventos != null) {
+            eventos.emit(Eventos.RAFFLE_CREATED, new Eventos.SorteoCreado(newId, nombreValidado));
+        } else if (push != null) {
             push.enviarPushATodos(db, Set.of(), "🎁 ¡Nuevo sorteo!", "Sorteo \"" + nombreValidado + "\" disponible");
         }
 
@@ -422,13 +435,15 @@ public class SorteoService {
     public String eliminar(int raffleId) {
         boolean completado;
         BigDecimal precio;
+        String nombre;
+        ArrayList<Integer> participantes = new ArrayList<>();
         Connection conn = null;
         try {
             conn = db.getConnection();
             conn.setAutoCommit(false);
 
             try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT estado, precio FROM raffles WHERE id = ? FOR UPDATE")) {
+                    "SELECT estado, precio, nombre FROM raffles WHERE id = ? FOR UPDATE")) {
                 ps.setInt(1, raffleId);
                 try (ResultSet rs = ps.executeQuery()) {
                     if (!rs.next()) {
@@ -437,6 +452,7 @@ public class SorteoService {
                     }
                     completado = "completado".equals(rs.getString("estado"));
                     precio = rs.getBigDecimal("precio");
+                    nombre = rs.getString("nombre");
                 }
             }
 
@@ -455,6 +471,7 @@ public class SorteoService {
                     try (ResultSet rs = entries.executeQuery()) {
                         while (rs.next()) {
                             entriesToRefund.add(new int[]{rs.getInt("user_id"), rs.getInt("tickets_asignados")});
+                            participantes.add(rs.getInt("user_id"));
                         }
                     }
                 }
@@ -492,6 +509,10 @@ public class SorteoService {
         JsonObject deleteData = new JsonObject();
         deleteData.addProperty("raffleId", raffleId);
         io.emit("sorteo_eliminado", deleteData);
+        if (!completado && eventos != null) {
+            eventos.emit(Eventos.RAFFLE_CANCELLED,
+                    new Eventos.SorteoCancelado(raffleId, nombre, participantes));
+        }
 
         return completado ? "Sorteo completado eliminado" : "Sorteo eliminado, tickets devueltos";
     }
@@ -511,7 +532,7 @@ public class SorteoService {
             logger.info("⏰ Sorteo #{} ({}) expirado", raffleId, nombre);
 
             // Se completa con espacios vacíos si no se llenaron los tickets
-            ejecutarSorteo(raffleId);
+            ejecutarSorteo(raffleId, "venció el plazo");
         }
     }
 
@@ -520,12 +541,18 @@ public class SorteoService {
      * para impedir que el scheduler y el último ticket ejecuten el mismo sorteo dos veces.
      */
     public void ejecutarSorteo(int raffleId) {
+        ejecutarSorteo(raffleId, "completado");
+    }
+
+    private void ejecutarSorteo(int raffleId, String motivo) {
         String nombre;
         int ganadorId;
         BigDecimal precio;
         boolean administradorGano = false;
         String ganadorNombre = "Admin (Vacío)";
         String emailGanador = "N/A";
+        ArrayList<Integer> participantes = new ArrayList<>();
+        Set<Integer> participantesUnicos = new HashSet<>();
 
         Connection conn = null;
         try {
@@ -557,6 +584,7 @@ public class SorteoService {
                     while (rs.next()) {
                         int uid = rs.getInt("user_id");
                         int tickets = rs.getInt("tickets_asignados");
+                        if (participantesUnicos.add(uid)) participantes.add(uid);
                         for (int i = 0; i < tickets; i++) pool.add(uid);
                     }
                 }
@@ -639,7 +667,10 @@ public class SorteoService {
             ganadorData.addProperty("ganadorId", ganadorId);
             if (io != null) io.emit("sorteo_ganador", ganadorData);
 
-            if (push != null && ganadorId != -1) {
+            if (eventos != null) {
+                eventos.emit(Eventos.RAFFLE_FINISHED, new Eventos.SorteoFinalizado(
+                        raffleId, nombre, ganadorId, ganadorNombre, participantes, motivo));
+            } else if (push != null && ganadorId != -1) {
                 push.enviarPush(db, ganadorId, "🏆 ¡Ganaste el sorteo!", "¡Felicidades! Ganaste \"" + nombre + "\"");
             }
 

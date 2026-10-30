@@ -14,9 +14,8 @@ import java.math.RoundingMode;
  * Listener de {@link Eventos#MATCH_FINISHED}: avisa del resultado a los dos jugadores (A4). Antes este código vivía
  * dentro del sondeo de la API de Clash en {@code SocketHandler}.
  *
- * Para {@link Eventos.Origen#API} envía al ganador su saldo nuevo ({@code actualizar_saldo}) y a ambos el
- * {@code resultado_api} por socket más el push. Para {@link Eventos.Origen#DISPUTA} no hace nada a propósito: ahí el
- * flujo del admin ya avisa con {@code actualizar_saldo} + {@code flujo_completado} (no se cambió su comportamiento).
+ * Envía al ganador su saldo nuevo ({@code actualizar_saldo}) y a ambos el resultado por socket, una tarjeta
+ * persistente y push solo si están desconectados. También cubre las disputas resueltas por un administrador.
  */
 public class ResultadoPartidaListener {
     private static final Logger logger = LoggerFactory.getLogger(ResultadoPartidaListener.class);
@@ -34,8 +33,6 @@ public class ResultadoPartidaListener {
 
     private void alTerminarPartida(EventBus.Evento evento) {
         Eventos.PartidaFinalizada partida = evento.datos(Eventos.PartidaFinalizada.class);
-        if (partida.origen() != Eventos.Origen.API) return;
-
         BigDecimal premio = partida.premio(); // D1: BigDecimal sin pasar por double // REVIEW-MONEY
         String premioTexto = premio.setScale(0, RoundingMode.FLOOR).toPlainString();
 
@@ -62,9 +59,11 @@ public class ResultadoPartidaListener {
                 resultData.addProperty("premio", premio);
                 resultData.addProperty("esGanador", esGanador);
                 resultData.addProperty("mensaje", mensaje);
+                // Mantiene la vista de resultado en vivo; el centro persiste el aviso y envía push solo offline.
                 notificador.emitirA(jugadorId, "resultado_api", resultData);
-
-                notificador.enviarPush(jugadorId, esGanador ? "🏆 ¡Ganaste!" : "💀 Resultado", mensaje);
+                notificador.notificar(jugadorId, "partida",
+                        esGanador ? "Ganaste la partida" : "Resultado de la partida",
+                        mensaje, "/match", "resultado-partida:" + partida.matchId(), resultData, true);
             } catch (Exception e) {
                 logger.error("Error avisando el resultado al jugador {} (match #{}): {}",
                         jugadorId, partida.matchId(), e.getMessage());

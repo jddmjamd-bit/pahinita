@@ -415,6 +415,16 @@ export const PREGUNTAS = [
         video: { titulo: 'Cómo leer los rankings y los premios', youtube: '', archivo: '' }
     },
     {
+        id: 'ranking-movimientos-historial',
+        categoria: 'rankings',
+        pregunta: '¿Qué significa la flecha del ranking y dónde veo los ganadores anteriores?',
+        respuesta: [
+            'La flecha verde con número indica cuántos puestos subiste desde el último cambio; la roja indica cuántos bajaste. En la parte superior puedes ver tu puesto y cuántos jugadores tienen puntaje, incluso si estás fuera del top 50.',
+            'Más abajo aparece el historial de los diez ganadores de cada corte completado. Se actualiza cuando termina un nuevo corte.'
+        ],
+        enlace: { texto: 'Ir a Rankings', to: '/leaderboard' }
+    },
+    {
         id: 'ranking-vacio',
         categoria: 'rankings',
         pregunta: 'El ranking dice que nadie ha ganado partidas, ¿es un error?',
@@ -439,6 +449,15 @@ export const PREGUNTAS = [
             '🧾 Pagos: solo lectura. El administrador publica aquí los comprobantes de los retiros que ya pagó.'
         ],
         enlace: { texto: 'Ir al Chat', to: '/chat' }
+    },
+    {
+        id: 'avisos-y-usuarios-en-linea',
+        categoria: 'chats',
+        pregunta: '¿Dónde veo los avisos nuevos y cuántos usuarios están conectados?',
+        respuesta: [
+            'Los avisos nuevos aparecen como tarjetas al entrar o mientras estás en la plataforma. Tienen una X para descartarlos y, al abrirlos, te llevan a la sección relacionada. Los puntos junto a Chat, Jugar/Privada, Sorteos, Rankings, Asistente y Hablar con el admin señalan mensajes o novedades sin leer.',
+            'La cantidad de usuarios conectados aparece abajo del menú lateral. Desde el menú también puedes activar los avisos push del navegador; primero debes permitirlos en la ventana del navegador.'
+        ]
     },
     {
         id: 'comprobante-retiro',

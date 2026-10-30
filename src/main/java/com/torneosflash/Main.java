@@ -26,6 +26,8 @@ import com.torneosflash.servicio.FinanzasService;
 import com.torneosflash.servicio.LeaderboardService;
 import com.torneosflash.servicio.MediaService;
 import com.torneosflash.servicio.NotificadorUsuarios;
+import com.torneosflash.servicio.NotificacionesListener;
+import com.torneosflash.servicio.NotificacionesService;
 import com.torneosflash.servicio.SorteoService;
 import com.torneosflash.servidor.*;
 import com.torneosflash.socketio.SocketIOServer;
@@ -291,14 +293,18 @@ public class Main {
 
         // Capa de servicio (A3): las rutas solo parsean el request y llaman a estos
         // servicios
-        NotificadorUsuarios notificador = new NotificadorUsuarios(socketServer, db, pushService);
+        NotificacionesService notificaciones = new NotificacionesService(db, socketServer, pushService,
+                config.getAppBaseUrl());
+        NotificadorUsuarios notificador = new NotificadorUsuarios(socketServer, db, pushService, notificaciones);
+        new NotificacionesListener(notificaciones, db).registrar(eventBus);
         CifradoTokenJugador cifradoTokenJugador = new CifradoTokenJugador(config.getJwtSecret());
         AuthService authService = new AuthService(usuarioDAO, db, clashApi, ejecutores, config, eventBus,
                 cifradoTokenJugador);
         new RecuperacionPasswordListener(correo, socketServer).registrar(eventBus);
         new CuentaRegistradaListener(correo, db, cifradoTokenJugador, config).registrar(eventBus);
         FinanzasService finanzasService = new FinanzasService(db, config, wallet, validadorMonto, notificador);
-        SorteoService sorteoService = new SorteoService(db, socketServer, correo, pushService, validadorMonto);
+        SorteoService sorteoService = new SorteoService(db, socketServer, correo, pushService, validadorMonto,
+                eventBus);
 
         // Listeners del bus de eventos (A4): se registran ANTES de aceptar tráfico;
         // el orden de registro es el orden en que corren (tickets, luego resultado).
@@ -321,7 +327,9 @@ public class Main {
         new VozListener(vozService, ejecutores).registrar(eventBus);
         AdminService adminService = new AdminService(db, usuarioDAO, wallet, eventBus, notificador, socketServer,
                 cifradoTokenJugador);
-        LeaderboardService leaderboardService = new LeaderboardService(db, socketServer, wallet);
+        LeaderboardService leaderboardService = new LeaderboardService(db, socketServer, wallet, notificaciones);
+        leaderboardService.registrar(eventBus);
+        leaderboardService.inicializarPosiciones();
         MediaService mediaService = new MediaService(db);
         DbAdminService dbAdminService = new DbAdminService(db, conexion, config);
 
@@ -337,6 +345,7 @@ public class Main {
         RutasAdmin.register(app, adminService, config);
         RutasSorteos.register(app, sorteoService);
         RutasLeaderboard.register(app, leaderboardService);
+        RutasNotificaciones.register(app, notificaciones, config);
         RutasComisiones.register(app, comisiones, validadorMonto);
         RutasMedia.register(app, mediaService);
         RutasChatbot.register(app, chatbotService, config, limitadorChatbot);
@@ -440,12 +449,13 @@ public class Main {
         return "default-src 'self'; "
                 + "base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
                 + "form-action 'self' https://*.wompi.co; "
-                + "script-src 'self' https://checkout.wompi.co; "
+                + "script-src 'self' https://checkout.wompi.co https://www.gstatic.com; "
                 + "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
                 + "font-src 'self' data: https://fonts.gstatic.com; "
                 + "img-src 'self' data: blob:; media-src 'self' blob:; "
                 + "connect-src 'self' " + appOrigen + " " + socketOrigen
-                + " https://*.wompi.co; "
+                + " https://*.wompi.co https://fcmregistrations.googleapis.com "
+                + "https://firebaseinstallations.googleapis.com; "
                 + "frame-src 'self' https://www.youtube-nocookie.com https://*.wompi.co; "
                 + "worker-src 'self' blob:";
     }

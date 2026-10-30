@@ -87,8 +87,12 @@ export const useAppStore = create((set, get) => ({
             user: null,
             sessionReady: true,
             authRevision: get().authRevision + 1,
+            pushToken: null,
             pushTokenAnterior: null,
             chatMessages: { general: [], anuncios: [], clash: [], clash_logs: [], pagos: [] },
+            notificaciones: [],
+            notificacionesSinLeer: {},
+            usuariosOnline: 0,
             matchState: { inMatch: false, salaId: null, rival: null, gameMode: '', monto: 0, maxMonto: 10000, status: 'idle', rivalDesconectado: null, timerNegociacion: null }
         });
     },
@@ -127,6 +131,66 @@ export const useAppStore = create((set, get) => ({
         });
     },
 
+    // Centro de notificaciones persistentes.
+    notificaciones: [],
+    notificacionesSinLeer: {},
+    usuariosOnline: 0,
+    cargarNotificaciones: async () => {
+        const { ok, data } = await llamarApi('/api/notificaciones');
+        if (!ok || !data) return;
+        set({
+            notificaciones: Array.isArray(data.items) ? data.items : [],
+            notificacionesSinLeer: data.sinLeer || {}
+        });
+    },
+    marcarNotificacionLeida: async (id) => {
+        const aviso = get().notificaciones.find(item => Number(item.id) === Number(id));
+        if (aviso?.leida_en) return;
+        const { ok } = await llamarApi(`/api/notificaciones/leer/${id}`, { method: 'POST' });
+        if (!ok) return;
+        if (!aviso) {
+            await get().cargarNotificaciones();
+            return;
+        }
+        set(state => ({
+            notificaciones: state.notificaciones.map(item => Number(item.id) === Number(id) && !item.leida_en
+                ? { ...item, leida_en: new Date().toISOString() } : item),
+            notificacionesSinLeer: {
+                ...state.notificacionesSinLeer,
+                [aviso.categoria]: Math.max(0, (state.notificacionesSinLeer[aviso.categoria] || 0) -
+                    (state.notificaciones.find(item => Number(item.id) === Number(id) && !item.leida_en) ? 1 : 0))
+            }
+        }));
+    },
+    marcarCategoriaLeida: async (categoria) => {
+        if (!categoria) return;
+        const { ok } = await llamarApi('/api/notificaciones/leer/categoria', {
+            method: 'POST', body: JSON.stringify({ categoria })
+        });
+        if (!ok) return;
+        const ahora = new Date().toISOString();
+        set(state => ({
+            notificaciones: state.notificaciones.map(item => item.categoria === categoria && !item.leida_en
+                ? { ...item, leida_en: ahora } : item),
+            notificacionesSinLeer: { ...state.notificacionesSinLeer, [categoria]: 0 }
+        }));
+    },
+    descartarNotificacion: async (id) => {
+        const aviso = get().notificaciones.find(item => Number(item.id) === Number(id));
+        if (!aviso) return;
+        const { ok } = await llamarApi(`/api/notificaciones/${id}`, { method: 'DELETE' });
+        if (!ok) return;
+        set(state => {
+            const actual = state.notificaciones.find(item => Number(item.id) === Number(id));
+            const nuevas = state.notificaciones.filter(item => Number(item.id) !== Number(id));
+            const sinLeer = { ...state.notificacionesSinLeer };
+            if (actual && !actual.leida_en) {
+                sinLeer[aviso.categoria] = Math.max(0, (sinLeer[aviso.categoria] || 0) - 1);
+            }
+            return { notificaciones: nuevas, notificacionesSinLeer: sinLeer };
+        });
+    },
+
     // Estado del Socket
     socket: null,
     connectSocket: () => {
@@ -143,6 +207,7 @@ export const useAppStore = create((set, get) => ({
             const currentUser = get().user;
             if (currentUser) {
                 newSocket.emit('registrar_socket');
+                void get().cargarNotificaciones();
             }
             // En una reconexión pudo haberse aprobado una recarga mientras no había socket: se resincroniza el saldo.
             // (La primera conexión ya la cubre la sincronización al cargar la app.)
@@ -152,6 +217,73 @@ export const useAppStore = create((set, get) => ({
 
         newSocket.on('disconnect', () => {
             console.log('Socket desconectado');
+        });
+
+        newSocket.on('usuarios_online', (data) => {
+            const total = typeof data === 'number' ? data : Number(data?.total);
+            if (Number.isFinite(total)) set({ usuariosOnline: Math.max(0, total) });
+        });
+        newSocket.on('notificacion_nueva', (aviso) => {
+            if (!aviso?.id) return;
+            set(state => {
+                if (state.notificaciones.some(item => Number(item.id) === Number(aviso.id))) return state;
+                return {
+                    notificaciones: [aviso, ...state.notificaciones].slice(0, 100),
+                    notificacionesSinLeer: {
+                        ...state.notificacionesSinLeer,
+                        [aviso.categoria]: (state.notificacionesSinLeer[aviso.categoria] || 0) + 1
+                    }
+                };
+            });
+        });
+        newSocket.on('notificacion_leida', (data) => {
+            set(state => {
+                const aviso = state.notificaciones.find(item => Number(item.id) === Number(data?.id));
+                if (!aviso || aviso.leida_en) return state;
+                return {
+                    notificaciones: state.notificaciones.map(item => Number(item.id) === Number(data.id)
+                        ? { ...item, leida_en: new Date().toISOString() } : item),
+                    notificacionesSinLeer: {
+                        ...state.notificacionesSinLeer,
+                        [aviso.categoria]: Math.max(0, (state.notificacionesSinLeer[aviso.categoria] || 0) - 1)
+                    }
+                };
+            });
+        });
+        newSocket.on('notificaciones_leidas', (data) => {
+            if (!data?.categoria) return;
+            const ahora = new Date().toISOString();
+            set(state => ({
+                notificaciones: state.notificaciones.map(item => item.categoria === data.categoria && !item.leida_en
+                    ? { ...item, leida_en: ahora } : item),
+                notificacionesSinLeer: { ...state.notificacionesSinLeer, [data.categoria]: 0 }
+            }));
+        });
+        newSocket.on('notificacion_eliminada', (data) => {
+            if (data?.id) {
+                set(state => {
+                    const aviso = state.notificaciones.find(item => Number(item.id) === Number(data.id));
+                    if (!aviso) return state;
+                    const sinLeer = { ...state.notificacionesSinLeer };
+                    if (!aviso.leida_en) sinLeer[aviso.categoria] = Math.max(0, (sinLeer[aviso.categoria] || 0) - 1);
+                    return {
+                        notificaciones: state.notificaciones.filter(item => Number(item.id) !== Number(data.id)),
+                        notificacionesSinLeer: sinLeer
+                    };
+                });
+                return;
+            }
+            if (data?.eventoClave) {
+                set(state => {
+                    const removidas = state.notificaciones.filter(item => item.evento_clave === data.eventoClave);
+                    const nuevas = state.notificaciones.filter(item => item.evento_clave !== data.eventoClave);
+                    const sinLeer = { ...state.notificacionesSinLeer };
+                    for (const aviso of removidas) {
+                        if (!aviso.leida_en) sinLeer[aviso.categoria] = Math.max(0, (sinLeer[aviso.categoria] || 0) - 1);
+                    }
+                    return { notificaciones: nuevas, notificacionesSinLeer: sinLeer };
+                });
+            }
         });
 
         // Chat: Historial inicial emitido por el servidor en la conexión

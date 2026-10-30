@@ -94,7 +94,9 @@ public class ChatbotListener {
             try {
                 chatbot.guardarMensajeBot(userId, texto);
                 notificador.emitirA(userId, "chatbot_respuesta", datos);
-                notificador.enviarPush(userId, "Torneos Flash", "El administrador respondió tu duda del asistente.");
+                notificador.notificar(userId, "asistente", "Respondieron tu duda",
+                        "El administrador respondió tu duda del asistente.", "/chatbot",
+                        "chatbot-respuesta:" + duda.dudaId(), datos, true);
             } catch (Exception e) {
                 logger.error("No se pudo entregar la respuesta de la duda #{} al usuario {}: {}",
                         duda.dudaId(), userId, e.getMessage());
