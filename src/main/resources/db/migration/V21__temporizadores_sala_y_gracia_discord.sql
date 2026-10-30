@@ -16,3 +16,4 @@ ALTER TABLE active_matches
     DROP CONSTRAINT IF EXISTS chk_active_matches_discord_exencion_p2,
     ADD CONSTRAINT chk_active_matches_discord_exencion_p2
         CHECK (discord_exencion_p2 IN ('disponible', 'armada', 'activa', 'usada'));
+

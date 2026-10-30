@@ -546,3 +546,4 @@ public class TemporizadorSalaService {
                 ? o.get(clave).getAsString() : null;
     }
 }
+
