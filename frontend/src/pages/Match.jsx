@@ -49,7 +49,7 @@ export default function Match() {
     const [maxMontoPermitido, setMaxMontoPermitido] = useState(() => useAppStore.getState().matchState.maxMonto || 10000);
     const [chatMessages, setChatMessages] = useState([]);
     const [chatInput, setChatInput] = useState('');
-    
+
     // Configuración
     const [gameMode, setGameMode] = useState('');
     const [monto, setMonto] = useState('');
@@ -112,7 +112,7 @@ export default function Match() {
         if (matchState.resultado !== undefined) setApiResult(matchState.resultado || null);
         if (matchState.status === 'playing') setFlujoCompletado(false);
     }, [matchState.inMatch, matchState.status, matchState.rival, matchState.maxMonto,
-        matchState.gameMode, matchState.monto, matchState.resultado]);
+    matchState.gameMode, matchState.monto, matchState.resultado]);
 
     useEffect(() => {
         const hayRelojEnVivo = Boolean(
@@ -377,10 +377,10 @@ export default function Match() {
     const validarNegociacion = (modo, dineroRaw) => {
         const dinero = parseInt(dineroRaw);
         let error = "";
-        
-        if (modo.length < 3) {}
-        else if (!dineroRaw) {}
-        else if (isNaN(dinero)) {}
+
+        if (modo.length < 3) { }
+        else if (!dineroRaw) { }
+        else if (isNaN(dinero)) { }
         else if (dinero < 1000) error = "Mínimo $1.000";
         else if (dinero > 10000) error = "Máximo $10.000";
         else if (dinero > maxMontoPermitido) error = `Tope saldos: $${maxMontoPermitido}`;
@@ -427,7 +427,7 @@ export default function Match() {
             socket.emit('cancelar_inicio');
             return;
         }
-        
+
         setBtnState({ text: '⏳ ESPERANDO AL RIVAL... (Click cancelar)', disabled: false, cssClass: 'waiting-cancel' });
         socket.emit('iniciar_juego', { dinero: monto, modo: gameMode });
     };
@@ -545,21 +545,21 @@ export default function Match() {
 
                     <div className="private-room-content">
                         <div className="match-info">
-                            <h2 style={{margin:0}}>VS {rivalData?.username || 'Rival'}</h2>
+                            <h2 style={{ margin: 0 }}>VS {rivalData?.username || 'Rival'}</h2>
                             <div className="rival-stats-box">
-                                <span title="Porcentaje de victorias" style={{color: '#43b581'}}>
+                                <span title="Porcentaje de victorias" style={{ color: '#43b581' }}>
                                     🏆 {rivalData?.total_partidas > 0 ? Math.round(((rivalData.total_victorias || 0) / rivalData.total_partidas) * 100) : 0}%
                                 </span>
-                                <span title="Culpable en disputas" style={{color: '#bbb'}}>
+                                <span title="Culpable en disputas" style={{ color: '#bbb' }}>
                                     💀 {rivalData?.faltas ?? 0}
                                 </span>
                                 <span title="Salidas de sala">
                                     🏃 {rivalData?.salidas_chat ?? 0}
                                 </span>
                             </div>
-                            <span style={{fontSize: '0.8rem', color: '#faa61a', display: 'block', marginTop: 5}}>Tope: ${maxMontoPermitido.toLocaleString()}</span>
+                            <span style={{ fontSize: '0.8rem', color: '#faa61a', display: 'block', marginTop: 5 }}>Tope: ${maxMontoPermitido.toLocaleString()}</span>
                             {rivalDesconectadoMsg && (
-                                <span style={{fontSize: '0.82rem', color: '#ed4245', display: 'block', marginTop: 6, fontWeight: 'bold'}}>
+                                <span style={{ fontSize: '0.82rem', color: '#ed4245', display: 'block', marginTop: 6, fontWeight: 'bold' }}>
                                     {rivalDesconectadoMsg}
                                 </span>
                             )}
@@ -614,7 +614,7 @@ export default function Match() {
                         </div>
 
                         <form className="chat-input-area mini" onSubmit={handleChatSubmit}>
-                            <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Escribe un mensaje..." style={{margin:0}} />
+                            <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Escribe un mensaje..." style={{ margin: 0 }} />
                             <button type="submit">Enviar</button>
                         </form>
 
@@ -632,12 +632,12 @@ export default function Match() {
                                     <input type="number" placeholder="Mín: 1000" value={monto} onChange={handleMontoChange} />
                                 </div>
                             </div>
-                            <p style={{fontSize:'0.9rem', fontWeight:'bold', marginTop:5, color: winText.includes('$0') ? '#bbb' : '#4ecca3'}}>
+                            <p style={{ fontSize: '0.9rem', fontWeight: 'bold', marginTop: 5, color: winText.includes('$0') ? '#bbb' : '#4ecca3' }}>
                                 {winText}
                             </p>
                             <p className="validation-error">{validationMsg}</p>
-                            <button 
-                                className={`start-game-btn ${btnState.cssClass}`} 
+                            <button
+                                className={`start-game-btn ${btnState.cssClass}`}
                                 disabled={btnState.disabled}
                                 onClick={handleStartClick}
                             >
@@ -658,9 +658,9 @@ export default function Match() {
                                     <div className="pulse-emoji">⚔️</div>
                                 </div>
                                 <h2>{apiStatusText}</h2>
-                                <p style={{color: '#bbb', marginTop: 10}}>La API detectará automáticamente quién ganó.</p>
+                                <p style={{ color: '#bbb', marginTop: 10 }}>La API detectará automáticamente quién ganó.</p>
                                 <VozDiscord enPartida={true} />
-                                <p style={{color: '#faa61a', fontSize: '0.9rem'}}>⏱️ Tiempo límite: 10 minutos</p>
+                                <p style={{ color: '#faa61a', fontSize: '0.9rem' }}>⏱️ Tiempo límite: 10 minutos</p>
                             </>
                         ) : (
                             <div className="api-result-display">
@@ -668,13 +668,13 @@ export default function Match() {
                                     <h2>La partida terminó.</h2>
                                 ) : apiResult.disputa ? (
                                     <>
-                                        <h2 style={{color: '#faa61a'}}>⚖️ Disputa creada</h2>
+                                        <h2 style={{ color: '#faa61a' }}>⚖️ Disputa creada</h2>
                                         <p>{apiResult.mensaje}</p>
-                                        <p style={{color: '#bbb'}}>Un administrador revisará la partida.</p>
+                                        <p style={{ color: '#bbb' }}>Un administrador revisará la partida.</p>
                                     </>
                                 ) : (
                                     <>
-                                        <h1 style={{color: apiResult.esGanador ? '#43b581' : '#ed4245'}}>
+                                        <h1 style={{ color: apiResult.esGanador ? '#43b581' : '#ed4245' }}>
                                             {apiResult.esGanador ? `🏆 ¡GANASTE! +$${apiResult.premio?.toLocaleString()}` : `💀 Perdiste. ${apiResult.ganador} ganó.`}
                                         </h1>
                                         {apiResult.mensaje && <p>{apiResult.mensaje}</p>}
@@ -691,11 +691,11 @@ export default function Match() {
                 <div className="modal-overlay">
                     <div className="modal-content text-center">
                         <h2>⚠️ ¿Aceptas la partida?</h2>
-                        <p>Modo: <strong style={{color:'#7289da'}}>{confirmData.modo}</strong></p>
-                        <p>Monto: <strong style={{color:'#43b581'}}>${Number(confirmData.monto).toLocaleString()}</strong></p>
-                        <div style={{marginTop: 20, display: 'flex', gap: 10, justifyContent: 'center'}}>
-                            <button style={{background:'#43b581', padding:'10px 20px', border:'none', color:'white', borderRadius:4}} onClick={handleAcceptMatch}>{confirmBtnText}</button>
-                            <button style={{background:'#ed4245', padding:'10px 20px', border:'none', color:'white', borderRadius:4}} onClick={handleRejectMatch}>Rechazar</button>
+                        <p>Modo: <strong style={{ color: '#7289da' }}>{confirmData.modo}</strong></p>
+                        <p>Monto: <strong style={{ color: '#43b581' }}>${Number(confirmData.monto).toLocaleString()}</strong></p>
+                        <div style={{ marginTop: 20, display: 'flex', gap: 10, justifyContent: 'center' }}>
+                            <button style={{ background: '#43b581', padding: '10px 20px', border: 'none', color: 'white', borderRadius: 4 }} onClick={handleAcceptMatch}>{confirmBtnText}</button>
+                            <button style={{ background: '#ed4245', padding: '10px 20px', border: 'none', color: 'white', borderRadius: 4 }} onClick={handleRejectMatch}>Rechazar</button>
                         </div>
                         <div className="modal-timer-strip">
                             {!timerActivo ? (
