@@ -165,12 +165,12 @@
 
 ## Configuración y recorrido manual de avisos
 
-Configura `FIREBASE_SERVICE_ACCOUNT`, `FIREBASE_WEB_CONFIG` y `FIREBASE_VAPID_KEY` para push web. El navegador debe abrir el sitio por HTTPS (localhost sirve para desarrollo) y el usuario concede el permiso desde «Activar avisos». La configuración web y la VAPID key son públicas; el JSON de service account es privado. No se necesitan variables `VITE_*`: el frontend consulta `/api/push/config` al activarse.
+Configura `FIREBASE_SERVICE_ACCOUNT`, `FIREBASE_WEB_CONFIG` y `FIREBASE_VAPID_KEY` para push web. El navegador debe abrir el sitio por HTTPS (localhost sirve para desarrollo); si su permiso está concedido, la web registra el token automáticamente. No hay un control de activación dentro de la aplicación. La configuración web y la VAPID key son públicas; el JSON de service account es privado. No se necesitan variables `VITE_*`: el frontend consulta `/api/push/config` al registrar el token.
 
 1. Entra en dos cuentas y confirma que el número de usuarios conectados cuente personas/cuentas, no sockets abiertos.
 2. Envía mensajes por General, Clash, Anuncios, Pagos, asistente y chat privado; comprueba los puntos del menú y que Registro no genere avisos.
 3. Con una cuenta sin sesión web activa, recibe una búsqueda push; cancélala, emparéjala y deja vencer una búsqueda para comprobar que el aviso desaparezca en cada caso.
-4. Comprueba tarjetas por resultado de partida, corte/ganador de ranking, resultado/cancelación de sorteo y reinicio de encuesta; X descarta y pulsar abre la sección y marca leído.
+4. Comprueba tarjetas por resultado de partida, corte/ganador de ranking, resultado/cancelación de sorteo y reinicio de encuesta; el contador las descarta a los cinco segundos, X las descarta antes y pulsar abre la sección y marca leído. Los mensajes públicos de chat no crean tarjetas.
 5. Revisa respuesta de soporte y aprobación/rechazo de recarga y retiro en línea y con el navegador cerrado. Al volver al sitio, las alertas del sistema deben limpiarse.
 6. En Rankings, comprueba la flecha y cantidad de puestos, el puesto propio fuera del top 50 y el historial después de un corte real completado.
 

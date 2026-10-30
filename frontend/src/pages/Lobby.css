@@ -133,13 +133,6 @@
     border-top: 1px solid var(--border-color);
 }
 .online-count .status-dot { width: 7px; height: 7px; }
-.browser-push-control { margin-top: 10px; }
-.browser-push-control small {
-    display: block;
-    margin-top: 6px;
-    color: var(--text-secondary);
-    line-height: 1.35;
-}
 .live-notifications {
     position: fixed;
     z-index: 1200;
@@ -155,7 +148,7 @@
     position: relative;
     display: flex;
     align-items: flex-start;
-    padding: 12px 38px 12px 14px;
+    padding: 12px 38px 24px 14px;
     border: 1px solid var(--border-color);
     border-left: 3px solid var(--accent-primary);
     border-radius: var(--radius-md);
@@ -179,6 +172,14 @@
 }
 .live-notification-open:hover { transform: none; background: transparent; }
 .live-notification-open span { color: var(--text-secondary); font-size: 0.9rem; line-height: 1.35; }
+.live-notification-countdown {
+    position: absolute;
+    right: 11px;
+    bottom: 5px;
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    line-height: 1;
+}
 .live-notification-dismiss {
     position: absolute;
     top: 5px;

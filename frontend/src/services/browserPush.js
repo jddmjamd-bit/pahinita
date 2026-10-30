@@ -10,13 +10,12 @@ const importarFirebase = async (biblioteca) => import(
     /* @vite-ignore */ `https://www.gstatic.com/firebasejs/${VERSION_FIREBASE}/${biblioteca}.js`
 );
 
-/** Pide permiso solo cuando el usuario lo solicita y guarda el token en su sesión actual. */
-export async function activarPushNavegador(userId, pedirPermiso = false) {
+/** Registra el token web en la sesión cuando el navegador ya permite notificaciones. */
+export async function registrarPushNavegador(userId) {
     if (!userId || typeof window === 'undefined' || !('Notification' in window)
             || !('serviceWorker' in navigator)) return { estado: 'no-disponible' };
 
-    let permiso = Notification.permission;
-    if (permiso === 'default' && pedirPermiso) permiso = await Notification.requestPermission();
+    const permiso = Notification.permission;
     if (permiso !== 'granted') return { estado: permiso === 'denied' ? 'rechazado' : 'pendiente' };
 
     if (!configuracionPushCache) {

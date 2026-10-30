@@ -491,11 +491,11 @@ SocketHandler (sondeo) ── WalletService.liquidar()  ← transacción SQL: sa
 
 ### Centro persistente, push y ranking en vivo
 
-`NotificacionesService` guarda avisos en `user_notifications`, emite `notificacion_nueva` a los sockets del usuario y manda FCM solo si no tiene un socket conectado. La X registra el descarte; abrir el aviso lo marca leído y navega a su ruta. Las búsquedas usan tags push que se cierran al emparejarse, cancelarse o vencer. Al volver a abrir el sitio, el service worker cierra las notificaciones visibles del navegador.
+`NotificacionesService` guarda avisos en `user_notifications`, emite `notificacion_nueva` a los sockets del usuario y manda FCM solo si no tiene un socket conectado. La X registra el descarte; abrir el aviso lo marca leído y navega a su ruta. Las búsquedas usan tags push que se cierran al emparejarse, cancelarse o vencer. Al volver a abrir el sitio, el service worker cierra las notificaciones visibles del navegador. Las tarjetas en vivo muestran una cuenta regresiva de cinco segundos y se descartan al vencer; los mensajes públicos de chat no se muestran como tarjetas.
 
 El menú muestra puntos por categoría (chat, soporte, asistente, ranking, sorteos y partida/privada); finanzas también aparece en las tarjetas. `usuarios_online` publica el conteo de usuarios únicos autenticados, no el número de sockets. Los mensajes de `clash_logs` no generan aviso.
 
-La web pide permiso desde el botón «Activar avisos» y registra el token FCM web con la sesión. `/api/push/config` solo entrega la configuración pública y la clave VAPID; nunca la cuenta de servicio. Para Web Push se requieren `FIREBASE_SERVICE_ACCOUNT`, `FIREBASE_WEB_CONFIG` y `FIREBASE_VAPID_KEY`. El FCM Web SDK se carga desde el CDN oficial; Capacitor conserva su registro nativo.
+La web registra automáticamente el token FCM cuando el permiso del navegador ya está concedido; la aplicación no ofrece un control para activar o desactivar push. `/api/push/config` solo entrega la configuración pública y la clave VAPID; nunca la cuenta de servicio. Para Web Push se requieren `FIREBASE_SERVICE_ACCOUNT`, `FIREBASE_WEB_CONFIG` y `FIREBASE_VAPID_KEY`. El FCM Web SDK se carga desde el CDN oficial; Capacitor conserva el registro nativo para iOS y Android.
 
 `leaderboard_cut_snapshots` conserva el top 10 de cada corte completado. `/api/leaderboard/ganadores` da ese historial; `/api/leaderboard/mi-posicion/{periodo}` devuelve el puesto personal aunque supere el top 50. `leaderboard_live_positions` permite mostrar ▲/▼ y cuántos puestos cambió cada jugador tras una liquidación. Al completar un corte se reinicia la base de movimiento del periodo.
 

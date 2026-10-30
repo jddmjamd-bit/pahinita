@@ -1,8 +1,39 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
-import { activarPushNavegador, cerrarPushBusqueda } from '../services/browserPush';
+import { registrarPushNavegador, cerrarPushBusqueda } from '../services/browserPush';
 import './Lobby.css';
+
+function NotificacionEnVivo({ aviso, onExpire, onOpen, onDismiss }) {
+    const [restantes, setRestantes] = useState(5);
+
+    useEffect(() => {
+        let cuenta = 5;
+        const timer = setInterval(() => {
+            cuenta -= 1;
+            setRestantes(cuenta);
+            if (cuenta <= 0) {
+                clearInterval(timer);
+                onExpire(aviso.id);
+            }
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [aviso.id, onExpire]);
+
+    return (
+        <article className="live-notification" key={aviso.id}>
+            <button className="live-notification-open" onClick={() => onOpen(aviso)}>
+                <strong>{aviso.titulo}</strong>
+                <span>{aviso.mensaje}</span>
+            </button>
+            <span className="live-notification-countdown" aria-label={`Se oculta en ${restantes} segundos`}>
+                {restantes}s
+            </span>
+            <button className="live-notification-dismiss" onClick={() => onDismiss(aviso.id)}
+                aria-label="Eliminar aviso">×</button>
+        </article>
+    );
+}
 
 export default function Lobby() {
     const navigate = useNavigate();
@@ -43,17 +74,17 @@ export default function Lobby() {
 
     const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [clashMenuOpen, setClashMenuOpen] = useState(false);
-    const [pushEstado, setPushEstado] = useState('');
+    const [avisosOcultos, setAvisosOcultos] = useState(() => new Set());
 
     useEffect(() => {
         if (!currentUser?.id) return;
         void cargarNotificaciones();
-        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-            void activarPushNavegador(currentUser.id).then(resultado => {
+        if (esNavegadorWeb && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            void registrarPushNavegador(currentUser.id).then(resultado => {
                 if (resultado.token) setPushToken(resultado.token);
             });
         }
-    }, [currentUser?.id, cargarNotificaciones, setPushToken]);
+    }, [currentUser?.id, cargarNotificaciones, esNavegadorWeb, setPushToken]);
 
     useEffect(() => {
         const categoria = location.pathname === '/chat' ? 'chat'
@@ -75,31 +106,23 @@ export default function Lobby() {
         return () => socket.off('notificacion_eliminada', alEliminar);
     }, [esNavegadorWeb, socket]);
 
-    const activarPush = async () => {
-        setPushEstado('Activando…');
-        const resultado = await activarPushNavegador(currentUser?.id, true);
-        if (resultado.token) setPushToken(resultado.token);
-        const mensajes = {
-            activo: 'Avisos del navegador activados.',
-            rechazado: 'El permiso está bloqueado en la configuración del navegador.',
-            'sin-configuracion': 'Falta configurar Firebase Web Push en el despliegue.',
-            'no-disponible': 'Este navegador no admite avisos push.',
-            pendiente: 'Permite los avisos para activarlos.',
-            error: 'No se pudieron activar los avisos.'
-        };
-        setPushEstado(mensajes[resultado.estado] || mensajes.error);
-    };
-
     const notificacionAbierta = (aviso) => {
         void marcarNotificacionLeida(aviso.id);
         navigate(aviso.ruta || '/chat');
     };
 
+    const expirarNotificacion = useCallback((id) => {
+        setAvisosOcultos(actuales => new Set(actuales).add(Number(id)));
+        void descartarNotificacion(id);
+    }, [descartarNotificacion]);
+
+    const avisosEnVivo = notificaciones
+        .filter(aviso => !aviso.leida_en && aviso.categoria !== 'chat' && !avisosOcultos.has(Number(aviso.id)))
+        .slice(0, 6);
+
     const punto = (categoria) => Number(notificacionesSinLeer[categoria] || 0) > 0
         ? <span className="notification-dot" aria-label={`${notificacionesSinLeer[categoria]} avisos nuevos`} />
         : null;
-    const avisosEnVivo = notificaciones.filter(aviso => !aviso.leida_en).slice(0, 6);
-
     const handleLogout = async () => {
         logout();
         navigate('/auth');
@@ -139,12 +162,6 @@ export default function Lobby() {
                     
                     <button className="mini-btn" onClick={() => handleNavigation('/finance')}>+ Recargar</button>
                     <button className="mini-btn" style={{background: '#ed4245', marginTop: 5}} onClick={() => handleNavigation('/finance')}>- Retirar</button>
-                    {esNavegadorWeb && (
-                        <div className="browser-push-control">
-                            <button className="mini-btn" onClick={activarPush}>🔔 Activar avisos</button>
-                            {pushEstado && <small role="status">{pushEstado}</small>}
-                        </div>
-                    )}
                     {currentUser.tipo_suscripcion === 'admin' && (
                         <button className="mini-btn admin-btn" onClick={() => handleNavigation('/admin')} style={{marginTop: 5}}>👑 Admin</button>
                     )}
@@ -198,14 +215,13 @@ export default function Lobby() {
             {avisosEnVivo.length > 0 && (
                 <section className="live-notifications" aria-label="Avisos nuevos" aria-live="polite">
                     {avisosEnVivo.map(aviso => (
-                        <article className="live-notification" key={aviso.id}>
-                            <button className="live-notification-open" onClick={() => notificacionAbierta(aviso)}>
-                                <strong>{aviso.titulo}</strong>
-                                <span>{aviso.mensaje}</span>
-                            </button>
-                            <button className="live-notification-dismiss" onClick={() => void descartarNotificacion(aviso.id)}
-                                aria-label="Eliminar aviso">×</button>
-                        </article>
+                        <NotificacionEnVivo
+                            key={aviso.id}
+                            aviso={aviso}
+                            onExpire={expirarNotificacion}
+                            onOpen={notificacionAbierta}
+                            onDismiss={descartarNotificacion}
+                        />
                     ))}
                 </section>
             )}
