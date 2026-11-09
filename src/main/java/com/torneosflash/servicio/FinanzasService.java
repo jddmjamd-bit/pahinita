@@ -51,14 +51,22 @@ public class FinanzasService {
     private final WalletService wallet;
     private final ValidadorMonto validador;
     private final NotificadorUsuarios notificador;
+    private final CorreoServicio correo;
 
     public FinanzasService(GenericDAO db, AppConfig config, WalletService wallet,
                            ValidadorMonto validador, NotificadorUsuarios notificador) {
+        this(db, config, wallet, validador, notificador, null);
+    }
+
+    public FinanzasService(GenericDAO db, AppConfig config, WalletService wallet,
+                           ValidadorMonto validador, NotificadorUsuarios notificador,
+                           CorreoServicio correo) {
         this.db = db;
         this.config = config;
         this.wallet = wallet;
         this.validador = validador;
         this.notificador = notificador;
+        this.correo = correo;
     }
 
     /** Depósito manual (acredita saldo de inmediato). */
@@ -104,6 +112,15 @@ public class FinanzasService {
                 "VALUES (?, ?, 'deposito', ?, ?, ?)", userId, username, metodoLimpio, monto, refLimpia);
         if (rows == 0) {
             throw ServicioException.interno("No se pudo registrar la solicitud de recarga", null);
+        }
+        if (correo != null) {
+            correo.notificarAdmin("Nueva solicitud de depósito",
+                    "Un usuario registró una solicitud de recarga que requiere revisión.\n\n"
+                            + "Usuario: " + username + " (id " + userId + ")\n"
+                            + "Monto: $" + monto.toPlainString() + " COP\n"
+                            + "Método: " + metodoLimpio + "\n"
+                            + "Referencia: " + refLimpia + "\n\n"
+                            + "Panel de administración: " + config.getAppBaseUrl() + "/admin");
         }
     }
 

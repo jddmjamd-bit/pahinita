@@ -12,6 +12,7 @@ import com.torneosflash.servicio.WalletService;
 import com.torneosflash.servicio.ComisionService;
 import com.torneosflash.servicio.ClashApiServicio;
 import com.torneosflash.servicio.CorreoServicio;
+import com.torneosflash.servicio.CorreoAdminActividadListener;
 import com.torneosflash.servicio.NotificacionPushServicio;
 import com.torneosflash.servicio.RateLimiter;
 import com.torneosflash.servicio.ResultadoPartidaListener;
@@ -297,12 +298,14 @@ public class Main {
                 config.getAppBaseUrl());
         NotificadorUsuarios notificador = new NotificadorUsuarios(socketServer, db, pushService, notificaciones);
         new NotificacionesListener(notificaciones, db).registrar(eventBus);
+        new CorreoAdminActividadListener(correo, db, config.getAppBaseUrl()).registrar(eventBus);
         CifradoTokenJugador cifradoTokenJugador = new CifradoTokenJugador(config.getJwtSecret());
         AuthService authService = new AuthService(usuarioDAO, db, clashApi, ejecutores, config, eventBus,
                 cifradoTokenJugador);
         new RecuperacionPasswordListener(correo, socketServer).registrar(eventBus);
         new CuentaRegistradaListener(correo, db, cifradoTokenJugador, config).registrar(eventBus);
-        FinanzasService finanzasService = new FinanzasService(db, config, wallet, validadorMonto, notificador);
+        FinanzasService finanzasService = new FinanzasService(db, config, wallet, validadorMonto, notificador,
+                correo);
         SorteoService sorteoService = new SorteoService(db, socketServer, correo, pushService, validadorMonto,
                 eventBus);
 

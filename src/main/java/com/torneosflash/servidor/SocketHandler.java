@@ -1418,7 +1418,7 @@ public class SocketHandler {
                 // C5: Si falta algún Player Tag, no dejar la partida colgada: pasar a disputa de inmediato
                 if (match.playerTag1.isEmpty() || match.playerTag2.isEmpty()) {
                     match.pollFuture.cancel(false);
-                    db.update("UPDATE matches SET estado = 'disputa' WHERE id = ? AND estado = 'en_curso'", match.dbId);
+                    crearDisputa(match, "Falta el Player Tag de un jugador");
                     logClash("🚨 DISPUTA #" + match.dbId + " (Player Tag faltante)");
                     JsonObject disputaData = new JsonObject();
                     disputaData.addProperty("mensaje", "Falta el Player Tag de un jugador. Disputa creada para revisión.");
@@ -1432,7 +1432,7 @@ public class SocketHandler {
                 if (battleResult != null) {
                     match.pollFuture.cancel(false);
                     if (battleResult.has("ambiguous") && battleResult.get("ambiguous").getAsBoolean()) {
-                        db.update("UPDATE matches SET estado = 'disputa' WHERE id = ? AND estado = 'en_curso'", match.dbId);
+                        crearDisputa(match, "Batalla ambigua en la API de Clash Royale");
                         logClash("🚨 DISPUTA #" + match.dbId + " (batalla ambigua)");
                         JsonObject disputaData = new JsonObject();
                         disputaData.addProperty("mensaje", "No se pudo identificar un resultado único y válido. La partida pasó a disputa para revisión.");
@@ -1459,7 +1459,7 @@ public class SocketHandler {
 
                     if (idGanador == 0) {
                         // Disputa
-                        db.update("UPDATE matches SET estado = 'disputa' WHERE id = ? AND estado = 'en_curso'", match.dbId);
+                        crearDisputa(match, "No se pudo identificar un ganador válido");
                         logClash("🚨 DISPUTA #" + match.dbId);
                         JsonObject disputaData = new JsonObject();
                         disputaData.addProperty("mensaje", "Resultado no claro, disputa creada.");
@@ -1475,7 +1475,7 @@ public class SocketHandler {
 
                     if (!liq.success) {
                         logger.error("❌ Error liquidando match #{}: {}", match.dbId, liq.error);
-                        db.update("UPDATE matches SET estado = 'disputa' WHERE id = ? AND estado = 'en_curso'", match.dbId);
+                        crearDisputa(match, "Error al liquidar la partida: " + liq.error);
                         JsonObject errData = new JsonObject();
                         errData.addProperty("mensaje", "Error al liquidar. Disputa creada.");
                         io.to(salaId).emit("disputa_creada", errData);
@@ -1499,8 +1499,8 @@ public class SocketHandler {
                     liberarJugadores(salaId, match);
 
                 } else if (match.pollCount >= MAX_POLLS) {
-                    int disputaCreada = db.update(
-                            "UPDATE matches SET estado = 'disputa' WHERE id = ? AND estado = 'en_curso'", match.dbId);
+                    int disputaCreada = crearDisputa(match,
+                            "No se encontró el resultado después de " + match.pollCount + " consultas");
                     if (disputaCreada != 1) {
                         JsonObject filaEstado = db.queryOne("SELECT estado FROM matches WHERE id = ?", match.dbId);
                         String estadoActual = str(filaEstado, "estado");
@@ -1531,6 +1531,17 @@ public class SocketHandler {
             });
             if (!encolado) enCurso.set(false); // pool de IO lleno: se reintenta en el próximo tick
         }, intervaloSegundos, intervaloSegundos, TimeUnit.SECONDS);
+    }
+
+    /** Emite el evento de disputa solo si la transición a ese estado se confirmó en la BD. */
+    private int crearDisputa(ActiveMatch match, String motivo) {
+        int filas = db.update("UPDATE matches SET estado = 'disputa' WHERE id = ? AND estado = 'en_curso'",
+                match.dbId);
+        if (filas == 1) {
+            eventos.emit(Eventos.MATCH_DISPUTE_CREATED, new Eventos.DisputaCreada(
+                    match.dbId, match.player1Username, match.player2Username, match.monto, motivo));
+        }
+        return filas;
     }
 
     private void liberarJugadores(String salaId, ActiveMatch match) {

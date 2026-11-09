@@ -48,6 +48,11 @@ public final class Eventos {
      */
     public static final String MATCH_FINISHED = "match.finished";
 
+    /** Una partida pasó a estado de disputa y queda pendiente de revisión administrativa. */
+    public static final String MATCH_DISPUTE_CREATED = "match.dispute_created";
+    public record DisputaCreada(int matchId, String jugador1, String jugador2,
+                                BigDecimal monto, String motivo) {}
+
     /** Alguien empezó a buscar partida. Se elimina al emparejar, cancelar o vencer la búsqueda. */
     public static final String MATCH_SEARCH_STARTED = "match.search_started";
     public static final String MATCH_SEARCH_ENDED = "match.search_ended";
