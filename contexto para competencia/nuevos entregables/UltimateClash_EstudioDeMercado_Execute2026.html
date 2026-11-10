@@ -99,6 +99,11 @@
             font-size: 8pt;
         }
 
+        .header-right .url a {
+            color: #a29bfe;
+            text-decoration: none;
+        }
+
         /* SECTIONS */
         .section {
             background: #1a1d27;
@@ -194,6 +199,12 @@
             line-height: 1.12;
         }
 
+        .ref-link {
+            color: #a29bfe;
+            font-weight: 700;
+            text-decoration: underline;
+        }
+
         .badge {
             display: inline-block;
             background: #00c853;
@@ -224,6 +235,7 @@
             border-radius: 2px;
             font-size: 6.5pt;
             font-weight: 700;
+            text-decoration: none;
         }
 
         /* TABLES */
@@ -241,6 +253,11 @@
             text-align: left;
             font-weight: 700;
             border-bottom: 1px solid #383d54;
+        }
+
+        th a {
+            color: #a29bfe;
+            text-decoration: underline;
         }
 
         td {
@@ -362,7 +379,7 @@
                 </div>
             </div>
             <div class="header-right">
-                <div class="url">torneos-beta.onrender.com <span class="badge">MVP EN LÍNEA</span></div>
+                <div class="url"><a href="https://torneos-beta.onrender.com" target="_blank">torneos-beta.onrender.com</a> <span class="badge">MVP EN LÍNEA</span></div>
                 <div>TRM de referencia del modelo: <strong>$4,400 COP = $1 USD</strong></div>
                 <div>Página 1 de 2 · Cifras con fuente y supuestos explícitos</div>
             </div>
@@ -380,7 +397,7 @@
                     <h4>El Problema: Informalidad, sobrecosto y riesgo en torneos de habilidad</h4>
                     <p>Miles de jugadores competitivos de <em>Clash Royale (CR)</em> en Colombia y LATAM buscan competir por dinero real en partidas 1v1, pero hoy dependen de grupos informales de WhatsApp con tres fallas críticas:</p>
                     <ul style="margin-top:2px;">
-                        <li><strong>Concentración y abandono <span class="badge-real">DATO PROPIO [F8]</span>:</strong> Solo <strong>3 grupos activos de WhatsApp</strong> concentran <span class="hl">&gt;3,500 membresías</span> (2 en Colombia con ~1,000 miembros c/u y 1 en 4 países LATAM con &gt;1,500). Hemos documentado <span class="hl">15 grupos cerrados</span> unilateralmente cuando el administrador decide abandonar el grupo.</li>
+                        <li><strong>Concentración y abandono <a href="#f8" class="badge-real">DATO PROPIO [F8]</a>:</strong> Solo <strong>3 grupos activos de WhatsApp</strong> concentran <span class="hl">&gt;3,500 membresías</span> (2 en Colombia con ~1,000 miembros c/u y 1 en 4 países LATAM con &gt;1,500). Hemos documentado <span class="hl">15 grupos cerrados</span> unilateralmente cuando el administrador decide abandonar el grupo.</li>
                         <li><strong>Gravedad económica (20% de pérdida fija):</strong> Cobran <span class="hl">20% de comisión fija sin devolución</span>. En partidas típicas de $4,000–$6,000 COP por jugador (pozos de $8,000–$12,000 COP) y ~40 partidas/día por grupo, los jugadores pierden <strong>$1,600 a $2,400 COP por partida</strong> en comisiones puras sin retorno.</li>
                         <li><strong>Fricción manual y horario cerrado:</strong> Transferencias al Nequi personal del admin, capturas de pantalla para validar al ganador (esperas de 15–40 min y disputas por edición) y horarios sujetos a cuando el admin abre el chat.</li>
                     </ul>
@@ -389,10 +406,10 @@
                 <div class="card-inner">
                     <h4>Perfil Concreto del Cliente (Usuario = Pagador)</h4>
                     <ul>
-                        <li><strong>Demografía <span class="badge-real">FUENTE [F1]</span>:</strong> Hombre de <span class="hl">18 a 24 años</span> (el <strong>74.51%</strong> de los jugadores de CR son hombres y el <strong>42.93%</strong> tiene 18–24 años [F1]), estudiante universitario/técnico o joven trabajador urbano en Colombia (Bogotá, Medellín, Cali, Barranquilla).</li>
+                        <li><strong>Demografía <a href="https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count" target="_blank" class="badge-real">FUENTE [F1]</a>:</strong> Hombre de <span class="hl">18 a 24 años</span> (el <strong>74.51%</strong> de los jugadores de CR son hombres y el <strong>42.93%</strong> tiene 18–24 años <a href="https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count" target="_blank" class="ref-link">[F1]</a>), estudiante universitario/técnico o joven trabajador urbano en Colombia (Bogotá, Medellín, Cali, Barranquilla).</li>
                         <li><strong>Hábito en el juego:</strong> Juega CR de <strong>1 a 2 horas diarias</strong>, supera 5,000 copas / Camino de Leyendas, sigue el <em>meta</em> en TikTok/YouTube y compite en duelos 1v1 por montos accesibles (<span class="gr">$1,000 a $10,000 COP</span> por reto).</li>
-                        <li><strong>Medios de pago:</strong> Usa <strong>Nequi</strong> (&gt;27M de usuarios en CO [F4]), Daviplata, Llaves Bre-B o tarjeta (vía Wompi). <strong>El usuario y el pagador son la misma persona.</strong></li>
-                        <li><strong>¿Por qué ahora? Momentum:</strong> CR generó <span class="gr">$646.8M USD de gasto bruto en 2025 (+149% vs. 2024)</span> [F2] y sus jugadores nuevos crecieron casi <span class="gr">+500%</span> [F5]. En Colombia, el <strong>62% de los gamers juega en móvil</strong> [F3] (~11M de gamers móviles [F6]).</li>
+                        <li><strong>Medios de pago:</strong> Usa <strong>Nequi</strong> (&gt;27M de usuarios en CO <a href="https://www.valoraanalitik.com/recorrido-de-nequi-en-colombia/" target="_blank" class="ref-link">[F4]</a>), Daviplata, Llaves Bre-B o tarjeta (vía Wompi). <strong>El usuario y el pagador son la misma persona.</strong></li>
+                        <li><strong>¿Por qué ahora? Momentum:</strong> CR generó <span class="gr">$646.8M USD de gasto bruto en 2025 (+149% vs. 2024)</span> <a href="https://www.pocketgamer.biz/clash-royale-celebrates-10-years-and-49bn-in-player-spending-after-resurgence/" target="_blank" class="ref-link">[F2]</a> y sus jugadores nuevos crecieron casi <span class="gr">+500%</span> <a href="https://supercell.com/en/news/the-best-games-havent-been-made-yet/" target="_blank" class="ref-link">[F5]</a>. En Colombia, el <strong>62% de los gamers juega en móvil</strong> <a href="https://forbes.co/negocios/el-crecimiento-del-mercado-gamer-en-colombia-2025" target="_blank" class="ref-link">[F3]</a> (~11M de gamers móviles <a href="https://www.elcolombiano.com/negocios/JUEGOS-DE-CELULAR-MUEVEN-2600-MILLONES-DE-DOLARES-AL-ANO-EN-AMERICA-LATINA-Y-CIFRAS-DE-COLOMBIA-CG23526455" target="_blank" class="ref-link">[F6]</a>).</li>
                     </ul>
                 </div>
             </div>
@@ -406,7 +423,7 @@
             </div>
 
             <div class="formula-box">
-                <strong>Origen del Gasto Anual por Pagador (ARPPU Base = <span class="gr">$9.28 USD/año</span> ≈ <span class="hl">$40,832 COP/año</span> a TRM $4,400) <span class="badge-real">DATO PILOTO [F7]</span>:</strong>
+                <strong>Origen del Gasto Anual por Pagador (ARPPU Base = <span class="gr">$9.28 USD/año</span> ≈ <span class="hl">$40,832 COP/año</span> a TRM $4,400) <a href="https://torneos-beta.onrender.com" target="_blank" class="badge-real">DATO PILOTO [F7]</a>:</strong>
                 En nuestro piloto real de 15 días (dic. 2025) con <strong>35 usuarios registrados</strong> (20 activos/día), circularon <strong>$300,000 COP</strong> en pozos y la plataforma generó <strong>$60,000 COP en comisiones brutas</strong>.
                 Comisión bruta quincenal por usuario = <code>$60,000 COP ÷ 35 usuarios = $1,714.29 COP</code>.
                 Anualizado por 24 quincenas: <code>$1,714.29 COP × 24 = $41,143 COP/año</code> (<strong>$9.28 USD/año</strong> a TRM dic. 2025 de $4,433 COP/USD, o <strong>$40,832 COP/año</strong> a TRM $4,400).
@@ -426,8 +443,8 @@
                 <tbody>
                     <tr class="row-tam">
                         <td>2. TAM Global</td>
-                        <td><strong>72,200,000</strong> MAU <span class="badge-real">[F1]</span></td>
-                        <td><code>72,200,000 jugadores activos [F1] × $9.28 USD/año</code><br><span class="muted">Mercado total si todos los jugadores activos mensuales del mundo compitieran.</span></td>
+                        <td><strong>72,200,000</strong> MAU <a href="https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count" target="_blank" class="badge-real">[F1]</a></td>
+                        <td><code>72,200,000 jugadores activos</code> <a href="https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count" target="_blank" class="ref-link">[F1]</a> <code>× $9.28 USD/año</code><br><span class="muted">Mercado total si todos los jugadores activos mensuales del mundo compitieran.</span></td>
                         <td class="num"><strong>$670,016,000</strong><br><span class="muted">(~$670.0M USD)</span></td>
                         <td class="num"><strong>$2,948,070M COP</strong><br><span class="muted">($2.95 billones COP)</span></td>
                     </tr>
@@ -459,7 +476,7 @@
                 <strong>Justificación de los 3 supuestos estimados del SAM:</strong>
                 <strong>(1) 15% competitivo (estimado):</strong> fracción de MAU que juega a diario, sigue el meta y busca subir de liga (10.83M globales).
                 <strong>(2) 20% dispuestos a pagar (estimado):</strong> fracción competitiva que entra a retos por dinero real con verificación automática y pagos locales (3% del MAU total).
-                <strong>(3) 1.5% cuota Colombia (estimado proxy):</strong> proporción conservadora sobre ~11M de gamers móviles en Colombia [F6]; en grupos regionales de WhatsApp de 4 países LATAM [F8], Colombia aporta &gt;25% de los miembros.
+                <strong>(3) 1.5% cuota Colombia (estimado proxy):</strong> proporción conservadora sobre ~11M de gamers móviles en Colombia <a href="https://www.elcolombiano.com/negocios/JUEGOS-DE-CELULAR-MUEVEN-2600-MILLONES-DE-DOLARES-AL-ANO-EN-AMERICA-LATINA-Y-CIFRAS-DE-COLOMBIA-CG23526455" target="_blank" class="ref-link">[F6]</a>; en grupos regionales de WhatsApp de 4 países LATAM <a href="#f8" class="ref-link">[F8]</a>, Colombia aporta &gt;25% de los miembros.
             </p>
         </div>
 
@@ -511,12 +528,12 @@
                     </tr>
                 </tbody>
             </table>
-            <p class="muted">*<strong>Regla contable en código (<code>ComisionService.java</code>):</strong> Del ingreso bruto por comisiones de partidas, el <strong>75% se devuelve automáticamente a los jugadores</strong> (sorteos, rankings, devolución, misiones, referidos, logros) y el <strong>25% restante + el 100% de las suscripciones VIP</strong> entra como ingreso neto de caja para UltimateClash.</p>
+            <p class="muted">*<strong>Regla contable del modelo:</strong> Del ingreso bruto por comisiones de partidas, el <strong>75% se devuelve automáticamente a los jugadores</strong> (sorteos, rankings, devolución, misiones, referidos, logros) y el <strong>25% restante + el 100% de las suscripciones VIP</strong> entra como ingreso neto de caja para UltimateClash.</p>
         </div>
 
         <!-- FOOTER P1 -->
         <div class="footer">
-            <div><span>📧 delgadomillanjuandavid3@gmail.com</span> · <span>📱 +57 312 665 5995</span> · <span>🌐 <a href="https://torneos-beta.onrender.com">torneos-beta.onrender.com</a></span></div>
+            <div><span>📧 <a href="mailto:delgadomillanjuandavid3@gmail.com">delgadomillanjuandavid3@gmail.com</a></span> · <span>📱 <a href="tel:+573126655995">+57 312 665 5995</a></span> · <span>🌐 <a href="https://torneos-beta.onrender.com" target="_blank">torneos-beta.onrender.com</a></span></div>
             <div>UltimateClash · Estudio de Mercado (Página 1 de 2) · Execute the Idea 2026</div>
         </div>
 
@@ -535,7 +552,7 @@
                 </div>
             </div>
             <div class="header-right">
-                <div class="url">torneos-beta.onrender.com <span class="badge">MVP EN LÍNEA</span></div>
+                <div class="url"><a href="https://torneos-beta.onrender.com" target="_blank">torneos-beta.onrender.com</a> <span class="badge">MVP EN LÍNEA</span></div>
                 <div>Equipo Ultimate Clash · Juan David Delgado &amp; Juan José Neira</div>
                 <div>Página 2 de 2 · Fecha: 10 de noviembre de 2026</div>
             </div>
@@ -573,21 +590,21 @@
 
             <div class="grid-2">
                 <div class="card-inner">
-                    <h4>1. Qué validamos y qué preguntamos (n = 35 jugadores reales) <span class="badge-real">[F7]</span></h4>
+                    <h4>1. Qué validamos y qué preguntamos (n = 35 jugadores reales) <a href="https://torneos-beta.onrender.com" target="_blank" class="badge-real">[F7]</a></h4>
                     <p>En diciembre de 2025 operamos un piloto funcional de 15 días con <strong>35 jugadores captados orgánicamente</strong> de grupos de WhatsApp ($0 COP en pauta). En soporte directo y feedback post-partida con los 35 usuarios, validamos 3 preguntas:</p>
                     <ul style="margin-top:1.5px;">
                         <li><strong>¿Depositan y juegan en una web automática?</strong> <strong>Sí:</strong> 20 de 35 usuarios (57%) jugaron activamente cada día, depositando desde $1,000 COP (~17 partidas/día).</li>
-                        <li><strong>¿Dónde hubo fricción inicial?</strong> Reportaron dudas sobre cómo sacar el <em>API Token</em> en los ajustes de Clash Royale para vincular su cuenta y cómo acordar el monto en sala privada.</li>
+                        <li><strong>¿Dónde hubo fricción inicial?</strong> Reportaron dudas sobre cómo sacar el token de verificación en los ajustes de Clash Royale para vincular su cuenta y cómo acordar el monto en sala privada.</li>
                         <li><strong>¿Por qué cayó la retención en la semana 2?</strong> Sin rival inmediato se salían de la página, y faltaban recompensas continuas y comprobantes públicos de retiros pagados.</li>
                     </ul>
                 </div>
 
                 <div class="card-inner">
                     <h4>2. Respuesta en Producto (Ya programado y desplegado en el MVP)</h4>
-                    <p>Cada hallazgo del piloto se convirtió en código real hoy activo en <code>torneos-beta.onrender.com</code>:</p>
+                    <p>Cada hallazgo del piloto se convirtió en funciones reales hoy activas en <a href="https://torneos-beta.onrender.com" target="_blank" style="color:#a29bfe;">torneos-beta.onrender.com</a>:</p>
                     <ul style="margin-top:1.5px;">
-                        <li><strong>Contra la fricción de entrada:</strong> Construimos el <strong>Chatbot IA 24/7 (Gemini/OpenAI)</strong> entrenado por el admin (si no sabe algo, envía correo al admin y notifica por <em>Push</em> al usuario al responderse), tickets <em>"Hablar con el admin"</em> y FAQ interactiva.</li>
-                        <li><strong>Contra la falta de rival en línea:</strong> Implementamos <strong>Notificaciones Push Web/Móvil (Firebase FCM)</strong> que avisan al celular de desconectados cuando alguien busca partida, y reloj individual de 2:30 min estilo <em>Pokémon Showdown</em>.</li>
+                        <li><strong>Contra la fricción de entrada:</strong> Construimos el <strong>Chatbot IA 24/7</strong> entrenado por el admin (si no sabe algo, envía correo al admin y notifica por <em>Push</em> al usuario al responderse), tickets <em>"Hablar con el admin"</em> y FAQ interactiva.</li>
+                        <li><strong>Contra la falta de rival en línea:</strong> Implementamos <strong>Notificaciones Push Web/Móvil</strong> que avisan al celular de desconectados cuando alguien busca partida, y reloj individual de 2:30 min estilo <em>Pokémon Showdown</em>.</li>
                         <li><strong>Contra la caída de retención y desconfianza:</strong> Programamos la devolución del <strong>75% de la comisión</strong> (sorteos por tickets, rankings diario/semanal/mensual/anual automáticos) y el canal público <strong>«🧾 Pagos»</strong> con comprobantes reales de cada retiro.</li>
                     </ul>
                 </div>
@@ -605,9 +622,9 @@
                 <thead>
                     <tr>
                         <th style="width:14%;">Criterio</th>
-                        <th style="width:28%;">Grupos de WhatsApp en CO/LATAM<br><span class="muted">(Alternativa informal · &gt;3,500 miembros)</span></th>
-                        <th style="width:25%;">Mundogames / Torneum<br><span class="muted">(Plataformas internacionales multijuego)</span></th>
-                        <th style="width:33%;">UltimateClash (Nosotros)<br><span class="muted">(Especializada en CR · En línea hoy)</span></th>
+                        <th style="width:28%;">Grupos de WhatsApp en CO/LATAM <a href="#f8" class="ref-link">[F8]</a><br><span class="muted">(Alternativa informal · &gt;3,500 miembros)</span></th>
+                        <th style="width:25%;"><a href="https://mundogames.com/" target="_blank">Mundogames</a> / <a href="https://torneum.com/" target="_blank">Torneum</a> <a href="#f8" class="ref-link">[F8]</a><br><span class="muted">(Plataformas internacionales multijuego)</span></th>
+                        <th style="width:33%;"><a href="https://torneos-beta.onrender.com" target="_blank">UltimateClash (Nosotros)</a><br><span class="muted">(Especializada en CR · En línea hoy)</span></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -615,7 +632,7 @@
                         <td><strong>Verificación</strong></td>
                         <td><strong>Manual (capturas de pantalla):</strong> tarda 15–40 min, disputas por imágenes editadas.</td>
                         <td><strong>Semimanual o variable:</strong> depende de reportes de jugadores y arbitraje externo.</td>
-                        <td class="us-col"><span class="gr">100% Automática vía API oficial de CR:</span> sondeo cada 5s, valida tags (<code>#TAG</code>) y coronas enteras al instante.</td>
+                        <td class="us-col"><span class="gr">100% Automática vía API oficial de CR:</span> sondeo cada 5s, valida etiquetas de jugador y coronas enteras al instante.</td>
                     </tr>
                     <tr>
                         <td><strong>Comisión y Retorno</strong></td>
@@ -627,13 +644,13 @@
                         <td><strong>Horario y Liquidez</strong></td>
                         <td><strong>Horario fijo:</strong> solo cuando el admin abre el chat; cerrado el resto del día.</td>
                         <td>Por torneos programados a horas fijas; baja liquidez local en Colombia.</td>
-                        <td class="us-col"><strong>24/7 en tiempo real:</strong> matchmaking inmediato + aviso Push FCM a jugadores desconectados.</td>
+                        <td class="us-col"><strong>24/7 en tiempo real:</strong> matchmaking inmediato + aviso Push a jugadores desconectados.</td>
                     </tr>
                     <tr>
                         <td><strong>Pagos y Custodia</strong></td>
                         <td>Transferencia al Nequi personal del admin. <strong>15 grupos cerrados</strong> por abandono.</td>
                         <td>PayPal o tarjetas internacionales en USD (excluye al usuario de Nequi).</td>
-                        <td class="us-col"><strong>Nequi y Wompi en COP desde $1,000 COP:</strong> ledger inmutable (<code>wallet_ledger</code>) y canal de evidencias.</td>
+                        <td class="us-col"><strong>Nequi y Wompi en COP desde $1,000 COP:</strong> registro contable inmutable y canal público de evidencias.</td>
                     </tr>
                     <tr>
                         <td><strong>Comunidad y Soporte</strong></td>
@@ -653,11 +670,11 @@
                     <div class="section-title">7. Precio y Modelo de Cobro</div>
                     <div class="section-tag">Por qué este precio vs. lo que pagan hoy</div>
                 </div>
-                <p><strong>1. Comisión escalonada por partida (10% a 25% del pozo, código <code>ComisionService</code>):</strong></p>
+                <p><strong>1. Comisión escalonada por partida (10% a 25% del pozo):</strong></p>
                 <ul>
                     <li>Retos desde <strong>$1,000 hasta $10,000 COP por jugador</strong> (pozos de <strong>$2,000 a $20,000 COP</strong>).</li>
                     <li>En pozo mínimo ($2,000 COP) se cobra <strong>25%</strong> ($500 COP comisión; $1,500 COP premio). Baja linealmente hasta <strong>10%</strong> en pozos de $20,000 COP ($2,000 COP comisión; $18,000 COP premio).</li>
-                    <li>En el ticket típico de WhatsApp (<strong>$5,000 COP por jugador = pozo $10,000 COP</strong>), cobramos <strong>18.33% ($1,833 COP)</strong> vs. <strong>20% fijo ($2,000 COP)</strong> en WhatsApp.</li>
+                    <li>En el ticket típico de WhatsApp (<strong>$5,000 COP por jugador = pozo $10,000 COP</strong>), cobramos <strong>18.33% ($1,833 COP)</strong> vs. <strong>20% fijo ($2,000 COP)</strong> en WhatsApp <a href="#f8" class="ref-link">[F8]</a>.</li>
                 </ul>
                 <p><strong>2. Devolución del 75% → Costo neto real de solo 2.5% a 6.25% del pozo:</strong></p>
                 <ul>
@@ -673,7 +690,7 @@
                     <div class="section-title">8. Canal y Adquisición (Coherente con CAC)</div>
                     <div class="section-tag">Cómo llega al cliente y cuadre con Plan Financiero</div>
                 </div>
-                <p><strong>Cómo llega al cliente:</strong> Web App en <a href="https://torneos-beta.onrender.com" style="color:#a29bfe;">torneos-beta.onrender.com</a> (acceso inmediato en móvil/PC) + <strong>App nativa Android/iOS (Capacitor)</strong> con alertas Push FCM.</p>
+                <p><strong>Cómo llega al cliente:</strong> Web App en <a href="https://torneos-beta.onrender.com" target="_blank" style="color:#a29bfe;">torneos-beta.onrender.com</a> (acceso inmediato en móvil/PC) + <strong>App nativa Android/iOS</strong> con alertas Push.</p>
                 <p style="margin-top:1px;"><strong>Cómo se enteran y cálculo explícito del CAC:</strong></p>
                 <ul>
                     <li><strong>1. Meta Ads + Micro-creadores de CR en LATAM ($9,000 USD / $39.6M COP):</strong> Reels/TikToks mostrando duelos automáticos y retiros reales en Nequi.
@@ -681,33 +698,33 @@
                         <br>→ <code>$9,000 USD ÷ $1.80 USD = 5,000 usuarios registrados</code>.
                         <br>→ Con <strong>10% de conversión a pagador</strong> (500 pagadores One Pager):
                         <br>→ <strong>CAC Pago = <code>$1.80 USD ÷ 10% = $18.00 USD ($79,200 COP)</code></strong>.</li>
-                    <li><strong>2. Torneos Gratuitos Iniciales + Alianzas con Admins de WhatsApp ($500 USD / $2.2M COP):</strong> Torneos semilla abiertos para migrar a los &gt;3,500 miembros de grupos activos y los 15 grupos cerrados.</li>
+                    <li><strong>2. Torneos Gratuitos Iniciales + Alianzas con Admins de WhatsApp ($500 USD / $2.2M COP):</strong> Torneos semilla abiertos para migrar a los &gt;3,500 miembros de grupos activos y los 15 grupos cerrados <a href="#f8" class="ref-link">[F8]</a>.</li>
                     <li><strong>3. Referidos autofinanciados (10% de la comisión):</strong> Al subir la conversión al <strong>15% (750 pagadores en Plan Financiero)</strong> gracias al tutorial/chatbot y referidos orgánicos, el <strong>CAC Mezclado baja a <span class="gr">$12.00 USD ($52,800 COP)</span></strong>.</li>
                 </ul>
             </div>
         </div>
 
         <!-- FUENTES Y REFERENCIAS -->
-        <div class="section" style="padding: 4px 8px;">
+        <div class="section" id="fuentes" style="padding: 4px 8px;">
             <div class="section-header" style="margin-bottom:1px;">
                 <div class="section-title" style="font-size:8pt;">Fuentes de Información, Informes y Evidencia Primaria</div>
                 <div class="section-tag">Todas las cifras del documento están respaldadas por estas fuentes verificables</div>
             </div>
             <div class="ref-list">
-                <div><strong>[F1] Udonis / AppMagic (2 jul. 2026):</strong> <em>Clash Royale Player Count, Demographics &amp; Revenue</em> (72.2M MAU, ~25M DAU, 74.51% hombres, 42.93% de 18–24 años). <a href="https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count">https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count</a></div>
-                <div><strong>[F2] PocketGamer.biz (9 mar. 2026):</strong> <em>Clash Royale celebrates 10 years and $4.9bn in spending</em> ($646.8M USD gasto bruto 2025, +149% YoY). <a href="https://www.pocketgamer.biz/clash-royale-celebrates-10-years-and-49bn-in-player-spending-after-resurgence/">https://www.pocketgamer.biz/clash-royale-celebrates-10-years-and-49bn-in-player-spending-after-resurgence/</a></div>
-                <div><strong>[F3] Forbes Colombia (29 ago. 2025):</strong> <em>El crecimiento del mercado gamer en Colombia 2025</em> (62% juega en móvil). <a href="https://forbes.co/negocios/el-crecimiento-del-mercado-gamer-en-colombia-2025">https://forbes.co/negocios/el-crecimiento-del-mercado-gamer-en-colombia-2025</a></div>
-                <div><strong>[F4] Valora Analitik (10 ago. 2026):</strong> <em>Recorrido de Nequi en Colombia</em> (&gt;27M de usuarios activos en Colombia). <a href="https://www.valoraanalitik.com/recorrido-de-nequi-en-colombia/">https://www.valoraanalitik.com/recorrido-de-nequi-en-colombia/</a></div>
-                <div><strong>[F5] Supercell Official News (10 feb. 2026):</strong> <em>The best games haven't been made yet</em> (casi +500% en nuevos jugadores de CR). <a href="https://supercell.com/en/news/the-best-games-havent-been-made-yet/">https://supercell.com/en/news/the-best-games-havent-been-made-yet/</a></div>
-                <div><strong>[F6] El Colombiano / Adsmovil (2024–2025):</strong> <em>Juegos de celular en América Latina y cifras de Colombia</em> (~11M gamers móviles en CO). <a href="https://www.elcolombiano.com/negocios/JUEGOS-DE-CELULAR-MUEVEN-2600-MILLONES-DE-DOLARES-AL-ANO-EN-AMERICA-LATINA-Y-CIFRAS-DE-COLOMBIA-CG23526455">https://www.elcolombiano.com/negocios/JUEGOS-DE-CELULAR-MUEVEN-2600-MILLONES-DE-DOLARES-AL-ANO-EN-AMERICA-LATINA-Y-CIFRAS-DE-COLOMBIA-CG23526455</a></div>
-                <div><strong>[F7] Piloto Propio UltimateClash (1–15 dic. 2025):</strong> Prueba comercial en vivo con <strong>n = 35 usuarios registrados reales</strong>, 20 activos/día, 17 partidas/día, $300,000 COP circulados y $60,000 COP en comisiones + feedback directo de los 35 participantes.</div>
-                <div><strong>[F8] Observación Primaria de Competencia (2025–2026):</strong> Relevamiento en <strong>18 grupos de WhatsApp</strong> de torneos de CR (3 activos con &gt;3,500 membresías y 20% de comisión fija; 15 cerrados por abandono) y análisis de <a href="https://mundogames.com/">mundogames.com</a> y <a href="https://torneum.com/">torneum.com</a>.</div>
+                <div id="f1"><strong>[F1] Udonis / AppMagic (2 jul. 2026):</strong> <em>Clash Royale Player Count, Demographics &amp; Revenue</em> (72.2M MAU, ~25M DAU, 74.51% hombres, 42.93% de 18–24 años). <a href="https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count" target="_blank">https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count</a></div>
+                <div id="f2"><strong>[F2] PocketGamer.biz (9 mar. 2026):</strong> <em>Clash Royale celebrates 10 years and $4.9bn in spending</em> ($646.8M USD gasto bruto 2025, +149% YoY). <a href="https://www.pocketgamer.biz/clash-royale-celebrates-10-years-and-49bn-in-player-spending-after-resurgence/" target="_blank">https://www.pocketgamer.biz/clash-royale-celebrates-10-years-and-49bn-in-player-spending-after-resurgence/</a></div>
+                <div id="f3"><strong>[F3] Forbes Colombia (29 ago. 2025):</strong> <em>El crecimiento del mercado gamer en Colombia 2025</em> (62% juega en móvil). <a href="https://forbes.co/negocios/el-crecimiento-del-mercado-gamer-en-colombia-2025" target="_blank">https://forbes.co/negocios/el-crecimiento-del-mercado-gamer-en-colombia-2025</a></div>
+                <div id="f4"><strong>[F4] Valora Analitik (10 ago. 2026):</strong> <em>Recorrido de Nequi en Colombia</em> (&gt;27M de usuarios activos en Colombia). <a href="https://www.valoraanalitik.com/recorrido-de-nequi-en-colombia/" target="_blank">https://www.valoraanalitik.com/recorrido-de-nequi-en-colombia/</a></div>
+                <div id="f5"><strong>[F5] Supercell Official News (10 feb. 2026):</strong> <em>The best games haven't been made yet</em> (casi +500% en nuevos jugadores de CR). <a href="https://supercell.com/en/news/the-best-games-havent-been-made-yet/" target="_blank">https://supercell.com/en/news/the-best-games-havent-been-made-yet/</a></div>
+                <div id="f6"><strong>[F6] El Colombiano / Adsmovil (2024–2025):</strong> <em>Juegos de celular en América Latina y cifras de Colombia</em> (~11M gamers móviles en CO). <a href="https://www.elcolombiano.com/negocios/JUEGOS-DE-CELULAR-MUEVEN-2600-MILLONES-DE-DOLARES-AL-ANO-EN-AMERICA-LATINA-Y-CIFRAS-DE-COLOMBIA-CG23526455" target="_blank">https://www.elcolombiano.com/negocios/JUEGOS-DE-CELULAR-MUEVEN-2600-MILLONES-DE-DOLARES-AL-ANO-EN-AMERICA-LATINA-Y-CIFRAS-DE-COLOMBIA-CG23526455</a></div>
+                <div id="f7"><strong>[F7] Piloto Propio UltimateClash (1–15 dic. 2025):</strong> Prueba comercial en vivo en <a href="https://torneos-beta.onrender.com" target="_blank">torneos-beta.onrender.com</a> con <strong>n = 35 usuarios registrados reales</strong>, 20 activos/día, 17 partidas/día, $300,000 COP circulados y $60,000 COP en comisiones + feedback directo de los 35 participantes.</div>
+                <div id="f8"><strong>[F8] Observación Primaria de Competencia (2025–2026):</strong> Relevamiento en <strong>18 grupos de WhatsApp</strong> de torneos de CR (3 activos con &gt;3,500 membresías y 20% de comisión fija; 15 cerrados por abandono) y análisis de <a href="https://mundogames.com/" target="_blank">mundogames.com</a> y <a href="https://torneum.com/" target="_blank">torneum.com</a>.</div>
             </div>
         </div>
 
         <!-- FOOTER P2 -->
         <div class="footer">
-            <div><span>📧 delgadomillanjuandavid3@gmail.com</span> · <span>📱 +57 312 665 5995</span> · <span>🌐 <a href="https://torneos-beta.onrender.com">torneos-beta.onrender.com</a></span></div>
+            <div><span>📧 <a href="mailto:delgadomillanjuandavid3@gmail.com">delgadomillanjuandavid3@gmail.com</a></span> · <span>📱 <a href="tel:+573126655995">+57 312 665 5995</a></span> · <span>🌐 <a href="https://torneos-beta.onrender.com" target="_blank">torneos-beta.onrender.com</a></span></div>
             <div>UltimateClash · Estudio de Mercado (Página 2 de 2) · Execute the Idea 2026</div>
         </div>
 
