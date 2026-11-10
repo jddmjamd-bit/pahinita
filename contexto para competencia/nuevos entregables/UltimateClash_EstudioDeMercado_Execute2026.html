@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UltimateClash — Estudio de Mercado · Execute 2026 (Fase 3 · Entregable 03)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        @page {
+            size: letter portrait;
+            margin: 0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #0f1117;
+            color: #e2e4ea;
+            width: 8.5in;
+            margin: 0 auto;
+            font-size: 7.7pt;
+            line-height: 1.10;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+
+        .page {
+            width: 8.5in;
+            height: 11in;
+            padding: 0.10in 0.16in;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 3px;
+            background: #0f1117;
+            page-break-after: always;
+            break-after: page;
+            overflow: hidden;
+        }
+
+        .page:last-child {
+            page-break-after: auto;
+            break-after: auto;
+        }
+
+        /* HEADER */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 4px;
+            border-bottom: 2px solid #6c5ce7;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .header-left img {
+            width: 34px;
+            height: 34px;
+            border-radius: 6px;
+            object-fit: contain;
+            border: 1.5px solid #6c5ce7;
+        }
+
+        .header h1 {
+            font-size: 13.5pt;
+            font-weight: 900;
+            color: #a29bfe;
+            letter-spacing: -0.4px;
+            line-height: 1.02;
+        }
+
+        .header .doc-subtitle {
+            font-size: 7.8pt;
+            color: #cfd2dc;
+            font-weight: 600;
+        }
+
+        .header-right {
+            text-align: right;
+            font-size: 7.5pt;
+            color: #9aa0b4;
+            line-height: 1.18;
+        }
+
+        .header-right .url {
+            color: #a29bfe;
+            font-weight: 700;
+            font-size: 8pt;
+        }
+
+        /* SECTIONS */
+        .section {
+            background: #1a1d27;
+            border-radius: 4px;
+            padding: 4px 7px;
+            border-left: 3px solid #6c5ce7;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .section.green-border {
+            border-left-color: #00e676;
+        }
+
+        .section.gold-border {
+            border-left-color: #ffd700;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            border-bottom: 1px solid #262a3b;
+            padding-bottom: 1px;
+        }
+
+        .section-title {
+            font-size: 8.4pt;
+            font-weight: 800;
+            text-transform: uppercase;
+            color: #a29bfe;
+            letter-spacing: 0.2px;
+        }
+
+        .section-tag {
+            font-size: 6.8pt;
+            color: #8c92a8;
+            font-weight: 600;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px;
+        }
+
+        .card-inner {
+            background: #232736;
+            border-radius: 4px;
+            padding: 3.5px 5.5px;
+            border: 1px solid #2e3346;
+        }
+
+        .card-inner h4 {
+            font-size: 7.7pt;
+            color: #fff;
+            font-weight: 700;
+            margin-bottom: 1px;
+        }
+
+        p {
+            margin: 0;
+        }
+
+        ul {
+            margin: 0;
+            padding-left: 11px;
+        }
+
+        li {
+            margin-bottom: 1px;
+        }
+
+        .hl {
+            color: #ffd700;
+            font-weight: 700;
+        }
+
+        .gr {
+            color: #00e676;
+            font-weight: 700;
+        }
+
+        .pr {
+            color: #a29bfe;
+            font-weight: 700;
+        }
+
+        .muted {
+            color: #9aa0b4;
+            font-size: 7.3pt;
+            line-height: 1.12;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #00c853;
+            color: #0b0e14;
+            padding: 0.5px 4px;
+            border-radius: 3px;
+            font-size: 7pt;
+            font-weight: 800;
+        }
+
+        .badge-est {
+            display: inline-block;
+            background: #2d3246;
+            color: #ffd700;
+            border: 1px solid #ffd700;
+            padding: 0px 3px;
+            border-radius: 2px;
+            font-size: 6.5pt;
+            font-weight: 700;
+        }
+
+        .badge-real {
+            display: inline-block;
+            background: #143627;
+            color: #00e676;
+            border: 1px solid #00e676;
+            padding: 0px 3px;
+            border-radius: 2px;
+            font-size: 6.5pt;
+            font-weight: 700;
+        }
+
+        /* TABLES */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 7.3pt;
+            line-height: 1.08;
+        }
+
+        th {
+            background: #252836;
+            color: #a29bfe;
+            padding: 2px 4px;
+            text-align: left;
+            font-weight: 700;
+            border-bottom: 1px solid #383d54;
+        }
+
+        td {
+            padding: 1.5px 4px;
+            border-bottom: 1px solid #232736;
+            vertical-align: top;
+        }
+
+        .num {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+
+        .us-col {
+            background: #1f2238;
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        .row-tam td:first-child {
+            color: #ffd700;
+            font-weight: 800;
+        }
+
+        .row-sam td:first-child {
+            color: #ff9800;
+            font-weight: 800;
+        }
+
+        .row-som td:first-child {
+            color: #00e676;
+            font-weight: 800;
+        }
+
+        .formula-box {
+            background: #141720;
+            border: 1px solid #2e3346;
+            border-radius: 4px;
+            padding: 3.5px 6px;
+            font-size: 7.5pt;
+            line-height: 1.14;
+            color: #d0d4e0;
+        }
+
+        .kpi-strip {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 4px;
+        }
+
+        .kpi-box {
+            background: #232736;
+            border-radius: 4px;
+            padding: 3px 4px;
+            text-align: center;
+            border: 1px solid #2f354a;
+        }
+
+        .kpi-box .val {
+            font-size: 9.5pt;
+            font-weight: 900;
+            color: #00e676;
+            line-height: 1.05;
+        }
+
+        .kpi-box .lbl {
+            font-size: 6.5pt;
+            color: #9aa0b4;
+            text-transform: uppercase;
+            font-weight: 600;
+            line-height: 1.05;
+        }
+
+        .footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 3px;
+            border-top: 1px solid #2b2f42;
+            font-size: 7.2pt;
+            color: #888ea4;
+        }
+
+        .footer a {
+            color: #a29bfe;
+            text-decoration: none;
+        }
+
+        .ref-list {
+            font-size: 6.6pt;
+            line-height: 1.08;
+            color: #b4b9c9;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5px 8px;
+        }
+
+        .ref-list a {
+            color: #a29bfe;
+            text-decoration: none;
+            word-break: break-all;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- ==================== PÁGINA 1 DE 2 ==================== -->
+    <div class="page">
+
+        <!-- HEADER P1 -->
+        <div class="header">
+            <div class="header-left">
+                <img src="../oen pager/logo.jpeg" alt="UltimateClash">
+                <div>
+                    <h1>UltimateClash · Estudio de Mercado</h1>
+                    <div class="doc-subtitle">Entregable 03 · Fase 3: Un producto listo para facturar · Execute the Idea 2ª Ed. (Colombia 2026)</div>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="url">torneos-beta.onrender.com <span class="badge">MVP EN LÍNEA</span></div>
+                <div>TRM de referencia del modelo: <strong>$4,400 COP = $1 USD</strong></div>
+                <div>Página 1 de 2 · Cifras con fuente y supuestos explícitos</div>
+            </div>
+        </div>
+
+        <!-- SECCIÓN 1: PROBLEMA Y CLIENTE -->
+        <div class="section">
+            <div class="section-header">
+                <div class="section-title">1. Problema y Cliente Objetivo</div>
+                <div class="section-tag">Quién sufre el problema, qué tan grave es, cómo lo resuelve hoy y por qué ahora</div>
+            </div>
+
+            <div class="grid-2">
+                <div class="card-inner">
+                    <h4>El Problema: Informalidad, sobrecosto y riesgo en torneos de habilidad</h4>
+                    <p>Miles de jugadores competitivos de <em>Clash Royale (CR)</em> en Colombia y LATAM buscan competir por dinero real en partidas 1v1, pero hoy dependen de grupos informales de WhatsApp con tres fallas críticas:</p>
+                    <ul style="margin-top:2px;">
+                        <li><strong>Concentración y abandono <span class="badge-real">DATO PROPIO [F8]</span>:</strong> Solo <strong>3 grupos activos de WhatsApp</strong> concentran <span class="hl">&gt;3,500 membresías</span> (2 en Colombia con ~1,000 miembros c/u y 1 en 4 países LATAM con &gt;1,500). Hemos documentado <span class="hl">15 grupos cerrados</span> unilateralmente cuando el administrador decide abandonar el grupo.</li>
+                        <li><strong>Gravedad económica (20% de pérdida fija):</strong> Cobran <span class="hl">20% de comisión fija sin devolución</span>. En partidas típicas de $4,000–$6,000 COP por jugador (pozos de $8,000–$12,000 COP) y ~40 partidas/día por grupo, los jugadores pierden <strong>$1,600 a $2,400 COP por partida</strong> en comisiones puras sin retorno.</li>
+                        <li><strong>Fricción manual y horario cerrado:</strong> Transferencias al Nequi personal del admin, capturas de pantalla para validar al ganador (esperas de 15–40 min y disputas por edición) y horarios sujetos a cuando el admin abre el chat.</li>
+                    </ul>
+                </div>
+
+                <div class="card-inner">
+                    <h4>Perfil Concreto del Cliente (Usuario = Pagador)</h4>
+                    <ul>
+                        <li><strong>Demografía <span class="badge-real">FUENTE [F1]</span>:</strong> Hombre de <span class="hl">18 a 24 años</span> (el <strong>74.51%</strong> de los jugadores de CR son hombres y el <strong>42.93%</strong> tiene 18–24 años [F1]), estudiante universitario/técnico o joven trabajador urbano en Colombia (Bogotá, Medellín, Cali, Barranquilla).</li>
+                        <li><strong>Hábito en el juego:</strong> Juega CR de <strong>1 a 2 horas diarias</strong>, supera 5,000 copas / Camino de Leyendas, sigue el <em>meta</em> en TikTok/YouTube y compite en duelos 1v1 por montos accesibles (<span class="gr">$1,000 a $10,000 COP</span> por reto).</li>
+                        <li><strong>Medios de pago:</strong> Usa <strong>Nequi</strong> (&gt;27M de usuarios en CO [F4]), Daviplata, Llaves Bre-B o tarjeta (vía Wompi). <strong>El usuario y el pagador son la misma persona.</strong></li>
+                        <li><strong>¿Por qué ahora? Momentum:</strong> CR generó <span class="gr">$646.8M USD de gasto bruto en 2025 (+149% vs. 2024)</span> [F2] y sus jugadores nuevos crecieron casi <span class="gr">+500%</span> [F5]. En Colombia, el <strong>62% de los gamers juega en móvil</strong> [F3] (~11M de gamers móviles [F6]).</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- SECCIONES 2 Y 3: TAM Y SAM -->
+        <div class="section gold-border">
+            <div class="section-header">
+                <div class="section-title">2 y 3. Tamaño de Mercado: TAM y SAM (Cálculo Explícito: Clientes × Gasto Anual)</div>
+                <div class="section-tag">100% alineado con el One Pager · Cada multiplicación y supuesto explícito</div>
+            </div>
+
+            <div class="formula-box">
+                <strong>Origen del Gasto Anual por Pagador (ARPPU Base = <span class="gr">$9.28 USD/año</span> ≈ <span class="hl">$40,832 COP/año</span> a TRM $4,400) <span class="badge-real">DATO PILOTO [F7]</span>:</strong>
+                En nuestro piloto real de 15 días (dic. 2025) con <strong>35 usuarios registrados</strong> (20 activos/día), circularon <strong>$300,000 COP</strong> en pozos y la plataforma generó <strong>$60,000 COP en comisiones brutas</strong>.
+                Comisión bruta quincenal por usuario = <code>$60,000 COP ÷ 35 usuarios = $1,714.29 COP</code>.
+                Anualizado por 24 quincenas: <code>$1,714.29 COP × 24 = $41,143 COP/año</code> (<strong>$9.28 USD/año</strong> a TRM dic. 2025 de $4,433 COP/USD, o <strong>$40,832 COP/año</strong> a TRM $4,400).
+                <em>Mide ingresos brutos potenciales de comisión de plataforma, sin inflar con el pozo total (GMV).</em>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:14%;">Nivel</th>
+                        <th style="width:16%;">Clientes Potenciales</th>
+                        <th style="width:36%;">Fórmula Explícita (Paso a Paso)</th>
+                        <th style="width:16%;" class="num">Mercado Anual (USD)</th>
+                        <th style="width:18%;" class="num">Mercado Anual (COP)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="row-tam">
+                        <td>2. TAM Global</td>
+                        <td><strong>72,200,000</strong> MAU <span class="badge-real">[F1]</span></td>
+                        <td><code>72,200,000 jugadores activos [F1] × $9.28 USD/año</code><br><span class="muted">Mercado total si todos los jugadores activos mensuales del mundo compitieran.</span></td>
+                        <td class="num"><strong>$670,016,000</strong><br><span class="muted">(~$670.0M USD)</span></td>
+                        <td class="num"><strong>$2,948,070M COP</strong><br><span class="muted">($2.95 billones COP)</span></td>
+                    </tr>
+                    <tr class="row-sam">
+                        <td>3A. SAM Global</td>
+                        <td><strong>2,166,000</strong> jug./año<br><span class="muted">(~2.17M One Pager)</span></td>
+                        <td><code>72,200,000 × 15% competitivos × 20% dispuestos = 2,166,000</code><br><code>2,166,000 jugadores × $9.28 USD/año = $20,100,480 USD</code></td>
+                        <td class="num"><strong>$20,100,480</strong><br><span class="muted">($20.1M USD)</span></td>
+                        <td class="num"><strong>$88,442.1M COP</strong><br><span class="muted">($88.4 mil millones)</span></td>
+                    </tr>
+                    <tr class="row-sam">
+                        <td>3B. SAM Colombia<br><span class="muted">(Geografía y canal hoy)</span></td>
+                        <td><strong>32,550</strong> jug./año <span class="badge-est">EST.</span><br><span class="muted">(32,490 sin redond.)</span></td>
+                        <td><code>2,170,000 (SAM Global) × 1.5% cuota CO = 32,550 jugadores</code><br><code>32,550 jugadores × $9.28 USD/año = $302,064 USD</code></td>
+                        <td class="num"><strong>$302,064</strong><br><span class="muted">(~$302K USD)</span></td>
+                        <td class="num"><strong>$1,329,081,600 COP</strong><br><span class="muted">(~$1,329.1M COP)</span></td>
+                    </tr>
+                    <tr class="row-sam">
+                        <td>3C. SAM LATAM<br><span class="muted">(CO + 2 países M6–12)</span></td>
+                        <td><strong>141,050</strong> jug./año <span class="badge-est">EST.</span></td>
+                        <td><code>2,170,000 (SAM Global) × 6.5% (CO 1.5% + MX/PE/CL 5.0%)</code><br><code>141,050 jugadores × $9.28 USD/año = $1,308,944 USD</code></td>
+                        <td class="num"><strong>$1,308,944</strong><br><span class="muted">(~$1.31M USD)</span></td>
+                        <td class="num"><strong>$5,759,353,600 COP</strong><br><span class="muted">(~$5,759.4M COP)</span></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <p class="muted">
+                <strong>Justificación de los 3 supuestos estimados del SAM:</strong>
+                <strong>(1) 15% competitivo (estimado):</strong> fracción de MAU que juega a diario, sigue el meta y busca subir de liga (10.83M globales).
+                <strong>(2) 20% dispuestos a pagar (estimado):</strong> fracción competitiva que entra a retos por dinero real con verificación automática y pagos locales (3% del MAU total).
+                <strong>(3) 1.5% cuota Colombia (estimado proxy):</strong> proporción conservadora sobre ~11M de gamers móviles en Colombia [F6]; en grupos regionales de WhatsApp de 4 países LATAM [F8], Colombia aporta &gt;25% de los miembros.
+            </p>
+        </div>
+
+        <!-- SECCIÓN 4: SOM (1 A 3 AÑOS) -->
+        <div class="section green-border">
+            <div class="section-header">
+                <div class="section-title">4. SOM: Mercado Capturable en 1 a 3 Años (Coherente con One Pager y Plan Financiero)</div>
+                <div class="section-tag">Conecta el SOM del One Pager (500 pagadores) con el hito de ~300 partidas/día y la expansión a 3 años</div>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:16%;">Horizonte / Escenario</th>
+                        <th style="width:19%;">Registros × Conv. = Pagadores</th>
+                        <th style="width:33%;">Multiplicación Explícita (Clientes × Gasto / Actividad)</th>
+                        <th style="width:15%;" class="num">Ingresos Brutos</th>
+                        <th style="width:17%;" class="num">Ingreso Neto (25% Caja)*</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="row-som">
+                        <td><strong>Año 1 · Base Piloto</strong><br><span class="muted">(Cifra One Pager)</span></td>
+                        <td><code>5,000 reg. × 10%</code><br>= <strong>500 pagadores</strong><br><span class="muted">(1.54% del SAM CO)</span></td>
+                        <td><code>500 pagadores × $9.28 USD ($40,832 COP)/año</code><br><span class="muted">Escenario base asumiendo la misma frecuencia del piloto sin mejoras de retención ni VIP.</span></td>
+                        <td class="num"><strong>$4,640 USD</strong><br><strong>$20,416,000 COP</strong></td>
+                        <td class="num">$1,160 USD<br>$5,104,000 COP</td>
+                    </tr>
+                    <tr class="row-som">
+                        <td><strong>Año 1 · Meta Plan Fin.</strong><br><span class="muted">(Rampa a 300 part./día)</span></td>
+                        <td><code>5,000 reg. × 15%</code><br>= <strong>750 pagadores</strong><br><span class="muted">(2.30% del SAM CO)</span></td>
+                        <td><code>Prom. 140 part./día en Año 1 (cierra M12 en hito 300/día)</code><br><code>51,100 part./año × $1,300 COP comisión prom. (pozo $6K)</code><br><code>+ 75 VIPs × $13,200 COP × 12m = $11,880,000 COP</code></td>
+                        <td class="num"><strong>$17,798 USD</strong><br><strong>$78,310,000 COP</strong></td>
+                        <td class="num"><strong>$6,479 USD</strong><br><strong>$28,507,500 COP</strong></td>
+                    </tr>
+                    <tr class="row-som">
+                        <td><strong>Año 2 · Consolidación</strong><br><span class="muted">(CO + 2 países LATAM)</span></td>
+                        <td><code>20,000 reg. × 12.5%</code><br>= <strong>2,500 pagadores</strong><br><span class="muted">(1.77% del SAM LATAM)</span></td>
+                        <td><code>320 part./día sostenidas (116,800 part./año) × $1,300 COP</code><br><code>= $151,840,000 COP comisiones + 250 VIPs ($39,600,000 COP)</code><br><span class="muted">(Al ARPPU base piloto: 2,500 × $9.28 = $23,200 USD / $102.1M COP)</span></td>
+                        <td class="num"><strong>$43,509 USD</strong><br><strong>$191,440,000 COP</strong></td>
+                        <td class="num"><strong>$17,627 USD</strong><br><strong>$77,560,000 COP</strong></td>
+                    </tr>
+                    <tr class="row-som">
+                        <td><strong>Año 3 · Escala LATAM</strong><br><span class="muted">(CO + MX, PE, CL, AR)</span></td>
+                        <td><code>45,000 reg. × 13.3%</code><br>= <strong>6,000 pagadores</strong><br><span class="muted">(0.28% del SAM Global)</span></td>
+                        <td><code>700 part./día (255,500 part./año) × $1,300 COP comisión</code><br><code>= $332,150,000 COP comisiones + 600 VIPs ($95,040,000 COP)</code><br><span class="muted">(Al ARPPU base piloto: 6,000 × $9.28 = $55,680 USD / $245.0M COP)</span></td>
+                        <td class="num"><strong>$97,089 USD</strong><br><strong>$427,190,000 COP</strong></td>
+                        <td class="num"><strong>$40,472 USD</strong><br><strong>$178,077,500 COP</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+            <p class="muted">*<strong>Regla contable en código (<code>ComisionService.java</code>):</strong> Del ingreso bruto por comisiones de partidas, el <strong>75% se devuelve automáticamente a los jugadores</strong> (sorteos, rankings, devolución, misiones, referidos, logros) y el <strong>25% restante + el 100% de las suscripciones VIP</strong> entra como ingreso neto de caja para UltimateClash.</p>
+        </div>
+
+        <!-- FOOTER P1 -->
+        <div class="footer">
+            <div><span>📧 delgadomillanjuandavid3@gmail.com</span> · <span>📱 +57 312 665 5995</span> · <span>🌐 <a href="https://torneos-beta.onrender.com">torneos-beta.onrender.com</a></span></div>
+            <div>UltimateClash · Estudio de Mercado (Página 1 de 2) · Execute the Idea 2026</div>
+        </div>
+
+    </div>
+
+    <!-- ==================== PÁGINA 2 DE 2 ==================== -->
+    <div class="page">
+
+        <!-- HEADER P2 -->
+        <div class="header">
+            <div class="header-left">
+                <img src="../oen pager/logo.jpeg" alt="UltimateClash">
+                <div>
+                    <h1>UltimateClash · Estudio de Mercado</h1>
+                    <div class="doc-subtitle">Validación Real, Competencia, Estructura de Precios, Canales (CAC) y Fuentes</div>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="url">torneos-beta.onrender.com <span class="badge">MVP EN LÍNEA</span></div>
+                <div>Equipo Ultimate Clash · Juan David Delgado &amp; Juan José Neira</div>
+                <div>Página 2 de 2 · Fecha: 10 de noviembre de 2026</div>
+            </div>
+        </div>
+
+        <!-- SECCIÓN 5: VALIDACIÓN -->
+        <div class="section green-border">
+            <div class="section-header">
+                <div class="section-title">5. Validación con Usuarios Reales (Piloto Comercial + Comunidades)</div>
+                <div class="section-tag">Evidencia empírica: cuántas personas participaron, qué se observó/preguntó y qué se construyó</div>
+            </div>
+
+            <div class="kpi-strip">
+                <div class="kpi-box">
+                    <div class="val">35</div>
+                    <div class="lbl">Usuarios Registrados (Piloto 15 días)</div>
+                </div>
+                <div class="kpi-box">
+                    <div class="val">20 / día</div>
+                    <div class="lbl">Usuarios Activos Diarios (57% DAU)</div>
+                </div>
+                <div class="kpi-box">
+                    <div class="val">17 / día</div>
+                    <div class="lbl">Partidas Pagadas (~255 en 15 días)</div>
+                </div>
+                <div class="kpi-box">
+                    <div class="val">$300,000 COP</div>
+                    <div class="lbl">Dinero Real Circulado (Pozos)</div>
+                </div>
+                <div class="kpi-box">
+                    <div class="val">$60,000 COP</div>
+                    <div class="lbl">Comisiones Reales Cobradas ($0 Ads)</div>
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="card-inner">
+                    <h4>1. Qué validamos y qué preguntamos (n = 35 jugadores reales) <span class="badge-real">[F7]</span></h4>
+                    <p>En diciembre de 2025 operamos un piloto funcional de 15 días con <strong>35 jugadores captados orgánicamente</strong> de grupos de WhatsApp ($0 COP en pauta). En soporte directo y feedback post-partida con los 35 usuarios, validamos 3 preguntas:</p>
+                    <ul style="margin-top:1.5px;">
+                        <li><strong>¿Depositan y juegan en una web automática?</strong> <strong>Sí:</strong> 20 de 35 usuarios (57%) jugaron activamente cada día, depositando desde $1,000 COP (~17 partidas/día).</li>
+                        <li><strong>¿Dónde hubo fricción inicial?</strong> Reportaron dudas sobre cómo sacar el <em>API Token</em> en los ajustes de Clash Royale para vincular su cuenta y cómo acordar el monto en sala privada.</li>
+                        <li><strong>¿Por qué cayó la retención en la semana 2?</strong> Sin rival inmediato se salían de la página, y faltaban recompensas continuas y comprobantes públicos de retiros pagados.</li>
+                    </ul>
+                </div>
+
+                <div class="card-inner">
+                    <h4>2. Respuesta en Producto (Ya programado y desplegado en el MVP)</h4>
+                    <p>Cada hallazgo del piloto se convirtió en código real hoy activo en <code>torneos-beta.onrender.com</code>:</p>
+                    <ul style="margin-top:1.5px;">
+                        <li><strong>Contra la fricción de entrada:</strong> Construimos el <strong>Chatbot IA 24/7 (Gemini/OpenAI)</strong> entrenado por el admin (si no sabe algo, envía correo al admin y notifica por <em>Push</em> al usuario al responderse), tickets <em>"Hablar con el admin"</em> y FAQ interactiva.</li>
+                        <li><strong>Contra la falta de rival en línea:</strong> Implementamos <strong>Notificaciones Push Web/Móvil (Firebase FCM)</strong> que avisan al celular de desconectados cuando alguien busca partida, y reloj individual de 2:30 min estilo <em>Pokémon Showdown</em>.</li>
+                        <li><strong>Contra la caída de retención y desconfianza:</strong> Programamos la devolución del <strong>75% de la comisión</strong> (sorteos por tickets, rankings diario/semanal/mensual/anual automáticos) y el canal público <strong>«🧾 Pagos»</strong> con comprobantes reales de cada retiro.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- SECCIÓN 6: COMPETENCIA -->
+        <div class="section">
+            <div class="section-header">
+                <div class="section-title">6. Competencia y Alternativas Actuales</div>
+                <div class="section-tag">Comparativa frente a la solución informal dominante (WhatsApp) y plataformas internacionales</div>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:14%;">Criterio</th>
+                        <th style="width:28%;">Grupos de WhatsApp en CO/LATAM<br><span class="muted">(Alternativa informal · &gt;3,500 miembros)</span></th>
+                        <th style="width:25%;">Mundogames / Torneum<br><span class="muted">(Plataformas internacionales multijuego)</span></th>
+                        <th style="width:33%;">UltimateClash (Nosotros)<br><span class="muted">(Especializada en CR · En línea hoy)</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Verificación</strong></td>
+                        <td><strong>Manual (capturas de pantalla):</strong> tarda 15–40 min, disputas por imágenes editadas.</td>
+                        <td><strong>Semimanual o variable:</strong> depende de reportes de jugadores y arbitraje externo.</td>
+                        <td class="us-col"><span class="gr">100% Automática vía API oficial de CR:</span> sondeo cada 5s, valida tags (<code>#TAG</code>) y coronas enteras al instante.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Comisión y Retorno</strong></td>
+                        <td><strong>20% fijo sobre el pozo</strong>, 0% de devolución. Todo se lo queda el admin.</td>
+                        <td>Inscripciones o membresías en <strong>USD / EUR</strong>; sin devolución al jugador.</td>
+                        <td class="us-col"><span class="hl">10% a 25% variable escalonada</span> (baja a mayor pozo) y <span class="gr">hasta 75% devuelto</span> a los jugadores.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Horario y Liquidez</strong></td>
+                        <td><strong>Horario fijo:</strong> solo cuando el admin abre el chat; cerrado el resto del día.</td>
+                        <td>Por torneos programados a horas fijas; baja liquidez local en Colombia.</td>
+                        <td class="us-col"><strong>24/7 en tiempo real:</strong> matchmaking inmediato + aviso Push FCM a jugadores desconectados.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Pagos y Custodia</strong></td>
+                        <td>Transferencia al Nequi personal del admin. <strong>15 grupos cerrados</strong> por abandono.</td>
+                        <td>PayPal o tarjetas internacionales en USD (excluye al usuario de Nequi).</td>
+                        <td class="us-col"><strong>Nequi y Wompi en COP desde $1,000 COP:</strong> ledger inmutable (<code>wallet_ledger</code>) y canal de evidencias.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Comunidad y Soporte</strong></td>
+                        <td>Chat silenciado entre torneos; sin rankings automatizados ni soporte 24/7.</td>
+                        <td>Genéricas (abarcan muchos juegos sin foco en la comunidad de CR).</td>
+                        <td class="us-col"><strong>Chat 24/7, Voz en Discord privada por sala, Chatbot IA, Rankings (4 periodos) y Sorteos.</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- SECCIONES 7 Y 8: PRECIO Y CANAL -->
+        <div class="grid-2">
+            <!-- SECCIÓN 7: PRECIO -->
+            <div class="section gold-border">
+                <div class="section-header">
+                    <div class="section-title">7. Precio y Modelo de Cobro</div>
+                    <div class="section-tag">Por qué este precio vs. lo que pagan hoy</div>
+                </div>
+                <p><strong>1. Comisión escalonada por partida (10% a 25% del pozo, código <code>ComisionService</code>):</strong></p>
+                <ul>
+                    <li>Retos desde <strong>$1,000 hasta $10,000 COP por jugador</strong> (pozos de <strong>$2,000 a $20,000 COP</strong>).</li>
+                    <li>En pozo mínimo ($2,000 COP) se cobra <strong>25%</strong> ($500 COP comisión; $1,500 COP premio). Baja linealmente hasta <strong>10%</strong> en pozos de $20,000 COP ($2,000 COP comisión; $18,000 COP premio).</li>
+                    <li>En el ticket típico de WhatsApp (<strong>$5,000 COP por jugador = pozo $10,000 COP</strong>), cobramos <strong>18.33% ($1,833 COP)</strong> vs. <strong>20% fijo ($2,000 COP)</strong> en WhatsApp.</li>
+                </ul>
+                <p><strong>2. Devolución del 75% → Costo neto real de solo 2.5% a 6.25% del pozo:</strong></p>
+                <ul>
+                    <li>Cada comisión se reparte automáticamente en 7 categorías: <span class="gr">20% Sorteos + 15% Ranking + 15% Devolución + 10% Misiones + 10% Referidos + 5% Logros = 75% devuelto</span>, y <strong>25% ganancia neta de UltimateClash</strong>.</li>
+                    <li><strong>Por qué importa:</strong> Incluso quien pierde acumula tickets de sorteo y puntos; el costo neto para la comunidad es <strong>hasta 4 veces menor</strong> que en WhatsApp.</li>
+                </ul>
+                <p><strong>3. VIP ($13,200 COP / ~$3 USD mes) y Pasarela:</strong> Reduce costos de pasarela (en Wompi tarjeta: <code>+$840 COP ÷ 0.964</code>; Nequi manual sin recargo de plataforma) y multiplica recompensas.</p>
+            </div>
+
+            <!-- SECCIÓN 8: CANAL Y CAC -->
+            <div class="section green-border">
+                <div class="section-header">
+                    <div class="section-title">8. Canal y Adquisición (Coherente con CAC)</div>
+                    <div class="section-tag">Cómo llega al cliente y cuadre con Plan Financiero</div>
+                </div>
+                <p><strong>Cómo llega al cliente:</strong> Web App en <a href="https://torneos-beta.onrender.com" style="color:#a29bfe;">torneos-beta.onrender.com</a> (acceso inmediato en móvil/PC) + <strong>App nativa Android/iOS (Capacitor)</strong> con alertas Push FCM.</p>
+                <p style="margin-top:1px;"><strong>Cómo se enteran y cálculo explícito del CAC:</strong></p>
+                <ul>
+                    <li><strong>1. Meta Ads + Micro-creadores de CR en LATAM ($9,000 USD / $39.6M COP):</strong> Reels/TikToks mostrando duelos automáticos y retiros reales en Nequi.
+                        <br>→ <strong>Costo por Registro (CPR objetivo): <span class="hl">$1.80 USD ($7,920 COP)</span></strong>.
+                        <br>→ <code>$9,000 USD ÷ $1.80 USD = 5,000 usuarios registrados</code>.
+                        <br>→ Con <strong>10% de conversión a pagador</strong> (500 pagadores One Pager):
+                        <br>→ <strong>CAC Pago = <code>$1.80 USD ÷ 10% = $18.00 USD ($79,200 COP)</code></strong>.</li>
+                    <li><strong>2. Torneos Gratuitos Iniciales + Alianzas con Admins de WhatsApp ($500 USD / $2.2M COP):</strong> Torneos semilla abiertos para migrar a los &gt;3,500 miembros de grupos activos y los 15 grupos cerrados.</li>
+                    <li><strong>3. Referidos autofinanciados (10% de la comisión):</strong> Al subir la conversión al <strong>15% (750 pagadores en Plan Financiero)</strong> gracias al tutorial/chatbot y referidos orgánicos, el <strong>CAC Mezclado baja a <span class="gr">$12.00 USD ($52,800 COP)</span></strong>.</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- FUENTES Y REFERENCIAS -->
+        <div class="section" style="padding: 4px 8px;">
+            <div class="section-header" style="margin-bottom:1px;">
+                <div class="section-title" style="font-size:8pt;">Fuentes de Información, Informes y Evidencia Primaria</div>
+                <div class="section-tag">Todas las cifras del documento están respaldadas por estas fuentes verificables</div>
+            </div>
+            <div class="ref-list">
+                <div><strong>[F1] Udonis / AppMagic (2 jul. 2026):</strong> <em>Clash Royale Player Count, Demographics &amp; Revenue</em> (72.2M MAU, ~25M DAU, 74.51% hombres, 42.93% de 18–24 años). <a href="https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count">https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count</a></div>
+                <div><strong>[F2] PocketGamer.biz (9 mar. 2026):</strong> <em>Clash Royale celebrates 10 years and $4.9bn in spending</em> ($646.8M USD gasto bruto 2025, +149% YoY). <a href="https://www.pocketgamer.biz/clash-royale-celebrates-10-years-and-49bn-in-player-spending-after-resurgence/">https://www.pocketgamer.biz/clash-royale-celebrates-10-years-and-49bn-in-player-spending-after-resurgence/</a></div>
+                <div><strong>[F3] Forbes Colombia (29 ago. 2025):</strong> <em>El crecimiento del mercado gamer en Colombia 2025</em> (62% juega en móvil). <a href="https://forbes.co/negocios/el-crecimiento-del-mercado-gamer-en-colombia-2025">https://forbes.co/negocios/el-crecimiento-del-mercado-gamer-en-colombia-2025</a></div>
+                <div><strong>[F4] Valora Analitik (10 ago. 2026):</strong> <em>Recorrido de Nequi en Colombia</em> (&gt;27M de usuarios activos en Colombia). <a href="https://www.valoraanalitik.com/recorrido-de-nequi-en-colombia/">https://www.valoraanalitik.com/recorrido-de-nequi-en-colombia/</a></div>
+                <div><strong>[F5] Supercell Official News (10 feb. 2026):</strong> <em>The best games haven't been made yet</em> (casi +500% en nuevos jugadores de CR). <a href="https://supercell.com/en/news/the-best-games-havent-been-made-yet/">https://supercell.com/en/news/the-best-games-havent-been-made-yet/</a></div>
+                <div><strong>[F6] El Colombiano / Adsmovil (2024–2025):</strong> <em>Juegos de celular en América Latina y cifras de Colombia</em> (~11M gamers móviles en CO). <a href="https://www.elcolombiano.com/negocios/JUEGOS-DE-CELULAR-MUEVEN-2600-MILLONES-DE-DOLARES-AL-ANO-EN-AMERICA-LATINA-Y-CIFRAS-DE-COLOMBIA-CG23526455">https://www.elcolombiano.com/negocios/JUEGOS-DE-CELULAR-MUEVEN-2600-MILLONES-DE-DOLARES-AL-ANO-EN-AMERICA-LATINA-Y-CIFRAS-DE-COLOMBIA-CG23526455</a></div>
+                <div><strong>[F7] Piloto Propio UltimateClash (1–15 dic. 2025):</strong> Prueba comercial en vivo con <strong>n = 35 usuarios registrados reales</strong>, 20 activos/día, 17 partidas/día, $300,000 COP circulados y $60,000 COP en comisiones + feedback directo de los 35 participantes.</div>
+                <div><strong>[F8] Observación Primaria de Competencia (2025–2026):</strong> Relevamiento en <strong>18 grupos de WhatsApp</strong> de torneos de CR (3 activos con &gt;3,500 membresías y 20% de comisión fija; 15 cerrados por abandono) y análisis de <a href="https://mundogames.com/">mundogames.com</a> y <a href="https://torneum.com/">torneum.com</a>.</div>
+            </div>
+        </div>
+
+        <!-- FOOTER P2 -->
+        <div class="footer">
+            <div><span>📧 delgadomillanjuandavid3@gmail.com</span> · <span>📱 +57 312 665 5995</span> · <span>🌐 <a href="https://torneos-beta.onrender.com">torneos-beta.onrender.com</a></span></div>
+            <div>UltimateClash · Estudio de Mercado (Página 2 de 2) · Execute the Idea 2026</div>
+        </div>
+
+    </div>
+
+</body>
+
+</html>

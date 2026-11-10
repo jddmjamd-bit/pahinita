@@ -11,6 +11,12 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-10 — Estudio de Mercado para Fase 3 de Execute the Idea 2026 (Gemini 4 Argon)
+- Elaborado el **Estudio de Mercado (Entregable 03 · Fase 3)** de máximo 2 páginas en formato PDF listo para entrega (`UltimateClash_EstudioDeMercado_Execute2026.pdf`), plantilla HTML imprimible (`UltimateClash_EstudioDeMercado_Execute2026.html`) y documento Markdown (`Estudio_de_Mercado_UltimateClash.md`) dentro de `contexto para competencia/nuevos entregables/`.
+- Alineadas las 8 secciones obligatorias de `Execute_Fase3_Entregables.pdf` (1. Problema y cliente, 2. TAM, 3. SAM, 4. SOM a 1–3 años, 5. Validación del piloto de 15 días con 35 usuarios, 6. Competencia formal e informal en WhatsApp, 7. Precio escalonado 10%–25% con 75% de devolución y VIP, 8. Canal y CAC de $1.80 USD/registro y $18 USD/pagador) con el One Pager (`videp pitch/UltimateClash_OnePager_Execute2026.pdf`) y con la lógica financiera y funcional real del código (`ComisionService`, `ValidadorMonto`, `FinanzasService`, `WalletService`, `ClashApiServicio`, `ChatbotService`, `NotificacionesService`, `EvidenciaPagoService`).
+- **Verificación:** Inspeccionadas visualmente las 2 páginas del PDF generado con Chrome headless verificando que no existan cortes de texto, que todas las multiplicaciones de TAM/SAM/SOM sean explícitas en USD y COP (TRM $4,400 COP/USD) y que todas las fuentes e informes estén citados al final. No se modificó código fuente del backend ni del frontend.
+Archivos: `contexto para competencia/nuevos entregables/UltimateClash_EstudioDeMercado_Execute2026.pdf`, `contexto para competencia/nuevos entregables/UltimateClash_EstudioDeMercado_Execute2026.html`, `contexto para competencia/nuevos entregables/Estudio_de_Mercado_UltimateClash.md`, `CHANGELOG.md`
+
 ## 2026-10-29 — Centro de avisos, push web y rankings con historial (Codex)
 - Agregado centro persistente con tarjetas descartables, puntos por sección y conteo de usuarios en línea; conectado a chats (salvo Registro), soporte, asistente, finanzas, partidas, rankings y sorteos.
 - Añadidos push web FCM con navegación por aviso, cierre de búsquedas al emparejar/cancelar/vencer y configuración pública del SDK separada de la cuenta privada de Firebase.
