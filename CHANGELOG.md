@@ -11,12 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
-## 2026-11-10 — Estudio de Mercado para Fase 3 de Execute the Idea 2026 (Gemini 4 Argon)
+## 2026-11-10 — Estudio de Mercado y Guion de Demo del MVP para Fase 3 de Execute the Idea 2026 (Gemini 4 Argon)
 - Elaborado el **Estudio de Mercado (Entregable 03 · Fase 3)** de máximo 2 páginas en formato PDF listo para entrega (`UltimateClash_EstudioDeMercado_Execute2026.pdf`), plantilla HTML imprimible (`UltimateClash_EstudioDeMercado_Execute2026.html`) y documento Markdown (`Estudio_de_Mercado_UltimateClash.md`) dentro de `contexto para competencia/nuevos entregables/`.
 - Alineadas las 8 secciones obligatorias de `Execute_Fase3_Entregables.pdf` (1. Problema y cliente, 2. TAM, 3. SAM, 4. SOM a 1–3 años, 5. Validación del piloto de 15 días con 35 usuarios, 6. Competencia formal e informal en WhatsApp, 7. Precio escalonado 10%–25% con 75% de devolución y VIP, 8. Canal y CAC de $1.80 USD/registro y $18 USD/pagador) con el One Pager (`videp pitch/UltimateClash_OnePager_Execute2026.pdf`) y con las reglas reales de la plataforma, sin exponer nombres internos de archivos o tablas de código en el documento comercial.
 - Convertidos en enlaces clicables el dominio `torneos-beta.onrender.com` del encabezado de ambas páginas, cada cita inline `[F1]`–`[F8]` junto a su dato, las plataformas competidoras y el correo de contacto (`mailto:delgadomillanjuandavid3@gmail.com`) en el pie de página.
+- Creado el **Guion de Presentación y Demo del MVP (`Guion_Demo_MVP_UltimateClash.md`)** estructurado en <3 minutos para el Entregable 01 de Fase 3, siguiendo las pantallas reales de `torneos-beta.onrender.com` (registro con API de Clash Royale, cobro por Wompi/Nequi y canal de evidencias, búsqueda con Push, negociación con voz en Discord y reloj 2:30, liquidación automática por API, sorteos, rankings y asistente IA).
 - **Verificación:** Inspeccionadas visualmente las 2 páginas del PDF regenerado con Chrome headless verificando que no existan cortes de texto y que todos los hipervínculos estén activos. No se modificó código fuente del backend ni del frontend.
-Archivos: `contexto para competencia/nuevos entregables/UltimateClash_EstudioDeMercado_Execute2026.pdf`, `contexto para competencia/nuevos entregables/UltimateClash_EstudioDeMercado_Execute2026.html`, `contexto para competencia/nuevos entregables/Estudio_de_Mercado_UltimateClash.md`, `CHANGELOG.md`
+Archivos: `contexto para competencia/nuevos entregables/UltimateClash_EstudioDeMercado_Execute2026.pdf`, `contexto para competencia/nuevos entregables/UltimateClash_EstudioDeMercado_Execute2026.html`, `contexto para competencia/nuevos entregables/Estudio_de_Mercado_UltimateClash.md`, `contexto para competencia/nuevos entregables/Guion_Demo_MVP_UltimateClash.md`, `CHANGELOG.md`
 
 ## 2026-10-29 — Centro de avisos, push web y rankings con historial (Codex)
 - Agregado centro persistente con tarjetas descartables, puntos por sección y conteo de usuarios en línea; conectado a chats (salvo Registro), soporte, asistente, finanzas, partidas, rankings y sorteos.
