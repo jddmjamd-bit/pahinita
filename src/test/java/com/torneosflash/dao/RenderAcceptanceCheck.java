@@ -362,7 +362,7 @@ class RenderAcceptanceCheck {
                     "session=" + tokenAdmin.valor(), null);
             assertEquals(200, estadoZonaAdminHttp.statusCode());
             JsonObject estadoZonaJson = JsonParser.parseString(estadoZonaAdminHttp.body()).getAsJsonObject();
-            assertTrue(estadoZonaJson.get("success").getAsBoolean());
+            assertTrue(estadoZonaJson.get("disponible").getAsBoolean());
             assertTrue(estadoZonaJson.has("resumen"));
 
             var cambiarSubHttp = enviar(cliente, base, "POST", "/api/admin/users/subscription",
@@ -1235,9 +1235,9 @@ class RenderAcceptanceCheck {
         int idTester = crearUsuario("qa_tester_" + sufijo, "free", new BigDecimal("50000"));
 
         DbAdminService dbAdmin = new DbAdminService(dao, conexion, config);
-        assertEquals(400, assertThrows(ServicioException.class,
+        assertEquals(403, assertThrows(ServicioException.class,
                 () -> dbAdmin.actualizarCelda("users", idTester, "tipo_suscripcion", "prueba")).getStatus());
-        assertEquals(400, assertThrows(ServicioException.class,
+        assertEquals(403, assertThrows(ServicioException.class,
                 () -> dbAdmin.actualizarCelda("users", adminId, "zona_admin", "prueba")).getStatus());
 
         JsonObject cambioSub = admin.cambiarSuscripcionUsuario(adminId, idTester, "prueba");
