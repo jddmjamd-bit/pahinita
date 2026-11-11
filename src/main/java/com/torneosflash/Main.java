@@ -103,6 +103,13 @@ public class Main {
             System.exit(1);
         }
 
+        try {
+            conexion.configurarZonaPruebas(config.getTestDatabaseUrl(), config.getDbSslMode(),
+                    Math.max(2, Math.min(config.getDbPoolMax(), 8)));
+        } catch (Exception e) {
+            logger.error("⚠️ No se pudo configurar la Zona de Pruebas (TEST_DATABASE_URL): {}", e.getMessage());
+        }
+
         // DAOs
         UsuarioDAO usuarioDAO = new UsuarioDAO(conexion);
         GenericDAO db = new GenericDAO(conexion);
@@ -330,9 +337,14 @@ public class Main {
         new VozListener(vozService, ejecutores).registrar(eventBus);
         AdminService adminService = new AdminService(db, usuarioDAO, wallet, eventBus, notificador, socketServer,
                 cifradoTokenJugador);
+        adminService.setConexionDB(conexion);
         LeaderboardService leaderboardService = new LeaderboardService(db, socketServer, wallet, notificaciones);
         leaderboardService.registrar(eventBus);
         leaderboardService.inicializarPosiciones();
+        if (conexion.tieneZonaPruebas()) {
+            ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, leaderboardService::inicializarPosiciones);
+        }
+        adminService.setLeaderboardService(leaderboardService);
         MediaService mediaService = new MediaService(db);
         DbAdminService dbAdminService = new DbAdminService(db, conexion, config);
 
@@ -364,6 +376,7 @@ public class Main {
         temporizadorSala.registrar(eventBus);
         SocketHandler socketHandler = new SocketHandler(db, socketServer, clashApi, pushService, wallet, validadorMonto,
                 eventBus, config, ejecutores, temporizadorSala);
+        adminService.setSocketHandler(socketHandler);
         socketHandler.registrar();
 
         // ============================================
@@ -377,7 +390,13 @@ public class Main {
         // El borrado habla con Discord (HTTP externo), así que se encola en el pool de IO, nunca corre en el temporizador.
         if (config.hasDiscord()) {
             scheduler.scheduleAtFixedRate(
-                    () -> ejecutores.ejecutarIO("limpieza de canales de voz", vozService::limpiarVencidos),
+                    () -> {
+                        ejecutores.ejecutarIO("limpieza de canales de voz", vozService::limpiarVencidos);
+                        if (conexion.tieneZonaPruebas()) {
+                            ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA,
+                                    () -> ejecutores.ejecutarIO("limpieza de canales de voz (pruebas)", vozService::limpiarVencidos));
+                        }
+                    },
                     1, 1, TimeUnit.MINUTES);
         }
 
@@ -387,13 +406,21 @@ public class Main {
                 // Ejecuta el sorteo de los que ya vencieron (se completa con espacios vacíos si
                 // no se llenaron)
                 sorteoService.ejecutarSorteosExpirados();
+                if (conexion.tieneZonaPruebas()) {
+                    ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, sorteoService::ejecutarSorteosExpirados);
+                }
             } catch (Exception e) {
                 logger.error("Error verificando sorteos expirados: " + e.getMessage());
             }
         }, 1, 1, TimeUnit.MINUTES);
 
         // C7: Verificar cierres del leaderboard cada minuto (hora Colombia America/Bogota, persistido en BD)
-        scheduler.scheduleAtFixedRate(leaderboardService::verificarYCerrarPeriodos, 1, 1, TimeUnit.MINUTES);
+        scheduler.scheduleAtFixedRate(() -> {
+            leaderboardService.verificarYCerrarPeriodos();
+            if (conexion.tieneZonaPruebas()) {
+                ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, leaderboardService::verificarYCerrarPeriodos);
+            }
+        }, 1, 1, TimeUnit.MINUTES);
 
         // ============================================
         // SPA Fallback (Para React Router)

@@ -1,6 +1,6 @@
 # Guía de Pruebas Manuales y Variables de Entorno
 
-> Actualizada el 29 de octubre de 2026. Esta guía separa las pruebas JUnit que bloquean el arranque de los recorridos manuales que dependen de usuarios, navegador o servicios externos.
+> Actualizada el 10 de noviembre de 2026. Esta guía separa las pruebas JUnit que bloquean el arranque de los recorridos manuales que dependen de usuarios, navegador o servicios externos.
 
 ---
 
@@ -23,6 +23,7 @@
 | Variable | Default | Descripción |
 |----------|---------|-------------|
 | `APP_BASE_URL` | `https://torneos-beta.onrender.com` | URL pública del sitio. Usado en push, CORS, HSTS, recovery links. |
+| `TEST_DATABASE_URL` | *(vacío; requerido en Render)* | URL interna de una segunda base PostgreSQL para la aceptación JUnit y la Copia Temporal de Pruebas. Debe ser distinta de `DATABASE_URL`; si falta o apunta a producción, el backend no inicia. |
 | `BREVO_API_KEY` | *(vacío)* | API key de Brevo. Sin ella no se envían correos (alta de cuenta, ganador de sorteo, recuperación de contraseña, soporte, chatbot). |
 | `BREVO_SENDER_EMAIL` | *(vacío)* | Email remitente de Brevo. |
 | `FIREBASE_SERVICE_ACCOUNT` | *(vacío)* | JSON privado de service account de Firebase. Necesario para enviar push desde el servidor; no publicarlo en el frontend. |
@@ -209,7 +210,7 @@ La guía A–Q sigue siendo el inventario completo de aceptación. La tabla sigu
 | H1–H4 | Docker runtime | JUnit confirma desactivación sin clave, ejecuta el servicio con un proveedor IA falso y valida respuesta, límite por minuto y límite diario en PostgreSQL. La conexión y calidad de respuesta de Gemini/OpenAI se siguen verificando manualmente. |
 | I1, I6 | Docker runtime | Sin credenciales Discord, la ruta autenticada informa que voz está desactivada y `/api/voz/mi-canal` rechaza solicitudes sin sesión. |
 | I2–I5 | Manual | OAuth, permisos y creación/borrado de canales requieren Discord configurado y llamadas externas. |
-| J1–J5 | Parcial, Docker runtime | Rutas HTTP comprueban 401 sin sesión y 403 con sesión de usuario; PostgreSQL valida rol real, aprobación de retiro sin doble descuento y liquidación idempotente de disputa. J6 y la IP del proxy real siguen manuales. |
+| J1–J6 | Parcial, Docker runtime | Rutas HTTP comprueban 401 sin sesión y 403 con sesión de usuario; PostgreSQL valida rol real, aprobación de retiro sin doble descuento, liquidación idempotente de disputa y aislamiento completo de la Zona de Pruebas (`tipo_suscripcion = 'prueba'` exclusivo de `/admin`, selector de zona del admin y borrado manual sin afectar producción). La IP del proxy real sigue manual. |
 | K1–K4, K6 | Docker runtime | Comprueba que el panel está deshabilitado sin secreto, oculta sesiones/tokens y enmascara contraseñas; cambia una celda sintética, protege saldo/ledger, crea y limpia un backup temporal, y rechaza un dump corrupto antes de activar mantenimiento. Usa solo la base aislada. |
 | K5 | Manual | Restaurar un backup válido reemplaza la base completa; requiere una operación dedicada, copia revisada y confirmación administrativa. No se ejecuta en cada arranque. |
 | L1–L4 | Parcial, Docker runtime | Autorización del servicio, unicidad, almacenamiento e historial con DB real. Emisión socket y push quedan manuales. |
@@ -220,7 +221,7 @@ La guía A–Q sigue siendo el inventario completo de aceptación. La tabla sigu
 | N4 | Manual | La IP que Render entrega y el número correcto de saltos confiables solo se confirman desde una instancia detrás de su proxy. |
 | O5 | Docker runtime | La reconciliación de un inicio legado verifica el vínculo sin volver a cobrar. O1–O4 necesitan reiniciar el servidor con sockets, colas y timers vivos. |
 | P1 | Docker build | `npm run build` se ejecuta en la imagen. |
-| P2–P10 | Parcial, Docker build | Pruebas de contrato sobre rutas privadas, persistencia en memoria, credenciales cookie (`llamarApi`), contenido FAQ, media queries, tema y controles/relojes del temporizador 2:30 en `Match.jsx`. No son una prueba visual en navegador ni reemplazan verificar tamaños/dispositivos reales. |
+| P2–P11 | Parcial, Docker build | Pruebas de contrato sobre rutas privadas, persistencia en memoria, credenciales cookie (`llamarApi`), contenido FAQ, media queries, tema, controles/relojes del temporizador 2:30 en `Match.jsx` y gestión de la Zona de Pruebas en `Admin.jsx`/`Lobby.jsx`. No son una prueba visual en navegador ni reemplazan verificar tamaños/dispositivos reales. |
 | Q1–Q2 | Docker runtime | Se validan las migraciones de la base de prueba y se aplican todas en un esquema vacío aislado. |
 | Q3 | Docker runtime | Se crea un esquema aparte con duplicados de referencia Wompi; la migración debe fallar y conservar ambas filas. |
 
@@ -230,7 +231,7 @@ Los casos marcados como manuales se dejan así porque incluyen estado visual/ges
 
 Configura `TEST_DATABASE_URL` en el entorno del servicio Render con la URL interna de una segunda base PostgreSQL. **No uses `DATABASE_URL` como valor de esta variable.** El nombre de la base puede ser cualquiera; la validación compara host, puerto y nombre para rechazar si apunta a la misma base que `DATABASE_URL`.
 
-Antes de iniciar el backend, JUnit aplica y valida Flyway en esa base, confirma que haya al menos 17 migraciones exitosas y que exista `public.users`. Luego crea un esquema con nombre aleatorio `tf_qa_*`, aplica allí las migraciones desde cero y ejecuta 27 pruebas de aceptación con usuarios sintéticos; algunas levantan un servidor HTTP en un puerto temporal y todas las conexiones de negocio apuntan al esquema aislado. Al terminar, cierra servidores y pools y elimina solo los esquemas con UUID generados por esa ejecución. Las operaciones nunca apuntan a `DATABASE_URL`. Flyway tiene `cleanDisabled=true`.
+Antes de iniciar el backend, JUnit aplica y valida Flyway en esa base, confirma que haya al menos 17 migraciones exitosas y que exista `public.users`. Luego crea esquemas con nombre aleatorio `tf_qa_*` y `tf_qap_*`, aplica allí las migraciones desde cero y ejecuta 28 pruebas de aceptación con usuarios sintéticos; algunas levantan un servidor HTTP en un puerto temporal y todas las conexiones de negocio apuntan al esquema aislado. Al terminar, cierra servidores y pools y elimina solo los esquemas con UUID generados por esa ejecución, sin tocar los datos persistentes de la Copia Temporal de Pruebas que el administrador mantenga en `public` de `TEST_DATABASE_URL`. Las operaciones nunca apuntan a `DATABASE_URL`. Flyway tiene `cleanDisabled=true`.
 
 `TEST_DATABASE_URL` debe estar disponible como variable de entorno en tiempo de ejecución de Render. Si falta, la conexión falla, apunta a la misma base que `DATABASE_URL` o Flyway detecta un error, el backend no inicia. Mantén `DATABASE_URL` conectada a la base normal de la aplicación.
 

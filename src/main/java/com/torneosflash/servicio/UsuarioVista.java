@@ -24,7 +24,7 @@ public final class UsuarioVista {
 
     /** Columnas del propio usuario (sin {@code password}). */
     public static final List<String> CAMPOS_SESION = List.of(
-            "id", "username", "email", "player_tag", "telefono", "saldo", "tipo_suscripcion",
+            "id", "username", "email", "player_tag", "telefono", "saldo", "tipo_suscripcion", "zona_admin",
             "estado", "player_tag_verificado", "sala_actual", "paso_juego", "ganancia_generada", "faltas",
             "total_victorias", "victorias_normales", "victorias_disputa",
             "total_derrotas", "derrotas_normales", "derrotas_disputa",

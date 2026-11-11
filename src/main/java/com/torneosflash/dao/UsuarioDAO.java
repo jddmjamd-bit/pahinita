@@ -30,6 +30,58 @@ public class UsuarioDAO {
         this.db = db;
     }
 
+    public ConexionDB getConexionDB() {
+        return db;
+    }
+
+    private Connection conexionPrincipal() throws SQLException {
+        Connection conn = db.getConnectionPrincipal();
+        return conn != null ? conn : db.getConnection();
+    }
+
+    /**
+     * Resuelve la zona operativa del usuario según su {@code tipo_suscripcion} y {@code zona_admin}
+     * en la BD principal, garantizando además que exista su copia en la BD de pruebas si aplica.
+     */
+    public String resolverZonaParaUsuario(int userId) {
+        if (db == null) return ConexionDB.ZONA_NORMAL;
+        String zona = db.resolverZonaUsuario(userId);
+        return zona != null ? zona : ConexionDB.ZONA_NORMAL;
+    }
+
+    /**
+     * Resuelve la zona operativa del usuario y la activa en el hilo actual.
+     */
+    public String resolverZonaYActivarParaUsuario(int userId) {
+        String zona = resolverZonaParaUsuario(userId);
+        ConexionDB.fijarZonaActual(zona);
+        if (ConexionDB.ZONA_PRUEBA.equals(zona) && db != null) {
+            db.asegurarUsuarioEnPruebas(userId);
+        }
+        return zona;
+    }
+
+    /**
+     * Comprueba si el usuario tiene {@code tipo_suscripcion = 'admin'} en la BD principal.
+     */
+    public boolean esAdminEnPrincipal(int userId) {
+        if (db == null || userId <= 0) return false;
+        ConexionDB.EstadoZonaUsuario estado = db.obtenerEstadoZonaUsuario(userId);
+        if (estado != null) {
+            return ConexionDB.SUSCRIPCION_ADMIN.equalsIgnoreCase(estado.tipoSuscripcion());
+        }
+        try (Connection conn = conexionPrincipal();
+             PreparedStatement ps = conn.prepareStatement("SELECT tipo_suscripcion FROM users WHERE id = ?")) {
+            ps.setInt(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && ConexionDB.SUSCRIPCION_ADMIN.equalsIgnoreCase(rs.getString("tipo_suscripcion"));
+            }
+        } catch (Exception e) {
+            logger.error("Error verificando rol admin en BD principal para id={}: {}", userId, e.getMessage());
+            return false;
+        }
+    }
+
     // --- COLLECTION: ArrayList<JsonObject> ---
     public ArrayList<JsonObject> listarTodos() {
         ArrayList<JsonObject> lista = new ArrayList<>();
@@ -50,6 +102,9 @@ public class UsuarioDAO {
      * S6: devuelve solo las columnas de sesión (nunca el hash de la contraseña).
      */
     public JsonObject buscarPorId(int id) {
+        if (ConexionDB.esZonaPrueba() && db != null) {
+            db.asegurarUsuarioEnPruebas(id);
+        }
         try (Connection conn = db.getConnection();
              PreparedStatement ps = conn.prepareStatement(
                      "SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?")) {
@@ -69,7 +124,7 @@ public class UsuarioDAO {
      * usuario usar {@link #buscarPorId(int)}.
      */
     public JsonObject buscarCredencialesPorEmail(String email) {
-        try (Connection conn = db.getConnection();
+        try (Connection conn = conexionPrincipal();
              PreparedStatement ps = conn.prepareStatement("SELECT id, password FROM users WHERE LOWER(email) = LOWER(?)")) {
             ps.setString(1, email);
             try (ResultSet rs = ps.executeQuery()) {
@@ -83,7 +138,7 @@ public class UsuarioDAO {
 
     /** Crea una sesión de servidor para el JTI de un JWT recién emitido. */
     public void crearSesion(String jti, int userId, Instant expiraEn) throws SQLException {
-        try (Connection conn = db.getConnection()) {
+        try (Connection conn = conexionPrincipal()) {
             try (PreparedStatement limpiar = conn.prepareStatement(
                     "DELETE FROM user_sessions WHERE expires_at <= CURRENT_TIMESTAMP")) {
                 limpiar.executeUpdate();
@@ -100,7 +155,7 @@ public class UsuarioDAO {
 
     /** Comprueba en cada request que el JTI siga activo y pertenezca al usuario del JWT. */
     public boolean sesionActiva(String jti, int userId) throws SQLException {
-        try (Connection conn = db.getConnection();
+        try (Connection conn = conexionPrincipal();
              PreparedStatement ps = conn.prepareStatement(
                      "SELECT 1 FROM user_sessions WHERE jti = ? AND user_id = ? AND expires_at > CURRENT_TIMESTAMP")) {
             ps.setString(1, jti);
@@ -113,7 +168,7 @@ public class UsuarioDAO {
 
     /** Extiende la misma sesión durante la renovación deslizante, sin reactivar una sesión revocada. */
     public boolean renovarSesion(String jti, int userId, Instant expiraEn) throws SQLException {
-        try (Connection conn = db.getConnection();
+        try (Connection conn = conexionPrincipal();
              PreparedStatement ps = conn.prepareStatement(
                      "UPDATE user_sessions SET expires_at = GREATEST(expires_at, ?) " +
                              "WHERE jti = ? AND user_id = ? AND expires_at > CURRENT_TIMESTAMP")) {
@@ -126,7 +181,7 @@ public class UsuarioDAO {
 
     /** Revoca solo la sesión asociada al JTI; otros dispositivos del usuario siguen conectados. */
     public boolean revocarSesion(String jti, int userId) throws SQLException {
-        try (Connection conn = db.getConnection();
+        try (Connection conn = conexionPrincipal();
              PreparedStatement ps = conn.prepareStatement(
                      "DELETE FROM user_sessions WHERE jti = ? AND user_id = ?")) {
             ps.setString(1, jti);
@@ -137,7 +192,7 @@ public class UsuarioDAO {
 
     /** Busca solo los datos necesarios para enviar un enlace sin revelar la cuenta por la API. */
     public CuentaRecuperacion buscarCuentaRecuperacion(String email) throws SQLException {
-        try (Connection conn = db.getConnection();
+        try (Connection conn = conexionPrincipal();
              PreparedStatement ps = conn.prepareStatement(
                      "SELECT id, email, username FROM users WHERE LOWER(email) = LOWER(?)")) {
             ps.setString(1, email);
@@ -152,7 +207,7 @@ public class UsuarioDAO {
     /** Crea o renueva un único enlace activo por cuenta y aplica una pausa entre correos. */
     public boolean crearTokenRecuperacion(int userId, String tokenHash, Instant expiraEn, int cooldownSegundos)
             throws SQLException {
-        try (Connection conn = db.getConnection()) {
+        try (Connection conn = conexionPrincipal()) {
             boolean autoCommit = conn.getAutoCommit();
             conn.setAutoCommit(false);
             try {
@@ -211,7 +266,7 @@ public class UsuarioDAO {
     }
 
     public boolean tokenRecuperacionValido(String tokenHash) throws SQLException {
-        try (Connection conn = db.getConnection();
+        try (Connection conn = conexionPrincipal();
              PreparedStatement ps = conn.prepareStatement(
                      "SELECT 1 FROM password_reset_tokens WHERE token_hash = ? AND used_at IS NULL " +
                              "AND expires_at > CURRENT_TIMESTAMP")) {
@@ -224,7 +279,7 @@ public class UsuarioDAO {
 
     /** Consume el token y cambia la contraseña y revoca todas las sesiones en una transacción. */
     public int restablecerPassword(String tokenHash, String passwordHash) throws SQLException {
-        try (Connection conn = db.getConnection()) {
+        try (Connection conn = conexionPrincipal()) {
             boolean autoCommit = conn.getAutoCommit();
             conn.setAutoCommit(false);
             try {
@@ -302,7 +357,7 @@ public class UsuarioDAO {
     }
 
     public JsonObject buscarPorUsername(String username) {
-        try (Connection conn = db.getConnection();
+        try (Connection conn = conexionPrincipal();
              PreparedStatement ps = conn.prepareStatement("SELECT id FROM users WHERE LOWER(BTRIM(username)) = LOWER(BTRIM(?))")) {
             ps.setString(1, username);
             try (ResultSet rs = ps.executeQuery()) {
@@ -319,7 +374,7 @@ public class UsuarioDAO {
     }
 
     public JsonObject buscarPorEmailLower(String email) {
-        try (Connection conn = db.getConnection();
+        try (Connection conn = conexionPrincipal();
              PreparedStatement ps = conn.prepareStatement("SELECT id FROM users WHERE LOWER(BTRIM(email)) = LOWER(BTRIM(?))")) {
             ps.setString(1, email.toLowerCase(java.util.Locale.ROOT));
             try (ResultSet rs = ps.executeQuery()) {
@@ -336,7 +391,7 @@ public class UsuarioDAO {
     }
 
     public JsonObject buscarPorPlayerTag(String tag) {
-        try (Connection conn = db.getConnection();
+        try (Connection conn = conexionPrincipal();
              PreparedStatement ps = conn.prepareStatement(
                      "SELECT id FROM users WHERE UPPER(REGEXP_REPLACE(BTRIM(player_tag), '^#+', '')) = ?")) {
             ps.setString(1, tag == null ? "" : tag.trim().replace("#", "").toUpperCase(java.util.Locale.ROOT));
@@ -360,7 +415,7 @@ public class UsuarioDAO {
                 + " FROM 3) WHEN " + digitos + " ~ '^3[0-9]{9}$' THEN '57' || " + digitos
                 + " ELSE " + digitos + " END";
         String sql = "SELECT id FROM users WHERE telefono IS NOT NULL AND " + normalizado + " = ? LIMIT 1";
-        try (Connection conn = db.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (Connection conn = conexionPrincipal(); PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, telefonoNormalizado);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
@@ -376,7 +431,7 @@ public class UsuarioDAO {
     }
 
     public int registrar(String username, String email, String passwordHash, String playerTag, String telefono) {
-        try (Connection conn = db.getConnection();
+        try (Connection conn = conexionPrincipal();
              PreparedStatement ps = conn.prepareStatement(
                      "INSERT INTO users (username, email, password, player_tag, telefono) VALUES (?, ?, ?, ?, ?) RETURNING id")) {
             ps.setString(1, username);
@@ -409,7 +464,7 @@ public class UsuarioDAO {
     public int registrarConAceptacionLegal(String username, String email, String passwordHash, String playerTag,
                                            String telefono, String versionTerminos, String versionPrivacidad,
                                            String tokenJugadorCifrado) {
-        try (Connection conn = db.getConnection()) {
+        try (Connection conn = conexionPrincipal()) {
             conn.setAutoCommit(false);
             try {
                 int newId;

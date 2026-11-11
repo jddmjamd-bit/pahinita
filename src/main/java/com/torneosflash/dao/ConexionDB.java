@@ -1,11 +1,13 @@
 package com.torneosflash.dao;
 
+import com.google.gson.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.output.MigrateResult;
+import java.math.BigDecimal;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -14,12 +16,17 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
@@ -39,6 +46,19 @@ import java.lang.reflect.Proxy;
 public class ConexionDB {
     private static final Logger logger = LoggerFactory.getLogger(ConexionDB.class);
 
+    public static final String ZONA_NORMAL = "normal";
+    public static final String ZONA_PRUEBA = "prueba";
+    public static final String SUSCRIPCION_FREE = "free";
+    public static final String SUSCRIPCION_PRUEBA = "prueba";
+    public static final String SUSCRIPCION_ADMIN = "admin";
+    private static final String ESQUEMA_FALLBACK_PRUEBAS = "tf_zona_pruebas";
+    private static final long CACHE_ZONA_USUARIO_MS = 2_000L;
+
+    /** Zona activa del hilo actual ("normal" por defecto, "prueba" cuando opera sobre la copia temporal de JUnit). */
+    private static final ThreadLocal<String> ZONA_ACTUAL = ThreadLocal.withInitial(() -> ZONA_NORMAL);
+
+    public record EstadoZonaUsuario(int userId, String tipoSuscripcion, String zonaAdmin,
+                                    String zonaActiva, long expiraCacheMs) {}
 
     // --- Singleton (ENCAPSULAMIENTO) ---
     private static ConexionDB instancia;
@@ -51,8 +71,16 @@ public class ConexionDB {
     private static final long CACHE_ESTADO_RESTAURACION_MS = 500L;
     /** A5: carpeta (en el classpath) con los scripts V1__..., V2__... de Flyway. */
     private static final String UBICACION_MIGRACIONES = "classpath:db/migration";
+    private final String urlOriginalPrincipal;
+    private final String sslModePrincipal;
     private HikariDataSource dataSource;
     private EnlaceBD enlaceBD;
+    private HikariDataSource dataSourcePruebas;
+    private EnlaceBD enlaceBDPruebas;
+    private String esquemaPruebas;
+    private final ConcurrentHashMap<Integer, String> usuariosSincronizadosPruebas = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Integer, EstadoZonaUsuario> cacheZonaUsuario = new ConcurrentHashMap<>();
+    private final AtomicBoolean adminsSincronizadosPruebas = new AtomicBoolean(false);
     private final AtomicBoolean restauracionActiva = new AtomicBoolean(false);
     private BloqueoOperacion bloqueoRestauracionActual;
     private volatile boolean restauracionGlobalCache;
@@ -60,6 +88,8 @@ public class ConexionDB {
 
     // --- Constructor privado (ENCAPSULAMIENTO) ---
     private ConexionDB(String databaseUrl, String sslMode, int maxPoolSize) {
+        this.urlOriginalPrincipal = databaseUrl;
+        this.sslModePrincipal = sslMode;
         try {
             EnlaceBD enlace = EnlaceBD.desde(databaseUrl, sslMode);
             this.enlaceBD = enlace;
@@ -77,6 +107,52 @@ public class ConexionDB {
         } catch (Exception e) {
             logger.error("❌ Error conectando a PostgreSQL: " + e.getMessage());
             throw new IllegalStateException("No se pudo inicializar el pool de PostgreSQL: " + e.getMessage(), e);
+        }
+    }
+
+    public static String normalizarZona(String zona) {
+        return ZONA_PRUEBA.equalsIgnoreCase(zona != null ? zona.trim() : "") ? ZONA_PRUEBA : ZONA_NORMAL;
+    }
+
+    public static String zonaActual() {
+        String z = ZONA_ACTUAL.get();
+        return ZONA_PRUEBA.equals(z) ? ZONA_PRUEBA : ZONA_NORMAL;
+    }
+
+    public static boolean esZonaPrueba() {
+        return ZONA_PRUEBA.equals(zonaActual());
+    }
+
+    public static void fijarZonaActual(String zona) {
+        String normalizada = normalizarZona(zona);
+        if (ZONA_NORMAL.equals(normalizada)) {
+            ZONA_ACTUAL.remove();
+        } else {
+            ZONA_ACTUAL.set(ZONA_PRUEBA);
+        }
+    }
+
+    public static void limpiarZonaActual() {
+        ZONA_ACTUAL.remove();
+    }
+
+    public static void ejecutarEnZona(String zona, Runnable accion) {
+        String previa = zonaActual();
+        fijarZonaActual(zona);
+        try {
+            accion.run();
+        } finally {
+            fijarZonaActual(previa);
+        }
+    }
+
+    public static <T> T llamarEnZona(String zona, Callable<T> accion) throws Exception {
+        String previa = zonaActual();
+        fijarZonaActual(zona);
+        try {
+            return accion.call();
+        } finally {
+            fijarZonaActual(previa);
         }
     }
 
@@ -242,8 +318,16 @@ public class ConexionDB {
         return instancia;
     }
 
-    // --- Obtener conexión del pool ---
+    // --- Obtener conexión del pool (enruta según la zona activa del hilo) ---
     public Connection getConnection() throws SQLException {
+        if (esZonaPrueba() && dataSourcePruebas != null) {
+            return getConnectionPruebas();
+        }
+        return getConnectionPrincipal();
+    }
+
+    /** Conexión explícita a la base de datos principal (producción / zona normal). */
+    public Connection getConnectionPrincipal() throws SQLException {
         if (restauracionActiva.get()) {
             throw new SQLException("La base de datos está en restauración; intenta de nuevo en unos minutos");
         }
@@ -268,6 +352,28 @@ public class ConexionDB {
             cerrarSinError(conn);
             throw e;
         }
+    }
+
+    /** Conexión explícita a la base de datos aislada de pruebas (copia temporal sobre TEST_DATABASE_URL). */
+    public Connection getConnectionPruebas() throws SQLException {
+        HikariDataSource poolPruebas = this.dataSourcePruebas;
+        if (poolPruebas == null) {
+            throw new SQLException("La base de datos de la zona de pruebas no está configurada");
+        }
+        return poolPruebas.getConnection();
+    }
+
+    public boolean tieneZonaPruebas() {
+        return dataSourcePruebas != null;
+    }
+
+    public String descripcionBasePruebas() {
+        if (enlaceBDPruebas == null) return "no configurada";
+        String sufijoEsquema = (esquemaPruebas != null && !esquemaPruebas.isBlank()
+                && !"public".equalsIgnoreCase(esquemaPruebas))
+                ? " (esquema " + esquemaPruebas + ")"
+                : "";
+        return enlaceBDPruebas.host + "/" + enlaceBDPruebas.nombreBase + sufijoEsquema;
     }
 
     /**
@@ -595,10 +701,552 @@ public class ConexionDB {
                 resultado.migrationsExecuted, version);
     }
 
+    /**
+     * Configura y migra el pool aislado de la zona de pruebas usando {@code TEST_DATABASE_URL}
+     * (la misma base de datos de las pruebas de JUnit). Si en desarrollo local no se definió
+     * {@code TEST_DATABASE_URL}, usa un esquema aislado {@code tf_zona_pruebas} para no mezclar nunca
+     * datos con el esquema de producción.
+     */
+    public synchronized void configurarZonaPruebas(String testDatabaseUrl, String sslMode, int maxPoolSize) {
+        cerrarPoolPruebas();
+        String modoSsl = (sslMode == null || sslMode.isBlank()) ? sslModePrincipal : sslMode;
+        String urlCandidata = testDatabaseUrl != null ? testDatabaseUrl.trim() : "";
+        if (urlCandidata.isEmpty()) {
+            if (urlOriginalPrincipal == null || urlOriginalPrincipal.isBlank()) return;
+            urlCandidata = agregarCurrentSchema(urlOriginalPrincipal, ESQUEMA_FALLBACK_PRUEBAS);
+        }
+
+        try {
+            EnlaceBD candidato = EnlaceBD.desde(urlCandidata, modoSsl);
+            if (mismaBaseYEsquema(this.enlaceBD, candidato)) {
+                urlCandidata = agregarCurrentSchema(urlCandidata, ESQUEMA_FALLBACK_PRUEBAS);
+                candidato = EnlaceBD.desde(urlCandidata, modoSsl);
+            }
+
+            String esquemaDestino = extraerCurrentSchema(candidato.jdbcUrl);
+            if (esquemaDestino != null && !esquemaDestino.isBlank() && !"public".equalsIgnoreCase(esquemaDestino)) {
+                asegurarEsquemaFisico(candidato, esquemaDestino);
+            }
+
+            HikariConfig config = new HikariConfig();
+            config.setPoolName("torneos-db-pruebas");
+            config.setJdbcUrl(candidato.jdbcUrl);
+            if (candidato.usuario != null) config.setUsername(candidato.usuario);
+            if (candidato.password != null) config.setPassword(candidato.password);
+            config.setMaximumPoolSize(Math.max(2, Math.min(8, maxPoolSize)));
+            config.setMinimumIdle(1);
+            config.setIdleTimeout(30000);
+            config.setConnectionTimeout(5000);
+
+            this.dataSourcePruebas = new HikariDataSource(config);
+            this.enlaceBDPruebas = candidato;
+            this.esquemaPruebas = (esquemaDestino == null || esquemaDestino.isBlank()) ? "public" : esquemaDestino;
+
+            var flywayConfig = Flyway.configure()
+                    .dataSource(this.dataSourcePruebas)
+                    .locations(UBICACION_MIGRACIONES)
+                    .baselineOnMigrate(true)
+                    .baselineVersion("0")
+                    .baselineDescription("Esquema zona de pruebas")
+                    .validateOnMigrate(true)
+                    .cleanDisabled(true);
+            if (!"public".equalsIgnoreCase(this.esquemaPruebas)) {
+                flywayConfig.schemas(this.esquemaPruebas)
+                        .defaultSchema(this.esquemaPruebas)
+                        .createSchemas(true);
+            }
+            MigrateResult res = flywayConfig.load().migrate();
+            sincronizarUsuariosPruebaYAdmin();
+            logger.info("🧪 Zona de pruebas lista en {} (migraciones aplicadas ahora: {})",
+                    descripcionBasePruebas(), res.migrationsExecuted);
+        } catch (Exception e) {
+            cerrarPoolPruebas();
+            logger.error("⚠️ No se pudo inicializar la zona de pruebas: {}", e.getMessage());
+        }
+    }
+
+    private static boolean mismaBaseYEsquema(EnlaceBD a, EnlaceBD b) {
+        if (a == null || b == null) return false;
+        boolean mismaBase = a.hostProceso.equalsIgnoreCase(b.hostProceso)
+                && a.puertoProceso.equals(b.puertoProceso)
+                && a.nombreBase.equalsIgnoreCase(b.nombreBase);
+        if (!mismaBase) return false;
+        String esqA = extraerCurrentSchema(a.jdbcUrl);
+        String esqB = extraerCurrentSchema(b.jdbcUrl);
+        String normA = (esqA == null || esqA.isBlank()) ? "public" : esqA.trim().toLowerCase(Locale.ROOT);
+        String normB = (esqB == null || esqB.isBlank()) ? "public" : esqB.trim().toLowerCase(Locale.ROOT);
+        return normA.equals(normB);
+    }
+
+    private static String extraerCurrentSchema(String jdbcUrl) {
+        if (jdbcUrl == null) return null;
+        int q = jdbcUrl.indexOf('?');
+        if (q < 0) return null;
+        for (String par : jdbcUrl.substring(q + 1).split("&")) {
+            int eq = par.indexOf('=');
+            if (eq <= 0) continue;
+            String k = par.substring(0, eq).trim();
+            if ("currentSchema".equalsIgnoreCase(k)) {
+                return par.substring(eq + 1).trim();
+            }
+        }
+        return null;
+    }
+
+    private static String agregarCurrentSchema(String url, String esquema) {
+        String limpia = url.replaceAll("([?&])currentSchema=[^&]*&?", "$1")
+                .replaceAll("[?&]$", "");
+        return limpia + (limpia.contains("?") ? "&" : "?") + "currentSchema=" + esquema;
+    }
+
+    private static void asegurarEsquemaFisico(EnlaceBD enlace, String esquema) throws SQLException {
+        if (!esquema.matches("^[a-zA-Z_][a-zA-Z0-9_]*$")) {
+            throw new SQLException("Nombre de esquema de pruebas no válido");
+        }
+        Properties props = new Properties();
+        if (enlace.usuario != null && !enlace.usuario.isBlank()) props.setProperty("user", enlace.usuario);
+        if (enlace.password != null) props.setProperty("password", enlace.password);
+        try (Connection conn = DriverManager.getConnection(enlace.jdbcUrl, props);
+             PreparedStatement ps = conn.prepareStatement("CREATE SCHEMA IF NOT EXISTS \"" + esquema + "\"")) {
+            ps.execute();
+        }
+    }
+
+    public void invalidarCacheUsuario(int userId) {
+        if (userId > 0) {
+            cacheZonaUsuario.remove(userId);
+            usuariosSincronizadosPruebas.remove(userId);
+        }
+    }
+
+    public EstadoZonaUsuario obtenerEstadoZonaUsuario(int userId) {
+        if (userId <= 0) {
+            return new EstadoZonaUsuario(0, SUSCRIPCION_FREE, ZONA_NORMAL, ZONA_NORMAL, 0L);
+        }
+        long ahora = System.currentTimeMillis();
+        EstadoZonaUsuario enCache = cacheZonaUsuario.get(userId);
+        if (enCache != null && ahora < enCache.expiraCacheMs()) {
+            if (ZONA_PRUEBA.equals(enCache.zonaActiva())) {
+                asegurarUsuarioEnPruebas(userId);
+            }
+            return enCache;
+        }
+        String tipo = SUSCRIPCION_FREE;
+        String zonaAdmin = ZONA_NORMAL;
+        try (Connection conn = getConnectionPrincipal();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT COALESCE(tipo_suscripcion, 'free') AS tipo_suscripcion, " +
+                     "COALESCE(zona_admin, 'normal') AS zona_admin FROM users WHERE id = ?")) {
+            ps.setInt(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    tipo = rs.getString("tipo_suscripcion").trim().toLowerCase(Locale.ROOT);
+                    zonaAdmin = normalizarZona(rs.getString("zona_admin"));
+                }
+            }
+        } catch (SQLException e) {
+            logger.warn("No se pudo consultar la zona del usuario {}: {}", userId, e.getMessage());
+        }
+
+        String zonaActiva = ZONA_NORMAL;
+        if (tieneZonaPruebas()) {
+            if (SUSCRIPCION_PRUEBA.equalsIgnoreCase(tipo)) {
+                zonaActiva = ZONA_PRUEBA;
+            } else if (SUSCRIPCION_ADMIN.equalsIgnoreCase(tipo) && ZONA_PRUEBA.equalsIgnoreCase(zonaAdmin)) {
+                zonaActiva = ZONA_PRUEBA;
+            }
+        }
+        if (ZONA_PRUEBA.equals(zonaActiva)) {
+            asegurarUsuarioEnPruebas(userId);
+        }
+        EstadoZonaUsuario nuevo = new EstadoZonaUsuario(userId, tipo, zonaAdmin, zonaActiva,
+                ahora + CACHE_ZONA_USUARIO_MS);
+        cacheZonaUsuario.put(userId, nuevo);
+        return nuevo;
+    }
+
+    public String resolverZonaUsuario(int userId) {
+        return obtenerEstadoZonaUsuario(userId).zonaActiva();
+    }
+
+    public void asegurarUsuarioEnPruebas(int userId) {
+        if (!tieneZonaPruebas() || userId <= 0) return;
+        if (adminsSincronizadosPruebas.compareAndSet(false, true)) {
+            sincronizarUsuariosPruebaYAdmin();
+        }
+        if (usuariosSincronizadosPruebas.containsKey(userId)) return;
+        sincronizarUsuarioConPruebas(userId);
+    }
+
+    /** Copia o actualiza la identidad y rol de todos los usuarios 'prueba' y 'admin' hacia la BD de pruebas. */
+    public void sincronizarUsuariosPruebaYAdmin() {
+        if (!tieneZonaPruebas()) return;
+        List<Integer> ids = new ArrayList<>();
+        try (Connection conn = getConnectionPrincipal();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT id FROM users WHERE LOWER(COALESCE(tipo_suscripcion, '')) IN ('prueba', 'admin') ORDER BY id ASC");
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                ids.add(rs.getInt("id"));
+            }
+        } catch (SQLException e) {
+            logger.warn("No se pudieron listar los usuarios para sincronizar en pruebas: {}", e.getMessage());
+            return;
+        }
+        for (int id : ids) {
+            sincronizarUsuarioConPruebas(id);
+        }
+        adminsSincronizadosPruebas.set(true);
+    }
+
+    /**
+     * Sincroniza la cuenta desde la BD principal hacia la copia temporal de pruebas conservando su mismo {@code id}
+     * y sin sobrescribir el saldo ni las estadísticas que ya tenga acumuladas en la zona de pruebas.
+     */
+    public void sincronizarUsuarioConPruebas(int userId) {
+        if (!tieneZonaPruebas() || userId <= 0) return;
+        try (Connection origen = getConnectionPrincipal();
+             PreparedStatement psLeer = origen.prepareStatement(
+                     "SELECT id, username, email, password, player_tag, telefono, " +
+                     "COALESCE(tipo_suscripcion, 'free') AS tipo_suscripcion, " +
+                     "COALESCE(player_tag_verificado, FALSE) AS player_tag_verificado, " +
+                     "player_tag_verificado_en, player_tag_verificado_por, " +
+                     "player_verification_token_ciphertext, " +
+                     "COALESCE(zona_admin, 'normal') AS zona_admin " +
+                     "FROM users WHERE id = ?")) {
+            psLeer.setInt(1, userId);
+            try (ResultSet rs = psLeer.executeQuery()) {
+                if (!rs.next()) return;
+                int id = rs.getInt("id");
+                String username = rs.getString("username");
+                String email = rs.getString("email");
+                String password = rs.getString("password");
+                String playerTag = rs.getString("player_tag");
+                String telefono = rs.getString("telefono");
+                String tipoSuscripcion = rs.getString("tipo_suscripcion");
+                boolean tagVerificado = rs.getBoolean("player_tag_verificado");
+                Timestamp tagVerificadoEn = rs.getTimestamp("player_tag_verificado_en");
+                Integer tagVerificadoPor = rs.getObject("player_tag_verificado_por") != null
+                        ? rs.getInt("player_tag_verificado_por") : null;
+                String tokenCipher = rs.getString("player_verification_token_ciphertext");
+                String zonaAdmin = normalizarZona(rs.getString("zona_admin"));
+
+                try (Connection destino = getConnectionPruebas()) {
+                    boolean auto = destino.getAutoCommit();
+                    destino.setAutoCommit(false);
+                    try {
+                        // Despeja posibles colisiones con datos sintéticos previos de distinto ID en la base de pruebas.
+                        try (PreparedStatement psDespejar = destino.prepareStatement(
+                                "UPDATE users SET username = 'legacy_u_' || id, " +
+                                "email = 'legacy_' || id || '@pruebas.invalid', " +
+                                "player_tag = NULL, telefono = NULL " +
+                                "WHERE id <> ? AND (" +
+                                "LOWER(BTRIM(username)) = LOWER(BTRIM(?)) " +
+                                "OR LOWER(BTRIM(email)) = LOWER(BTRIM(?)) " +
+                                "OR (? IS NOT NULL AND BTRIM(?) <> '' AND player_tag IS NOT NULL " +
+                                "    AND UPPER(REGEXP_REPLACE(BTRIM(player_tag), '^#+', '')) = UPPER(REGEXP_REPLACE(BTRIM(?), '^#+', ''))) " +
+                                "OR (? IS NOT NULL AND REGEXP_REPLACE(BTRIM(?), '[^0-9]', '', 'g') <> '' AND telefono IS NOT NULL " +
+                                "    AND REGEXP_REPLACE(BTRIM(telefono), '[^0-9]', '', 'g') = REGEXP_REPLACE(BTRIM(?), '[^0-9]', '', 'g'))" +
+                                ")")) {
+                            psDespejar.setInt(1, id);
+                            psDespejar.setString(2, username != null ? username : "");
+                            psDespejar.setString(3, email != null ? email : "");
+                            psDespejar.setString(4, playerTag);
+                            psDespejar.setString(5, playerTag != null ? playerTag : "");
+                            psDespejar.setString(6, playerTag != null ? playerTag : "");
+                            psDespejar.setString(7, telefono);
+                            psDespejar.setString(8, telefono != null ? telefono : "");
+                            psDespejar.setString(9, telefono != null ? telefono : "");
+                            psDespejar.executeUpdate();
+                        }
+
+                        // Si tagVerificadoPor apunta a un usuario que aún no está en la BD de pruebas, se deja NULL.
+                        Integer verificadoPorSeguro = null;
+                        if (tagVerificadoPor != null && tagVerificadoPor > 0) {
+                            if (tagVerificadoPor == id) {
+                                verificadoPorSeguro = id;
+                            } else {
+                                try (PreparedStatement psCheck = destino.prepareStatement(
+                                        "SELECT 1 FROM users WHERE id = ?")) {
+                                    psCheck.setInt(1, tagVerificadoPor);
+                                    try (ResultSet rsCheck = psCheck.executeQuery()) {
+                                        if (rsCheck.next()) verificadoPorSeguro = tagVerificadoPor;
+                                    }
+                                }
+                            }
+                        }
+
+                        try (PreparedStatement psUpsert = destino.prepareStatement(
+                                "INSERT INTO users (id, username, email, password, player_tag, telefono, saldo, " +
+                                "tipo_suscripcion, estado, player_tag_verificado, player_tag_verificado_en, " +
+                                "player_tag_verificado_por, player_verification_token_ciphertext, zona_admin) " +
+                                "VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'normal', ?, ?, ?, ?, ?) " +
+                                "ON CONFLICT (id) DO UPDATE SET " +
+                                "username = EXCLUDED.username, " +
+                                "email = EXCLUDED.email, " +
+                                "password = EXCLUDED.password, " +
+                                "player_tag = EXCLUDED.player_tag, " +
+                                "telefono = EXCLUDED.telefono, " +
+                                "tipo_suscripcion = EXCLUDED.tipo_suscripcion, " +
+                                "player_tag_verificado = EXCLUDED.player_tag_verificado, " +
+                                "player_tag_verificado_en = EXCLUDED.player_tag_verificado_en, " +
+                                "player_tag_verificado_por = EXCLUDED.player_tag_verificado_por, " +
+                                "player_verification_token_ciphertext = EXCLUDED.player_verification_token_ciphertext, " +
+                                "zona_admin = EXCLUDED.zona_admin")) {
+                            psUpsert.setInt(1, id);
+                            psUpsert.setString(2, username);
+                            psUpsert.setString(3, email);
+                            psUpsert.setString(4, password);
+                            psUpsert.setString(5, playerTag);
+                            psUpsert.setString(6, telefono);
+                            psUpsert.setString(7, tipoSuscripcion);
+                            psUpsert.setBoolean(8, tagVerificado);
+                            psUpsert.setTimestamp(9, tagVerificadoEn);
+                            if (verificadoPorSeguro != null) {
+                                psUpsert.setInt(10, verificadoPorSeguro);
+                            } else {
+                                psUpsert.setNull(10, Types.INTEGER);
+                            }
+                            psUpsert.setString(11, tokenCipher);
+                            psUpsert.setString(12, zonaAdmin);
+                            psUpsert.executeUpdate();
+                        }
+
+                        try (PreparedStatement psSeq = destino.prepareStatement(
+                                "SELECT setval(pg_get_serial_sequence('users', 'id'), " +
+                                "GREATEST(COALESCE((SELECT MAX(id) FROM users), 1), ?), true)")) {
+                            psSeq.setInt(1, id);
+                            try (ResultSet ignored = psSeq.executeQuery()) {
+                            }
+                        }
+
+                        destino.commit();
+                        usuariosSincronizadosPruebas.put(id, tipoSuscripcion);
+                        cacheZonaUsuario.remove(id);
+                    } catch (SQLException e) {
+                        try { destino.rollback(); } catch (SQLException ignored) {}
+                        throw e;
+                    } finally {
+                        try { destino.setAutoCommit(auto); } catch (SQLException ignored) {}
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            logger.warn("No se pudo sincronizar el usuario {} en la zona de pruebas: {}", userId, e.getMessage());
+        }
+    }
+
+    /**
+     * Resumen de filas y saldos actuales en la base de datos de la zona de pruebas.
+     */
+    public JsonObject resumenZonaPruebas() {
+        JsonObject res = new JsonObject();
+        res.addProperty("disponible", tieneZonaPruebas());
+        res.addProperty("baseDatos", descripcionBasePruebas());
+        if (!tieneZonaPruebas()) {
+            res.addProperty("usuarios", 0);
+            res.addProperty("partidas", 0);
+            res.addProperty("transacciones", 0);
+            res.addProperty("mensajes", 0);
+            res.addProperty("sorteos", 0);
+            res.addProperty("ticketsSoporte", 0);
+            res.addProperty("movimientosLedger", 0);
+            res.addProperty("saldoTotalPruebas", BigDecimal.ZERO);
+            return res;
+        }
+        try (Connection conn = getConnectionPruebas()) {
+            res.addProperty("usuarios", contarFilas(conn, "SELECT COUNT(*) FROM users WHERE tipo_suscripcion = 'prueba'"));
+            res.addProperty("usuariosTotalesCopia", contarFilas(conn, "SELECT COUNT(*) FROM users"));
+            res.addProperty("partidas", contarFilas(conn, "SELECT COUNT(*) FROM matches"));
+            res.addProperty("transacciones", contarFilas(conn, "SELECT COUNT(*) FROM transactions"));
+            res.addProperty("mensajes", contarFilas(conn, "SELECT COUNT(*) FROM messages"));
+            res.addProperty("sorteos", contarFilas(conn, "SELECT COUNT(*) FROM raffles"));
+            res.addProperty("ticketsSoporte", contarFilas(conn, "SELECT COUNT(*) FROM support_tickets"));
+            res.addProperty("movimientosLedger", contarFilas(conn, "SELECT COUNT(*) FROM wallet_ledger"));
+            try (PreparedStatement ps = conn.prepareStatement("SELECT COALESCE(SUM(saldo), 0) FROM users");
+                 ResultSet rs = ps.executeQuery()) {
+                BigDecimal total = rs.next() && rs.getBigDecimal(1) != null ? rs.getBigDecimal(1) : BigDecimal.ZERO;
+                res.addProperty("saldoTotalPruebas", total);
+            }
+        } catch (SQLException e) {
+            logger.warn("No se pudo obtener el resumen de la zona de pruebas: {}", e.getMessage());
+        }
+        return res;
+    }
+
+    private static long contarFilas(Connection conn, String sql) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            return rs.next() ? rs.getLong(1) : 0L;
+        }
+    }
+
+    /**
+     * Borra todos los datos e historiales de la copia temporal de pruebas cuando lo decide el administrador
+     * y vuelve a dejar sincronizadas las cuentas {@code prueba} y {@code admin} con saldo y estadísticas en cero.
+     */
+    public synchronized void reiniciarDatosZonaPruebas() throws SQLException {
+        if (!tieneZonaPruebas() || enlaceBDPruebas == null) {
+            throw new SQLException("La base de datos de pruebas no está configurada");
+        }
+        if (mismaBaseYEsquema(this.enlaceBD, this.enlaceBDPruebas)) {
+            throw new SQLException("Operación bloqueada: la zona de pruebas no puede apuntar al esquema principal");
+        }
+
+        String[] tablasBorrar = {
+                "leaderboard_cut_payments",
+                "leaderboard_cut_snapshots",
+                "leaderboard_cuts",
+                "leaderboard_live_positions",
+                "leaderboard_history",
+                "raffle_entries",
+                "raffle_votes",
+                "raffle_pool_movements",
+                "raffles",
+                "user_tickets",
+                "payment_evidences",
+                "support_tickets",
+                "chatbot_duda_usuarios",
+                "chatbot_mensajes",
+                "chatbot_preferencias",
+                "chatbot_conocimiento",
+                "voice_channels",
+                "discord_links",
+                "active_matches",
+                "match_queue",
+                "matches",
+                "user_notifications",
+                "messages",
+                "media_files",
+                "wallet_ledger",
+                "transactions",
+                "admin_wallet",
+                "legal_acceptances",
+                "user_tokens",
+                "password_reset_tokens",
+                "user_sessions",
+                "users"
+        };
+
+        String[] tablasSecuenciaId = {
+                "messages", "matches", "transactions", "admin_wallet", "user_tokens",
+                "user_tickets", "raffles", "raffle_entries", "raffle_pool_movements",
+                "leaderboard_history", "leaderboard_cuts", "leaderboard_cut_payments",
+                "media_files", "chatbot_conocimiento", "chatbot_mensajes",
+                "legal_acceptances", "wallet_ledger", "support_tickets",
+                "payment_evidences", "voice_channels", "match_queue", "active_matches",
+                "user_notifications"
+        };
+
+        try (Connection conn = getConnectionPruebas()) {
+            boolean auto = conn.getAutoCommit();
+            conn.setAutoCommit(false);
+            try {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DROP TRIGGER IF EXISTS trg_wallet_ledger_inmutable ON wallet_ledger")) {
+                    ps.execute();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DROP TRIGGER IF EXISTS trg_wallet_ledger_no_truncate ON wallet_ledger")) {
+                    ps.execute();
+                }
+
+                for (String tabla : tablasBorrar) {
+                    try (PreparedStatement ps = conn.prepareStatement("DELETE FROM \"" + tabla + "\"")) {
+                        ps.executeUpdate();
+                    }
+                }
+
+                try (PreparedStatement ps = conn.prepareStatement("DELETE FROM leaderboard_pools")) {
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO leaderboard_pools (id, pozo_diario, pozo_semanal, pozo_mensual, pozo_anual, " +
+                        "ultimo_reset_dia, ultimo_reset_semana, ultimo_reset_mes, ultimo_reset_ano) " +
+                        "VALUES (1, 0, 0, 0, 0, CURRENT_DATE, CURRENT_DATE, CURRENT_DATE, CURRENT_DATE)")) {
+                    ps.executeUpdate();
+                }
+
+                try (PreparedStatement ps = conn.prepareStatement("DELETE FROM raffle_pool")) {
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO raffle_pool (id, saldo_disponible, total_reservado, total_recaudado, total_consumido, total_liberado) " +
+                        "VALUES (1, 0, 0, 0, 0, 0)")) {
+                    ps.executeUpdate();
+                }
+
+                try (PreparedStatement ps = conn.prepareStatement("DELETE FROM chatbot_config")) {
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO chatbot_config (id, tono) VALUES (1, 'adaptativo')")) {
+                    ps.executeUpdate();
+                }
+
+                for (String tabla : tablasSecuenciaId) {
+                    try (PreparedStatement ps = conn.prepareStatement(
+                            "SELECT setval(pg_get_serial_sequence(?, 'id'), 1, false)")) {
+                        ps.setString(1, tabla);
+                        try (ResultSet ignored = ps.executeQuery()) {
+                        }
+                    }
+                }
+
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "CREATE TRIGGER trg_wallet_ledger_inmutable " +
+                        "BEFORE UPDATE OR DELETE ON wallet_ledger " +
+                        "FOR EACH ROW EXECUTE FUNCTION fn_wallet_ledger_inmutable()")) {
+                    ps.execute();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "CREATE TRIGGER trg_wallet_ledger_no_truncate " +
+                        "BEFORE TRUNCATE ON wallet_ledger " +
+                        "EXECUTE FUNCTION fn_wallet_ledger_inmutable()")) {
+                    ps.execute();
+                }
+
+                conn.commit();
+            } catch (SQLException e) {
+                try { conn.rollback(); } catch (SQLException ignored) {}
+                throw e;
+            } finally {
+                try { conn.setAutoCommit(auto); } catch (SQLException ignored) {}
+            }
+        }
+
+        usuariosSincronizadosPruebas.clear();
+        cacheZonaUsuario.clear();
+        adminsSincronizadosPruebas.set(false);
+        sincronizarUsuariosPruebaYAdmin();
+    }
+
+    private synchronized void cerrarPoolPruebas() {
+        usuariosSincronizadosPruebas.clear();
+        cacheZonaUsuario.clear();
+        adminsSincronizadosPruebas.set(false);
+        if (dataSourcePruebas != null) {
+            try {
+                dataSourcePruebas.close();
+            } catch (RuntimeException ignored) {
+            }
+            dataSourcePruebas = null;
+        }
+        enlaceBDPruebas = null;
+        esquemaPruebas = null;
+    }
+
     public void cerrar() {
+        limpiarZonaActual();
         BloqueoOperacion bloqueo = bloqueoRestauracionActual;
         bloqueoRestauracionActual = null;
         if (bloqueo != null) bloqueo.close();
+        cerrarPoolPruebas();
         if (dataSource != null) dataSource.close();
+        synchronized (ConexionDB.class) {
+            if (instancia == this) {
+                instancia = null;
+            }
+        }
     }
 }

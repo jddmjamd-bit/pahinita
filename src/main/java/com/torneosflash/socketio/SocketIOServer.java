@@ -11,6 +11,7 @@ import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.torneosflash.config.AppConfig;
+import com.torneosflash.dao.ConexionDB;
 import com.torneosflash.servidor.AuthMiddleware;
 import com.torneosflash.servicio.JwtServicio;
 import io.javalin.Javalin;
@@ -135,11 +136,15 @@ public class SocketIOServer {
         }
     }
 
-    /** Emite un evento a TODOS los clientes conectados en el namespace raíz. */
+    /** Emite un evento a los clientes conectados en la zona activa del namespace raíz. */
     public void emit(String event, Object... data) {
         if (nettyServer == null) return;
-        Object[] payload = paraNettyArgs(data);
-        nettyServer.getBroadcastOperations().sendEvent(event, payload);
+        String zonaActual = ConexionDB.zonaActual();
+        for (SocketIOClient client : clientsBySession.values()) {
+            if (client.isConnected() && zonaActual.equals(client.getZona())) {
+                client.emit(event, data);
+            }
+        }
     }
 
     /** Obtiene un emisor para una room específica del namespace raíz. */
@@ -147,14 +152,15 @@ public class SocketIOServer {
         return new RoomEmitter(this, nettyServer != null ? nettyServer.getNamespace("") : null, room, null);
     }
 
-    /** Obtiene los clientes actualmente unidos a una room en el namespace raíz. */
+    /** Obtiene los clientes actualmente unidos a una room en la zona activa del namespace raíz. */
     public Collection<SocketIOClient> getClientsInRoom(String room) {
         if (nettyServer == null || room == null) return Collections.emptyList();
+        String zonaActual = ConexionDB.zonaActual();
         Collection<com.corundumstudio.socketio.SocketIOClient> raw = nettyServer.getRoomOperations(room).getClients();
         List<SocketIOClient> result = new ArrayList<>(raw.size());
         for (com.corundumstudio.socketio.SocketIOClient c : raw) {
             SocketIOClient wrapped = clientsBySession.get(c.getSessionId().toString());
-            if (wrapped != null && wrapped.isConnected()) {
+            if (wrapped != null && wrapped.isConnected() && zonaActual.equals(wrapped.getZona())) {
                 result.add(wrapped);
             }
         }
@@ -174,8 +180,21 @@ public class SocketIOServer {
         });
     }
 
-    /** Mapa de sockets activos en el servidor (id de sesión -> {@link SocketIOClient}). */
+    /** Mapa de sockets activos en la zona actual (id de sesión -> {@link SocketIOClient}). */
     public ConcurrentHashMap<String, SocketIOClient> getSockets() {
+        String zonaActual = ConexionDB.zonaActual();
+        ConcurrentHashMap<String, SocketIOClient> filtrados = new ConcurrentHashMap<>();
+        for (Map.Entry<String, SocketIOClient> entry : clientsBySession.entrySet()) {
+            SocketIOClient c = entry.getValue();
+            if (c != null && zonaActual.equals(c.getZona())) {
+                filtrados.put(entry.getKey(), c);
+            }
+        }
+        return filtrados;
+    }
+
+    /** Mapa completo de todos los sockets conectados en cualquier zona. */
+    public ConcurrentHashMap<String, SocketIOClient> getTodosLosSockets() {
         return clientsBySession;
     }
 
@@ -274,11 +293,13 @@ public class SocketIOServer {
             }
 
             if (connectionHandler != null) {
-                try {
-                    connectionHandler.accept(client, new Object[0]);
-                } catch (Exception e) {
-                    logger.error("Error en connectionHandler de Socket.IO: {}", e.getMessage(), e);
-                }
+                ConexionDB.ejecutarEnZona(client.getZona(), () -> {
+                    try {
+                        connectionHandler.accept(client, new Object[0]);
+                    } catch (Exception e) {
+                        logger.error("Error en connectionHandler de Socket.IO: {}", e.getMessage(), e);
+                    }
+                });
             }
         });
 
@@ -287,7 +308,7 @@ public class SocketIOServer {
             SocketIOClient client = clientsBySession.remove(sid);
             if (client != null) {
                 client.setConnected(false);
-                client.fireEvent("disconnect", new Object[0]);
+                ConexionDB.ejecutarEnZona(client.getZona(), () -> client.fireEvent("disconnect", new Object[0]));
             }
         });
     }
@@ -305,14 +326,14 @@ public class SocketIOServer {
                 client.disconnect(true);
                 return;
             }
-            adapter.fireConnect(client);
+            ConexionDB.ejecutarEnZona(client.getZona(), () -> adapter.fireConnect(client));
         });
         ns.addDisconnectListener(nettyClient -> {
             String sid = nettyClient.getSessionId().toString();
             SocketIOClient client = adapter.getSockets().remove(sid);
             if (client != null) {
                 client.setConnected(false);
-                client.fireEvent("disconnect", new Object[0]);
+                ConexionDB.ejecutarEnZona(client.getZona(), () -> client.fireEvent("disconnect", new Object[0]));
             }
         });
     }
@@ -329,6 +350,7 @@ public class SocketIOServer {
                 if (sesion != null) {
                     client.setAuthenticatedUserId(sesion.userId());
                     client.setAuthenticatedSessionJti(sesion.jti());
+                    client.setZona(AuthMiddleware.zonaActivaDeUsuario(sesion.userId()));
                 }
             }
         } catch (Exception ignored) {
@@ -386,28 +408,33 @@ public class SocketIOServer {
                 client.disconnect(true);
                 return;
             }
+            if (client.getAuthenticatedUserId() != null) {
+                client.setZona(AuthMiddleware.zonaActivaDeUsuario(client.getAuthenticatedUserId()));
+            }
 
             Object[] args = (data == null) ? new Object[0] : new Object[]{ aJsonElement(data) };
 
-            if (nsName.isEmpty() || "/".equals(nsName)) {
-                List<BiConsumer<SocketIOClient, Object[]>> glob = serverEventHandlers.get(event);
-                if (glob != null) {
-                    for (BiConsumer<SocketIOClient, Object[]> h : glob) {
-                        try {
-                            h.accept(client, args);
-                        } catch (Exception e) {
-                            logger.error("Error en listener global '{}': {}", event, e.getMessage(), e);
+            ConexionDB.ejecutarEnZona(client.getZona(), () -> {
+                if (nsName.isEmpty() || "/".equals(nsName)) {
+                    List<BiConsumer<SocketIOClient, Object[]>> glob = serverEventHandlers.get(event);
+                    if (glob != null) {
+                        for (BiConsumer<SocketIOClient, Object[]> h : glob) {
+                            try {
+                                h.accept(client, args);
+                            } catch (Exception e) {
+                                logger.error("Error en listener global '{}': {}", event, e.getMessage(), e);
+                            }
                         }
                     }
+                } else {
+                    NamespaceAdapter adapter = namespaces.get(nsName);
+                    if (adapter != null) {
+                        adapter.fireServerEvent(event, client, args);
+                    }
                 }
-            } else {
-                NamespaceAdapter adapter = namespaces.get(nsName);
-                if (adapter != null) {
-                    adapter.fireServerEvent(event, client, args);
-                }
-            }
 
-            client.fireEvent(event, args);
+                client.fireEvent(event, args);
+            });
         });
     }
 
@@ -423,16 +450,16 @@ public class SocketIOServer {
         SocketIONamespace targetNs = ns != null ? ns : (nettyServer != null ? nettyServer.getNamespace("") : null);
         if (targetNs == null || room == null) return;
         Object[] payload = paraNettyArgs(data);
-
-        if (excludeSid == null) {
-            targetNs.getRoomOperations(room).sendEvent(event, payload);
-            return;
-        }
+        String zonaActual = ConexionDB.zonaActual();
+        String nsName = targetNs.getName() != null ? targetNs.getName() : "";
 
         for (com.corundumstudio.socketio.SocketIOClient c : targetNs.getRoomOperations(room).getClients()) {
-            if (!excludeSid.equals(c.getSessionId().toString()) && c.isChannelOpen()) {
-                c.sendEvent(event, payload);
-            }
+            String sid = c.getSessionId().toString();
+            if (excludeSid != null && excludeSid.equals(sid)) continue;
+            if (!c.isChannelOpen()) continue;
+            SocketIOClient wrapped = buscarCliente(nsName, sid);
+            if (wrapped != null && !zonaActual.equals(wrapped.getZona())) continue;
+            c.sendEvent(event, payload);
         }
     }
 
@@ -688,7 +715,12 @@ public class SocketIOServer {
 
         public void emit(String event, Object... data) {
             if (nettyNamespace == null) return;
-            nettyNamespace.getBroadcastOperations().sendEvent(event, paraNettyArgs(data));
+            String zonaActual = ConexionDB.zonaActual();
+            for (SocketIOClient client : sockets.values()) {
+                if (client.isConnected() && zonaActual.equals(client.getZona())) {
+                    client.emit(event, data);
+                }
+            }
         }
 
         public RoomEmitter to(String room) {

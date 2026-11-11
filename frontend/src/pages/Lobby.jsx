@@ -54,6 +54,11 @@ export default function Lobby() {
     const descartarNotificacion = useAppStore(state => state.descartarNotificacion);
     const setPushToken = useAppStore(state => state.setPushToken);
     const inMatch = matchState.inMatch;
+    const enZonaPruebas = Boolean(
+        currentUser?.en_zona_pruebas
+        || currentUser?.zona_activa === 'prueba'
+        || currentUser?.tipo_suscripcion === 'prueba'
+    );
     const esNavegadorWeb = !window.Capacitor?.isNativePlatform?.()
         && window.location?.protocol !== 'capacitor:';
 
@@ -148,6 +153,11 @@ export default function Lobby() {
             <aside className={`sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
                 <div className="profile-box">
                     <h3>{currentUser.username}</h3>
+                    {(enZonaPruebas || currentUser.tipo_suscripcion === 'admin') && (
+                        <div className={`zone-badge ${enZonaPruebas ? 'is-test' : 'is-normal'}`}>
+                            {enZonaPruebas ? '🧪 Zona de Pruebas' : '🟢 Zona Normal'}
+                        </div>
+                    )}
                     <div className="status-indicator">
                         <span className="status-dot"></span>
                         <span>{matchState.status === 'searching'
@@ -209,6 +219,18 @@ export default function Lobby() {
             </aside>
 
             <main className="chat-area">
+                {enZonaPruebas && (
+                    <div className="test-zone-banner" role="status">
+                        <span>
+                            🧪 <strong>Copia Temporal de Pruebas</strong> — Historial, saldo y partidas aislados en la base de pruebas.
+                        </span>
+                        {currentUser.tipo_suscripcion === 'admin' && location.pathname !== '/admin' && (
+                            <button type="button" className="test-zone-banner-btn" onClick={() => handleNavigation('/admin')}>
+                                Gestionar zona
+                            </button>
+                        )}
+                    </div>
+                )}
                 <Outlet />
             </main>
 

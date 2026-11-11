@@ -24,6 +24,28 @@
     margin: 0 0 10px 0;
     font-size: 1.25rem;
 }
+.zone-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: var(--radius-full);
+    font-size: 0.76rem;
+    font-weight: 700;
+    margin: 0 auto 8px;
+    border: 1px solid var(--border-color);
+}
+.zone-badge.is-test {
+    background: rgba(245, 158, 11, 0.16);
+    color: var(--accent-warning);
+    border-color: var(--accent-warning);
+}
+.zone-badge.is-normal {
+    background: rgba(16, 185, 129, 0.14);
+    color: var(--accent-success);
+    border-color: var(--accent-success);
+}
 .status-indicator {
     display: inline-flex;
     align-items: center;
@@ -215,6 +237,36 @@
     display: flex;
     flex-direction: column;
     overflow-y: auto;
+}
+.test-zone-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 8px 16px;
+    background: rgba(245, 158, 11, 0.14);
+    border-bottom: 1px solid var(--accent-warning);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+}
+.test-zone-banner strong {
+    color: var(--accent-warning);
+}
+.test-zone-banner-btn {
+    width: auto;
+    padding: 5px 12px;
+    font-size: 0.78rem;
+    border-radius: var(--radius-full);
+    background: var(--bg-surface-elevated);
+    color: var(--accent-warning);
+    border: 1px solid var(--accent-warning);
+    box-shadow: none;
+}
+.test-zone-banner-btn:hover {
+    background: var(--accent-warning);
+    color: #111827;
+    transform: none;
 }
 .mobile-menu-btn {
     display: none;

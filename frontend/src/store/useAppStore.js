@@ -76,6 +76,16 @@ export const useAppStore = create((set, get) => ({
         }
         return { ok, status };
     },
+    recargarZonaActiva: async () => {
+        set({
+            chatMessages: { general: [], anuncios: [], clash: [], clash_logs: [], pagos: [] },
+            notificaciones: [],
+            notificacionesSinLeer: {}
+        });
+        get().clearMatchState();
+        await get().sincronizarSesion();
+        await get().cargarNotificaciones();
+    },
     logout: () => {
         const { pushToken, pushTokenAnterior } = get();
         eliminarUsuarioPersistido();
@@ -415,6 +425,12 @@ export const useAppStore = create((set, get) => ({
         }));
         newSocket.on('rival_reconectado', () => get().setMatchState({ rivalDesconectado: null }));
         newSocket.on('match_cancelado', () => get().clearMatchState());
+        newSocket.on('zona_cambiada', () => {
+            void get().recargarZonaActiva();
+        });
+        newSocket.on('zona_pruebas_reiniciada', () => {
+            void get().recargarZonaActiva();
+        });
 
         // Desconexión por duplicidad de sesión
         newSocket.on('sesion_duplicada', (data) => {

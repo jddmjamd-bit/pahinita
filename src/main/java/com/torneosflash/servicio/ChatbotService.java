@@ -100,6 +100,7 @@ public class ChatbotService {
             "canales del chat y reglas de conducta",
             "notificaciones en vivo, puntos de mensajes nuevos y push del navegador",
             "seguridad de la cuenta y de los pagos",
+            "zona de pruebas (copia temporal con suscripción 'prueba' asignada solo por el administrador)",
             "soporte: cómo contactar al administrador");
 
     /** Preguntas base: se usan cuando la IA no está disponible o falla al generar una pregunta de entrenamiento. */
@@ -123,6 +124,7 @@ public class ChatbotService {
             "¿Cómo funciona el canal de voz de Discord desde el chat privado y durante la partida?",
             "¿Cómo puedo contactar al administrador si tengo un problema con un pago?",
             "¿Qué canales tiene el chat y para qué sirve cada uno?",
+            "¿Qué es la zona de pruebas o suscripción 'prueba' y quién puede activarla o borrar sus datos?",
             "¿Es seguro mi saldo y qué hago si creo que alguien entró a mi cuenta?");
 
     private static final String INSTRUCCIONES_BASE = """

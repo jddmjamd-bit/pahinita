@@ -8,7 +8,7 @@ import io.javalin.Javalin;
 import static com.torneosflash.servidor.RutasAuth.*;
 
 /**
- * Rutas de administración: transacciones, disputas, stats, fix-status.
+ * Rutas de administración: transacciones, disputas, stats, fix-status y control de la zona de pruebas.
  *
  * A3: solo parsean el request y llaman a {@link AdminService}.
  *
@@ -29,6 +29,34 @@ public class RutasAdmin {
 
         // GET /api/admin/stats
         app.get("/api/admin/stats", ctx -> ctx.json(admin.estadisticas(Peticion.userIdDeSesion(ctx))));
+
+        // GET /api/admin/test-zone (estado de la zona de pruebas, resumen de tablas y lista de suscripciones)
+        app.get("/api/admin/test-zone", ctx -> ctx.json(admin.estadoZonaPruebas(Peticion.userIdDeSesion(ctx))));
+
+        // POST /api/admin/users/subscription (cambiar tipo_suscripcion entre 'free' y 'prueba', exclusivo del admin)
+        app.post("/api/admin/users/subscription", ctx -> {
+            JsonObject body = parseBody(ctx);
+            String tipo = body.has("tipoSuscripcion") && !body.get("tipoSuscripcion").isJsonNull()
+                    ? Peticion.texto(body, "tipoSuscripcion")
+                    : Peticion.texto(body, "tipo_suscripcion");
+            ctx.json(admin.cambiarSuscripcionUsuario(
+                    Peticion.userIdDeSesion(ctx),
+                    Peticion.entero(body, "userId"),
+                    tipo));
+        });
+
+        // POST /api/admin/test-zone/switch (alternar zona activa del admin entre 'normal' y 'prueba')
+        app.post("/api/admin/test-zone/switch", ctx -> {
+            JsonObject body = parseBody(ctx);
+            ctx.json(admin.cambiarZonaAdmin(
+                    Peticion.userIdDeSesion(ctx),
+                    Peticion.texto(body, "zona")));
+        });
+
+        // POST /api/admin/test-zone/reset (borrar y reiniciar todos los datos de la zona de pruebas)
+        app.post("/api/admin/test-zone/reset", ctx -> {
+            ctx.json(admin.reiniciarZonaPruebas(Peticion.userIdDeSesion(ctx)));
+        });
 
         // GET /api/admin/clash-verifications (token visible solo para administradores)
         app.get("/api/admin/clash-verifications", ctx -> ctx.json(admin.verificacionesClashPendientes()));

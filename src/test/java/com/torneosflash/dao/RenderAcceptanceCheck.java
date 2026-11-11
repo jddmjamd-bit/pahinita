@@ -94,6 +94,7 @@ class RenderAcceptanceCheck {
     private static int adminId;
     private static int authUserId;
     private static String esquema;
+    private static String esquemaPruebas;
     private static String urlBaseJdbc;
     private static ConexionDB.EnlaceBD enlaceBase;
     private static String sslMode;
@@ -113,8 +114,10 @@ class RenderAcceptanceCheck {
         }
 
         esquema = "tf_qa_" + UUID.randomUUID().toString().replace("-", "");
+        esquemaPruebas = "tf_qap_" + UUID.randomUUID().toString().replace("-", "");
         urlBaseJdbc = enlaceBase.jdbcUrl;
         String urlEsquemaConCredenciales = conEsquema(url, esquema);
+        String urlEsquemaPruebasConCredenciales = conEsquema(url, esquemaPruebas);
         try (HikariDataSource adminDb = crearPool(urlBaseJdbc, enlaceBase, "torneos-qa-bootstrap")) {
             try (Connection c = adminDb.getConnection(); PreparedStatement ps = c.prepareStatement(
                     "CREATE SCHEMA \"" + esquema + "\"")) {
@@ -191,6 +194,7 @@ class RenderAcceptanceCheck {
             authUserId = crearUsuario("qa_login_" + sufijo, "user", BigDecimal.ZERO);
             dao.update("UPDATE users SET password = ? WHERE id = ?",
                     BCrypt.hashpw("ClaveSegura!123", BCrypt.gensalt(4)), authUserId);
+            conexion.configurarZonaPruebas(urlEsquemaPruebasConCredenciales, sslMode, 2);
         }
     }
 
@@ -208,9 +212,15 @@ class RenderAcceptanceCheck {
         // El nombre solo se compone del prefijo fijo y un UUID hex generado en este proceso.
         assertTrue(esquema.matches("tf_qa_[a-f0-9]{32}"));
         try (HikariDataSource adminDb = crearPool(urlBaseJdbc, enlaceBase, "torneos-qa-cleanup");
-             Connection c = adminDb.getConnection();
-             PreparedStatement ps = c.prepareStatement("DROP SCHEMA IF EXISTS \"" + esquema + "\" CASCADE")) {
-            ps.execute();
+             Connection c = adminDb.getConnection()) {
+            try (PreparedStatement ps = c.prepareStatement("DROP SCHEMA IF EXISTS \"" + esquema + "\" CASCADE")) {
+                ps.execute();
+            }
+            if (esquemaPruebas != null && esquemaPruebas.matches("tf_qap_[a-f0-9]{32}")) {
+                try (PreparedStatement psPruebas = c.prepareStatement("DROP SCHEMA IF EXISTS \"" + esquemaPruebas + "\" CASCADE")) {
+                    psPruebas.execute();
+                }
+            }
         }
     }
 
@@ -347,6 +357,28 @@ class RenderAcceptanceCheck {
             JsonObject primerUsuarioStats = statsJson.getAsJsonArray("listaUsuarios").get(0).getAsJsonObject();
             assertTrue(primerUsuarioStats.has("gen_sorteos"));
             assertTrue(primerUsuarioStats.has("comision_total_aportada"));
+
+            var estadoZonaAdminHttp = enviar(cliente, base, "GET", "/api/admin/test-zone",
+                    "session=" + tokenAdmin.valor(), null);
+            assertEquals(200, estadoZonaAdminHttp.statusCode());
+            JsonObject estadoZonaJson = JsonParser.parseString(estadoZonaAdminHttp.body()).getAsJsonObject();
+            assertTrue(estadoZonaJson.get("success").getAsBoolean());
+            assertTrue(estadoZonaJson.has("resumen"));
+
+            var cambiarSubHttp = enviar(cliente, base, "POST", "/api/admin/users/subscription",
+                    "session=" + tokenAdmin.valor(),
+                    "{\"userId\":" + idCuentaHttp + ",\"tipoSuscripcion\":\"prueba\"}");
+            assertEquals(200, cambiarSubHttp.statusCode());
+            var sesionEnPruebas = enviar(cliente, base, "GET", "/api/session", "session=" + tokenDos, null);
+            assertEquals(200, sesionEnPruebas.statusCode());
+            JsonObject userEnPruebas = JsonParser.parseString(sesionEnPruebas.body()).getAsJsonObject().getAsJsonObject("user");
+            assertEquals("prueba", userEnPruebas.get("zona_activa").getAsString());
+            assertTrue(userEnPruebas.get("en_zona_pruebas").getAsBoolean());
+
+            var restaurarSubHttp = enviar(cliente, base, "POST", "/api/admin/users/subscription",
+                    "session=" + tokenAdmin.valor(),
+                    "{\"userId\":" + idCuentaHttp + ",\"tipoSuscripcion\":\"free\"}");
+            assertEquals(200, restaurarSubHttp.statusCode());
 
             var logout = enviar(cliente, base, "POST", "/api/logout", "session=" + tokenRenovado, "{}");
             assertEquals(200, logout.statusCode());
@@ -1195,6 +1227,70 @@ class RenderAcceptanceCheck {
 
         tempSvc.desregistrarSala(salaTimer, salaMock);
         dao.update("DELETE FROM active_matches WHERE sala_id = ?", salaTimer);
+    }
+
+    @Test
+    void zonaDePruebasAislaOperacionesRestringeSuscripcionAlAdminYPermiteBorradoManual() {
+        String sufijo = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        int idTester = crearUsuario("qa_tester_" + sufijo, "free", new BigDecimal("50000"));
+
+        DbAdminService dbAdmin = new DbAdminService(dao, conexion, config);
+        assertEquals(400, assertThrows(ServicioException.class,
+                () -> dbAdmin.actualizarCelda("users", idTester, "tipo_suscripcion", "prueba")).getStatus());
+        assertEquals(400, assertThrows(ServicioException.class,
+                () -> dbAdmin.actualizarCelda("users", adminId, "zona_admin", "prueba")).getStatus());
+
+        JsonObject cambioSub = admin.cambiarSuscripcionUsuario(adminId, idTester, "prueba");
+        assertTrue(cambioSub.get("success").getAsBoolean());
+        assertEquals("prueba", usuarios.resolverZonaParaUsuario(idTester));
+
+        // En zona normal conserva sus $50.000 intactos; en la copia temporal arranca en $0 y opera por separado.
+        assertMonto(new BigDecimal("50000"),
+                dao.queryOne("SELECT saldo FROM users WHERE id = ?", idTester).get("saldo").getAsBigDecimal());
+
+        ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, () -> {
+            assertMonto(BigDecimal.ZERO,
+                    dao.queryOne("SELECT saldo FROM users WHERE id = ?", idTester).get("saldo").getAsBigDecimal());
+            dao.update("INSERT INTO messages (canal, autor_nombre, contenido, tipo) VALUES ('general', ?, 'mensaje aislado', 'texto')",
+                    "qa_tester_" + sufijo);
+            var inicio = finanzas.iniciarWompi(idTester, JsonParser.parseString("15000"));
+            String refWompi = inicio.get("reference").getAsString();
+            JsonObject txPrueba = dao.queryOne(
+                    "SELECT id FROM transactions WHERE usuario_id = ? AND referencia = ?",
+                    idTester, refWompi);
+            assertNotNull(txPrueba);
+            assertEquals("Aprobada", admin.procesarTransaccion(txPrueba.get("id").getAsInt(), "approve"));
+            assertMonto(new BigDecimal("15000"),
+                    dao.queryOne("SELECT saldo FROM users WHERE id = ?", idTester).get("saldo").getAsBigDecimal());
+        });
+
+        // Ninguna operación de la zona de pruebas contamina la base principal.
+        assertEquals(0L, dao.queryOne("SELECT COUNT(*) AS total FROM transactions WHERE usuario_id = ?", idTester)
+                .get("total").getAsLong());
+        assertMonto(new BigDecimal("50000"),
+                dao.queryOne("SELECT saldo FROM users WHERE id = ?", idTester).get("saldo").getAsBigDecimal());
+
+        // El admin puede cambiar de zona entre normal y prueba.
+        JsonObject switchPrueba = admin.cambiarZonaAdmin(adminId, "prueba");
+        assertEquals("prueba", switchPrueba.get("zona_activa").getAsString());
+        assertEquals("prueba", usuarios.resolverZonaParaUsuario(adminId));
+
+        JsonObject switchNormal = admin.cambiarZonaAdmin(adminId, "normal");
+        assertEquals("normal", switchNormal.get("zona_activa").getAsString());
+        assertEquals("normal", usuarios.resolverZonaParaUsuario(adminId));
+
+        // Al reiniciar manualmente la zona de pruebas, se borran los datos temporales y el saldo de prueba vuelve a 0.
+        JsonObject reset = admin.reiniciarZonaPruebas(adminId);
+        assertTrue(reset.get("success").getAsBoolean());
+        JsonObject resumenTrasReset = reset.getAsJsonObject("resumen");
+        assertEquals(0L, resumenTrasReset.get("messages").getAsLong());
+        assertEquals(0L, resumenTrasReset.get("transactions").getAsLong());
+        assertEquals(0L, resumenTrasReset.get("matches").getAsLong());
+
+        ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, () -> assertMonto(BigDecimal.ZERO,
+                dao.queryOne("SELECT saldo FROM users WHERE id = ?", idTester).get("saldo").getAsBigDecimal()));
+        assertMonto(new BigDecimal("50000"),
+                dao.queryOne("SELECT saldo FROM users WHERE id = ?", idTester).get("saldo").getAsBigDecimal());
     }
 
     private static String tagPruebaUnico() {

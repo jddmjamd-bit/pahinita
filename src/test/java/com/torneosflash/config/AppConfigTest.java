@@ -45,6 +45,8 @@ class AppConfigTest {
                 () -> assertEquals(30, config.getNegociacionGraciaDesconexionSegundos()),
                 () -> assertEquals(150, config.getNegociacionTimerAccionSegundos()),
                 () -> assertEquals("", config.getDatabaseUrl()),
+                () -> assertEquals("", config.getTestDatabaseUrl()),
+                () -> assertFalse(config.hasTestDatabaseUrl()),
                 () -> assertEquals("require", config.getDbSslMode()),
                 () -> assertEquals("0.0.0.0", config.getBindHost()),
                 () -> assertEquals(8_000_000, config.getWsMaxMessageBytes()),
@@ -74,6 +76,7 @@ class AppConfigTest {
         env.putAll(Map.ofEntries(
                 Map.entry("PORT", "65535"),
                 Map.entry("DATABASE_URL", "postgres://test_user:test_password@db.invalid:5432/torneosflash_test"),
+                Map.entry("TEST_DATABASE_URL", "postgres://test_user:test_password@db.invalid:5432/torneosflash_junit"),
                 Map.entry("DB_SSLMODE", "verify-full"),
                 Map.entry("CLASH_ROYALE_API_TOKEN", "fake-clash-token"),
                 Map.entry("FIREBASE_SERVICE_ACCOUNT", "{\"project_id\":\"unit-test\"}"),
@@ -164,6 +167,8 @@ class AppConfigTest {
         assertAll(
                 () -> assertEquals(65535, config.getPort()),
                 () -> assertEquals(env.get("DATABASE_URL"), config.getDatabaseUrl()),
+                () -> assertEquals(env.get("TEST_DATABASE_URL"), config.getTestDatabaseUrl()),
+                () -> assertTrue(config.hasTestDatabaseUrl()),
                 () -> assertEquals("verify-full", config.getDbSslMode()),
                 () -> assertEquals("fake-clash-token", config.getClashApiToken()),
                 () -> assertEquals(env.get("FIREBASE_SERVICE_ACCOUNT"), config.getFirebaseServiceAccount()),

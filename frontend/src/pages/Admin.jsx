@@ -41,7 +41,19 @@ export default function Admin() {
     const [verificacionesClash, setVerificacionesClash] = useState([]);
     const [loadingVerificacionesClash, setLoadingVerificacionesClash] = useState(false);
 
+    // Zona de pruebas (copia temporal respaldada por TEST_DATABASE_URL)
+    const [testZoneData, setTestZoneData] = useState(null);
+    const [loadingTestZone, setLoadingTestZone] = useState(false);
+    const [switchingZone, setSwitchingZone] = useState(false);
+    const [resettingTestZone, setResettingTestZone] = useState(false);
+    const [updatingSubUserId, setUpdatingSubUserId] = useState(null);
+    const [filtroUsuariosPrueba, setFiltroUsuariosPrueba] = useState('');
+
     const currentUser = useAppStore(state => state.user);
+    const recargarZonaActiva = useAppStore(state => state.recargarZonaActiva);
+    const zonaActivaAdmin = currentUser?.zona_activa
+        || (currentUser?.en_zona_pruebas ? 'prueba' : (currentUser?.zona_admin || 'normal'));
+    const enZonaPruebasAdmin = zonaActivaAdmin === 'prueba';
 
     useEffect(() => {
         if (currentUser?.tipo_suscripcion === 'admin') {
@@ -52,11 +64,13 @@ export default function Admin() {
                 cargarEstadisticasAdmin();
             } else if (view === 'clash-verifications') {
                 cargarVerificacionesClash();
+            } else if (view === 'test-zone') {
+                cargarZonaPruebasAdmin();
             } else {
                 setVerificacionesClash([]);
             }
         }
-    }, [view]);
+    }, [view, zonaActivaAdmin]);
 
     if (!currentUser || currentUser.tipo_suscripcion !== 'admin') {
         return <div style={{padding: 20, color: 'white', textAlign: 'center'}}>Acceso denegado.</div>;
@@ -213,6 +227,132 @@ export default function Admin() {
         }
     };
 
+    const cargarZonaPruebasAdmin = async () => {
+        setLoadingTestZone(true);
+        try {
+            const { ok, data } = await llamarApi('/api/admin/test-zone');
+            if (!ok || !data || data.error) {
+                console.error(data?.error || 'No se pudo cargar la zona de pruebas');
+                return;
+            }
+            setTestZoneData(data);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoadingTestZone(false);
+        }
+    };
+
+    const cambiarZonaAdmin = async (nuevaZona) => {
+        if (switchingZone || nuevaZona === zonaActivaAdmin) return;
+        setSwitchingZone(true);
+        try {
+            const { ok, data } = await llamarApi('/api/admin/test-zone/switch', {
+                method: 'POST',
+                body: JSON.stringify({ zona: nuevaZona })
+            });
+            if (!ok || !data?.success) {
+                alert('Error: ' + (data?.error || 'No se pudo cambiar de zona'));
+                return;
+            }
+            await recargarZonaActiva();
+            if (view === 'test-zone') {
+                await cargarZonaPruebasAdmin();
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error de conexión al cambiar de zona');
+        } finally {
+            setSwitchingZone(false);
+        }
+    };
+
+    const cambiarSuscripcionUsuario = async (usuario, nuevaSuscripcion) => {
+        if (!usuario?.id || updatingSubUserId) return;
+        const etiquetaDestino = nuevaSuscripcion === 'prueba' ? 'prueba (Copia Temporal)' : 'free (Zona Normal)';
+        if (!window.confirm(`¿Cambiar la suscripción de ${usuario.username} a '${etiquetaDestino}'?`)) return;
+        setUpdatingSubUserId(usuario.id);
+        try {
+            const { ok, data } = await llamarApi('/api/admin/users/subscription', {
+                method: 'POST',
+                body: JSON.stringify({
+                    userId: usuario.id,
+                    tipoSuscripcion: nuevaSuscripcion
+                })
+            });
+            if (!ok || !data?.success) {
+                alert('Error: ' + (data?.error || 'No se pudo actualizar la suscripción'));
+                return;
+            }
+            setTestZoneData(prev => prev ? {
+                ...prev,
+                usuarios: Array.isArray(prev.usuarios)
+                    ? prev.usuarios.map(u => Number(u.id) === Number(usuario.id)
+                        ? { ...u, tipo_suscripcion: nuevaSuscripcion }
+                        : u)
+                    : []
+            } : prev);
+            setStats(prev => prev ? {
+                ...prev,
+                listaUsuarios: Array.isArray(prev.listaUsuarios)
+                    ? prev.listaUsuarios.map(u => Number(u.id) === Number(usuario.id)
+                        ? { ...u, tipo_suscripcion: nuevaSuscripcion }
+                        : u)
+                    : []
+            } : prev);
+            if (view === 'test-zone') {
+                await cargarZonaPruebasAdmin();
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error de conexión');
+        } finally {
+            setUpdatingSubUserId(null);
+        }
+    };
+
+    const reiniciarDatosZonaPruebas = async () => {
+        if (resettingTestZone) return;
+        if (!window.confirm(
+            '⚠️ ¿Borrar TODOS los datos de la Copia Temporal de Pruebas?\n\n'
+            + '• Se vaciarán partidas, chat, recargas/retiros, sorteos, notificaciones y soporte de la base de pruebas.\n'
+            + '• Los saldos y estadísticas de prueba volverán a $0.\n'
+            + '• La base de datos principal (Zona Normal) NO se tocará.'
+        )) return;
+        setResettingTestZone(true);
+        try {
+            const { ok, data } = await llamarApi('/api/admin/test-zone/reset', {
+                method: 'POST'
+            });
+            if (!ok || !data?.success) {
+                alert('Error: ' + (data?.error || 'No se pudo reiniciar la zona de pruebas'));
+                return;
+            }
+            if (data.resumen) {
+                setTestZoneData(prev => prev ? { ...prev, resumen: data.resumen } : prev);
+            }
+            await recargarZonaActiva();
+            await cargarZonaPruebasAdmin();
+            if (enZonaPruebasAdmin && view === 'stats') {
+                await cargarEstadisticasAdmin();
+            }
+            alert(data.mensaje || 'Datos de la zona de pruebas eliminados.');
+        } catch (e) {
+            console.error(e);
+            alert('Error de conexión');
+        } finally {
+            setResettingTestZone(false);
+        }
+    };
+
+    const usuariosFiltradosPrueba = (testZoneData?.usuarios || []).filter(u => {
+        const q = filtroUsuariosPrueba.trim().toLowerCase();
+        if (!q) return true;
+        return (u.username || '').toLowerCase().includes(q)
+            || (u.email || '').toLowerCase().includes(q)
+            || (u.tipo_suscripcion || '').toLowerCase().includes(q);
+    });
+
     return (
         <div className="admin-container">
             <header className="admin-header">
@@ -220,11 +360,43 @@ export default function Admin() {
                 <div className="admin-tabs">
                     <button className={`admin-tab ${view === 'transactions' ? 'active' : ''}`} onClick={() => setView('transactions')}>💸 Pagos / Disputas</button>
                     <button className={`admin-tab ${view === 'stats' ? 'active' : ''}`} onClick={() => setView('stats')}>📊 Finanzas</button>
+                    <button className={`admin-tab ${view === 'test-zone' ? 'active' : ''}`} onClick={() => setView('test-zone')}>🧪 Zona de Pruebas</button>
                     <button className={`admin-tab ${view === 'chatbot' ? 'active' : ''}`} onClick={() => setView('chatbot')}>🤖 Chatbot</button>
                     <button className={`admin-tab ${view === 'soporte' ? 'active' : ''}`} onClick={() => setView('soporte')}>🎫 Soporte</button>
                     <button className={`admin-tab ${view === 'clash-verifications' ? 'active' : ''}`} onClick={() => setView('clash-verifications')}>⚔️ Verificar Clash</button>
                 </div>
             </header>
+
+            <section className={`admin-zone-bar ${enZonaPruebasAdmin ? 'is-test' : 'is-normal'}`} aria-label="Selector de zona del administrador">
+                <div className="admin-zone-info">
+                    <span className="admin-zone-pill">
+                        {enZonaPruebasAdmin ? '🧪 Operando en: ZONA DE PRUEBAS (Copia Temporal)' : '🟢 Operando en: ZONA NORMAL (Producción)'}
+                    </span>
+                    <small className="admin-zone-desc">
+                        {enZonaPruebasAdmin
+                            ? 'Todo lo que hagas o apruebes ahora usa la base de datos de pruebas JUnit (TEST_DATABASE_URL) y sus salas/chats aislados.'
+                            : 'Estás viendo y operando sobre la base de datos principal de producción.'}
+                    </small>
+                </div>
+                <div className="admin-zone-actions">
+                    <button
+                        type="button"
+                        className={`zone-switch-btn ${!enZonaPruebasAdmin ? 'active-normal' : ''}`}
+                        disabled={switchingZone || !enZonaPruebasAdmin}
+                        onClick={() => cambiarZonaAdmin('normal')}
+                    >
+                        🟢 Zona Normal
+                    </button>
+                    <button
+                        type="button"
+                        className={`zone-switch-btn ${enZonaPruebasAdmin ? 'active-test' : ''}`}
+                        disabled={switchingZone || enZonaPruebasAdmin}
+                        onClick={() => cambiarZonaAdmin('prueba')}
+                    >
+                        🧪 Zona de Pruebas
+                    </button>
+                </div>
+            </section>
 
             {view === 'transactions' && (
                 <div className="admin-view">
@@ -413,8 +585,31 @@ export default function Admin() {
                                     <div key={u.id} className="user-card">
                                         <div className="user-header-row">
                                             <div className="user-basic">
-                                                <span className="user-title-line">{u.tipo_suscripcion === 'admin' ? '👑' : '👤'} <strong>{u.username}</strong></span>
+                                                <span className="user-title-line">
+                                                    {u.tipo_suscripcion === 'admin' ? '👑' : u.tipo_suscripcion === 'prueba' ? '🧪' : '👤'}{' '}
+                                                    <strong>{u.username}</strong>{' '}
+                                                    <span className={`sub-badge sub-${u.tipo_suscripcion || 'free'}`}>
+                                                        {u.tipo_suscripcion || 'free'}
+                                                    </span>
+                                                </span>
                                                 <span className="user-email">{u.email}</span>
+                                                {u.tipo_suscripcion !== 'admin' && (
+                                                    <div className="user-sub-actions">
+                                                        <button
+                                                            type="button"
+                                                            className="sub-toggle-btn"
+                                                            disabled={updatingSubUserId === u.id}
+                                                            onClick={() => cambiarSuscripcionUsuario(
+                                                                u,
+                                                                u.tipo_suscripcion === 'prueba' ? 'free' : 'prueba'
+                                                            )}
+                                                        >
+                                                            {u.tipo_suscripcion === 'prueba'
+                                                                ? '🟢 Pasar a Normal (free)'
+                                                                : '🧪 Pasar a Copia de Pruebas (prueba)'}
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
                                             <div className="user-financials">
                                                 <div className="user-balance-line">Saldo: <span className="val-green">${formatearMonto(u.saldo)}</span></div>
@@ -451,6 +646,130 @@ export default function Admin() {
                                         </div>
                                     </div>
                                 ))}
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
+
+            {view === 'test-zone' && (
+                <div className="admin-view">
+                    <div className="section-header">
+                        <h3>🧪 Copia Temporal / Zona de Pruebas (Base JUnit)</h3>
+                        <button className="refresh-btn" onClick={cargarZonaPruebasAdmin}>🔄 Actualizar</button>
+                    </div>
+
+                    <div className="test-zone-explainer">
+                        <p>
+                            Los usuarios con suscripción <code>prueba</code> entran automáticamente a esta copia temporal respaldada por la base de datos de pruebas de JUnit (<code>TEST_DATABASE_URL</code>). Su saldo, historial de chat, partidas, transacciones, sorteos y rankings funcionan de forma totalmente independiente de producción.
+                        </p>
+                        <p>
+                            <strong>Nota:</strong> El cambio de <code>tipo_suscripcion</code> a <code>prueba</code> (o de regreso a <code>free</code>) está restringido exclusivamente a este panel de administración. Los datos de prueba se conservan hasta que uses el botón de borrado manual.
+                        </p>
+                    </div>
+
+                    {loadingTestZone || !testZoneData ? (
+                        <p>Cargando estado de la zona de pruebas...</p>
+                    ) : (
+                        <>
+                            <div className="stats-summary">
+                                <div className="stat-box">
+                                    <small>Usuarios en Copia</small>
+                                    <h2 className="stat-amount-warning">{testZoneData.resumen?.usuarios_en_copia ?? 0}</h2>
+                                </div>
+                                <div className="stat-box">
+                                    <small>Partidas de Prueba</small>
+                                    <h2 className="stat-amount-primary">{testZoneData.resumen?.matches ?? 0}</h2>
+                                </div>
+                                <div className="stat-box">
+                                    <small>Mensajes de Chat</small>
+                                    <h2 className="stat-amount-success">{testZoneData.resumen?.messages ?? 0}</h2>
+                                </div>
+                                <div className="stat-box">
+                                    <small>Transacciones / Sorteos</small>
+                                    <h2 className="stat-amount-warning">
+                                        {(testZoneData.resumen?.transactions ?? 0)} / {(testZoneData.resumen?.raffles ?? 0)}
+                                    </h2>
+                                </div>
+                            </div>
+
+                            <div className="test-zone-reset-card">
+                                <div>
+                                    <h4>🗑️ Reiniciar / Borrar datos de la Zona de Pruebas</h4>
+                                    <p>
+                                        Vacía el historial de chat, partidas, transacciones, sorteos, notificaciones, soporte y evidencias de la copia temporal y reinicia los saldos/estadísticas de prueba a $0 sin afectar la Zona Normal.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    className="btn-reject test-zone-reset-btn"
+                                    disabled={resettingTestZone}
+                                    onClick={reiniciarDatosZonaPruebas}
+                                >
+                                    {resettingTestZone ? 'Borrando...' : '🗑️ Borrar datos de prueba'}
+                                </button>
+                            </div>
+
+                            <div className="section-header" style={{ marginTop: 28 }}>
+                                <h4>👥 Suscripción de Usuarios (Normal vs Prueba)</h4>
+                                <input
+                                    type="search"
+                                    className="test-zone-search"
+                                    placeholder="Buscar por usuario, correo o suscripción..."
+                                    value={filtroUsuariosPrueba}
+                                    onChange={e => setFiltroUsuariosPrueba(e.target.value)}
+                                />
+                            </div>
+
+                            <div className="admin-list users-list">
+                                {usuariosFiltradosPrueba.length === 0 ? (
+                                    <p className="empty">No se encontraron usuarios.</p>
+                                ) : usuariosFiltradosPrueba.map(u => {
+                                    const esAdmin = u.tipo_suscripcion === 'admin';
+                                    const esPrueba = u.tipo_suscripcion === 'prueba';
+                                    return (
+                                        <div key={u.id} className="test-zone-user-row">
+                                            <div className="user-basic">
+                                                <span className="user-title-line">
+                                                    {esAdmin ? '👑' : esPrueba ? '🧪' : '👤'}{' '}
+                                                    <strong>{u.username}</strong>{' '}
+                                                    <span className={`sub-badge sub-${u.tipo_suscripcion || 'free'}`}>
+                                                        {u.tipo_suscripcion || 'free'}
+                                                    </span>
+                                                </span>
+                                                <span className="user-email">
+                                                    {u.email} · Saldo principal: ${formatearMonto(u.saldo)}
+                                                </span>
+                                            </div>
+                                            <div className="test-zone-user-actions">
+                                                {esAdmin ? (
+                                                    <span className="admin-zone-note">
+                                                        Admin (zona actual: <strong>{u.zona_admin || 'normal'}</strong>)
+                                                    </span>
+                                                ) : (
+                                                    <>
+                                                        <button
+                                                            type="button"
+                                                            className={`zone-switch-btn ${!esPrueba ? 'active-normal' : ''}`}
+                                                            disabled={updatingSubUserId === u.id || !esPrueba}
+                                                            onClick={() => cambiarSuscripcionUsuario(u, 'free')}
+                                                        >
+                                                            🟢 Normal (free)
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className={`zone-switch-btn ${esPrueba ? 'active-test' : ''}`}
+                                                            disabled={updatingSubUserId === u.id || esPrueba}
+                                                            onClick={() => cambiarSuscripcionUsuario(u, 'prueba')}
+                                                        >
+                                                            🧪 Prueba (copia)
+                                                        </button>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         </>
                     )}

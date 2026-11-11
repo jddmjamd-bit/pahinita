@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — UltimateClash (TorneosFlash)
 
 > Documento de referencia para que cualquier modelo o desarrollador entienda el sistema.
-> Última actualización: 2026-10-29
+> Última actualización: 2026-11-10
 
 ---
 
@@ -107,7 +107,7 @@ TorneosFlash/
 │       ├── SocketIOServer.java      # Parseo de paquetes Engine.IO/Socket.IO
 │       └── SocketIOClient.java      # Wrapper del cliente WS
 ├── src/main/resources/
-│   └── db/migration/                # Migraciones Flyway V1–V22; V22 añade avisos persistentes y snapshots de rankings
+│   └── db/migration/                # Migraciones Flyway V1–V23; V23 añade zona_admin para la Copia Temporal de Pruebas
 ├── agent/rules/                     # Reglas para modelos IA
 │   ├── auto-push.md
 │   └── project-conventions.md       # ← NUEVO
@@ -865,6 +865,20 @@ El formulario React envía el token solo al registrar y limpia el campo después
 
 La imagen bloquea el deploy si falla `npm run build`, los contratos automáticos del frontend o `mvn clean verify`. En cada inicio, `scripts/run-deploy-tests.sh` ejecuta JUnit antes de `Main`: primero valida que `TEST_DATABASE_URL` sea distinta de `DATABASE_URL` y verifica Flyway en su esquema `public`; después ejecuta `RenderAcceptanceCheck`.
 
-`RenderAcceptanceCheck` crea un esquema efímero `tf_qa_<uuid>` dentro de la base dedicada de pruebas, migra el esquema desde cero y ejecuta 27 pruebas con datos sintéticos. Cubre servicios y rutas HTTP de sesión, permisos, recuperación, correos de alta y ganador de sorteo, rate limit, voz opcional desde sala privada, temporizadores de negociación (gracia, exención única Discord y reloj individual 2:30) y panel de DB, además de backup temporal, pagos/ledger, partidas/disputas, leaderboard, chatbot simulado, soporte, sorteos, evidencias y migraciones. Cierra sus servidores/pools, elimina el backup temporal y elimina únicamente los esquemas cuyo nombre generó. Las credenciales Wompi y de Clash usadas por el test son ficticias; el chatbot usa una respuesta simulada; no se hacen llamadas externas ni se usan usuarios de producción. `cleanDisabled=true` permanece activo.
+`RenderAcceptanceCheck` crea esquemas efímeros `tf_qa_<uuid>` y `tf_qap_<uuid>` dentro de la base dedicada de pruebas, migra el esquema desde cero y ejecuta 28 pruebas con datos sintéticos. Cubre servicios y rutas HTTP de sesión, permisos, recuperación, correos de alta y ganador de sorteo, rate limit, voz opcional desde sala privada, temporizadores de negociación (gracia, exención única Discord y reloj individual 2:30), aislamiento de la Zona de Pruebas (`prueba` vs `normal`) y panel de DB, además de backup temporal, pagos/ledger, partidas/disputas, leaderboard, chatbot simulado, soporte, sorteos, evidencias y migraciones. Cierra sus servidores/pools, elimina el backup temporal y elimina únicamente los esquemas cuyo nombre generó. Las credenciales Wompi y de Clash usadas por el test son ficticias; el chatbot usa una respuesta simulada; no se hacen llamadas externas ni se usan usuarios de producción. `cleanDisabled=true` permanece activo.
 
 La cobertura y sus límites están enumerados caso por caso en `GUIA_PRUEBAS_Y_VARIABLES.md`. Los recorridos que necesitan requests/cookies HTTP reales, browser visual, sockets en vivo, proveedores externos o herramientas de restore permanecen manuales; las pruebas de servicio no se presentan como cobertura de esos límites.
+
+---
+
+## 24. Zona de Pruebas / Copia Temporal (`tipo_suscripcion = 'prueba'` y `TEST_DATABASE_URL`)
+
+Permite operar una copia temporal completamente aislada que reutiliza la base de datos de las pruebas de JUnit (`TEST_DATABASE_URL`, con fallback automático al esquema `tf_zona_pruebas` si en desarrollo local no se definió `TEST_DATABASE_URL`):
+
+- **Asignación exclusiva desde `/admin`:** un usuario entra a la copia temporal únicamente cuando su `users.tipo_suscripcion` en la base principal es `'prueba'`. El cambio entre `'free'` y `'prueba'` solo puede realizarse desde el Panel de Administración (`POST /api/admin/users/subscription`); `DbAdminService` bloquea asignar `'prueba'` o editar `zona_admin` desde `/admin-db`.
+- **Selector de zona para el administrador:** las cuentas con `tipo_suscripcion = 'admin'` conservan en `users.zona_admin` (`V23`, `'normal'` por defecto) la zona en la que están operando y pueden alternar en vivo entre `normal` y `prueba` desde `/admin` (`POST /api/admin/test-zone/switch`).
+- **Aislamiento de base de datos, hilos y tiempo real:**
+  - `UsuarioDAO` mantiene siempre la autenticación, el registro, las sesiones (`user_sessions`) y la recuperación de contraseña en la base principal (`conexionPrincipal()`).
+  - `ConexionDB` enruta `getConnection()` según el `ThreadLocal` de zona (`ZONA_NORMAL` vs `ZONA_PRUEBA`) y sincroniza la fila del usuario (`sincronizarUsuarioConPruebas`, conservando el mismo `id` y arrancando con saldo `$0` en pruebas sin tocar su saldo real).
+  - `AuthMiddleware` resuelve y activa la zona del usuario autenticado en cada petición `/api/*`; `Ejecutores` propaga la zona activa a los pools `io`, `push`, `cpu` y `timers`; `SocketIOClient` y `SocketIOServer` aíslan los eventos y emisiones por zona; `SocketHandler` y `TemporizadorSalaService` mantienen colas de búsqueda, salas privadas, partidas activas y conteo de usuarios conectados separados por zona.
+- **Persistencia hasta borrado manual del admin:** los datos de la zona de pruebas (mensajes, partidas, transacciones, `wallet_ledger`, sorteos, tickets, rankings, notificaciones, soporte y evidencias) permanecen guardados hasta que el administrador pulsa el botón de reinicio en `/admin` (`POST /api/admin/test-zone/reset`), que vacía las tablas de negocio de la base de pruebas y restablece los saldos/estadísticas de prueba a `$0` sin afectar `flyway_schema_history` ni la base de producción.

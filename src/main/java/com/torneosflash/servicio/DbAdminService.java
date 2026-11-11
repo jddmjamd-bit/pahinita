@@ -13,17 +13,25 @@ import java.util.*;
 import java.util.regex.Pattern;
 
 /**
- * Operaciones del panel de administración de la base de datos: ver tablas, editar celdas, insertar,
- * borrar, exportar e importar (A3). Antes todo este SQL estaba dentro de {@code RutasDbAdmin}.
+ * Operaciones del panel de administración de la base de datos: ver tablas,
+ * editar celdas, insertar,
+ * borrar, exportar e importar (A3). Antes todo este SQL estaba dentro de
+ * {@code RutasDbAdmin}.
  *
- * El acceso al panel (clave, bloqueo por IP, cabeceras) sigue en {@code RutasDbAdmin}: es protocolo HTTP,
- * no lógica de negocio. Aquí todo nombre de tabla/columna que venga del request se valida contra
- * {@code information_schema} y contra {@link #IDENTIFICADOR_SQL} antes de citarlo en un SQL, y todas las
+ * El acceso al panel (clave, bloqueo por IP, cabeceras) sigue en
+ * {@code RutasDbAdmin}: es protocolo HTTP,
+ * no lógica de negocio. Aquí todo nombre de tabla/columna que venga del request
+ * se valida contra
+ * {@code information_schema} y contra {@link #IDENTIFICADOR_SQL} antes de
+ * citarlo en un SQL, y todas las
  * consultas usan exclusivamente {@link PreparedStatement} (S4, S10).
  */
 public class DbAdminService {
 
-    /** Orden de inserción al importar (respeta dependencias); al borrar se recorre al revés. */
+    /**
+     * Orden de inserción al importar (respeta dependencias); al borrar se recorre
+     * al revés.
+     */
     private static final String[] ORDEN_TABLAS_IMPORT = {
             "users", "messages", "matches", "transactions", "admin_wallet",
             "user_tokens", "user_tickets", "raffles", "raffle_entries"
@@ -33,26 +41,38 @@ public class DbAdminService {
     private static final Pattern IDENTIFICADOR_SQL = Pattern.compile("^[a-zA-Z_][a-zA-Z0-9_]*$");
 
     private final GenericDAO db;
+    private final ConexionDB conexion;
     private final PostgresBackupService backups;
 
     /**
-     * A5: tabla donde Flyway guarda el historial de migraciones. El panel no la muestra ni la deja tocar:
-     * editarla desde la web podría hacer que Flyway rehaga o salte migraciones. Además no tiene columna id,
+     * A5: tabla donde Flyway guarda el historial de migraciones. El panel no la
+     * muestra ni la deja tocar:
+     * editarla desde la web podría hacer que Flyway rehaga o salte migraciones.
+     * Además no tiene columna id,
      * así que ORDER BY id (ver, exportar) fallaría con ella.
      */
     private static final String TABLA_FLYWAY = "flyway_schema_history";
-    /** JTI son credenciales de sesión; el editor genérico no debe exponerlas ni permitir revocarlas indirectamente. */
+    /**
+     * JTI son credenciales de sesión; el editor genérico no debe exponerlas ni
+     * permitir revocarlas indirectamente.
+     */
     private static final String TABLA_SESIONES = "user_sessions";
-    /** Los hashes de los tokens de recuperación también son credenciales temporales. */
+    /**
+     * Los hashes de los tokens de recuperación también son credenciales temporales.
+     */
     private static final String TABLA_RECUPERACION_PASSWORD = "password_reset_tokens";
-    /** D3 / M4: El ledger financiero es inmutable; solo se permite lectura en el panel DB. */
+    /**
+     * D3 / M4: El ledger financiero es inmutable; solo se permite lectura en el
+     * panel DB.
+     */
     private static final String TABLA_LEDGER = "wallet_ledger";
     private static final String MASCARA_PASSWORD = "[HASH_PROTEGIDO]";
-    private static final Set<String> TABLAS_NO_IMPORTABLES =
-            Set.of("users", "transactions", "admin_wallet", "wallet_ledger", "user_tokens");
+    private static final Set<String> TABLAS_NO_IMPORTABLES = Set.of("users", "transactions", "admin_wallet",
+            "wallet_ledger", "user_tokens");
 
     public DbAdminService(GenericDAO db, ConexionDB conexion, AppConfig config) {
         this.db = db;
+        this.conexion = conexion;
         this.backups = new PostgresBackupService(conexion, config);
     }
 
@@ -74,7 +94,10 @@ public class DbAdminService {
         T ejecutar() throws Exception;
     }
 
-    /** Ejecuta {@code op}; cualquier fallo que no sea de negocio sale como 500 con el mensaje (como antes). */
+    /**
+     * Ejecuta {@code op}; cualquier fallo que no sea de negocio sale como 500 con
+     * el mensaje (como antes).
+     */
     private static <T> T conErrores(Operacion<T> op) {
         try {
             return op.ejecutar();
@@ -89,15 +112,19 @@ public class DbAdminService {
     // Lectura
     // ------------------------------------------------------------------
 
-    /** Lista las tablas del esquema activo de la conexión con su número de filas. En producción es {@code public}. */
+    /**
+     * Lista las tablas del esquema activo de la conexión con su número de filas. En
+     * producción es {@code public}.
+     */
     public JsonArray listarTablas() {
         return conErrores(() -> {
             try (Connection conn = db.getConnection()) {
                 JsonArray tables = new JsonArray();
                 for (String tableName : nombresDeTablas(conn)) {
                     String tablaCitada = citarIdentificador(tableName);
-                    try (PreparedStatement countPs = conn.prepareStatement("SELECT COUNT(*) as count FROM " + tablaCitada);
-                         ResultSet countRs = countPs.executeQuery()) {
+                    try (PreparedStatement countPs = conn
+                            .prepareStatement("SELECT COUNT(*) as count FROM " + tablaCitada);
+                            ResultSet countRs = countPs.executeQuery()) {
                         countRs.next();
                         JsonObject t = new JsonObject();
                         t.addProperty("name", tableName);
@@ -151,6 +178,15 @@ public class DbAdminService {
                 throw ServicioException.prohibido(
                         "El saldo no se puede editar directamente en la BD (rompe wallet_ledger). Usa /api/deposit");
             }
+            if ("users".equalsIgnoreCase(tableName) && "tipo_suscripcion".equalsIgnoreCase(column)
+                    && value != null && ConexionDB.SUSCRIPCION_PRUEBA.equalsIgnoreCase(value.trim())) {
+                throw ServicioException.prohibido(
+                        "El tipo de suscripción 'prueba' solo puede asignarse desde el panel de administración (/admin)");
+            }
+            if ("users".equalsIgnoreCase(tableName) && "zona_admin".equalsIgnoreCase(column)) {
+                throw ServicioException.prohibido(
+                        "La zona activa del administrador solo puede cambiarse desde el panel de administración (/admin)");
+            }
             if ("users".equalsIgnoreCase(tableName) && "password".equalsIgnoreCase(column)
                     && MASCARA_PASSWORD.equals(value)) {
                 return null; // No sobrescribir el hash real con la máscara visual
@@ -170,6 +206,9 @@ public class DbAdminService {
                     setTypedParam(updatePs, 1, finalVal, dataType);
                     updatePs.setInt(2, id);
                     updatePs.executeUpdate();
+                }
+                if ("users".equalsIgnoreCase(tableName) && conexion != null) {
+                    conexion.invalidarCacheUsuario(id);
                 }
                 return null;
             }
@@ -195,9 +234,11 @@ public class DbAdminService {
 
     public void insertarFila(String tableName, JsonObject body) {
         if (TABLA_LEDGER.equalsIgnoreCase(tableName)) {
-            throw ServicioException.prohibido("La tabla wallet_ledger solo admite registros generados por WalletService");
+            throw ServicioException
+                    .prohibido("La tabla wallet_ledger solo admite registros generados por WalletService");
         }
-        if ("users".equalsIgnoreCase(tableName) && body != null && body.has("saldo") && !body.get("saldo").isJsonNull()) {
+        if ("users".equalsIgnoreCase(tableName) && body != null && body.has("saldo")
+                && !body.get("saldo").isJsonNull()) {
             String rawSaldo = body.get("saldo").getAsString().trim();
             if (!rawSaldo.isEmpty() && new BigDecimal(rawSaldo).compareTo(BigDecimal.ZERO) != 0) {
                 throw ServicioException.prohibido(
@@ -250,8 +291,10 @@ public class DbAdminService {
     // ------------------------------------------------------------------
 
     /**
-     * Exporta el subconjunto de tablas que este panel puede restaurar de forma segura.
-     * No es un backup completo: excluye usuarios, datos financieros, tokens y tablas no soportadas.
+     * Exporta el subconjunto de tablas que este panel puede restaurar de forma
+     * segura.
+     * No es un backup completo: excluye usuarios, datos financieros, tokens y
+     * tablas no soportadas.
      */
     public JsonObject exportar() {
         return conErrores(() -> {
@@ -286,7 +329,8 @@ public class DbAdminService {
     }
 
     /**
-     * Importa un respaldo parcial: borra e inserta las tablas incluidas dentro de una transacción.
+     * Importa un respaldo parcial: borra e inserta las tablas incluidas dentro de
+     * una transacción.
      * Cualquier tabla, columna o fila no válida cancela la operación completa.
      *
      * @return número de filas insertadas
@@ -298,7 +342,8 @@ public class DbAdminService {
             }
             Set<String> tablasPermitidas = new HashSet<>(Arrays.asList(ORDEN_TABLAS_IMPORT));
             for (String tabla : data.keySet()) {
-                if ("_meta".equals(tabla)) continue;
+                if ("_meta".equals(tabla))
+                    continue;
                 if (TABLAS_NO_IMPORTABLES.contains(tabla)) {
                     throw ServicioException.prohibido(
                             "El panel no puede restaurar usuarios, tokens push ni datos financieros. "
@@ -318,18 +363,21 @@ public class DbAdminService {
             try (Connection conn = db.getConnection()) {
                 conn.setAutoCommit(false);
                 try {
-                    // M4: Borrar e insertar dentro de UNA sola transacción SQL para no dejar tablas vacías si algo falla
+                    // M4: Borrar e insertar dentro de UNA sola transacción SQL para no dejar tablas
+                    // vacías si algo falla
                     for (int i = ORDEN_TABLAS_IMPORT.length - 1; i >= 0; i--) {
                         String tabla = ORDEN_TABLAS_IMPORT[i];
                         if (data.has(tabla)) {
-                            try (PreparedStatement delPs = conn.prepareStatement("DELETE FROM " + citarIdentificador(tabla))) {
+                            try (PreparedStatement delPs = conn
+                                    .prepareStatement("DELETE FROM " + citarIdentificador(tabla))) {
                                 delPs.executeUpdate();
                             }
                         }
                     }
 
                     for (String tabla : ORDEN_TABLAS_IMPORT) {
-                        if (!data.has(tabla)) continue;
+                        if (!data.has(tabla))
+                            continue;
 
                         String tablaCitada = citarIdentificador(tabla);
                         Map<String, String> columnasValidas = tiposDeColumna(conn, tabla);
@@ -340,41 +388,43 @@ public class DbAdminService {
                                         "El respaldo contiene una fila no válida en la tabla " + tabla);
                             }
                             JsonObject row = elem.getAsJsonObject();
-                        StringBuilder cols = new StringBuilder();
-                        StringBuilder ph = new StringBuilder();
-                        List<String> vals = new ArrayList<>();
-                        List<String> types = new ArrayList<>();
-                        for (String key : row.keySet()) {
-                            if (!columnasValidas.containsKey(key)) {
+                            StringBuilder cols = new StringBuilder();
+                            StringBuilder ph = new StringBuilder();
+                            List<String> vals = new ArrayList<>();
+                            List<String> types = new ArrayList<>();
+                            for (String key : row.keySet()) {
+                                if (!columnasValidas.containsKey(key)) {
+                                    throw ServicioException.solicitudInvalida(
+                                            "El respaldo contiene una columna no válida en la tabla " + tabla + ": "
+                                                    + key);
+                                }
+                                if (cols.length() > 0) {
+                                    cols.append(", ");
+                                    ph.append(", ");
+                                }
+                                cols.append(citarIdentificador(key));
+                                ph.append("?");
+                                vals.add(row.get(key).isJsonNull() ? null : row.get(key).getAsString());
+                                types.add(columnasValidas.get(key));
+                            }
+                            if (vals.isEmpty()) {
                                 throw ServicioException.solicitudInvalida(
-                                        "El respaldo contiene una columna no válida en la tabla " + tabla + ": " + key);
+                                        "El respaldo contiene una fila vacía en la tabla " + tabla);
                             }
-                            if (cols.length() > 0) {
-                                cols.append(", ");
-                                ph.append(", ");
-                            }
-                            cols.append(citarIdentificador(key));
-                            ph.append("?");
-                            vals.add(row.get(key).isJsonNull() ? null : row.get(key).getAsString());
-                            types.add(columnasValidas.get(key));
-                        }
-                        if (vals.isEmpty()) {
-                            throw ServicioException.solicitudInvalida(
-                                    "El respaldo contiene una fila vacía en la tabla " + tabla);
-                        }
 
-                        try (PreparedStatement ps = conn.prepareStatement(
-                                "INSERT INTO " + tablaCitada + " (" + cols + ") VALUES (" + ph + ")")) {
-                            for (int j = 0; j < vals.size(); j++) {
-                                setTypedParam(ps, j + 1, vals.get(j), types.get(j));
+                            try (PreparedStatement ps = conn.prepareStatement(
+                                    "INSERT INTO " + tablaCitada + " (" + cols + ") VALUES (" + ph + ")")) {
+                                for (int j = 0; j < vals.size(); j++) {
+                                    setTypedParam(ps, j + 1, vals.get(j), types.get(j));
+                                }
+                                ps.executeUpdate();
+                                totalInserted++;
                             }
-                            ps.executeUpdate();
-                            totalInserted++;
                         }
                     }
-                }
 
-                    // S4: Resetear secuencias usando PreparedStatement en lugar de Statement.execute()
+                    // S4: Resetear secuencias usando PreparedStatement en lugar de
+                    // Statement.execute()
                     for (String tabla : ORDEN_TABLAS_IMPORT) {
                         if (data.has(tabla)) {
                             String tablaCitada = citarIdentificador(tabla);
@@ -390,10 +440,16 @@ public class DbAdminService {
                     }
                     conn.commit();
                 } catch (Exception e) {
-                    try { conn.rollback(); } catch (SQLException ignored) {}
+                    try {
+                        conn.rollback();
+                    } catch (SQLException ignored) {
+                    }
                     throw e;
                 } finally {
-                    try { conn.setAutoCommit(true); } catch (SQLException ignored) {}
+                    try {
+                        conn.setAutoCommit(true);
+                    } catch (SQLException ignored) {
+                    }
                 }
             }
             return totalInserted;
@@ -412,16 +468,20 @@ public class DbAdminService {
             ps.setString(2, TABLA_SESIONES);
             ps.setString(3, TABLA_RECUPERACION_PASSWORD);
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) nombres.add(rs.getString("table_name"));
+                while (rs.next())
+                    nombres.add(rs.getString("table_name"));
             }
         }
         return nombres;
     }
 
     /**
-     * S4 / D1 / M4: Todas las filas de una tabla usando {@link PreparedStatement}, conservando {@link BigDecimal},
-     * ordenando por {@code id} si la tabla lo tiene (o por su primera columna en tablas como {@code raffle_votes}
-     * o {@code discord_links}) y enmascarando el hash {@code password} de {@code users}.
+     * S4 / D1 / M4: Todas las filas de una tabla usando {@link PreparedStatement},
+     * conservando {@link BigDecimal},
+     * ordenando por {@code id} si la tabla lo tiene (o por su primera columna en
+     * tablas como {@code raffle_votes}
+     * o {@code discord_links}) y enmascarando el hash {@code password} de
+     * {@code users}.
      */
     private static JsonArray filasDeTabla(Connection conn, String tableName) throws SQLException {
         String tablaCitada = citarIdentificador(tableName);
@@ -433,7 +493,7 @@ public class DbAdminService {
 
         JsonArray rows = new JsonArray();
         try (PreparedStatement dataPs = conn.prepareStatement("SELECT * FROM " + tablaCitada + " ORDER BY " + colOrden);
-             ResultSet dataRs = dataPs.executeQuery()) {
+                ResultSet dataRs = dataPs.executeQuery()) {
             ResultSetMetaData meta = dataRs.getMetaData();
             while (dataRs.next()) {
                 JsonObject row = new JsonObject();
@@ -444,11 +504,16 @@ public class DbAdminService {
                         continue;
                     }
                     Object val = dataRs.getObject(i);
-                    if (val == null) row.addProperty(colName, (String) null);
-                    else if (val instanceof BigDecimal) row.addProperty(colName, (BigDecimal) val); // REVIEW-MONEY
-                    else if (val instanceof Number) row.addProperty(colName, (Number) val);
-                    else if (val instanceof byte[]) row.addProperty(colName, "[BYTEA " + ((byte[]) val).length + " bytes]");
-                    else row.addProperty(colName, val.toString());
+                    if (val == null)
+                        row.addProperty(colName, (String) null);
+                    else if (val instanceof BigDecimal)
+                        row.addProperty(colName, (BigDecimal) val); // REVIEW-MONEY
+                    else if (val instanceof Number)
+                        row.addProperty(colName, (Number) val);
+                    else if (val instanceof byte[])
+                        row.addProperty(colName, "[BYTEA " + ((byte[]) val).length + " bytes]");
+                    else
+                        row.addProperty(colName, val.toString());
                 }
                 rows.add(row);
             }
@@ -456,7 +521,10 @@ public class DbAdminService {
         return rows;
     }
 
-    /** Lanza 400 si la tabla no existe en el esquema activo. Todo nombre de tabla del request pasa por aquí. */
+    /**
+     * Lanza 400 si la tabla no existe en el esquema activo. Todo nombre de tabla
+     * del request pasa por aquí.
+     */
     private static void exigirTablaValida(Connection conn, String tableName) throws SQLException {
         if (tableName == null || !IDENTIFICADOR_SQL.matcher(tableName).matches()) {
             throw ServicioException.solicitudInvalida("Tabla no válida");
@@ -491,7 +559,8 @@ public class DbAdminService {
     }
 
     /**
-     * Cita un identificador de tabla o columna tras verificar que cumple {@link #IDENTIFICADOR_SQL}.
+     * Cita un identificador de tabla o columna tras verificar que cumple
+     * {@link #IDENTIFICADOR_SQL}.
      */
     private static String citarIdentificador(String identificador) {
         if (identificador == null || !IDENTIFICADOR_SQL.matcher(identificador).matches()) {
@@ -500,8 +569,12 @@ public class DbAdminService {
         return "\"" + identificador + "\"";
     }
 
-    /** Setea un parámetro del PreparedStatement según el tipo de dato real de la columna. */
-    private static void setTypedParam(PreparedStatement ps, int index, String value, String dataType) throws SQLException {
+    /**
+     * Setea un parámetro del PreparedStatement según el tipo de dato real de la
+     * columna.
+     */
+    private static void setTypedParam(PreparedStatement ps, int index, String value, String dataType)
+            throws SQLException {
         if (value == null || value.isEmpty()) {
             int sqlType;
             switch (dataType) {

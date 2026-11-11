@@ -3,21 +3,30 @@ package com.torneosflash.servicio;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import com.torneosflash.dao.ConexionDB;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.dao.UsuarioDAO;
 import com.torneosflash.eventos.EventBus;
 import com.torneosflash.eventos.Eventos;
 import com.torneosflash.servicio.WalletService.LiquidacionResult;
+import com.torneosflash.servidor.SocketHandler;
 import com.torneosflash.socketio.SocketIOClient;
 import com.torneosflash.socketio.SocketIOServer;
 
 import java.math.BigDecimal;
 import java.net.URI;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 /**
- * Lógica del panel de administración: transacciones pendientes, disputas, estadísticas y utilidades (A3).
+ * Lógica del panel de administración: transacciones pendientes, disputas, estadísticas,
+ * control de la zona de pruebas y utilidades (A3).
  * Antes vivía en {@code RutasAdmin}. No conoce HTTP.
  * D1: Todo monto y saldo se maneja con {@link BigDecimal} (nunca {@code double}).
  */
@@ -30,6 +39,9 @@ public class AdminService {
     private final NotificadorUsuarios notificador;
     private final SocketIOServer io;
     private final CifradoTokenJugador cifradoTokenJugador;
+    private ConexionDB conexion;
+    private SocketHandler socketHandler;
+    private LeaderboardService leaderboardService;
 
     public AdminService(GenericDAO db, UsuarioDAO usuarioDAO, WalletService wallet, EventBus eventos,
                         NotificadorUsuarios notificador, SocketIOServer io) {
@@ -45,6 +57,24 @@ public class AdminService {
         this.notificador = notificador;
         this.io = io;
         this.cifradoTokenJugador = cifradoTokenJugador;
+        this.conexion = usuarioDAO != null ? usuarioDAO.getConexionDB() : null;
+    }
+
+    public void setConexionDB(ConexionDB conexion) {
+        this.conexion = conexion;
+    }
+
+    public void setSocketHandler(SocketHandler socketHandler) {
+        this.socketHandler = socketHandler;
+    }
+
+    public void setLeaderboardService(LeaderboardService leaderboardService) {
+        this.leaderboardService = leaderboardService;
+    }
+
+    private ConexionDB obtenerConexion() {
+        if (conexion != null) return conexion;
+        return usuarioDAO != null ? usuarioDAO.getConexionDB() : null;
     }
 
     // ------------------------------------------------------------------
@@ -92,7 +122,13 @@ public class AdminService {
                         "WHERE id = ? AND player_tag_verificado = FALSE " +
                         "AND player_verification_token_ciphertext IS NOT NULL",
                 adminUserId, userId);
-        if (filas == 1) return;
+        if (filas == 1) {
+            ConexionDB connDb = obtenerConexion();
+            if (connDb != null && connDb.tieneZonaPruebas()) {
+                connDb.sincronizarUsuarioConPruebas(userId);
+            }
+            return;
+        }
 
         JsonObject usuario = db.queryOne("SELECT player_tag_verificado FROM users WHERE id = ?", userId);
         if (usuario == null) throw ServicioException.noEncontrado("No se encontró esa cuenta");
@@ -109,6 +145,10 @@ public class AdminService {
     // REVIEW-MONEY
     public JsonObject estadisticas(int adminUserId) {
         JsonObject stats = new JsonObject();
+        ConexionDB connDb = obtenerConexion();
+        stats.addProperty("zonaActiva", ConexionDB.zonaActual());
+        stats.addProperty("enZonaPruebas", ConexionDB.esZonaPrueba());
+        stats.addProperty("zonaPruebasDisponible", connDb != null && connDb.tieneZonaPruebas());
 
         // Dinero en circulación = suma de saldos de todos los usuarios // REVIEW-MONEY
         JsonObject saldoSum = db.queryOne("SELECT COALESCE(SUM(saldo),0) as total FROM users");
@@ -177,6 +217,300 @@ public class AdminService {
 
         stats.addProperty("usuariosOnline", io != null ? io.getSockets().size() : 0);
         return stats;
+    }
+
+    // ------------------------------------------------------------------
+    // Zona de Pruebas / Copia Temporal (respaldada por TEST_DATABASE_URL)
+    // ------------------------------------------------------------------
+
+    /**
+     * Devuelve el estado completo de la zona de pruebas, la zona en la que está operando el admin
+     * y el listado de usuarios con su {@code tipo_suscripcion} para cambiarlos entre {@code free} y {@code prueba}.
+     */
+    public JsonObject estadoZonaPruebas(int adminUserId) {
+        ConexionDB connDb = obtenerConexion();
+        boolean disponible = connDb != null && connDb.tieneZonaPruebas();
+        String zonaActiva = ConexionDB.zonaActual();
+        if (connDb != null && adminUserId > 0) {
+            zonaActiva = connDb.resolverZonaUsuario(adminUserId);
+        }
+
+        JsonObject res = new JsonObject();
+        res.addProperty("disponible", disponible);
+        res.addProperty("zonaActiva", zonaActiva);
+        res.addProperty("enZonaPruebas", ConexionDB.ZONA_PRUEBA.equals(zonaActiva));
+        res.add("resumen", connDb != null ? connDb.resumenZonaPruebas() : new JsonObject());
+
+        Map<Integer, BigDecimal> saldosPrueba = new HashMap<>();
+        if (disponible) {
+            try (Connection connPrueba = connDb.getConnectionPruebas();
+                 PreparedStatement ps = connPrueba.prepareStatement("SELECT id, saldo FROM users");
+                 ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    BigDecimal s = rs.getBigDecimal("saldo");
+                    saldosPrueba.put(rs.getInt("id"), s != null ? s : BigDecimal.ZERO);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        JsonArray usuariosArr = new JsonArray();
+        if (connDb != null) {
+            try (Connection connPrin = connDb.getConnectionPrincipal();
+                 PreparedStatement ps = connPrin.prepareStatement(
+                         "SELECT id, username, email, player_tag, saldo, tipo_suscripcion, zona_admin, estado " +
+                         "FROM users ORDER BY id ASC");
+                 ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    int id = rs.getInt("id");
+                    String tipo = rs.getString("tipo_suscripcion");
+                    JsonObject u = new JsonObject();
+                    u.addProperty("id", id);
+                    u.addProperty("username", rs.getString("username"));
+                    u.addProperty("email", rs.getString("email"));
+                    u.addProperty("player_tag", rs.getString("player_tag"));
+                    BigDecimal saldoReal = rs.getBigDecimal("saldo");
+                    u.addProperty("saldo", saldoReal != null ? saldoReal : BigDecimal.ZERO);
+                    u.addProperty("saldo_prueba", saldosPrueba.getOrDefault(id, BigDecimal.ZERO));
+                    u.addProperty("tipo_suscripcion", tipo != null ? tipo : ConexionDB.SUSCRIPCION_FREE);
+                    u.addProperty("zona_admin", rs.getString("zona_admin"));
+                    u.addProperty("estado", rs.getString("estado"));
+                    u.addProperty("en_copia_pruebas", saldosPrueba.containsKey(id));
+                    usuariosArr.add(u);
+                }
+            } catch (Exception e) {
+                throw ServicioException.interno("No se pudo consultar el listado de usuarios para la zona de pruebas", e);
+            }
+        } else {
+            ArrayList<JsonObject> filas = db.query(
+                    "SELECT id, username, email, player_tag, saldo, tipo_suscripcion, estado FROM users ORDER BY id ASC");
+            for (JsonObject fila : filas) {
+                usuariosArr.add(fila);
+            }
+        }
+        res.add("usuarios", usuariosArr);
+        return res;
+    }
+
+    /**
+     * Cambia {@code users.tipo_suscripcion} de un usuario exclusivamente entre {@code free} y {@code prueba}.
+     * Solo puede invocarse desde el panel de administración ({@code /admin}).
+     */
+    public JsonObject cambiarSuscripcionUsuario(int adminUserId, int targetUserId, String tipoSuscripcionCrudo) {
+        if (adminUserId <= 0 || targetUserId <= 0) {
+            throw ServicioException.solicitudInvalida("Usuario no válido");
+        }
+        if (adminUserId == targetUserId) {
+            throw ServicioException.solicitudInvalida(
+                    "Una cuenta administradora no cambia su rol; usa el selector de zona del panel para alternar entre normal y prueba");
+        }
+        if (tipoSuscripcionCrudo == null || tipoSuscripcionCrudo.isBlank()) {
+            throw ServicioException.solicitudInvalida("Debes indicar el tipo de suscripción ('free' o 'prueba')");
+        }
+        String nuevoTipo = tipoSuscripcionCrudo.trim().toLowerCase(Locale.ROOT);
+        if (!ConexionDB.SUSCRIPCION_FREE.equals(nuevoTipo) && !ConexionDB.SUSCRIPCION_PRUEBA.equals(nuevoTipo)) {
+            throw ServicioException.solicitudInvalida("El tipo de suscripción solo puede ser 'free' o 'prueba'");
+        }
+
+        ConexionDB connDb = obtenerConexion();
+        if (ConexionDB.SUSCRIPCION_PRUEBA.equals(nuevoTipo) && connDb != null && !connDb.tieneZonaPruebas()) {
+            throw ServicioException.solicitudInvalida("La zona de pruebas no está habilitada en este servidor");
+        }
+
+        if (connDb != null) {
+            String tipoActual;
+            String username;
+            try (Connection connPrin = connDb.getConnectionPrincipal()) {
+                try (PreparedStatement sel = connPrin.prepareStatement(
+                        "SELECT username, tipo_suscripcion, sala_actual FROM users WHERE id = ?")) {
+                    sel.setInt(1, targetUserId);
+                    try (ResultSet rs = sel.executeQuery()) {
+                        if (!rs.next()) {
+                            throw ServicioException.noEncontrado("No se encontró el usuario solicitado");
+                        }
+                        username = rs.getString("username");
+                        tipoActual = rs.getString("tipo_suscripcion");
+                        String salaPrincipal = rs.getString("sala_actual");
+                        if (ConexionDB.SUSCRIPCION_ADMIN.equalsIgnoreCase(tipoActual)) {
+                            throw ServicioException.prohibido("No se puede modificar la suscripción de otro administrador");
+                        }
+                        if (salaPrincipal != null && !salaPrincipal.isBlank()
+                                && !ConexionDB.SUSCRIPCION_PRUEBA.equalsIgnoreCase(tipoActual)) {
+                            throw ServicioException.solicitudInvalida(
+                                    "El usuario tiene una sala o partida activa en la zona normal; espera a que termine antes de pasarlo a prueba");
+                        }
+                    }
+                }
+
+                if (ConexionDB.SUSCRIPCION_PRUEBA.equalsIgnoreCase(tipoActual) && connDb.tieneZonaPruebas()) {
+                    try (Connection connPrueba = connDb.getConnectionPruebas();
+                         PreparedStatement psPrueba = connPrueba.prepareStatement(
+                                 "SELECT sala_actual FROM users WHERE id = ?")) {
+                        psPrueba.setInt(1, targetUserId);
+                        try (ResultSet rsP = psPrueba.executeQuery()) {
+                            if (rsP.next()) {
+                                String salaPrueba = rsP.getString("sala_actual");
+                                if (salaPrueba != null && !salaPrueba.isBlank()
+                                        && !ConexionDB.SUSCRIPCION_PRUEBA.equals(nuevoTipo)) {
+                                    throw ServicioException.solicitudInvalida(
+                                            "El usuario tiene una sala o partida activa en la zona de pruebas; espera a que termine antes de cambiar su suscripción");
+                                }
+                            }
+                        }
+                    }
+                }
+
+                try (PreparedStatement upd = connPrin.prepareStatement(
+                        "UPDATE users SET tipo_suscripcion = ? WHERE id = ? AND tipo_suscripcion <> 'admin'")) {
+                    upd.setString(1, nuevoTipo);
+                    upd.setInt(2, targetUserId);
+                    if (upd.executeUpdate() != 1) {
+                        throw ServicioException.solicitudInvalida("No se pudo actualizar la suscripción del usuario");
+                    }
+                }
+            } catch (ServicioException e) {
+                throw e;
+            } catch (Exception e) {
+                throw ServicioException.interno("No se pudo actualizar el tipo de suscripción", e);
+            }
+
+            connDb.invalidarCacheUsuario(targetUserId);
+            connDb.sincronizarUsuarioConPruebas(targetUserId);
+            String nuevaZona = ConexionDB.SUSCRIPCION_PRUEBA.equals(nuevoTipo)
+                    ? ConexionDB.ZONA_PRUEBA : ConexionDB.ZONA_NORMAL;
+            if (socketHandler != null) {
+                socketHandler.notificarCambioZonaUsuario(targetUserId, nuevaZona);
+            }
+
+            JsonObject res = new JsonObject();
+            res.addProperty("success", true);
+            res.addProperty("userId", targetUserId);
+            res.addProperty("username", username);
+            res.addProperty("tipoSuscripcion", nuevoTipo);
+            res.addProperty("zonaAsignada", nuevaZona);
+            res.addProperty("message", ConexionDB.SUSCRIPCION_PRUEBA.equals(nuevoTipo)
+                    ? "Usuario " + username + " asignado a suscripción 'prueba' (entrará a la copia temporal)"
+                    : "Usuario " + username + " devuelto a suscripción 'free' (zona normal)");
+            return res;
+        }
+
+        // Fallback para pruebas unitarias con GenericDAO mockeado sin ConexionDB
+        JsonObject actual = db.queryOne("SELECT id, username, tipo_suscripcion FROM users WHERE id = ?", targetUserId);
+        if (actual == null) {
+            throw ServicioException.noEncontrado("No se encontró el usuario solicitado");
+        }
+        String tipoActual = actual.has("tipo_suscripcion") && !actual.get("tipo_suscripcion").isJsonNull()
+                ? actual.get("tipo_suscripcion").getAsString() : "";
+        if (ConexionDB.SUSCRIPCION_ADMIN.equalsIgnoreCase(tipoActual)) {
+            throw ServicioException.prohibido("No se puede modificar la suscripción de otro administrador");
+        }
+        int filas = db.update("UPDATE users SET tipo_suscripcion = ? WHERE id = ?", nuevoTipo, targetUserId);
+        if (filas != 1) {
+            throw ServicioException.solicitudInvalida("No se pudo actualizar la suscripción del usuario");
+        }
+        JsonObject res = new JsonObject();
+        res.addProperty("success", true);
+        res.addProperty("userId", targetUserId);
+        res.addProperty("tipoSuscripcion", nuevoTipo);
+        res.addProperty("zonaAsignada", ConexionDB.SUSCRIPCION_PRUEBA.equals(nuevoTipo)
+                ? ConexionDB.ZONA_PRUEBA : ConexionDB.ZONA_NORMAL);
+        res.addProperty("message", "Suscripción actualizada a '" + nuevoTipo + "'");
+        return res;
+    }
+
+    /**
+     * Permite al administrador elegir en qué zona operar ({@code normal} o {@code prueba}).
+     */
+    public JsonObject cambiarZonaAdmin(int adminUserId, String zonaCruda) {
+        if (adminUserId <= 0) {
+            throw ServicioException.noAutenticado("Inicia sesión como administrador");
+        }
+        if (zonaCruda == null || zonaCruda.isBlank()) {
+            throw ServicioException.solicitudInvalida("Debes indicar la zona ('normal' o 'prueba')");
+        }
+        String zonaLimpia = zonaCruda.trim().toLowerCase(Locale.ROOT);
+        if (!ConexionDB.ZONA_NORMAL.equals(zonaLimpia) && !ConexionDB.ZONA_PRUEBA.equals(zonaLimpia)) {
+            throw ServicioException.solicitudInvalida("La zona solo puede ser 'normal' o 'prueba'");
+        }
+
+        ConexionDB connDb = obtenerConexion();
+        if (ConexionDB.ZONA_PRUEBA.equals(zonaLimpia) && connDb != null && !connDb.tieneZonaPruebas()) {
+            throw ServicioException.solicitudInvalida("La zona de pruebas no está habilitada en este servidor");
+        }
+
+        if (connDb != null) {
+            try (Connection connPrin = connDb.getConnectionPrincipal();
+                 PreparedStatement ps = connPrin.prepareStatement(
+                         "UPDATE users SET zona_admin = ? WHERE id = ? AND tipo_suscripcion = 'admin'")) {
+                ps.setString(1, zonaLimpia);
+                ps.setInt(2, adminUserId);
+                if (ps.executeUpdate() != 1) {
+                    throw ServicioException.prohibido("Solo un administrador puede cambiar de zona");
+                }
+            } catch (ServicioException e) {
+                throw e;
+            } catch (Exception e) {
+                throw ServicioException.interno("No se pudo cambiar la zona activa del administrador", e);
+            }
+            connDb.invalidarCacheUsuario(adminUserId);
+            connDb.sincronizarUsuarioConPruebas(adminUserId);
+            ConexionDB.fijarZonaActual(zonaLimpia);
+            if (socketHandler != null) {
+                socketHandler.notificarCambioZonaUsuario(adminUserId, zonaLimpia);
+            }
+        } else {
+            int filas = db.update("UPDATE users SET zona_admin = ? WHERE id = ? AND tipo_suscripcion = 'admin'",
+                    zonaLimpia, adminUserId);
+            if (filas != 1) {
+                throw ServicioException.prohibido("Solo un administrador puede cambiar de zona");
+            }
+            ConexionDB.fijarZonaActual(zonaLimpia);
+        }
+
+        JsonObject res = new JsonObject();
+        res.addProperty("success", true);
+        res.addProperty("zonaActiva", zonaLimpia);
+        res.addProperty("zona_activa", zonaLimpia);
+        res.addProperty("enZonaPruebas", ConexionDB.ZONA_PRUEBA.equals(zonaLimpia));
+        res.addProperty("en_zona_pruebas", ConexionDB.ZONA_PRUEBA.equals(zonaLimpia));
+        String msg = ConexionDB.ZONA_PRUEBA.equals(zonaLimpia)
+                ? "Ahora estás operando en la Zona de Pruebas (copia temporal)"
+                : "Ahora estás operando en la Zona Normal (producción)";
+        res.addProperty("message", msg);
+        res.addProperty("mensaje", msg);
+        return res;
+    }
+
+    /**
+     * Borra todos los datos acumulados en la zona de pruebas (mensajes, partidas, transacciones, sorteos,
+     * saldos y estadísticas de prueba) por decisión explícita del administrador y vuelve a sincronizar las
+     * cuentas con suscripción {@code prueba} y {@code admin} con saldo 0.
+     */
+    public JsonObject reiniciarZonaPruebas(int adminUserId) {
+        if (adminUserId <= 0) {
+            throw ServicioException.noAutenticado("Inicia sesión como administrador");
+        }
+        ConexionDB connDb = obtenerConexion();
+        if (connDb == null || !connDb.tieneZonaPruebas()) {
+            throw ServicioException.solicitudInvalida("La zona de pruebas no está configurada");
+        }
+
+        try {
+            connDb.reiniciarDatosZonaPruebas();
+        } catch (Exception e) {
+            throw ServicioException.interno("No se pudieron borrar los datos de la zona de pruebas", e);
+        }
+        if (socketHandler != null) {
+            socketHandler.limpiarEstadoZonaPrueba();
+        }
+
+        JsonObject res = new JsonObject();
+        res.addProperty("success", true);
+        String msg = "Todos los datos de la zona de pruebas fueron borrados y reiniciados.";
+        res.addProperty("message", msg);
+        res.addProperty("mensaje", msg);
+        res.add("resumen", connDb.resumenZonaPruebas());
+        return res;
     }
 
     // ------------------------------------------------------------------
@@ -310,11 +644,14 @@ public class AdminService {
 
     /**
      * S3: ¿este usuario es admin AHORA? Lo consulta {@code AdminMiddleware} en cada petición a una ruta de admin.
-     * Lee {@code users.tipo_suscripcion} de la BD (no el claim {@code rol} del JWT, que puede estar viejo).
+     * Lee {@code users.tipo_suscripcion} de la BD principal (no el claim {@code rol} del JWT, que puede estar viejo).
      * Cualquier duda (id inválido, usuario inexistente, error de BD) devuelve false.
      */
     public boolean esAdmin(int userId) {
         if (userId <= 0) return false;
+        if (usuarioDAO != null && usuarioDAO.getConexionDB() != null) {
+            return usuarioDAO.esAdminEnPrincipal(userId);
+        }
         JsonObject fila = db.queryOne("SELECT tipo_suscripcion FROM users WHERE id = ?", userId);
         if (fila == null || !fila.has("tipo_suscripcion") || fila.get("tipo_suscripcion").isJsonNull()) {
             return false;
@@ -334,10 +671,10 @@ public class AdminService {
     /** IP pública de salida del servidor (la que hay que autorizar en servicios externos). Con timeout de 5 s (A8). */
     public String ipPublicaServidor() {
         try {
-            java.net.URLConnection conexion = new URI("https://api.ipify.org").toURL().openConnection();
-            conexion.setConnectTimeout(5000);
-            conexion.setReadTimeout(5000);
-            try (java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(conexion.getInputStream()))) {
+            java.net.URLConnection conexionUrl = new URI("https://api.ipify.org").toURL().openConnection();
+            conexionUrl.setConnectTimeout(5000);
+            conexionUrl.setReadTimeout(5000);
+            try (java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(conexionUrl.getInputStream()))) {
                 return in.readLine();
             }
         } catch (Exception e) {

@@ -2,6 +2,7 @@ package com.torneosflash.servidor;
 
 import com.google.gson.*;
 import com.torneosflash.config.AppConfig;
+import com.torneosflash.dao.ConexionDB;
 import com.torneosflash.servicio.DbAdminService;
 import io.javalin.Javalin;
 import io.javalin.http.Context;
@@ -115,6 +116,7 @@ public class RutasDbAdmin {
         // --- API: la clave viaja en el header X-DB-Admin-Key ---
         app.before("/api/db-admin/*", ctx -> {
             if ("OPTIONS".equalsIgnoreCase(ctx.req().getMethod())) return; // preflight CORS
+            ConexionDB.fijarZonaActual(ConexionDB.ZONA_NORMAL);
             if (!habilitado) {
                 ctx.status(404).json(errorJson("No disponible"));
                 ctx.skipRemainingHandlers();

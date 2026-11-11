@@ -25,6 +25,7 @@ public class AppConfig {
     // --- Atributos privados (ENCAPSULAMIENTO) ---
     private final int port;
     private final String databaseUrl;
+    private final String testDatabaseUrl;
     private final String dbSslMode;
     private final String clashApiToken;
     private final String firebaseServiceAccount;
@@ -150,6 +151,7 @@ public class AppConfig {
         this.environment = Collections.unmodifiableMap(Map.copyOf(environment));
         this.port = getEnvEntero("PORT", 5000, 1, 65535);
         this.databaseUrl = getEnv("DATABASE_URL", "");
+        this.testDatabaseUrl = getEnv("TEST_DATABASE_URL", "").trim();
         // S10: modo SSL de la conexión a la BD (require | verify-ca | verify-full).
         // Opcional; default require.
         this.dbSslMode = getEnv("DB_SSLMODE", "require");
@@ -522,6 +524,14 @@ public class AppConfig {
 
     public String getDatabaseUrl() {
         return databaseUrl;
+    }
+
+    public String getTestDatabaseUrl() {
+        return testDatabaseUrl;
+    }
+
+    public boolean hasTestDatabaseUrl() {
+        return !testDatabaseUrl.isEmpty();
     }
 
     public String getDbSslMode() {

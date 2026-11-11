@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-10 — Zona de Pruebas aislada para administración y aceptación JUnit (Codex)
+- Añadida una Zona de Pruebas separada de producción para las cuentas con suscripción `prueba`, con selector de zona para administradores, datos y actividad aislados, y reinicio manual desde el panel.
+- Añadida la migración `V23` y la sincronización de cuentas entre la base normal y la copia de pruebas; las sesiones, rutas y sockets respetan la zona activa sin mezclar saldos ni partidas.
+- Extendidas las pruebas de servicio y contratos frontend, y la aceptación de PostgreSQL con esquemas aislados y copia temporal persistente en `TEST_DATABASE_URL`.
+- **Verificación:** `.\mvnw.cmd test` (64 pruebas JUnit) pasó localmente.
+Archivos: `V23__zona_pruebas_y_suscripcion_prueba.sql`, `ConexionDB.java`, `AdminService.java`, `Admin.jsx`, `Lobby.jsx`, `RenderAcceptanceCheck.java`, `AdminServiceTest.java`, `GUIA_PRUEBAS_Y_VARIABLES.md`
+
 ## 2026-11-10 — Estudio de Mercado y Guion de Demo del MVP para Fase 3 de Execute the Idea 2026 (Gemini 4 Argon)
 - Elaborado el **Estudio de Mercado (Entregable 03 · Fase 3)** de máximo 2 páginas en formato PDF listo para entrega (`UltimateClash_EstudioDeMercado_Execute2026.pdf`), plantilla HTML imprimible (`UltimateClash_EstudioDeMercado_Execute2026.html`) y documento Markdown (`Estudio_de_Mercado_UltimateClash.md`) dentro de `contexto para competencia/nuevos entregables/`.
 - Alineadas las 8 secciones obligatorias de `Execute_Fase3_Entregables.pdf` (1. Problema y cliente, 2. TAM, 3. SAM, 4. SOM a 1–3 años, 5. Validación del piloto de 15 días con 35 usuarios, 6. Competencia formal e informal en WhatsApp, 7. Precio escalonado 10%–25% con 75% de devolución y VIP, 8. Canal y CAC de $1.80 USD/registro y $18 USD/pagador) con el One Pager (`videp pitch/UltimateClash_OnePager_Execute2026.pdf`) y con las reglas reales de la plataforma, sin exponer nombres internos de archivos o tablas de código en el documento comercial.

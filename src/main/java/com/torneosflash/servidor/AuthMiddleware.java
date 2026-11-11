@@ -1,6 +1,7 @@
 package com.torneosflash.servidor;
 
 import com.torneosflash.config.AppConfig;
+import com.torneosflash.dao.ConexionDB;
 import com.torneosflash.dao.UsuarioDAO;
 import com.torneosflash.servicio.JwtServicio;
 import com.torneosflash.servicio.ServicioException;
@@ -15,7 +16,8 @@ import java.util.function.Consumer;
 /**
  * Middleware de autenticación.
  * Lee la cookie httpOnly, verifica el JWT y el JTI persistido y, si la sesión sigue activa,
- * inyecta {@code ctx.attribute("userId")} y {@code ctx.attribute("rol")}.
+ * inyecta {@code ctx.attribute("userId")}, {@code ctx.attribute("rol")} y activa la zona
+ * de base de datos correspondiente al usuario ({@code normal} o {@code prueba}).
  */
 public class AuthMiddleware {
     private static final Logger logger = LoggerFactory.getLogger(AuthMiddleware.class);
@@ -23,6 +25,7 @@ public class AuthMiddleware {
     public static final String COOKIE_SESION = "session";
     public static final String ATTR_USER_ID = "userId";
     public static final String ATTR_ROL = "rol";
+    public static final String ATTR_ZONA = "zona";
     private static final String ATTR_JTI = "sessionJti";
 
     private static final String COOKIE_LEGACY = "userId";
@@ -38,6 +41,7 @@ public class AuthMiddleware {
         usuarioDAO = usuarios;
 
         app.before(ctx -> {
+            ConexionDB.limpiarZonaActual();
             if (!ctx.path().startsWith("/api/")) return;
             String token = leerCookie(ctx.header("Cookie"), COOKIE_SESION);
             if (token == null) return;
@@ -59,7 +63,11 @@ public class AuthMiddleware {
             ctx.attribute(ATTR_USER_ID, sesion.userId());
             ctx.attribute(ATTR_ROL, sesion.rol());
             ctx.attribute(ATTR_JTI, sesion.jti());
+            String zona = usuarioDAO.resolverZonaYActivarParaUsuario(sesion.userId());
+            ctx.attribute(ATTR_ZONA, zona);
         });
+
+        app.after(ctx -> ConexionDB.limpiarZonaActual());
     }
 
     /** Conecta la revocación HTTP con los sockets que siguen abiertos en esa sesión. */
@@ -75,8 +83,21 @@ public class AuthMiddleware {
         return ctx.attribute(ATTR_ROL);
     }
 
+    public static String getZona(Context ctx) {
+        String zona = ctx.attribute(ATTR_ZONA);
+        return zona != null ? zona : ConexionDB.zonaActual();
+    }
+
     public static String getJti(Context ctx) {
         return ctx.attribute(ATTR_JTI);
+    }
+
+    /** Resuelve la zona activa ({@code normal} o {@code prueba}) para un usuario autenticado. */
+    public static String zonaActivaDeUsuario(Integer userId) {
+        if (userId == null || userId <= 0 || usuarioDAO == null) {
+            return ConexionDB.ZONA_NORMAL;
+        }
+        return usuarioDAO.resolverZonaParaUsuario(userId);
     }
 
     public static void iniciarSesion(Context ctx, int userId, String rol) {

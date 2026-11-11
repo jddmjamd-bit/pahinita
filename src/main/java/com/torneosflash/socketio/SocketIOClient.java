@@ -1,6 +1,7 @@
 package com.torneosflash.socketio;
 
 import com.google.gson.JsonObject;
+import com.torneosflash.dao.ConexionDB;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,6 +37,7 @@ public class SocketIOClient {
     // S2: userId verificado desde la cookie httpOnly JWT durante el handshake
     private Integer authenticatedUserId;
     private String authenticatedSessionJti;
+    private volatile String zona = ConexionDB.ZONA_NORMAL;
 
     public SocketIOClient(
             String sid,
@@ -52,6 +54,7 @@ public class SocketIOClient {
         this.busquedaNotifId = null;
         this.authenticatedUserId = null;
         this.authenticatedSessionJti = null;
+        this.zona = ConexionDB.ZONA_NORMAL;
     }
 
     /** Registra un listener de evento para este socket y asegura su registro en el namespace de Netty. */
@@ -155,6 +158,9 @@ public class SocketIOClient {
     public void setAuthenticatedUserId(Integer authenticatedUserId) { this.authenticatedUserId = authenticatedUserId; }
     public String getAuthenticatedSessionJti() { return authenticatedSessionJti; }
     public void setAuthenticatedSessionJti(String authenticatedSessionJti) { this.authenticatedSessionJti = authenticatedSessionJti; }
+
+    public String getZona() { return ConexionDB.normalizarZona(zona); }
+    public void setZona(String zona) { this.zona = ConexionDB.normalizarZona(zona); }
 
     public String getCurrentRoom() { return currentRoom; }
     public void setCurrentRoom(String currentRoom) { this.currentRoom = currentRoom; }

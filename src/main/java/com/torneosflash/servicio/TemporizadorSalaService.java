@@ -2,6 +2,7 @@ package com.torneosflash.servicio;
 
 import com.google.gson.JsonObject;
 import com.torneosflash.config.AppConfig;
+import com.torneosflash.dao.ConexionDB;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.eventos.EventBus;
 import com.torneosflash.eventos.Eventos;
@@ -81,7 +82,8 @@ public class TemporizadorSalaService {
     private final SocketIOServer io;
     private final AppConfig config;
     private final ScheduledExecutorService scheduler;
-    private final ConcurrentHashMap<String, SalaNegociacion> salasActivas = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, SalaNegociacion> salasActivasNormal = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, SalaNegociacion> salasActivasPrueba = new ConcurrentHashMap<>();
 
     public TemporizadorSalaService(GenericDAO db, SocketIOServer io, AppConfig config,
                                    ScheduledExecutorService scheduler) {
@@ -89,6 +91,10 @@ public class TemporizadorSalaService {
         this.io = io;
         this.config = config;
         this.scheduler = scheduler;
+    }
+
+    private ConcurrentHashMap<String, SalaNegociacion> salasActivas() {
+        return ConexionDB.esZonaPrueba() ? salasActivasPrueba : salasActivasNormal;
     }
 
     /** Se suscribe al bus para escuchar cuando un jugador abre Discord desde su sala privada. */
@@ -100,7 +106,7 @@ public class TemporizadorSalaService {
 
     public void registrarSala(String salaId, SalaNegociacion sala) {
         if (salaId != null && sala != null) {
-            salasActivas.put(salaId, sala);
+            salasActivas().put(salaId, sala);
         }
     }
 
@@ -109,9 +115,17 @@ public class TemporizadorSalaService {
             cancelarTodosLosTimers(sala);
         }
         if (salaId != null) {
-            if (sala != null) salasActivas.remove(salaId, sala);
-            else salasActivas.remove(salaId);
+            if (sala != null) salasActivas().remove(salaId, sala);
+            else salasActivas().remove(salaId);
         }
+    }
+
+    /** Cancela todos los temporizadores y limpia las salas activas de la zona de pruebas. */
+    public void limpiarSalasZonaPrueba() {
+        for (SalaNegociacion sala : salasActivasPrueba.values()) {
+            cancelarTodosLosTimers(sala);
+        }
+        salasActivasPrueba.clear();
     }
 
     public void cancelarTodosLosTimers(SalaNegociacion sala) {
@@ -139,14 +153,15 @@ public class TemporizadorSalaService {
     /** Marca la intención de entrar a Discord para eximir únicamente la primera desconexión en esta sala. */
     public void marcarAperturaDiscord(int userId, String salaIdSugerida) {
         if (userId <= 0) return;
+        ConcurrentHashMap<String, SalaNegociacion> mapaSalas = salasActivas();
         String salaId = null;
         SalaNegociacion sala = null;
         if (salaIdSugerida != null && !salaIdSugerida.isBlank()) {
-            sala = salasActivas.get(salaIdSugerida);
+            sala = mapaSalas.get(salaIdSugerida);
             if (sala != null) salaId = salaIdSugerida;
         }
         if (sala == null) {
-            for (Map.Entry<String, SalaNegociacion> entry : salasActivas.entrySet()) {
+            for (Map.Entry<String, SalaNegociacion> entry : mapaSalas.entrySet()) {
                 SalaNegociacion candidata = entry.getValue();
                 if (candidata.player1Id() == userId || candidata.player2Id() == userId) {
                     salaId = entry.getKey();

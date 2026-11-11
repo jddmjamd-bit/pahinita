@@ -2,6 +2,7 @@ package com.torneosflash.servicio;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.torneosflash.dao.ConexionDB;
 import com.torneosflash.dao.GenericDAO;
 import org.junit.jupiter.api.Test;
 
@@ -11,6 +12,8 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AdminServiceTest {
 
@@ -114,6 +117,57 @@ class AdminServiceTest {
         assertMonto("0", segundo.get("ganancia_generada").getAsBigDecimal());
         assertMonto("0", segundo.get("gen_sorteos").getAsBigDecimal());
         assertMonto("0", segundo.get("comision_total_aportada").getAsBigDecimal());
+    }
+
+    @Test
+    void cambiarSuscripcionYZonaAdminValidaRolesYTiposPermitidos() {
+        GenericDAO daoFalso = new GenericDAO(null) {
+            @Override
+            public JsonObject queryOne(String sql, Object... params) {
+                int id = (int) params[0];
+                JsonObject fila = new JsonObject();
+                fila.addProperty("id", id);
+                fila.addProperty("username", "user_" + id);
+                fila.addProperty("tipo_suscripcion", (id == 1 || id == 2) ? "admin" : "free");
+                return fila;
+            }
+
+            @Override
+            public int update(String sql, Object... params) {
+                return 1;
+            }
+        };
+
+        AdminService servicio = new AdminService(daoFalso, null, null, null, null, null);
+
+        JsonObject aPrueba = servicio.cambiarSuscripcionUsuario(1, 25, "prueba");
+        assertTrue(aPrueba.get("success").getAsBoolean());
+        assertEquals("prueba", aPrueba.get("tipoSuscripcion").getAsString());
+        assertEquals("prueba", aPrueba.get("zonaAsignada").getAsString());
+
+        JsonObject aFree = servicio.cambiarSuscripcionUsuario(1, 25, "free");
+        assertTrue(aFree.get("success").getAsBoolean());
+        assertEquals("free", aFree.get("tipoSuscripcion").getAsString());
+        assertEquals("normal", aFree.get("zonaAsignada").getAsString());
+
+        assertEquals(400, assertThrows(ServicioException.class,
+                () -> servicio.cambiarSuscripcionUsuario(1, 1, "prueba")).getStatus());
+        assertEquals(403, assertThrows(ServicioException.class,
+                () -> servicio.cambiarSuscripcionUsuario(1, 2, "prueba")).getStatus());
+        assertEquals(400, assertThrows(ServicioException.class,
+                () -> servicio.cambiarSuscripcionUsuario(1, 25, "admin")).getStatus());
+
+        JsonObject zonaPrueba = servicio.cambiarZonaAdmin(1, "prueba");
+        assertTrue(zonaPrueba.get("success").getAsBoolean());
+        assertEquals("prueba", zonaPrueba.get("zona_activa").getAsString());
+
+        JsonObject zonaNormal = servicio.cambiarZonaAdmin(1, "normal");
+        assertTrue(zonaNormal.get("success").getAsBoolean());
+        assertEquals("normal", zonaNormal.get("zona_activa").getAsString());
+
+        assertEquals(400, assertThrows(ServicioException.class,
+                () -> servicio.cambiarZonaAdmin(1, "invalida")).getStatus());
+        ConexionDB.limpiarZonaActual();
     }
 
     private static void assertMonto(String esperado, BigDecimal actual) {

@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import com.google.gson.*;
 import com.torneosflash.config.AppConfig;
 import com.torneosflash.config.Ejecutores;
+import com.torneosflash.dao.ConexionDB;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.eventos.EventBus;
 import com.torneosflash.eventos.Eventos;
@@ -36,11 +37,17 @@ import java.util.concurrent.atomic.AtomicLong;
 public class SocketHandler {
     private static final Logger logger = LoggerFactory.getLogger(SocketHandler.class);
 
-    // Estado en memoria respaldado por las tablas active_matches y match_queue (A2)
-    private final ConcurrentHashMap<String, ActiveMatch> activeMatches = new ConcurrentHashMap<>();
-    private final CopyOnWriteArrayList<SocketIOClient> colaEsperaClash = new CopyOnWriteArrayList<>();
-    private final ConcurrentHashMap<Integer, BusquedaActiva> busquedasActivas = new ConcurrentHashMap<>();
-    private final Set<Integer> usuariosOnline = ConcurrentHashMap.newKeySet();
+    private static final class EstadoZonaSocket {
+        final ConcurrentHashMap<String, ActiveMatch> activeMatches = new ConcurrentHashMap<>();
+        final CopyOnWriteArrayList<SocketIOClient> colaEsperaClash = new CopyOnWriteArrayList<>();
+        final ConcurrentHashMap<Integer, BusquedaActiva> busquedasActivas = new ConcurrentHashMap<>();
+        final Set<Integer> usuariosOnline = ConcurrentHashMap.newKeySet();
+        final ConcurrentHashMap<String, AtomicLong> ultimoPushChatPorCanal = new ConcurrentHashMap<>();
+    }
+
+    // Estado en memoria aislado por zona ('normal' vs 'prueba') y respaldado por active_matches / match_queue (A2)
+    private final EstadoZonaSocket estadoNormal = new EstadoZonaSocket();
+    private final EstadoZonaSocket estadoPrueba = new EstadoZonaSocket();
 
     private final GenericDAO db;
     private final SocketIOServer io;
@@ -54,7 +61,6 @@ public class SocketHandler {
     private final Ejecutores ejecutores; // A8: pool de IO para el sondeo de la API de Clash
     private final TemporizadorSalaService temporizadorSala;
     private final RateLimiter socketRateLimiter = new RateLimiter(); // A3: límite por usuario para eventos de socket
-    private final ConcurrentHashMap<String, AtomicLong> ultimoPushChatPorCanal = new ConcurrentHashMap<>();
     private static final int LIMITE_CHAT_SOCKET_POR_MIN = 25;
     private static final int LIMITE_BUSQUEDA_SOCKET_POR_MIN = 6;
     private static final int LIMITE_TIMER_SOCKET_POR_MIN = 10;
@@ -79,6 +85,34 @@ public class SocketHandler {
         this.temporizadorSala = temporizadorSala;
     }
 
+    private EstadoZonaSocket estadoZonaActual() {
+        return ConexionDB.esZonaPrueba() ? estadoPrueba : estadoNormal;
+    }
+
+    private EstadoZonaSocket estadoZona(String zona) {
+        return ConexionDB.ZONA_PRUEBA.equals(ConexionDB.normalizarZona(zona)) ? estadoPrueba : estadoNormal;
+    }
+
+    private ConcurrentHashMap<String, ActiveMatch> activeMatches() {
+        return estadoZonaActual().activeMatches;
+    }
+
+    private CopyOnWriteArrayList<SocketIOClient> colaEsperaClash() {
+        return estadoZonaActual().colaEsperaClash;
+    }
+
+    private ConcurrentHashMap<Integer, BusquedaActiva> busquedasActivas() {
+        return estadoZonaActual().busquedasActivas;
+    }
+
+    private Set<Integer> usuariosOnline() {
+        return estadoZonaActual().usuariosOnline;
+    }
+
+    private ConcurrentHashMap<String, AtomicLong> ultimoPushChatPorCanal() {
+        return estadoZonaActual().ultimoPushChatPorCanal;
+    }
+
     /**
      * Registra todos los event handlers del Socket.IO server y recupera el estado persistido en BD (A2).
      */
@@ -88,6 +122,17 @@ public class SocketHandler {
         for (Eventos.PartidaIniciada partida : partidasReconciliadas) {
             eventos.emit(Eventos.MATCH_STARTED, partida);
         }
+        ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, () -> {
+            try {
+                List<Eventos.PartidaIniciada> reconciliadasPrueba = wallet.reconciliarPartidasTorneoAlReiniciar();
+                recuperarEstadoDesdeBD();
+                for (Eventos.PartidaIniciada partida : reconciliadasPrueba) {
+                    eventos.emit(Eventos.MATCH_STARTED, partida);
+                }
+            } catch (Exception e) {
+                logger.debug("No se pudo recuperar estado inicial de la zona de pruebas: {}", e.getMessage());
+            }
+        });
 
         io.onConnection((socket, args) -> {
             // S2: Si el handshake tenía cookie JWT válida, precargar el usuario desde la BD
@@ -142,19 +187,19 @@ public class SocketHandler {
                     }
 
                     // Remover de cola si estaba
-                    colaEsperaClash.removeIf(s -> s.getUserData() != null &&
+                    colaEsperaClash().removeIf(s -> s.getUserData() != null &&
                             s.getUserData().get("id").getAsInt() == userId && !s.getSid().equals(client.getSid()));
 
                     client.setUserData(dbUser);
-                    boolean nuevoUsuarioOnline = usuariosOnline.add(userId);
+                    boolean nuevoUsuarioOnline = usuariosOnline().add(userId);
                     JsonObject online = new JsonObject();
-                    online.addProperty("total", usuariosOnline.size());
+                    online.addProperty("total", usuariosOnline().size());
                     client.emit("usuarios_online", online);
                     if (nuevoUsuarioOnline) io.emit("usuarios_online", online);
                     logger.info("✅ Usuario " + username + " (" + userId + ") está ONLINE");
 
                     // Enviar búsquedas activas de otros usuarios
-                    for (Map.Entry<Integer, BusquedaActiva> entry : busquedasActivas.entrySet()) {
+                    for (Map.Entry<Integer, BusquedaActiva> entry : busquedasActivas().entrySet()) {
                         if (entry.getKey() != userId) {
                             JsonObject bData = new JsonObject();
                             bData.addProperty("username", entry.getValue().username);
@@ -164,14 +209,14 @@ public class SocketHandler {
                     }
 
                     // Verificar si ESTE usuario tiene una búsqueda activa (reconexión o recuperación tras reinicio)
-                    if (busquedasActivas.containsKey(userId)) {
-                        BusquedaActiva miBusqueda = busquedasActivas.get(userId);
+                    if (busquedasActivas().containsKey(userId)) {
+                        BusquedaActiva miBusqueda = busquedasActivas().get(userId);
                         // Actualizar referencia del socket en la búsqueda activa
                         miBusqueda.socket = client;
                         // Reemplazar en la cola de espera
-                        colaEsperaClash.removeIf(s -> s.getUserData() != null &&
+                        colaEsperaClash().removeIf(s -> s.getUserData() != null &&
                                 s.getUserData().get("id").getAsInt() == userId);
-                        colaEsperaClash.add(client);
+                        colaEsperaClash().add(client);
                         // Notificar al frontend para restaurar estado visual
                         JsonObject buscandoData = new JsonObject();
                         buscandoData.addProperty("mensaje", "Tu búsqueda sigue activa");
@@ -182,7 +227,7 @@ public class SocketHandler {
                     // Recuperar sala si existe (por sala_actual en users o buscando en activeMatches)
                     String salaActual = (dbUser != null && dbUser.has("sala_actual") && !dbUser.get("sala_actual").isJsonNull()) ?
                             dbUser.get("sala_actual").getAsString() : null;
-                    if (salaActual == null || !activeMatches.containsKey(salaActual)) {
+                    if (salaActual == null || !activeMatches().containsKey(salaActual)) {
                         String salaEncontrada = buscarSalaDeJugador(userId);
                         if (salaEncontrada != null) {
                             salaActual = salaEncontrada;
@@ -193,8 +238,8 @@ public class SocketHandler {
                         }
                     }
 
-                    if (salaActual != null && activeMatches.containsKey(salaActual)) {
-                        ActiveMatch match = activeMatches.get(salaActual);
+                    if (salaActual != null && activeMatches().containsKey(salaActual)) {
+                        ActiveMatch match = activeMatches().get(salaActual);
                         int rivalId;
                         boolean rivalDesconectadoEnJuego = false;
                         Long rivalDesconexionSegs = null;
@@ -380,7 +425,7 @@ public class SocketHandler {
 
                     client.setUserData(row);
                     synchronized (this) {
-                        if (busquedasActivas.containsKey(userId) || estaEnPartidaActiva(userId)) return;
+                        if (busquedasActivas().containsKey(userId) || estaEnPartidaActiva(userId)) return;
 
                         String username = row.get("username").getAsString();
                         final int busquedaMinutos = config.getBusquedaTimeoutMinutos();
@@ -390,9 +435,9 @@ public class SocketHandler {
                             return;
                         }
 
-                        colaEsperaClash.add(client);
+                        colaEsperaClash().add(client);
                         BusquedaActiva busqueda = new BusquedaActiva(userId, username, client);
-                        busquedasActivas.put(userId, busqueda);
+                        busquedasActivas().put(userId, busqueda);
 
                         // Timer de búsqueda (BUSQUEDA_TIMEOUT_MINUTOS, default 10) // A7
                         programarTimeoutBusqueda(busqueda, busquedaMinutos * 60L, busquedaMinutos);
@@ -427,7 +472,7 @@ public class SocketHandler {
                             return;
                         }
 
-                        BusquedaActiva busqueda = busquedasActivas.get(userId);
+                        BusquedaActiva busqueda = busquedasActivas().get(userId);
                         if (cancelarBusquedaPersistidaSiActiva(userId) != 1) {
                             emitirErrorSocket(client, "cancelar_busqueda", "CANCELACION_FALLIDA",
                                     "No se confirmó una búsqueda activa para cancelar. Actualiza el estado e inténtalo de nuevo.");
@@ -460,10 +505,10 @@ public class SocketHandler {
                     int myId = client.getUserData().get("id").getAsInt();
                     String salaId = client.getCurrentRoom();
                     if (salaId == null) return;
-                    ActiveMatch match = activeMatches.get(salaId);
+                    ActiveMatch match = activeMatches().get(salaId);
                     if (match == null) return;
                     synchronized (match) {
-                        if (activeMatches.get(salaId) != match || match.iniciado || match.inicioRevision
+                        if (activeMatches().get(salaId) != match || match.iniciado || match.inicioRevision
                                 || (myId != match.player1Id && myId != match.player2Id)) return;
                         // Cuando ambos votos están guardados, last_dinero ya forma parte del inicio validado.
                         if (match.votosInicio.containsKey(match.player1Id)
@@ -513,7 +558,7 @@ public class SocketHandler {
                 try {
                     String salaId = client.getCurrentRoom();
                     if (salaId == null) salaId = buscarSalaDeJugador(myId);
-                    ActiveMatch match = salaId != null ? activeMatches.get(salaId) : null;
+                    ActiveMatch match = salaId != null ? activeMatches().get(salaId) : null;
                     if (match == null) {
                         emitirErrorSocket(client, evento, "SALA_NO_ENCONTRADA", "No estás en una sala activa.");
                         return;
@@ -544,10 +589,10 @@ public class SocketHandler {
                     JsonObject d = ((JsonElement) data[0]).getAsJsonObject();
                     String salaId = client.getCurrentRoom();
                     if (salaId == null) return;
-                    ActiveMatch match = activeMatches.get(salaId);
+                    ActiveMatch match = activeMatches().get(salaId);
                     if (match == null) return;
                     synchronized (match) {
-                        if (activeMatches.get(salaId) != match || match.iniciado
+                        if (activeMatches().get(salaId) != match || match.iniciado
                                 || (myId != match.player1Id && myId != match.player2Id)) return;
                         if (match.inicioRevision) {
                             client.emit("error_negociacion", new JsonPrimitive(
@@ -640,13 +685,13 @@ public class SocketHandler {
                         emitirErrorSocket(client, evento, "SALA_NO_ENCONTRADA", "No estás en una sala activa.");
                         return;
                     }
-                    ActiveMatch match = activeMatches.get(salaId);
+                    ActiveMatch match = activeMatches().get(salaId);
                     if (match == null) {
                         emitirErrorSocket(client, evento, "SALA_NO_ENCONTRADA", "La sala ya no está activa.");
                         return;
                     }
                     synchronized (match) {
-                        if (activeMatches.get(salaId) != match) {
+                        if (activeMatches().get(salaId) != match) {
                             emitirErrorSocket(client, evento, "SALA_NO_ENCONTRADA", "La sala ya no está activa.");
                             return;
                         }
@@ -690,7 +735,7 @@ public class SocketHandler {
                     boolean acepta = d.get("acepta").getAsBoolean();
                     String salaId = client.getCurrentRoom();
                     if (salaId == null) return;
-                    ActiveMatch match = activeMatches.get(salaId);
+                    ActiveMatch match = activeMatches().get(salaId);
                     if (match == null) return;
 
                     int myId = client.getUserData().get("id").getAsInt();
@@ -698,7 +743,7 @@ public class SocketHandler {
 
                     // C1: Candado por partida para impedir doble inicio y doble cobro si ambos confirman a la vez
                     synchronized (match) {
-                        if (activeMatches.get(salaId) != match) return;
+                        if (activeMatches().get(salaId) != match) return;
                         if (match.iniciado) return;
                         if (match.inicioRevision) {
                             client.emit("error_negociacion", new JsonPrimitive(
@@ -866,7 +911,7 @@ public class SocketHandler {
                     ChatSanitizer.MensajePrivado limpio = ChatSanitizer.validarMensajePrivado(
                             str(d, "salaId"), usuarioSesion, str(d, "texto"));
                     if (limpio != null) {
-                        ActiveMatch match = activeMatches.get(limpio.salaId());
+                        ActiveMatch match = activeMatches().get(limpio.salaId());
                         if (match == null || (senderId != match.player1Id && senderId != match.player2Id)) {
                             logger.warn("⛔ Usuario {} intentó enviar mensaje_privado a sala ajena {}", senderId, limpio.salaId());
                             return;
@@ -919,7 +964,7 @@ public class SocketHandler {
 
             // --- DISCONNECT ---
             socket.on("disconnect", (client, data) -> {
-                colaEsperaClash.removeIf(s -> s.getSid().equals(client.getSid()));
+                colaEsperaClash().removeIf(s -> s.getSid().equals(client.getSid()));
 
                 Integer disconnectedUserId = idAutenticadoSocket(client);
                 // Al recargar la página, el socket nuevo toma la sala antes de cerrarse el anterior.
@@ -928,10 +973,10 @@ public class SocketHandler {
 
                 if (client.getUserData() != null) {
                     int userId = client.getUserData().get("id").getAsInt();
-                    boolean removido = usuariosOnline.remove(userId);
+                    boolean removido = usuariosOnline().remove(userId);
                     if (removido) {
                         JsonObject online = new JsonObject();
-                        online.addProperty("total", usuariosOnline.size());
+                        online.addProperty("total", usuariosOnline().size());
                         io.emit("usuarios_online", online);
                     }
                     logger.info("❌ Usuario " + client.getUserData().get("username").getAsString() + " está OFFLINE");
@@ -939,13 +984,13 @@ public class SocketHandler {
 
                 String salaId = client.getCurrentRoom();
                 if (salaId != null && client.getUserData() != null) {
-                    ActiveMatch match = activeMatches.get(salaId);
+                    ActiveMatch match = activeMatches().get(salaId);
                     if (match == null) return;
                     int userId = client.getUserData().get("id").getAsInt();
                     String uname = client.getUserData().get("username").getAsString();
 
                     synchronized (match) {
-                        if (activeMatches.get(salaId) != match) return;
+                        if (activeMatches().get(salaId) != match) return;
                         if (!match.esSocketActual(userId, client)) return;
                         if (match.iniciado) {
                             // Partida activa - esperamos indefinidamente
@@ -1021,7 +1066,7 @@ public class SocketHandler {
                     }
                 }
 
-                activeMatches.put(salaId, match);
+                activeMatches().put(salaId, match);
                 String estadoUsuario = match.iniciado ? "jugando" : "partida_encontrada";
                 db.update("UPDATE users SET estado = ?, sala_actual = ? WHERE id IN (?, ?)", estadoUsuario, salaId, p1Id, p2Id);
 
@@ -1062,7 +1107,7 @@ public class SocketHandler {
                 }
 
                 BusquedaActiva busqueda = new BusquedaActiva(userId, username, null);
-                busquedasActivas.put(userId, busqueda);
+                busquedasActivas().put(userId, busqueda);
                 db.update("UPDATE users SET estado = 'buscando_partida' WHERE id = ?", userId);
                 programarTimeoutBusqueda(busqueda, segsRestantes, config.getBusquedaTimeoutMinutos());
                 busquedasRecuperadas++;
@@ -1090,7 +1135,7 @@ public class SocketHandler {
         }
         busqueda.timeoutFuture = scheduler.schedule(() -> {
             synchronized (this) {
-                if (busquedasActivas.get(userId) != busqueda) return;
+                if (busquedasActivas().get(userId) != busqueda) return;
 
                 if (estaEnPartidaActiva(userId) || estaEnPartidaPersistida(userId)) {
                     limpiarBusquedaEnMemoria(userId, busqueda);
@@ -1164,12 +1209,12 @@ public class SocketHandler {
     }
 
     private void limpiarBusquedaEnMemoria(int userId, BusquedaActiva busqueda) {
-        colaEsperaClash.removeIf(socket -> Objects.equals(idAutenticadoSocket(socket), userId));
+        colaEsperaClash().removeIf(socket -> Objects.equals(idAutenticadoSocket(socket), userId));
         if (busqueda != null) {
-            busquedasActivas.remove(userId, busqueda);
+            busquedasActivas().remove(userId, busqueda);
             if (busqueda.timeoutFuture != null) busqueda.timeoutFuture.cancel(false);
         } else {
-            busquedasActivas.remove(userId);
+            busquedasActivas().remove(userId);
         }
     }
 
@@ -1273,7 +1318,7 @@ public class SocketHandler {
     }
 
     private String buscarSalaDeJugador(int userId) {
-        for (Map.Entry<String, ActiveMatch> entry : activeMatches.entrySet()) {
+        for (Map.Entry<String, ActiveMatch> entry : activeMatches().entrySet()) {
             ActiveMatch m = entry.getValue();
             if (m.player1Id == userId || m.player2Id == userId) {
                 return entry.getKey();
@@ -1326,8 +1371,8 @@ public class SocketHandler {
     }
 
     private synchronized void intentarMatcheo(SocketIOClient meSocket, int myId, JsonObject myData) {
-        if (!busquedasActivas.containsKey(myId) || estaEnPartidaActiva(myId)) return;
-        for (Map.Entry<Integer, BusquedaActiva> entry : busquedasActivas.entrySet()) {
+        if (!busquedasActivas().containsKey(myId) || estaEnPartidaActiva(myId)) return;
+        for (Map.Entry<Integer, BusquedaActiva> entry : busquedasActivas().entrySet()) {
             if (entry.getKey() != myId) {
                 BusquedaActiva rival = entry.getValue();
                 if (estaEnPartidaActiva(rival.userId)) continue;
@@ -1346,7 +1391,7 @@ public class SocketHandler {
                 if (rivalSocket != null) {
                     match.players.add(rivalSocket);
                 }
-                activeMatches.put(salaId, match);
+                activeMatches().put(salaId, match);
                 temporizadorSala.registrarSala(salaId, match);
 
                 // A2: Persistir la sala en active_matches y retirar a ambos de match_queue
@@ -1383,10 +1428,10 @@ public class SocketHandler {
                 eventos.emit(Eventos.MATCH_ROOM_CREATED, new Eventos.SalaPartidaCreada(salaId, List.of(myId, rival.userId)));
 
                 // Limpiar búsquedas en memoria
-                colaEsperaClash.removeIf(s -> s.getUserData() != null &&
+                colaEsperaClash().removeIf(s -> s.getUserData() != null &&
                         (s.getUserData().get("id").getAsInt() == myId || s.getUserData().get("id").getAsInt() == rival.userId));
                 for (int playerId : new int[]{myId, rival.userId}) {
-                    BusquedaActiva b = busquedasActivas.remove(playerId);
+                    BusquedaActiva b = busquedasActivas().remove(playerId);
                     if (b != null && b.timeoutFuture != null) b.timeoutFuture.cancel(false);
                     JsonObject cancelData = new JsonObject();
                     cancelData.addProperty("oderId", playerId);
@@ -1409,7 +1454,7 @@ public class SocketHandler {
         final AtomicBoolean enCurso = new AtomicBoolean(false);
         final Runnable sondeo = () -> {
             try {
-                if (!activeMatches.containsKey(salaId)) { match.pollFuture.cancel(false); return; }
+                if (!activeMatches().containsKey(salaId)) { match.pollFuture.cancel(false); return; }
                 match.pollCount++;
                 db.update("UPDATE active_matches SET poll_count = ?, actualizado_en = CURRENT_TIMESTAMP WHERE sala_id = ?",
                         match.pollCount, salaId);
@@ -1555,7 +1600,7 @@ public class SocketHandler {
             }
         }
         eliminarMatchDeBD(salaId);
-        activeMatches.remove(salaId);
+        activeMatches().remove(salaId);
     }
 
     private void handleCancelMatch(SocketIOClient socket, String motivoCrudo) {
@@ -1566,18 +1611,18 @@ public class SocketHandler {
             emitirErrorSocket(socket, "cancelar_match", "SALA_NO_ENCONTRADA", "No estás en una sala activa.");
             return;
         }
-        if (!activeMatches.containsKey(salaId)) {
+        if (!activeMatches().containsKey(salaId)) {
             emitirErrorSocket(socket, "cancelar_match", "SALA_NO_ENCONTRADA", "La sala ya no está activa.");
             return;
         }
-        ActiveMatch match = activeMatches.get(salaId);
+        ActiveMatch match = activeMatches().get(salaId);
         if (match == null) {
             emitirErrorSocket(socket, "cancelar_match", "SALA_NO_ENCONTRADA", "La sala ya no está activa.");
             return;
         }
 
         synchronized (match) {
-            if (activeMatches.get(salaId) != match) {
+            if (activeMatches().get(salaId) != match) {
                 emitirErrorSocket(socket, "cancelar_match", "SALA_NO_ENCONTRADA", "La sala ya no está activa.");
                 return;
             }
@@ -1620,14 +1665,14 @@ public class SocketHandler {
                 }
             }
             eliminarMatchDeBD(salaId);
-            activeMatches.remove(salaId, match);
+            activeMatches().remove(salaId, match);
             eventos.emit(Eventos.MATCH_ROOM_CANCELLED, new Eventos.SalaPartidaCancelada(salaId));
             emitirCancelacionCompletada(socket, "cancelar_match");
         }
     }
 
     private boolean permitirPushChat(String canal) {
-        AtomicLong ultimo = ultimoPushChatPorCanal.computeIfAbsent(canal, ignorado -> new AtomicLong(0));
+        AtomicLong ultimo = ultimoPushChatPorCanal().computeIfAbsent(canal, ignorado -> new AtomicLong(0));
         long ahora = System.nanoTime();
         long ventana = TimeUnit.MINUTES.toNanos(1);
         while (true) {
@@ -1721,9 +1766,141 @@ public class SocketHandler {
         client.emit("cancelacion_completada", respuesta);
     }
 
+    /**
+     * Limpia el estado en memoria de la zona de pruebas cuando el administrador reinicia la copia temporal
+     * y notifica a los sockets conectados en esa zona para refrescar su vista.
+     */
+    public synchronized void limpiarEstadoZonaPrueba() {
+        for (ActiveMatch match : estadoPrueba.activeMatches.values()) {
+            if (match.pollFuture != null) match.pollFuture.cancel(false);
+            for (SocketIOClient p : match.players) {
+                if (p != null) {
+                    if (match.salaId != null) p.leave(match.salaId);
+                    p.setCurrentRoom(null);
+                }
+            }
+        }
+        estadoPrueba.activeMatches.clear();
+        for (BusquedaActiva b : estadoPrueba.busquedasActivas.values()) {
+            if (b.timeoutFuture != null) b.timeoutFuture.cancel(false);
+        }
+        estadoPrueba.busquedasActivas.clear();
+        estadoPrueba.colaEsperaClash.clear();
+        estadoPrueba.ultimoPushChatPorCanal.clear();
+        temporizadorSala.limpiarSalasZonaPrueba();
+
+        ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, () -> {
+            for (SocketIOClient socket : io.getTodosLosSockets().values()) {
+                if (socket == null || !socket.isConnected() || !ConexionDB.ZONA_PRUEBA.equals(socket.getZona())) continue;
+                socket.setCurrentRoom(null);
+                Integer uid = idAutenticadoSocket(socket);
+                if (uid != null && uid > 0) {
+                    JsonObject dbUser = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", uid);
+                    if (dbUser != null) {
+                        socket.setUserData(dbUser);
+                        if (dbUser.has("saldo") && !dbUser.get("saldo").isJsonNull()) {
+                            socket.emit("actualizar_saldo", new JsonPrimitive(dbUser.get("saldo").getAsBigDecimal()));
+                        }
+                    }
+                }
+                for (String canal : new String[]{"anuncios", "general", "clash", "clash_logs"}) {
+                    JsonObject histData = new JsonObject();
+                    histData.addProperty("canal", canal);
+                    histData.add("mensajes", new JsonArray());
+                    socket.emit("historial_chat", histData);
+                }
+                socket.emit("flujo_completado");
+                JsonObject resetPayload = new JsonObject();
+                resetPayload.addProperty("zona", ConexionDB.ZONA_PRUEBA);
+                resetPayload.addProperty("mensaje", "El administrador borró y reinició los datos de la zona de pruebas.");
+                socket.emit("zona_pruebas_reiniciada", resetPayload);
+            }
+        });
+    }
+
+    /**
+     * Mueve los sockets activos de un usuario a su nueva zona ('normal' o 'prueba') cuando el administrador
+     * cambia su tipo de suscripción o cuando un administrador alterna su zona activa.
+     */
+    public synchronized void notificarCambioZonaUsuario(int userId, String nuevaZonaCruda) {
+        if (userId <= 0) return;
+        String nuevaZona = ConexionDB.normalizarZona(nuevaZonaCruda);
+        String zonaAnterior = ConexionDB.ZONA_PRUEBA.equals(nuevaZona) ? ConexionDB.ZONA_NORMAL : ConexionDB.ZONA_PRUEBA;
+        EstadoZonaSocket estAnterior = estadoZona(zonaAnterior);
+        EstadoZonaSocket estNuevo = estadoZona(nuevaZona);
+
+        // Retirar búsqueda activa en la zona anterior si existía
+        estAnterior.colaEsperaClash.removeIf(s -> Objects.equals(idAutenticadoSocket(s), userId));
+        BusquedaActiva bPrev = estAnterior.busquedasActivas.remove(userId);
+        if (bPrev != null) {
+            if (bPrev.timeoutFuture != null) bPrev.timeoutFuture.cancel(false);
+            ConexionDB.ejecutarEnZona(zonaAnterior, () -> {
+                db.update("DELETE FROM match_queue WHERE user_id = ?", userId);
+                db.update("UPDATE users SET estado = 'normal' WHERE id = ? AND estado = 'buscando_partida'", userId);
+                JsonObject cancelData = new JsonObject();
+                cancelData.addProperty("oderId", userId);
+                cancelData.addProperty("username", bPrev.username);
+                io.emit("busqueda_cancelada", cancelData);
+            });
+        }
+        if (estAnterior.usuariosOnline.remove(userId)) {
+            ConexionDB.ejecutarEnZona(zonaAnterior, () -> {
+                JsonObject online = new JsonObject();
+                online.addProperty("total", estAnterior.usuariosOnline.size());
+                io.emit("usuarios_online", online);
+            });
+        }
+
+        List<SocketIOClient> socketsUsuario = new ArrayList<>();
+        for (SocketIOClient socket : io.getTodosLosSockets().values()) {
+            if (socket != null && socket.isConnected() && Objects.equals(idAutenticadoSocket(socket), userId)) {
+                if (socket.getCurrentRoom() != null) {
+                    socket.leave(socket.getCurrentRoom());
+                    socket.setCurrentRoom(null);
+                }
+                socket.setZona(nuevaZona);
+                socketsUsuario.add(socket);
+            }
+        }
+        if (socketsUsuario.isEmpty()) return;
+
+        ConexionDB.ejecutarEnZona(nuevaZona, () -> {
+            JsonObject dbUser = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", userId);
+            boolean agregadoOnline = estNuevo.usuariosOnline.add(userId);
+            JsonObject online = new JsonObject();
+            online.addProperty("total", estNuevo.usuariosOnline.size());
+            if (agregadoOnline) {
+                io.emit("usuarios_online", online);
+            }
+            for (SocketIOClient socket : socketsUsuario) {
+                if (dbUser != null) {
+                    socket.setUserData(dbUser);
+                }
+                socket.emit("usuarios_online", online);
+                for (String canal : new String[]{"anuncios", "general", "clash", "clash_logs"}) {
+                    ArrayList<JsonObject> msgs = db.query(
+                            "SELECT * FROM (SELECT * FROM messages WHERE canal = ? ORDER BY id DESC LIMIT ?) t ORDER BY id ASC",
+                            canal, config.getChatHistorialLimite());
+                    JsonObject histData = new JsonObject();
+                    histData.addProperty("canal", canal);
+                    histData.add("mensajes", gson.toJsonTree(msgs));
+                    socket.emit("historial_chat", histData);
+                }
+                JsonObject payload = new JsonObject();
+                payload.addProperty("zona", nuevaZona);
+                payload.addProperty("enZonaPruebas", ConexionDB.ZONA_PRUEBA.equals(nuevaZona));
+                if (dbUser != null && dbUser.has("saldo") && !dbUser.get("saldo").isJsonNull()) {
+                    payload.addProperty("saldo", dbUser.get("saldo").getAsBigDecimal());
+                }
+                socket.emit("zona_cambiada", payload);
+            }
+        });
+    }
+
     // --- Clases internas ---
     class ActiveMatch implements TemporizadorSalaService.SalaNegociacion {
         final String salaId;
+        final String zona = ConexionDB.zonaActual();
         final TemporizadorSalaService.EstadoTimers timers = new TemporizadorSalaService.EstadoTimers();
         List<SocketIOClient> players = new CopyOnWriteArrayList<>();
         int player1Id;
@@ -1755,7 +1932,7 @@ public class SocketHandler {
         @Override public int player2Id() { return player2Id; }
         @Override public String player1Username() { return player1Username; }
         @Override public String player2Username() { return player2Username; }
-        @Override public boolean estaActivaEnServidor() { return activeMatches.get(salaId) == this; }
+        @Override public boolean estaActivaEnServidor() { return estadoZona(zona).activeMatches.get(salaId) == this; }
         @Override public boolean estaIniciadaOBloqueada() { return iniciado || inicioRevision; }
         @Override public TemporizadorSalaService.EstadoTimers estadoTimers() { return timers; }
 
@@ -1771,32 +1948,34 @@ public class SocketHandler {
         @Override
         public void cerrarSalaPorTimeout(int userIdCulpable, String motivo, String logTexto,
                                          boolean penalizarDesconexion, boolean penalizarSalidaChat) {
-            if (activeMatches.get(salaId) != this || iniciado || inicioRevision) return;
-            temporizadorSala.cancelarTodosLosTimers(this);
-            if (penalizarDesconexion && penalizarSalidaChat) {
-                db.update("UPDATE users SET salidas_chat = salidas_chat + 1, salidas_desconexion = salidas_desconexion + 1 WHERE id = ?", userIdCulpable);
-            } else if (penalizarSalidaChat) {
-                db.update("UPDATE users SET salidas_chat = salidas_chat + 1 WHERE id = ?", userIdCulpable);
-            } else if (penalizarDesconexion) {
-                db.update("UPDATE users SET salidas_desconexion = salidas_desconexion + 1 WHERE id = ?", userIdCulpable);
-            }
-            logClash(logTexto);
-
-            JsonObject cancelData = new JsonObject();
-            cancelData.addProperty("motivo", motivo);
-            io.to(salaId).emit("match_cancelado", cancelData);
-
-            db.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id IN (?, ?)",
-                    player1Id, player2Id);
-            for (SocketIOClient p : players) {
-                if (p != null) {
-                    p.leave(salaId);
-                    p.setCurrentRoom(null);
+            ConexionDB.ejecutarEnZona(zona, () -> {
+                if (estadoZona(zona).activeMatches.get(salaId) != this || iniciado || inicioRevision) return;
+                temporizadorSala.cancelarTodosLosTimers(this);
+                if (penalizarDesconexion && penalizarSalidaChat) {
+                    db.update("UPDATE users SET salidas_chat = salidas_chat + 1, salidas_desconexion = salidas_desconexion + 1 WHERE id = ?", userIdCulpable);
+                } else if (penalizarSalidaChat) {
+                    db.update("UPDATE users SET salidas_chat = salidas_chat + 1 WHERE id = ?", userIdCulpable);
+                } else if (penalizarDesconexion) {
+                    db.update("UPDATE users SET salidas_desconexion = salidas_desconexion + 1 WHERE id = ?", userIdCulpable);
                 }
-            }
-            eliminarMatchDeBD(salaId);
-            activeMatches.remove(salaId, this);
-            eventos.emit(Eventos.MATCH_ROOM_CANCELLED, new Eventos.SalaPartidaCancelada(salaId));
+                logClash(logTexto);
+
+                JsonObject cancelData = new JsonObject();
+                cancelData.addProperty("motivo", motivo);
+                io.to(salaId).emit("match_cancelado", cancelData);
+
+                db.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id IN (?, ?)",
+                        player1Id, player2Id);
+                for (SocketIOClient p : players) {
+                    if (p != null) {
+                        p.leave(salaId);
+                        p.setCurrentRoom(null);
+                    }
+                }
+                eliminarMatchDeBD(salaId);
+                estadoZona(zona).activeMatches.remove(salaId, this);
+                eventos.emit(Eventos.MATCH_ROOM_CANCELLED, new Eventos.SalaPartidaCancelada(salaId));
+            });
         }
 
         List<Integer> playerIds() {

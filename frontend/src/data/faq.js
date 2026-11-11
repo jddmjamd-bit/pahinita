@@ -562,6 +562,15 @@ export const PREGUNTAS = [
         ]
     },
     {
+        id: 'zona-pruebas-suscripcion',
+        categoria: 'cuenta',
+        pregunta: '¿Qué es la Zona de Pruebas (suscripción «prueba») y quién puede activarla?',
+        respuesta: [
+            'La Zona de Pruebas es una copia temporal completamente aislada donde todo el historial, los chats, las partidas, las finanzas, los sorteos y los rankings funcionan por separado sobre la base de datos de pruebas.',
+            'Solo un administrador desde el panel de administración puede cambiar el tipo de suscripción de una cuenta a «prueba» (o devolverla a «free»), elegir en qué zona operar y borrar los datos de la copia temporal cuando lo decida.'
+        ]
+    },
+    {
         id: 'problema-no-listado',
         categoria: 'cuenta',
         pregunta: 'Mi problema no está en esta lista, ¿a quién le escribo?',

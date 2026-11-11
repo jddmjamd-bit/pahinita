@@ -1,5 +1,6 @@
 package com.torneosflash.config;
 
+import com.torneosflash.dao.ConexionDB;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,6 +11,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -79,8 +81,32 @@ public class Ejecutores {
         this.cpu.allowCoreThreadTimeOut(true);
 
         // Timers: las tareas canceladas (búsquedas de 10 min, timers de 90 s) salen de la cola al cancelarse
-        // en vez de quedarse en memoria hasta que venzan.
-        this.timers = new ScheduledThreadPoolExecutor(config.getTimerPoolThreads(), fabrica("timer"));
+        // en vez de quedarse en memoria hasta que venzan. Hereda la zona activa del hilo que programa el timer.
+        this.timers = new ScheduledThreadPoolExecutor(config.getTimerPoolThreads(), fabrica("timer")) {
+            @Override
+            public ScheduledFuture<?> schedule(Runnable command, long delay, TimeUnit unit) {
+                String zona = ConexionDB.zonaActual();
+                return super.schedule(() -> ConexionDB.ejecutarEnZona(zona, command), delay, unit);
+            }
+
+            @Override
+            public <V> ScheduledFuture<V> schedule(Callable<V> callable, long delay, TimeUnit unit) {
+                String zona = ConexionDB.zonaActual();
+                return super.schedule(() -> ConexionDB.llamarEnZona(zona, callable), delay, unit);
+            }
+
+            @Override
+            public ScheduledFuture<?> scheduleAtFixedRate(Runnable command, long initialDelay, long period, TimeUnit unit) {
+                String zona = ConexionDB.zonaActual();
+                return super.scheduleAtFixedRate(() -> ConexionDB.ejecutarEnZona(zona, command), initialDelay, period, unit);
+            }
+
+            @Override
+            public ScheduledFuture<?> scheduleWithFixedDelay(Runnable command, long initialDelay, long delay, TimeUnit unit) {
+                String zona = ConexionDB.zonaActual();
+                return super.scheduleWithFixedDelay(() -> ConexionDB.ejecutarEnZona(zona, command), initialDelay, delay, unit);
+            }
+        };
         this.timers.setRemoveOnCancelPolicy(true);
 
         logger.info("🧵 Pools de hilos: HTTP {}-{} (ocioso {} ms) | IO {} (cola {}) | PUSH {} (cola {}, máx {}/usuario/min) | CPU {} (cola {}) | timers {} | BD max {}",
@@ -105,8 +131,9 @@ public class Ejecutores {
      * La tarea NO debe depender de otra tarea del mismo pool (podría quedarse esperando para siempre).
      */
     public boolean ejecutarIO(String descripcion, Runnable tarea) {
+        String zona = ConexionDB.zonaActual();
         try {
-            io.execute(tarea);
+            io.execute(() -> ConexionDB.ejecutarEnZona(zona, tarea));
             return true;
         } catch (RejectedExecutionException e) {
             logger.warn("⚠️ Pool de IO lleno o cerrado: se descarta '{}' (cola {}/{}).",
@@ -117,8 +144,9 @@ public class Ejecutores {
 
     /** Encola una entrega FCM en su pool aislado. Si se llena, descarta y avisa sin bloquear al emisor. */
     public boolean ejecutarPush(String descripcion, Runnable tarea) {
+        String zona = ConexionDB.zonaActual();
         try {
-            push.execute(tarea);
+            push.execute(() -> ConexionDB.ejecutarEnZona(zona, tarea));
             return true;
         } catch (RejectedExecutionException e) {
             logger.warn("⚠️ Pool de push lleno o cerrado: se descarta '{}' (cola {}/{}).",
@@ -136,7 +164,8 @@ public class Ejecutores {
      * solo corren tantos hashes como núcleos haya. Las excepciones de la tarea se relanzan tal cual.
      */
     public <T> T enCpu(Callable<T> tarea) throws Exception {
-        Future<T> futuro = cpu.submit(tarea);
+        String zona = ConexionDB.zonaActual();
+        Future<T> futuro = cpu.submit(() -> ConexionDB.llamarEnZona(zona, tarea));
         try {
             return futuro.get();
         } catch (ExecutionException e) {

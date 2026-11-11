@@ -3,6 +3,7 @@ package com.torneosflash.servicio;
 import com.google.gson.JsonObject;
 import com.torneosflash.config.AppConfig;
 import com.torneosflash.config.Ejecutores;
+import com.torneosflash.dao.ConexionDB;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.dao.UsuarioDAO;
 import com.torneosflash.eventos.EventBus;
@@ -215,10 +216,12 @@ public class AuthService {
         }
 
         int userId = credenciales.get("id").getAsNumber().intValue();
+        String zonaActiva = usuarioDAO.resolverZonaYActivarParaUsuario(userId);
         JsonObject user = usuarioDAO.buscarPorId(userId);
         if (user == null) {
             throw ServicioException.solicitudInvalida("Correo o contraseña incorrectos");
         }
+        enriquecerUsuarioConZona(userId, user, zonaActiva);
         return new SesionIniciada(userId, user);
     }
 
@@ -325,11 +328,29 @@ public class AuthService {
      * password).
      */
     public JsonObject obtenerSesion(int userId) {
+        String zonaActiva = usuarioDAO.resolverZonaYActivarParaUsuario(userId);
         JsonObject user = usuarioDAO.buscarPorId(userId);
         if (user == null) {
             throw ServicioException.solicitudInvalida("Usuario no encontrado");
         }
+        enriquecerUsuarioConZona(userId, user, zonaActiva);
         return user;
+    }
+
+    private void enriquecerUsuarioConZona(int userId, JsonObject user, String zonaActiva) {
+        String zonaNormalizada = ConexionDB.normalizarZona(zonaActiva);
+        if (usuarioDAO != null && usuarioDAO.getConexionDB() != null) {
+            ConexionDB.EstadoZonaUsuario estado = usuarioDAO.getConexionDB().obtenerEstadoZonaUsuario(userId);
+            if (estado != null) {
+                user.addProperty("tipo_suscripcion", estado.tipoSuscripcion());
+                user.addProperty("zona_admin", estado.zonaAdmin());
+            }
+        }
+        if (!user.has("zona_admin") || user.get("zona_admin").isJsonNull()) {
+            user.addProperty("zona_admin", ConexionDB.ZONA_NORMAL);
+        }
+        user.addProperty("zona_activa", zonaNormalizada);
+        user.addProperty("en_zona_pruebas", ConexionDB.ZONA_PRUEBA.equals(zonaNormalizada));
     }
 
     public JsonObject usernameDisponible(String username) {
