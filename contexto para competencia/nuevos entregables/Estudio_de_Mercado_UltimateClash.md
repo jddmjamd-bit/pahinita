@@ -70,7 +70,7 @@ La tabla siguiente concilia de forma exacta el **SOM del One Pager** (`500 pagad
 - **Qué indagamos y qué respondieron los 35 participantes durante el soporte y seguimiento post-partida:**
   1. *¿Depositan y juegan en una web automática?* **Sí:** 20 de 35 usuarios (57%) jugaron a diario depositando desde $1,000 COP (~17 partidas/día).
   2. *¿Dónde hubo fricción inicial?* Reportaron dudas sobre cómo sacar el token de verificación en los ajustes de Clash Royale para vincular su cuenta y cómo acordar el monto en sala privada.
-  3. *¿Por qué cayó la retención en la semana 2?* Sin rival inmediato se salían de la página, y faltaban recompensas continuas y comprobantes públicos de retiros pagados.
+  3. *¿Por qué cayó la retención en la semana 2 y cuál es el estado actual hoy?* Cuando entraban y no había un rival conectado en ese instante, abandonaban la sesión. Hoy la nueva versión de la plataforma está **activa en producción y apenas empezando a conseguir sus primeros clientes orgánicos ($0 COP en pauta)**, por lo que **actualmente no se arman partidas espontáneas**: al tener todavía muy poquitas personas registradas, es muy difícil que dos usuarios coincidan exactamente en el mismo momento buscando partida (lo que confirma que el cuello de botella ya no es técnico, sino de masa crítica y adquisición).
 
 ### 2. Qué construimos a partir de esta validación (Hoy activo en [torneos-beta.onrender.com](https://torneos-beta.onrender.com))
 - **Chatbot IA 24/7 + Sistema de Tickets de Soporte:** Entrenado por el administrador; si no sabe algo, envía correo al admin y notifica por *Push* al usuario al responderse, más tickets *"Hablar con el admin"* y FAQ interactiva.

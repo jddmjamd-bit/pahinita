@@ -45,9 +45,9 @@
   - Ambos presionan **`🎮 COMENZAR`** y confirman en el modal.
   - La pantalla cambia a **"Buscando resultado en Clash Royale..."** y, al terminar la batalla 1v1 en el juego, muestras cómo aparece el **resultado automático**, sube el saldo del ganador y se entregan los **tickets de sorteo**.
 - **🗣️ Qué dices:**
-  > *"Veamos el flujo principal de principio a fin. Entro a **Jugar**, busco rival —si otros jugadores tienen el navegador cerrado, les llega una notificación Push al celular para entrar al instante— y se abre nuestra **Sala Privada**.  
+  > *"Veamos el flujo principal de principio a fin. Entro a **Jugar** y busco rival —si otros jugadores tienen el navegador cerrado, les llega una notificación Push al celular para entrar al instante— y se abre nuestra **Sala Privada**.  
   > Aquí podemos hablar por chat, abrir un canal de **voz privado en Discord** con un clic y activar el **reloj individual de 2 minutos y medio** para que nadie haga perder tiempo.  
-  > Acordamos un reto de **$5,000 pesos por jugador**: el sistema calcula en tiempo real la comisión escalonada —que baja del 25% hasta el 10% según el pozo— y muestra exactamente cuánto recibirá el ganador.  
+  > Acordamos un reto de **entre 1000 a 10000 pesos por jugador**: el sistema calcula en tiempo real la comisión escalonada —que baja del 25% hasta el 10% según el pozo— y muestra exactamente cuánto recibirá el ganador.  
   > Ambos confirmamos, se descuenta el saldo de forma segura y jugamos en Clash Royale. **Nadie tiene que subir capturas ni esperar a un administrador:** nuestro servidor consulta la API oficial de Clash Royale cada 5 segundos, detecta quién ganó por coronas, liquida el premio al instante en el saldo del ganador y les entrega tickets de sorteo a ambos."*
 
 ---
