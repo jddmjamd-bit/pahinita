@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UltimateClash — Ficha del MVP (Entregable 01 · Execute 2026)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        @page {
+            size: letter portrait;
+            margin: 0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #0f1117;
+            color: #e2e4ea;
+            width: 8.5in;
+            margin: 0 auto;
+            font-size: 8.1pt;
+            line-height: 1.18;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+
+        .page {
+            width: 8.5in;
+            height: 11in;
+            padding: 0.14in 0.20in;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 5px;
+            background: #0f1117;
+            overflow: hidden;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 5px;
+            border-bottom: 2px solid #6c5ce7;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+        }
+
+        .header-left img {
+            width: 38px;
+            height: 38px;
+            border-radius: 7px;
+            object-fit: contain;
+            border: 1.5px solid #6c5ce7;
+        }
+
+        .header h1 {
+            font-size: 14.5pt;
+            font-weight: 900;
+            color: #a29bfe;
+            letter-spacing: -0.4px;
+            line-height: 1.05;
+        }
+
+        .header .doc-subtitle {
+            font-size: 8pt;
+            color: #cfd2dc;
+            font-weight: 600;
+        }
+
+        .header-right {
+            text-align: right;
+            font-size: 7.7pt;
+            color: #9aa0b4;
+            line-height: 1.22;
+        }
+
+        .header-right .url a {
+            color: #a29bfe;
+            font-weight: 800;
+            font-size: 8.5pt;
+            text-decoration: none;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #00c853;
+            color: #0b0e14;
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-size: 7pt;
+            font-weight: 800;
+        }
+
+        .hero-box {
+            background: linear-gradient(135deg, #1b1f32 0%, #151824 100%);
+            border: 1.5px solid #6c5ce7;
+            border-radius: 5px;
+            padding: 6px 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .hero-label {
+            font-size: 7.2pt;
+            font-weight: 800;
+            text-transform: uppercase;
+            color: #ffd700;
+            letter-spacing: 0.4px;
+        }
+
+        .hero-phrase {
+            font-size: 9.6pt;
+            font-weight: 700;
+            color: #ffffff;
+            line-height: 1.22;
+        }
+
+        .access-strip {
+            display: grid;
+            grid-template-columns: 1.25fr 1.45fr 1.3fr;
+            gap: 5px;
+            margin-top: 2px;
+        }
+
+        .access-item {
+            background: #232736;
+            border: 1px solid #32384e;
+            border-radius: 4px;
+            padding: 3.5px 6px;
+            font-size: 7.4pt;
+        }
+
+        .access-item a {
+            color: #00e676;
+            font-weight: 700;
+            text-decoration: underline;
+        }
+
+        .section {
+            background: #1a1d27;
+            border-radius: 5px;
+            padding: 5.5px 8px;
+            border-left: 3px solid #6c5ce7;
+            display: flex;
+            flex-direction: column;
+            gap: 3.5px;
+        }
+
+        .section.green-border {
+            border-left-color: #00e676;
+        }
+
+        .section.gold-border {
+            border-left-color: #ffd700;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            border-bottom: 1px solid #262a3b;
+            padding-bottom: 2px;
+        }
+
+        .section-title {
+            font-size: 8.8pt;
+            font-weight: 800;
+            text-transform: uppercase;
+            color: #a29bfe;
+            letter-spacing: 0.2px;
+        }
+
+        .section-tag {
+            font-size: 7pt;
+            color: #8c92a8;
+            font-weight: 600;
+        }
+
+        .steps-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 5px;
+        }
+
+        .step-card {
+            background: #232736;
+            border: 1px solid #2e3346;
+            border-radius: 4px;
+            padding: 4.5px 6px;
+        }
+
+        .step-num {
+            display: inline-block;
+            background: #6c5ce7;
+            color: #fff;
+            font-weight: 800;
+            font-size: 6.8pt;
+            padding: 0.5px 4.5px;
+            border-radius: 3px;
+            margin-bottom: 2px;
+        }
+
+        .step-card h4 {
+            font-size: 7.9pt;
+            color: #fff;
+            font-weight: 700;
+            margin-bottom: 1.5px;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 5px;
+        }
+
+        .card-inner {
+            background: #232736;
+            border-radius: 4px;
+            padding: 4.5px 6.5px;
+            border: 1px solid #2e3346;
+        }
+
+        .card-inner h4 {
+            font-size: 8pt;
+            color: #fff;
+            font-weight: 700;
+            margin-bottom: 2px;
+        }
+
+        ul {
+            margin: 0;
+            padding-left: 12px;
+        }
+
+        li {
+            margin-bottom: 1.5px;
+        }
+
+        .hl {
+            color: #ffd700;
+            font-weight: 700;
+        }
+
+        .gr {
+            color: #00e676;
+            font-weight: 700;
+        }
+
+        .pr {
+            color: #a29bfe;
+            font-weight: 700;
+        }
+
+        .muted {
+            color: #9aa0b4;
+            font-size: 7.3pt;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 7.5pt;
+            line-height: 1.12;
+        }
+
+        th {
+            background: #252836;
+            color: #a29bfe;
+            padding: 2.5px 5px;
+            text-align: left;
+            font-weight: 700;
+            border-bottom: 1px solid #383d54;
+        }
+
+        td {
+            padding: 2px 5px;
+            border-bottom: 1px solid #232736;
+            vertical-align: top;
+        }
+
+        .kpi-strip {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 5px;
+        }
+
+        .kpi-box {
+            background: #232736;
+            border-radius: 4px;
+            padding: 3.5px 4px;
+            text-align: center;
+            border: 1px solid #2f354a;
+        }
+
+        .kpi-box .val {
+            font-size: 9.8pt;
+            font-weight: 900;
+            color: #00e676;
+            line-height: 1.05;
+        }
+
+        .kpi-box .lbl {
+            font-size: 6.5pt;
+            color: #9aa0b4;
+            text-transform: uppercase;
+            font-weight: 600;
+            line-height: 1.05;
+        }
+
+        .footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 4px;
+            border-top: 1px solid #2b2f42;
+            font-size: 7.3pt;
+            color: #888ea4;
+        }
+
+        .footer a {
+            color: #a29bfe;
+            text-decoration: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="page">
+
+        <!-- HEADER -->
+        <div class="header">
+            <div class="header-left">
+                <img src="../oen pager/logo.jpeg" alt="UltimateClash">
+                <div>
+                    <h1>UltimateClash · Ficha del MVP Funcional</h1>
+                    <div class="doc-subtitle">Entregable 01 · Fase 3: Un producto listo para facturar · Execute the Idea 2ª Ed. (Colombia 2026)</div>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="url"><a href="https://torneos-beta.onrender.com" target="_blank">https://torneos-beta.onrender.com</a> <span class="badge">MVP EN LÍNEA</span></div>
+                <div>Equipo Ultimate Clash · Juan David Delgado &amp; Juan José Neira</div>
+                <div>Ficha de 1 página · Criterios 01, 02, 03 y 04 verificables hoy</div>
+            </div>
+        </div>
+
+        <!-- 1. QUÉ HACE EL PRODUCTO EN UNA FRASE + ACCESO -->
+        <div class="hero-box">
+            <div class="hero-label">1. Qué hace el producto, en una frase (y acceso directo sin instalación)</div>
+            <div class="hero-phrase">
+                <strong>UltimateClash</strong> es una plataforma web automatizada donde jugadores de <em>Clash Royale</em> en Colombia y LATAM compiten 1v1 por dinero real (<span class="gr">$1,000 a $10,000 COP</span>) con custodia segura del pozo, verificación instantánea del ganador vía la API oficial del juego y devolución de hasta el <span class="hl">75% de la comisión</span> a la comunidad.
+            </div>
+            <div class="access-strip">
+                <div class="access-item">
+                    <strong>🌐 Link desplegado en producción:</strong><br>
+                    <a href="https://torneos-beta.onrender.com" target="_blank">https://torneos-beta.onrender.com</a> (Móvil / PC)
+                </div>
+                <div class="access-item">
+                    <strong>💳 Mecanismo real de cobro activo hoy:</strong><br>
+                    Pasarela oficial <strong>Wompi</strong> (tarjeta/PSE en COP) + <strong>Nequi</strong> desde $1,000 COP.
+                </div>
+                <div class="access-item">
+                    <strong>🔑 Cómo probarlo hoy:</strong><br>
+                    Registro libre con Player Tag de <em>Clash Royale</em> o vista directa del Lobby, Finanzas y Chatbot.
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. FLUJO PRINCIPAL DEL USUARIO, PASO A PASO -->
+        <div class="section green-border">
+            <div class="section-header">
+                <div class="section-title">2. Flujo Principal del Usuario, Paso a Paso (De Principio a Fin sin Ayuda del Equipo)</div>
+                <div class="section-tag">Reemplaza las 3 fricciones de los grupos de WhatsApp: Nequi personal, horario cerrado y capturas de pantalla</div>
+            </div>
+
+            <div class="steps-grid">
+                <div class="step-card">
+                    <span class="step-num">PASO 1 · REGISTRO Y VALIDACIÓN</span>
+                    <h4>Vinculación con API de Supercell</h4>
+                    <p>El jugador entra a <a href="https://torneos-beta.onrender.com" target="_blank" style="color:#a29bfe;">torneos-beta.onrender.com</a>, crea su cuenta e ingresa su <strong>Player Tag (<code>#TAG</code>)</strong> y su <strong>Token de API</strong> de <em>Clash Royale</em>. El servidor valida en tiempo real con la API oficial que la cuenta existe y le pertenece.</p>
+                </div>
+                <div class="step-card">
+                    <span class="step-num">PASO 2 · RECARGA DE SALDO</span>
+                    <h4>Depósito en COP (Wompi o Nequi)</h4>
+                    <p>En <strong>Finanzas (<code>+ Recargar</code>)</strong> deposita desde <strong>$1,000 COP</strong>. Puede pagar de forma <strong>100% automática con Wompi</strong> (el usuario asume <code>(monto + $840) ÷ 0.964</code> y el saldo se acredita al instante) o por transferencia en <strong>Nequi</strong>.</p>
+                </div>
+                <div class="step-card">
+                    <span class="step-num">PASO 3 · EMPAREJAMIENTO 24/7</span>
+                    <h4>Búsqueda de Rival + Alerta Push</h4>
+                    <p>En <strong>Jugar / Privada</strong> pulsa <em>Buscar Partida</em>. Si otros jugadores tienen el navegador cerrado, el sistema les envía una <strong>Notificación Push al celular</strong> para entrar al duelo en segundos sin depender de horarios de un administrador.</p>
+                </div>
+                <div class="step-card">
+                    <span class="step-num">PASO 4 · SALA DE NEGOCIACIÓN</span>
+                    <h4>Acuerdo de Monto, Voz y Reloj</h4>
+                    <p>En la sala privada los dos rivales acuerdan modo y monto (<span class="hl">$1,000 a $10,000 COP</span> por jugador), cuentan con <strong>canal de voz privado en Discord</strong> a un clic y un <strong>reloj individual de 2:30 min</strong> para evitar esperas. Se muestra el premio exacto a recibir.</p>
+                </div>
+                <div class="step-card">
+                    <span class="step-num">PASO 5 · BATALLA Y API CADA 5s</span>
+                    <h4>Verificación 100% Automática</h4>
+                    <p>Ambos confirman (el sistema bloquea el pozo en custodia) y juegan su duelo 1v1 en <em>Clash Royale</em>. <strong>Sin subir capturas:</strong> el servidor consulta el registro oficial de batallas cada 5 segundos y valida etiquetas y coronas enteras.</p>
+                </div>
+                <div class="step-card">
+                    <span class="step-num">PASO 6 · LIQUIDACIÓN Y RETORNO</span>
+                    <h4>Pago al Ganador + Sorteos y Ranking</h4>
+                    <p>En segundos, el ganador recibe el pozo menos la comisión escalonada (<strong>10% a 25%</strong>; media de <strong>$1,763 COP / 17.58%</strong>). Automáticamente se alimentan los <strong>Sorteos (20%)</strong> y <strong>Rankings (15%)</strong>, y puede retirar su saldo a Nequi.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. QUÉ QUEDÓ POR FUERA A PROPÓSITO Y POR QUÉ -->
+        <div class="section gold-border">
+            <div class="section-header">
+                <div class="section-title">3. Qué Quedó por Fuera a Propósito y Por Qué (Foco en la Funcionalidad Mínima que Hace Pagar)</div>
+                <div class="section-tag">100% coherente con la Hoja 4 (CAPEX), Hoja 5 (Costos) y Hoja Supuestos del Plan Financiero</div>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:28%;">Qué dejamos por fuera en esta versión</th>
+                        <th style="width:72%;">Por qué se dejó por fuera a propósito (Decisión de producto y financiera)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>1. Cuatro categorías adicionales de recompensa (40% de la comisión en reserva)</strong><br><span class="muted">Misiones (10%), Logros (5%), Devolución directa (15%) y Referidos (10%)</span></td>
+                        <td>Para salir a facturar ya tenemos activas las 2 recompensas de mayor impacto inmediato: <span class="gr">Sorteos por tickets (20%) y Rankings automáticos de 4 periodos (15%) = 35% de la comisión pagado hoy</span>. El <strong>40% restante ($705 COP/partida) queda guardado en reserva contable</strong> (Hoja 5 y 7 del Plan Financiero) mientras validamos la recurrencia del Año 1 sin inflar costos de desarrollo hoy.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>2. Suscripción VIP mensual de pago</strong></td>
+                        <td>El problema central que hace pagar hoy al jugador es <strong>competir 1v1 sin estafas, sin esperar al admin de WhatsApp y con menor comisión</strong>. Por prudencia financiera, el Plan Financiero proyecta <strong>$0 COP por membresías VIP en el Año 1</strong> y concentra toda la conversión en partidas pagadas.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>3. Retiros bancarios 100% desatendidos (Dispersión automática sin revisión)</strong></td>
+                        <td>Mientras los <strong>depósitos sí son automáticos con Wompi</strong>, los retiros a Nequi mantienen confirmación administrativa con publicación del comprobante en el canal <strong>«🧾 Pagos»</strong> para prevenir fraude, lavado o abuso de cuentas nuevas con costo fijo $0 en etapa inicial.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>4. Otros juegos (Brawl Stars, Free Fire, FIFA) y llaves de 32–64 jugadores</strong></td>
+                        <td>Los torneos largos obligan a esperar horas entre rondas (el mismo dolor de WhatsApp). Nos enfocamos exclusivamente en <strong>duelos rápidos 1v1 de Clash Royale (6 min de principio a fin)</strong> donde la API oficial permite verificación determinista sin árbitros humanos.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 4. ESTADO ACTUAL: CUÁNTAS PERSONAS LO HAN USADO Y QUÉ APRENDIMOS -->
+        <div class="section green-border">
+            <div class="section-header">
+                <div class="section-title">4. Estado Actual: Cuántas Personas lo Han Usado y Qué Aprendimos de Ellas</div>
+                <div class="section-tag">Piloto comercial real de 15 días (1 al 15 de diciembre de 2025) con $0 COP en publicidad</div>
+            </div>
+
+            <div class="kpi-strip">
+                <div class="kpi-box">
+                    <div class="val">35</div>
+                    <div class="lbl">Usuarios Registrados Reales</div>
+                </div>
+                <div class="kpi-box">
+                    <div class="val">20 / día</div>
+                    <div class="lbl">Usuarios Activos Diarios (57%)</div>
+                </div>
+                <div class="kpi-box">
+                    <div class="val">17 / día</div>
+                    <div class="lbl">Partidas Pagadas (~255 total)</div>
+                </div>
+                <div class="kpi-box">
+                    <div class="val">$300,000 COP</div>
+                    <div class="lbl">Dinero Real Jugado (Pozos)</div>
+                </div>
+                <div class="kpi-box">
+                    <div class="val">$60,000 COP</div>
+                    <div class="lbl">Comisiones Reales Cobradas</div>
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="card-inner">
+                    <h4>Qué aprendimos de los 35 usuarios que usaron y pagaron el piloto</h4>
+                    <ul>
+                        <li><strong>Aprendizaje 1 (Sí pagan por automatización):</strong> El <strong>57% jugó todos los días</strong> (~17 partidas/día) porque el pago del premio era inmediato al terminar la batalla en <em>Clash Royale</em> sin mandar capturas por WhatsApp.</li>
+                        <li><strong>Aprendizaje 2 (Fricción al vincular la cuenta):</strong> Varios jugadores nuevos no sabían dónde encontrar el <em>Token API</em> dentro de los ajustes de <em>Clash Royale</em> o tenían dudas sobre cómo pactar el monto en la sala privada.</li>
+                        <li><strong>Aprendizaje 3 (Liquidez en tiempo real y confianza):</strong> En la semana 2, si un jugador entraba y no veía rival conectado en ese minuto, se salía; además, los nuevos pedían ver pruebas reales de retiros pagados antes de depositar más dinero.</li>
+                    </ul>
+                </div>
+
+                <div class="card-inner">
+                    <h4>Qué construimos e implementamos en el MVP gracias a ellos</h4>
+                    <ul>
+                        <li><strong>1. Asistente Chatbot IA 24/7 + Tickets con Admin:</strong> Entrenado con toda la guía de la plataforma; si una pregunta nueva no está en su base, <strong>envía un correo automático al admin</strong> y cuando el admin responde desde su panel, el usuario recibe una <strong>alerta Push</strong> y la solución queda aprendida.</li>
+                        <li><strong>2. Alertas Push de Matchmaking + Reloj de 2:30 min:</strong> Ahora, cuando alguien busca partida, el servidor despierta por notificación Push a los jugadores con el navegador cerrado, y el reloj estilo <em>Pokémon Showdown</em> evita que un rival deje esperando al otro.</li>
+                        <li><strong>3. Canal público «🧾 Pagos» + Sorteos (20%) y Rankings (15%):</strong> Publicación transparente de cada retiro pagado y retorno automático a los jugadores.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- FOOTER -->
+        <div class="footer">
+            <div><span>📧 <a href="mailto:delgadomillanjuandavid3@gmail.com">delgadomillanjuandavid3@gmail.com</a></span> · <span>📱 <a href="tel:+573126655995">+57 312 665 5995</a></span> · <span>🌐 <a href="https://torneos-beta.onrender.com" target="_blank">https://torneos-beta.onrender.com</a></span></div>
+            <div>UltimateClash · Ficha del MVP (1 página) · Entregable 01 · Execute the Idea 2026</div>
+        </div>
+
+    </div>
+</body>
+
+</html>
