@@ -1161,9 +1161,8 @@ public class ConexionDB {
                     ps.executeUpdate();
                 }
                 try (PreparedStatement ps = conn.prepareStatement(
-                        "INSERT INTO leaderboard_pools (id, pozo_diario, pozo_semanal, pozo_mensual, pozo_anual, " +
-                        "ultimo_reset_dia, ultimo_reset_semana, ultimo_reset_mes, ultimo_reset_ano) " +
-                        "VALUES (1, 0, 0, 0, 0, CURRENT_DATE, CURRENT_DATE, CURRENT_DATE, CURRENT_DATE)")) {
+                        "INSERT INTO leaderboard_pools (id, dia, semana, mes, ano) " +
+                        "VALUES (1, 0, 0, 0, 0)")) {
                     ps.executeUpdate();
                 }
 
@@ -1171,8 +1170,7 @@ public class ConexionDB {
                     ps.executeUpdate();
                 }
                 try (PreparedStatement ps = conn.prepareStatement(
-                        "INSERT INTO raffle_pool (id, saldo_disponible, total_reservado, total_recaudado, total_consumido, total_liberado) " +
-                        "VALUES (1, 0, 0, 0, 0, 0)")) {
+                        "INSERT INTO raffle_pool (id, monto) VALUES (1, 0)")) {
                     ps.executeUpdate();
                 }
 
@@ -1180,7 +1178,7 @@ public class ConexionDB {
                     ps.executeUpdate();
                 }
                 try (PreparedStatement ps = conn.prepareStatement(
-                        "INSERT INTO chatbot_config (id, tono) VALUES (1, 'adaptativo')")) {
+                        "INSERT INTO chatbot_config (clave, valor) VALUES ('tono_defecto', 'adaptativo')")) {
                     ps.executeUpdate();
                 }
 
