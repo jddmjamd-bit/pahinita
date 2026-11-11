@@ -41,7 +41,7 @@
   - En cuanto empareja con la segunda cuenta, muestras la **Sala Privada de Negociación**:
     - El botón de **Voz en Discord** (que crea un canal de voz privado temporal solo para los dos rivales).
     - El **Temporizador individual de 2:30 min** (estilo *Pokémon Showdown* para evitar que el rival deje esperando).
-    - Ambos eligen el modo y escriben el monto (por ejemplo, **`$5,000 COP`**). Señalas el texto automático que calcula la ganancia (**"Si ganas recibes: $8,167 COP"** — comisión escalonada del 10% al 25%, menor que el 20% de WhatsApp).
+    - Ambos eligen el modo y escriben el monto (por ejemplo, **`$5,000 COP`**; en promedio en nuestro modelo financiero la comisión cobrada es de **`$1,763 COP / 17.58%`**, menor que el 20% fijo de WhatsApp). Señalas el texto automático que calcula la ganancia (**"Si ganas recibes: $8,167 COP"**).
   - Ambos presionan **`🎮 COMENZAR`** y confirman en el modal.
   - La pantalla cambia a **"Buscando resultado en Clash Royale..."** y, al terminar la batalla 1v1 en el juego, muestras cómo aparece el **resultado automático**, sube el saldo del ganador y se entregan los **tickets de sorteo**.
 - **🗣️ Qué dices:**
@@ -60,7 +60,7 @@
 - **🗣️ Qué dices:**
   > *"En nuestro piloto real de 15 días con 35 usuarios movimos $300,000 pesos y generamos $60,000 en comisiones, pero aprendimos que sin comunidad ni guía inicial la retención caía.  
   > Por eso construimos dos motores que ya están funcionando hoy:  
-  > Primero, **devolvemos hasta el 75% de la comisión** a los jugadores: cada partida alimenta automáticamente los **Sorteos con tickets** y los **4 pozos de Rankings** (diario, semanal, mensual y anual) que se premian solos. Incluso si pierdes una partida, ganas tickets para recuperar tu dinero.  
+  > Primero, **solo el 25% de la comisión es ganancia neta de la plataforma** y el **75% se destina a los jugadores**: hoy ya está activo el **35%** alimentando automáticamente los **Sorteos con tickets (20%)** y los **4 pozos de Rankings (15%: diario, semanal, mensual y anual)** que se premian solos, mientras el otro **40%** se acumula en reserva para misiones, logros, devolución y referidos. Incluso si pierdes una partida, ganas tickets para recuperar tu dinero.  
   > Y segundo, creamos un **Asistente con Inteligencia Artificial 24/7** entrenado por nosotros: resuelve cualquier duda al instante y, si algo nuevo no lo sabe, nos envía un correo automático a los administradores y le avisa al jugador por notificación Push apenas le respondemos.  
   > **UltimateClash ya funciona, ya cobra y está listo para escalar en Colombia y Latinoamérica.**"*
 
@@ -71,3 +71,4 @@
 - [ ] **Sin diapositivas:** 100% grabación de pantalla mostrando `torneos-beta.onrender.com` en acción (con tu cámara pequeña en una esquina si quieres sumar cercanía).
 - [ ] **Que se vea el cobro:** Abrir el modal de **Wompi** y la pestaña de **Nequi / Evidencias de pago** demuestra de inmediato el Criterio 03 (*"Se puede cobrar"*).
 - [ ] **Que se vea la diferencia frente a WhatsApp:** Resaltar que **no hay capturas de pantalla** (todo es vía API de Clash Royale) y que **el 75% de la comisión regresa** en sorteos y rankings.
+

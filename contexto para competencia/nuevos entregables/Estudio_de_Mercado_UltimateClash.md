@@ -3,7 +3,7 @@
 **MVP funcional en línea:** [torneos-beta.onrender.com](https://torneos-beta.onrender.com)  
 **Equipo Ultimate Clash:** Juan David Delgado M. & Juan José Neira B.  
 **Contacto:** [delgadomillanjuandavid3@gmail.com](mailto:delgadomillanjuandavid3@gmail.com) · [+57 312 665 5995](tel:+573126655995)  
-**Tasa de cambio de referencia del modelo (TRM):** $4,400 COP = $1 USD  
+**Tasa de cambio del Plan Financiero (TRM):** **$3,228.26 COP = $1 USD** (6-nov-2026 [[F9]](https://dolar-colombia.com/2026-11-06))  
 
 ---
 
@@ -26,38 +26,39 @@ Miles de jugadores competitivos de *Clash Royale (CR)* en Colombia y Latinoamér
 
 ## 2 y 3. Tamaño de Mercado: TAM y SAM (Cálculo Explícito: Clientes × Gasto Anual)
 
-### Origen del Gasto Anual por Pagador (ARPPU Base = $9.28 USD/año ≈ $40,832 COP/año) [[F7]](https://torneos-beta.onrender.com)
-En nuestro **piloto comercial real de 15 días (diciembre 2025)** con **35 usuarios registrados** (20 activos/día), circularon **$300,000 COP** en pozos y la plataforma generó **$60,000 COP en comisiones brutas**:
-- Comisión bruta quincenal por usuario = `$60,000 COP ÷ 35 usuarios = $1,714.29 COP / quincena`.
-- Anualizado por 24 quincenas: `$1,714.29 COP × 24 = $41,143 COP/año`, equivalente a **$9.28 USD/año** (a la TRM de dic. 2025 de $4,433 COP/USD) o **$40,832 COP/año** (a la TRM estándar del modelo de **$4,400 COP/USD**).
-- *Nota de transparencia:* Estos montos miden **ingresos brutos potenciales por comisiones de la plataforma**, sin inflar la cifra con el dinero total jugado en los pozos (GMV).
+### Origen del Gasto Anual por Pagador (ARPPU One Pager = $9.28 USD/año = $29,958 COP/año a TRM $3,228.26 [[F9]](https://dolar-colombia.com/2026-11-06)) [[F7]](https://torneos-beta.onrender.com)
+En nuestro **piloto comercial real de 15 días (diciembre 2025)** con **35 usuarios registrados** (20 activos/día), circularon **$300,000 COP** en pozos y se cobraron **$60,000 COP en comisiones**:
+- Comisión quincenal por usuario = `$60,000 COP ÷ 35 usuarios = $1,714.29 COP / quincena`.
+- Anualizado por 24 quincenas: `$1,714.29 COP × 24 = $41,143 COP/año`, equivalente a **$9.28 USD/año** a la TRM del piloto; y a la TRM actual del Plan Financiero de **$3,228.26 COP/USD** [[F9]](https://dolar-colombia.com/2026-11-06) equivale a **$29,958.25 COP/año**.
+- En la Hoja 7 del Plan Financiero, el ingreso neto anual proyectado por pagador nuevo es **$8.80 USD ($28,410 COP)**, situándose a solo **-5.2%** de los **$9.28 USD** del One Pager.
 
-| Nivel | Clientes Potenciales | Fórmula Explícita (Paso a Paso) | Mercado Anual (USD) | Mercado Anual (COP a $4,400) |
+| Nivel | Clientes Potenciales | Fórmula Explícita (Paso a Paso) | Mercado Anual (USD) | Mercado Anual (COP a TRM $3,228.26) |
 | :--- | :--- | :--- | ---: | ---: |
-| **2. TAM Global** | **72,200,000 MAU** [[F1]](https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count) | `72,200,000 jugadores activos` [[F1]](https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count) `× $9.28 USD/año` | **$670,016,000 USD** (~$670.0M) | **$2,948,070,400,000 COP** (~$2.95 billones) |
-| **3A. SAM Global** | **2,166,000 jug./año** (~2.17M One Pager) | `72,200,000 × 15% competitivos × 20% dispuestos = 2,166,000` <br> `2,166,000 × $9.28 USD/año` | **$20,100,480 USD** (~$20.1M) | **$88,442,112,000 COP** (~$88.4 mil millones) |
-| **3B. SAM Colombia** *(Geografía y canal hoy)* | **32,550 jug./año** *(Est. proxy; 32,490 sin redond.)* | `2,170,000 (SAM Global) × 1.5% cuota CO = 32,550 jugadores` <br> `32,550 × $9.28 USD/año` | **$302,064 USD** (~$302K) | **$1,329,081,600 COP** (~$1,329.1 millones) |
-| **3C. SAM LATAM** *(CO + 2 países M6–12)* | **141,050 jug./año** *(Est.)* | `2,170,000 (SAM Global) × 6.5% (CO 1.5% + MX/PE/CL 5.0%)` <br> `141,050 × $9.28 USD/año` | **$1,308,944 USD** (~$1.31M) | **$5,759,353,600 COP** (~$5,759.4 millones) |
+| **2. TAM Global** | **72,200,000 MAU** [[F1]](https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count) | `72,200,000 jugadores activos` [[F1]](https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count) `× $9.28 USD/año` | **$670,016,000 USD** (~$670.0M) | **$2,162,985,852,160 COP** (~$2.16 billones) |
+| **3A. SAM Global** | **2,166,000 jug./año** (~2.17M One Pager) | `72,200,000 × 15% competitivos × 20% dispuestos = 2,166,000` <br> `2,166,000 × $9.28 USD/año` | **$20,100,480 USD** (~$20.1M) | **$64,889,575,565 COP** (~$64.9 mil millones) |
+| **3B. SAM Colombia** *(Geografía y canal hoy)* | **32,490 jug./año** *(Est.; 32,550 con 2.17M)* | `2,166,000 (SAM Global) × 1.5% cuota CO = 32,490 jugadores` <br> `32,490 × $9.28 USD/año` | **$301,507 USD** (~$302K) | **$973,343,634 COP** (~$973.3 millones) |
+| **3C. SAM LATAM** *(CO + expansión 2–3 años)* | **140,790 jug./año** *(Est.)* | `2,166,000 (SAM Global) × 6.5% (CO 1.5% + MX/PE/CL/EC 5.0%)` <br> `140,790 × $9.28 USD/año` | **$1,306,531 USD** (~$1.31M) | **$4,217,822,413 COP** (~$4,217.8 millones) |
 
 **Justificación de los 3 supuestos estimados del SAM:**
-1. **15% competitivo (estimado):** Porción de jugadores activos que sigue el *meta*, mejora mazos, sube de liga y juega diariamente (`72.2M × 15% = 10.83M jugadores`).
-2. **20% dispuestos a competir por dinero real (estimado):** Porción del segmento competitivo que participaría en retos pagados si cuenta con verificación automática y pasarelas locales (`10.83M × 20% = 2.166M jugadores`, equivalente al 3% del MAU global).
-3. **1.5% cuota Colombia (estimado proxy):** Ponderación conservadora basada en los ~11M de gamers móviles en Colombia [[F6]](https://www.elcolombiano.com/negocios/JUEGOS-DE-CELULAR-MUEVEN-2600-MILLONES-DE-DOLARES-AL-ANO-EN-AMERICA-LATINA-Y-CIFRAS-DE-COLOMBIA-CG23526455); en grupos regionales de WhatsApp de 4 países LATAM [[F8]](#f8), Colombia aporta >25% de los miembros activos.
+1. **15% competitivo (estimado):** Fracción de MAU que juega a diario (~25M DAU sobre 72.2M MAU = 35% [[F1]](https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count); tomamos 15% competitivo = `10.83M jugadores`).
+2. **20% dispuestos a competir por dinero real (estimado):** Fracción del segmento competitivo que entra a retos por dinero real con verificación automática y pagos locales (`10.83M × 20% = 2.166M jugadores`, 3% del MAU global).
+3. **1.5% cuota Colombia (estimado proxy):** Proporción conservadora sobre ~11M de gamers móviles en Colombia [[F6]](https://www.elcolombiano.com/negocios/JUEGOS-DE-CELULAR-MUEVEN-2600-MILLONES-DE-DOLARES-AL-ANO-EN-AMERICA-LATINA-Y-CIFRAS-DE-COLOMBIA-CG23526455); en grupos regionales de WhatsApp de 4 países LATAM [[F8]](#f8), Colombia aporta >25% de los miembros.
 
 ---
 
-## 4. SOM: Mercado Capturable en 1 a 3 Años (Coherente con One Pager y Plan Financiero)
+## 4. SOM: Mercado Capturable en 1 a 3 Años (Conciliado con Hoja 7, Hoja 9 y Panel del Plan Financiero)
 
-La tabla siguiente conecta tanto la cifra base del **One Pager** (`500 pagadores × $9.28 USD = $4,640 USD` al ritmo del piloto sin mejoras) como la **rampa operativa del Plan Financiero** hacia el hito del One Pager (**~300 partidas/día en 6–12 meses** en Colombia + 2 países LATAM) y su proyección a **2 y 3 años**:
+La tabla siguiente concilia de forma exacta el **SOM del One Pager** (`500 pagadores × $9.28 USD = $4,640 USD`), la **Proyección de Ventas del Año 1 del Plan Financiero** (`Hoja 7`: 32,220 partidas en el año cerrando en 200 partidas/día), el **Escenario Optimista / Hito del One Pager** (`Hoja 9`: 300 partidas/día al cierre) y los niveles de 10,000 y 25,000 usuarios de la **Escalera de Crecimiento** (`Hoja Panel`, filas 57 y 58) para los Años 2 y 3:
 
-| Horizonte / Escenario | Registros × Conversión = Pagadores | Multiplicación Explícita (Clientes × Gasto / Actividad) | Ingresos Brutos Plataforma | Ingreso Neto Retenido en Caja (25% Comisiones + 100% VIP)* |
+| Horizonte / Escenario | Registros × 10% = Pagadores | Cálculo Explícito (Partidas × Comisión Media $1,763.48 COP) | Comisiones Brutas (100%) | Ingreso Neto Plataforma (25% Caja)* |
 | :--- | :--- | :--- | ---: | ---: |
-| **Año 1 · Base Piloto** *(Cifra One Pager)* | `5,000 reg. × 10%` = **500 pagadores** *(1.54% SAM CO)* | `500 pagadores × $9.28 USD ($40,832 COP)/año` *(manteniendo la frecuencia base del piloto sin retención ni VIP)* | **$4,640 USD** <br> **$20,416,000 COP** | **$1,160 USD** <br> **$5,104,000 COP** |
-| **Año 1 · Meta Plan Financiero** *(Rampa a 300 part./día)* | `5,000 reg. × 15%` = **750 pagadores** *(2.30% SAM CO)* | Promedio **140 part./día** en Año 1 (cierra Mes 12 en hito de **300 part./día**): <br> `51,100 part./año × $1,300 COP comisión prom.` (pozo $6,000 COP) = `$66,430,000 COP` <br> `+ 75 suscriptores VIP × $13,200 COP × 12 meses = $11,880,000 COP` | **$17,798 USD** <br> **$78,310,000 COP** | **$6,479 USD** <br> **$28,507,500 COP** |
-| **Año 2 · Consolidación** *(CO + 2 países LATAM)* | `20,000 reg. × 12.5%` = **2,500 pagadores** *(1.77% SAM LATAM)* | **320 part./día** sostenidas (`116,800 part./año × $1,300 COP`) = `$151,840,000 COP` <br> `+ 250 VIPs × $13,200 COP × 12 meses = $39,600,000 COP` <br> *(Al ARPPU base piloto: `2,500 × $9.28 USD = $23,200 USD / $102,080,000 COP`)* | **$43,509 USD** <br> **$191,440,000 COP** | **$17,627 USD** <br> **$77,560,000 COP** |
-| **Año 3 · Escala LATAM** *(CO + MX, PE, CL, AR)* | `45,000 reg. × 13.3%` = **6,000 pagadores** *(0.28% SAM Global)* | **700 part./día** (`255,500 part./año × $1,300 COP`) = `$332,150,000 COP` <br> `+ 600 VIPs × $13,200 COP × 12 meses = $95,040,000 COP` <br> *(Al ARPPU base piloto: `6,000 × $9.28 USD = $55,680 USD / $244,992,000 COP`)* | **$97,089 USD** <br> **$427,190,000 COP** | **$40,472 USD** <br> **$178,077,500 COP** |
+| **Año 1 · SOM One Pager** *(Conciliación Hoja 7)* | `5,000 reg. × 10%` = **500 pagadores** *(1.54% SAM CO)* | `500 pagadores × $9.28 USD ($29,958 COP)/año = $4,640 USD` <br> *(En Hoja 7 se concilia contra los $4,400.15 USD netos proyectados: diferencia de solo -5.2%; ARPPU neto $8.80 USD)* | Ref. One Pager: <br> **$4,640.00 USD** | **$4,640.00 USD** <br> **$14,979,126 COP** |
+| **Año 1 · Plan Financiero** *(Escenario Base Hoja 7)* | `5,000 reg. × 10%` = **500 pagadores** *(3,600 pauta + 1,400 org.)* | `4 part./día por c/100 usuarios` → cierra Mes 12 en **200 part./día** <br> Promedio Año 1: **89.5 part./día = 32,220 partidas × $1,763.48 COP** <br> *(Cierra Mes 12 con $2,552,635 COP / $790.72 USD netos/mes)* | **$17,600.59 USD** <br> **$56,819,269 COP** | **$4,400.15 USD** <br> **$14,204,817 COP** |
+| **Año 1 · Hito One Pager** *(Optimista Hoja 9: 300/día)* | `5,000 reg. × 10%` = **500 pagadores** *(Mayor recurrencia)* | `6 part./día por c/100 usuarios` → cierra Mes 12 en **300 part./día** <br> **48,330 partidas en el año × $1,763.48 COP** comisión media <br> *(Eleva el LTV / CAC del Año 1 a 1.37x en la Hoja 9)* | **$26,400.88 USD** <br> **$85,228,904 COP** | **$6,600.22 USD** <br> **$21,307,226 COP** |
+| **Año 2 · Escalera 10K** *(Panel fila 57: 400/día)* | `10,000 reg. × 10%` = **1,000 pagadores** *(3.08% SAM CO)* | Rampa de 200 a **400 part./día** (prom. **300/día = 108,000 part./año**) <br> `108,000 partidas × $1,763.48 COP` comisión media <br> *(Al cierre con 400 part./día deja $5,290,435 COP netos/mes)* | **$58,996.38 USD** <br> **$190,455,652 COP** | **$14,749.09 USD** <br> **$47,613,913 COP** |
+| **Año 3 · Escalera 25K** *(Panel fila 58: 1,000/día)* | `25,000 reg. × 10%` = **2,500 pagadores** *(1.78% SAM LATAM)* | Rampa de 400 a **1,000 part./día** (prom. **700/día = 252,000 part./año**) <br> `252,000 partidas × $1,763.48 COP` comisión media <br> *(Al cierre con 1,000 part./día deja $13,226,087 COP netos/mes)* | **$137,658.22 USD** <br> **$444,396,521 COP** | **$34,414.55 USD** <br> **$111,099,130 COP** |
 
-*\*Regla contable del modelo:* De cada peso cobrado en comisión por partida, el **75% se devuelve automáticamente a los jugadores** (sorteos, rankings, devolución, misiones, referidos y logros) y el **25% restante + el 100% de las membresías VIP** queda como ingreso neto disponible en caja para UltimateClash.
+*\*Regla contable del Plan Financiero (Hoja 5 y Hoja 7):* Solo se modela lo ya construido hoy: de cada comisión cobrada, el **25% es ingreso neto de la plataforma** ($440.87 COP/partida), el **35% se paga hoy a los usuarios** en funciones ya activas (20% sorteos + 15% ranking = $617.22 COP/partida) y el **40% restante queda en reserva** para funciones en desarrollo (10% misiones + 5% logros + 15% devolución + 10% referidos = $705.39 COP/partida). No incluye ingresos por membresía VIP.
 
 ---
 
@@ -67,68 +68,70 @@ La tabla siguiente conecta tanto la cifra base del **One Pager** (`500 pagadores
 - **Participantes:** **35 usuarios registrados reales**, captados orgánicamente de grupos de WhatsApp con **$0 COP de presupuesto en marketing** y operado por un solo fundador.
 - **Tracción y Ventas Reales:** **20 usuarios activos diarios (57% DAU/MAU)**, **17 partidas pagadas por día** (~255 partidas en 15 días), **$300,000 COP circulados en pozos** y **$60,000 COP generados en comisiones reales**.
 - **Qué indagamos y qué respondieron los 35 participantes durante el soporte y seguimiento post-partida:**
-  1. *¿Pagan por usar una plataforma web automática?* **Sí:** el 57% jugó a diario depositando desde $1,000 COP porque eliminó la espera del administrador de WhatsApp.
-  2. *¿Qué fricción encontraron al entrar?* Varios usuarios no sabían cómo encontrar el token de verificación dentro de los ajustes de Clash Royale para vincular su cuenta ni cómo usar la sala de negociación.
-  3. *¿Por qué disminuyó la retención en la segunda semana?* Cuando entraban y no había un rival conectado en ese instante, abandonaban la sesión; además, pedían incentivos continuos (sorteos/rankings) y ver comprobantes reales de retiros pagados para confiar plenamente.
+  1. *¿Depositan y juegan en una web automática?* **Sí:** 20 de 35 usuarios (57%) jugaron a diario depositando desde $1,000 COP (~17 partidas/día).
+  2. *¿Dónde hubo fricción inicial?* Reportaron dudas sobre cómo sacar el token de verificación en los ajustes de Clash Royale para vincular su cuenta y cómo acordar el monto en sala privada.
+  3. *¿Por qué cayó la retención en la semana 2?* Sin rival inmediato se salían de la página, y faltaban recompensas continuas y comprobantes públicos de retiros pagados.
 
 ### 2. Qué construimos a partir de esta validación (Hoy activo en [torneos-beta.onrender.com](https://torneos-beta.onrender.com))
-- **Chatbot IA 24/7 + Sistema de Tickets de Soporte:** Entrenado por el administrador; si no puede resolver una duda, envía alerta inmediata por correo al admin y notifica al jugador en vivo y por *Push* apenas se responde.
-- **Notificaciones Push Web/Móvil + Temporizadores de Sala:** Cuando un jugador busca partida, el sistema envía una alerta Push a los celulares de los jugadores desconectados para emparejar en segundos, junto con un reloj individual de 2:30 min estilo *Pokémon Showdown*.
-- **Economía de Retención (75% devuelto) + Evidencias de Pago:** Sorteos automáticos por tickets de partida, cortes automáticos de ranking diario/semanal/mensual/anual y el canal público **«🧾 Pagos»** donde se publican los comprobantes verificados de cada retiro pagado.
+- **Chatbot IA 24/7 + Sistema de Tickets de Soporte:** Entrenado por el administrador; si no sabe algo, envía correo al admin y notifica por *Push* al usuario al responderse, más tickets *"Hablar con el admin"* y FAQ interactiva.
+- **Notificaciones Push Web/Móvil + Temporizadores de Sala:** Avisan al celular de los jugadores desconectados cuando alguien busca partida, junto con un reloj individual de 2:30 min estilo *Pokémon Showdown*.
+- **Devolución de Comisión + Evidencias de Pago:** Sorteos automáticos por tickets, rankings diario/semanal/mensual/anual automáticos y el canal público **«🧾 Pagos»** con comprobantes reales de cada retiro.
 
 ---
 
 ## 6. Competencia y Alternativas Actuales
 
-| Criterio | Grupos de WhatsApp en CO/LATAM [[F8]](#f8) *(Alternativa informal dominante · >3,500 miembros)* | [Mundogames](https://mundogames.com/) / [Torneum](https://torneum.com/) [[F8]](#f8) *(Plataformas internacionales multijuego)* | [UltimateClash (Nosotros)](https://torneos-beta.onrender.com) *(Especializada en CR · En línea hoy)* |
+| Criterio | Grupos de WhatsApp en CO/LATAM [[F8]](#f8) *(Alternativa informal · >3,500 miembros)* | [Mundogames](https://mundogames.com/) / [Torneum](https://torneum.com/) [[F8]](#f8) *(Plataformas internacionales multijuego)* | [UltimateClash (Nosotros)](https://torneos-beta.onrender.com) *(Especializada en CR · En línea hoy)* |
 | :--- | :--- | :--- | :--- |
-| **Verificación del ganador** | **Manual (capturas de pantalla):** tarda 15–40 min, propensa a fraude con imágenes editadas y discusiones. | **Semimanual o variable:** depende de reportes de usuarios y arbitraje externo según el juego. | **100% Automática vía API oficial de CR:** sondeo cada 5s, valida etiquetas de jugador y coronas enteras al instante. |
-| **Comisión y Retorno** | **20% fijo sobre el pozo, 0% de devolución.** Todo se lo queda el administrador del grupo. | Inscripciones o membresías en **USD / EUR**; sin devolución de comisiones al jugador. | **10% a 25% variable escalonada** (menor % a mayor pozo) y **hasta 75% devuelto** a los jugadores. |
-| **Horario y Liquidez** | **Horario fijo:** solo cuando el admin abre el chat; el resto del día permanece bloqueado. | Por torneos programados a horas fijas; baja liquidez para duelos rápidos en Colombia. | **24/7 en tiempo real:** matchmaking instantáneo + alertas Push a jugadores desconectados. |
-| **Pagos y Custodia** | Transferencia al Nequi personal del admin. **15 grupos cerrados** por abandono o riesgo de pérdida. | PayPal o tarjetas internacionales en dólares (excluye al joven bancarizado solo en Nequi). | **Nequi y Wompi en COP desde $1,000 COP:** registro contable inmutable y canal público de evidencias. |
-| **Comunidad y Soporte** | Chat silenciado entre torneos; sin rankings automatizados ni soporte 24/7. | Genéricas (abarcan muchos juegos sin comunidad local enfocada en *Clash Royale*). | **Chat 24/7, Voz en Discord privada por sala, Chatbot IA, Rankings (4 periodos) y Sorteos.** |
+| **Verificación** | **Manual (capturas de pantalla):** tarda 15–40 min, disputas por imágenes editadas. | **Semimanual o variable:** depende de reportes de jugadores y arbitraje externo. | **100% Automática vía API oficial de CR:** sondeo cada 5s, valida etiquetas de jugador y coronas enteras al instante. |
+| **Comisión y Retorno** | **20% fijo sobre el pozo, 0% de devolución.** Todo se lo queda el admin. | Inscripciones o membresías en **USD / EUR**; sin devolución al jugador. | **10% a 25% variable escalonada** (baja a mayor pozo) y **hasta 75% devuelto** a los jugadores. |
+| **Horario y Liquidez** | **Horario fijo:** solo cuando el admin abre el chat; cerrado el resto del día. | Por torneos programados a horas fijas; baja liquidez local en Colombia. | **24/7 en tiempo real:** matchmaking inmediato + aviso Push a jugadores desconectados. |
+| **Pagos y Custodia** | Transferencia al Nequi personal del admin. **15 grupos cerrados** por abandono. | PayPal o tarjetas internacionales en USD (excluye al usuario de Nequi). | **Nequi y Wompi en COP desde $1,000 COP:** registro contable inmutable y canal público de evidencias. |
+| **Comunidad y Soporte** | Chat silenciado entre torneos; sin rankings automatizados ni soporte 24/7. | Genéricas (abarcan muchos juegos sin foco en la comunidad de CR). | **Chat 24/7, Voz en Discord privada por sala, Chatbot IA, Rankings (4 periodos) y Sorteos.** |
 
 ---
 
-## 7. Precio y Modelo de Cobro
+## 7. Precio y Modelo de Cobro (Hoja 5, Hoja 9 y Gauss del Plan Financiero)
 
-1. **Comisión escalonada por partida del 25% al 10% sobre el pozo:**
-   - Los jugadores pactan partidas desde **$1,000 hasta $10,000 COP por jugador** (pozos de **$2,000 a $20,000 COP**).
-   - En el pozo mínimo (**$2,000 COP**) se aplica **25%** ($500 COP comisión; $1,500 COP premio al ganador). El porcentaje **baja linealmente** a medida que crece el pozo hasta llegar al **10%** en pozos de **$20,000 COP** ($2,000 COP comisión; $18,000 COP premio).
-   - **Comparación directa con lo que el cliente paga hoy:** En una partida típica de WhatsApp (**$5,000 COP por jugador = pozo $10,000 COP**), WhatsApp cobra **20% fijo ($2,000 COP)** [[F8]](#f8); UltimateClash cobra **18.33% ($1,833 COP)** (o en un pozo de $6,000 COP cobra 21.67% = $1,300 COP).
-2. **Devolución del 75% → Costo neto real de solo 2.5% a 6.25% del pozo:**
-   - Cada comisión cobrada se divide automáticamente en 7 categorías: **20% Sorteos + 15% Leaderboard (día/semana/mes/año) + 15% Devolución + 10% Misiones + 10% Referidos + 5% Logros = 75% devuelto a la comunidad**, y **25% ganancia neta de UltimateClash**.
-   - **Por qué ese precio:** En WhatsApp el jugador pierde el 20% para siempre; en UltimateClash incluso quien pierde recibe tickets de sorteo y puntos de ranking, haciendo que el costo neto real para la comunidad sea **hasta 4 veces menor**.
-3. **Suscripción VIP ($13,200 COP / ~$3 USD al mes) y Pasarela:**
-   - Otorga multiplicadores de tickets/puntos y menores costos de recarga. En recargas con tarjeta vía Wompi el usuario cubre la tarifa de pasarela (`+$840 COP ÷ 0.964`); en Nequi manual recarga desde **$1,000 COP** sin recargo de la plataforma.
+1. **Comisión escalonada por partida (10% a 25% del pozo):**
+   - Retos desde **$1,000 hasta $10,000 COP por jugador** (pozos de **$2,000 a $20,000 COP**). En pozo mínimo ($2,000 COP) se cobra **25%** ($500 COP) y baja en línea recta hasta **10%** en pozo de $20,000 COP ($2,000 COP).
+   - **Ticket promedio (Campana de Gauss, μ = $5,000 COP, σ = $1,500 COP):** Monto medio de **$5,015 COP por jugador** (pozo medio **$10,030 COP**) → **comisión media cobrada de $1,763 COP ($0.55 USD) por partida (17.58% del pozo)** frente al **20% fijo ($2,006 COP)** en WhatsApp [[F8]](#f8).
+2. **Reparto de la comisión y Margen Bruto por Unidad (Hoja 5 y Hoja 9):**
+   - **25% Ingreso neto de la plataforma:** **$441 COP ($0.14 USD) por partida**. Descontando **$47 COP** de infraestructura variable (Render, Brevo, Gemini), deja un **Margen Bruto por partida de $394 COP ($0.12 USD) = 22.4% de la comisión cobrada** (89.5% sobre el ingreso neto).
+   - **35% ya pagado hoy a los usuarios (implementado):** **20% Sorteos ($353 COP) + 15% Ranking ($265 COP) = $617 COP/partida**.
+   - **40% en reserva (funciones por construir):** 15% Devolución + 10% Misiones + 10% Referidos + 5% Logros = **$705 COP/partida** (guardado en reserva, no se cuenta como ingreso).
+3. **Pasarela de pagos (Wompi / Nequi):**
+   - No es costo de la plataforma; el usuario que deposita con Wompi asume `(monto + $840 COP) ÷ 0.964`.
 
 ---
 
-## 8. Canal de Distribución y Adquisición (Coherencia con el CAC)
+## 8. Canal de Distribución y Adquisición (Cuadre Exacto con Hoja 6 CAC, Hoja 8 y Hoja 9)
 
 ### Cómo llega el producto al cliente
-- **Web App** en [torneos-beta.onrender.com](https://torneos-beta.onrender.com) accesible al instante desde cualquier navegador móvil o PC sin instalación + **App móvil nativa Android/iOS** con notificaciones Push.
+- **Web App** en [torneos-beta.onrender.com](https://torneos-beta.onrender.com) (móvil y PC) con alertas Push y comunidad activa.
 
-### Cómo se enteran de que existe y cuadre exacto con el CAC del One Pager y Plan Financiero
-1. **Pauta en Meta Ads + Micro-creadores de contenido de CR en Colombia/LATAM ($9,000 USD / $39,600,000 COP):**
-   - Piezas en Reels/TikTok mostrando duelos verificados automáticamente por la API de Clash Royale y retiros pagados en Nequi.
-   - **Costo por Registro (CPR objetivo):** **$1.80 USD ($7,920 COP)**.
-   - **Registros captados:** `$9,000 USD ÷ $1.80 USD = 5,000 usuarios registrados` en el Año 1.
-   - **CAC en Canal Pago (escenario base One Pager al 10% de conversión = 500 pagadores):** `$1.80 USD ÷ 10% = $18.00 USD ($79,200 COP)` por cliente pagador.
-2. **Torneos Gratuitos Iniciales + Alianzas con Administradores de WhatsApp ($500 USD / $2,200,000 COP):**
-   - Torneos abiertos con premios semilla para migrar bloques enteros de los >3,500 miembros de los 3 grupos activos y los 15 grupos cerrados [[F8]](#f8).
-3. **Programa de Referidos autofinanciado (`10%` de cada comisión de partida):**
-   - Cada jugador gana recompensas al invitar amigos sin consumir presupuesto de marketing. Al elevar la conversión a pagador del 10% al **15% (750 pagadores activos en la meta operativa del Año 1)** gracias al Chatbot IA, notificaciones Push y referidos, el **CAC Mezclado (Blended CAC) baja a $12.00 USD ($52,800 COP)**, permitiendo que el ingreso anual por pagador activo recupere la inversión de adquisición.
+### Presupuesto de Marketing ($9,500 USD / $30,668,470 COP) y Cálculo Explícito del CAC (Hoja 6)
+1. **Publicidad en Meta Ads y creadores ($9,000 USD = $29,054,340 COP, Meses 1 a 11):**
+   - Costo estimado de **$2.50 USD ($8,071 COP) por registro pagado** → `$9,000 USD ÷ $2.50 USD = 3,600 registros por publicidad` (al 10% de conversión = **360 pagadores**; CAC puro del canal pagado = **$25.00 USD / $80,707 COP**).
+2. **Canal orgánico + Torneos gratuitos de bienvenida ($500 USD = $1,614,130 COP, Meses 1 y 2):**
+   - Atrae **1,400 registros orgánicos** desde grupos de WhatsApp [[F8]](#f8) (al 10% = **140 pagadores**) → Total del Año 1 = **5,000 usuarios registrados y 500 pagadores nuevos**.
+3. **CAC Mezclado del Año 1 (Hoja 6):**
+   - **Costo por registro total:** `$29,054,340 COP ÷ 5,000 =` **$5,811 COP ($1.80 USD)**.
+   - **CAC por cliente pagador (publicidad):** `$29,054,340 COP ÷ 500 =` **$58,109 COP ($18.00 USD)** (o **$61,337 COP / $19.00 USD** sumando los torneos de bienvenida).
+4. **LTV y Punto de Equilibrio (Hoja 8 y Hoja 9):**
+   - Con **24 partidas/mes por pagador** en el Mes 12 (ARPPU neto mensual de **$5,290 COP / $1.64 USD**) y **10% de abandono mensual (*churn*)** (vida esperada de **10 meses**), el **LTV es de $52,904 COP ($16.39 USD)** → **LTV/CAC = 0.91x** en el escenario base de 200 partidas/día (recupera el CAC en **11 meses**) y sube a **1.37x** en las **300 partidas/día** del One Pager.
+   - **Punto de equilibrio:** El equilibrio operativo **sin marketing** se alcanza en el **Mes 2** con apenas **23 partidas/día** (~569 registrados), y el equilibrio **cubriendo todo el marketing** se alcanza en el **Mes 10** (sin que la caja sea negativa en ningún mes; mínimo en Mes 9 con **$9,336,098 COP** y cierre en Mes 12 con **$14,135,478 COP**).
 
 ---
 
 ## Fuentes y Referencias Verificables
 
 - <a id="f1"></a>**[F1] Udonis / AppMagic (2 de julio de 2026):** *Clash Royale Player Count, Demographics & Revenue* — 72.2M MAU globales, ~25M DAU, 74.51% hombres, 42.93% entre 18 y 24 años. URL: [https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count](https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count)
-- <a id="f2"></a>**[F2] PocketGamer.biz (9 de marzo de 2026):** *Clash Royale celebrates 10 years and $4.9bn in player spending after resurgence* — $646.8M USD en gasto bruto de jugadores en 2025 (+149% YoY frente a $259.7M en 2024). URL: [https://www.pocketgamer.biz/clash-royale-celebrates-10-years-and-49bn-in-player-spending-after-resurgence/](https://www.pocketgamer.biz/clash-royale-celebrates-10-years-and-49bn-in-player-spending-after-resurgence/)
+- <a id="f2"></a>**[F2] PocketGamer.biz (9 de marzo de 2026):** *Clash Royale celebrates 10 years and $4.9bn in player spending after resurgence* — $646.8M USD en gasto bruto de jugadores en 2025 (+149% YoY). URL: [https://www.pocketgamer.biz/clash-royale-celebrates-10-years-and-49bn-in-player-spending-after-resurgence/](https://www.pocketgamer.biz/clash-royale-celebrates-10-years-and-49bn-in-player-spending-after-resurgence/)
 - <a id="f3"></a>**[F3] Forbes Colombia (29 de agosto de 2025):** *El crecimiento del mercado gamer en Colombia 2025* — El 62% de los gamers en Colombia juega en dispositivos móviles. URL: [https://forbes.co/negocios/el-crecimiento-del-mercado-gamer-en-colombia-2025](https://forbes.co/negocios/el-crecimiento-del-mercado-gamer-en-colombia-2025)
 - <a id="f4"></a>**[F4] Valora Analitik (10 de agosto de 2026):** *Recorrido de Nequi en Colombia* — Más de 27 millones de usuarios activos en Colombia. URL: [https://www.valoraanalitik.com/recorrido-de-nequi-en-colombia/](https://www.valoraanalitik.com/recorrido-de-nequi-en-colombia/)
 - <a id="f5"></a>**[F5] Supercell Official News / Ilkka Paananen (10 de febrero de 2026):** *The best games haven't been made yet* — Crecimiento de casi +500% en nuevos jugadores de *Clash Royale*. URL: [https://supercell.com/en/news/the-best-games-havent-been-made-yet/](https://supercell.com/en/news/the-best-games-havent-been-made-yet/)
 - <a id="f6"></a>**[F6] El Colombiano / Adsmovil (2024–2025):** *Juegos de celular mueven $2,600 millones de dólares al año en América Latina y cifras de Colombia* — ~11 millones de gamers móviles en Colombia. URL: [https://www.elcolombiano.com/negocios/JUEGOS-DE-CELULAR-MUEVEN-2600-MILLONES-DE-DOLARES-AL-ANO-EN-AMERICA-LATINA-Y-CIFRAS-DE-COLOMBIA-CG23526455](https://www.elcolombiano.com/negocios/JUEGOS-DE-CELULAR-MUEVEN-2600-MILLONES-DE-DOLARES-AL-ANO-EN-AMERICA-LATINA-Y-CIFRAS-DE-COLOMBIA-CG23526455)
-- <a id="f7"></a>**[F7] Piloto Propio UltimateClash (1 al 15 de diciembre de 2025):** Prueba comercial en vivo en [torneos-beta.onrender.com](https://torneos-beta.onrender.com) durante 15 días con **n = 35 usuarios registrados reales**, 20 usuarios activos diarios, 17 partidas pagadas/día (~255 partidas), $300,000 COP circulados en pozos y $60,000 COP en comisiones brutas cobradas, más levantamiento directo de feedback post-partida con los 35 participantes.
-- <a id="f8"></a>**[F8] Observación Primaria de Competencia en Comunidades (2025–2026):** Relevamiento directo en **18 grupos de WhatsApp** de torneos de *Clash Royale* en Colombia y LATAM (3 grupos activos que reúnen >3,500 membresías con cobro fijo del 20% de comisión y 15 grupos cerrados por abandono del administrador) y análisis funcional de plataformas internacionales ([mundogames.com](https://mundogames.com/) y [torneum.com](https://torneum.com/)).
+- <a id="f7"></a>**[F7] Piloto Propio UltimateClash (1 al 15 de diciembre de 2025):** Prueba comercial en vivo en [torneos-beta.onrender.com](https://torneos-beta.onrender.com) durante 15 días con **n = 35 usuarios registrados reales**, 20 usuarios activos diarios, 17 partidas pagadas/día (~255 partidas), $300,000 COP circulados en pozos y $60,000 COP en comisiones cobradas, más feedback directo de los 35 participantes.
+- <a id="f8"></a>**[F8] Observación Primaria de Competencia en Comunidades (2025–2026):** Relevamiento directo en **18 grupos de WhatsApp** de torneos de *Clash Royale* en Colombia y LATAM (3 grupos activos que reúnen >3,500 membresías con cobro fijo del 20% de comisión y 15 grupos cerrados por abandono del administrador) y análisis de [mundogames.com](https://mundogames.com/) y [torneum.com](https://torneum.com/).
+- <a id="f9"></a>**[F9] Tasa Representativa del Mercado (TRM del 6 de noviembre de 2026):** **$1 USD = $3,228.26 COP**. URL: [https://dolar-colombia.com/2026-11-06](https://dolar-colombia.com/2026-11-06)

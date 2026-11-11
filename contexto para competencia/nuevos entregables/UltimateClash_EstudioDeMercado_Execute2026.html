@@ -33,11 +33,11 @@
         .page {
             width: 8.5in;
             height: 11in;
-            padding: 0.10in 0.16in;
+            padding: 0.08in 0.16in;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            gap: 3px;
+            gap: 2.5px;
             background: #0f1117;
             page-break-after: always;
             break-after: page;
@@ -108,11 +108,11 @@
         .section {
             background: #1a1d27;
             border-radius: 4px;
-            padding: 4px 7px;
+            padding: 3.5px 6.5px;
             border-left: 3px solid #6c5ce7;
             display: flex;
             flex-direction: column;
-            gap: 2px;
+            gap: 1.5px;
         }
 
         .section.green-border {
@@ -261,7 +261,7 @@
         }
 
         td {
-            padding: 1.5px 4px;
+            padding: 1.1px 3.5px;
             border-bottom: 1px solid #232736;
             vertical-align: top;
         }
@@ -375,12 +375,12 @@
                 <img src="../oen pager/logo.jpeg" alt="UltimateClash">
                 <div>
                     <h1>UltimateClash · Estudio de Mercado</h1>
-                    <div class="doc-subtitle">Entregable 03 · Fase 3: Un producto listo para facturar · Execute the Idea 2ª Ed. (Colombia 2026)</div>
+                    <div class="doc-subtitle">Entregable 03 · Fase 3: Un producto listo para facturar · Execute the Idea 2ª Ed. (2026)</div>
                 </div>
             </div>
             <div class="header-right">
                 <div class="url"><a href="https://torneos-beta.onrender.com" target="_blank">torneos-beta.onrender.com</a> <span class="badge">MVP EN LÍNEA</span></div>
-                <div>TRM de referencia del modelo: <strong>$4,400 COP = $1 USD</strong></div>
+                <div>TRM Plan Financiero: <strong>$3,228.26 COP = $1 USD</strong> <a href="https://dolar-colombia.com/2026-11-06" target="_blank" class="ref-link">[F9]</a></div>
                 <div>Página 1 de 2 · Cifras con fuente y supuestos explícitos</div>
             </div>
         </div>
@@ -419,15 +419,14 @@
         <div class="section gold-border">
             <div class="section-header">
                 <div class="section-title">2 y 3. Tamaño de Mercado: TAM y SAM (Cálculo Explícito: Clientes × Gasto Anual)</div>
-                <div class="section-tag">100% alineado con el One Pager · Cada multiplicación y supuesto explícito</div>
+                <div class="section-tag">100% alineado con One Pager y Plan Financiero (TRM $3,228.26 COP/USD)</div>
             </div>
 
             <div class="formula-box">
-                <strong>Origen del Gasto Anual por Pagador (ARPPU Base = <span class="gr">$9.28 USD/año</span> ≈ <span class="hl">$40,832 COP/año</span> a TRM $4,400) <a href="https://torneos-beta.onrender.com" target="_blank" class="badge-real">DATO PILOTO [F7]</a>:</strong>
-                En nuestro piloto real de 15 días (dic. 2025) con <strong>35 usuarios registrados</strong> (20 activos/día), circularon <strong>$300,000 COP</strong> en pozos y la plataforma generó <strong>$60,000 COP en comisiones brutas</strong>.
-                Comisión bruta quincenal por usuario = <code>$60,000 COP ÷ 35 usuarios = $1,714.29 COP</code>.
-                Anualizado por 24 quincenas: <code>$1,714.29 COP × 24 = $41,143 COP/año</code> (<strong>$9.28 USD/año</strong> a TRM dic. 2025 de $4,433 COP/USD, o <strong>$40,832 COP/año</strong> a TRM $4,400).
-                <em>Mide ingresos brutos potenciales de comisión de plataforma, sin inflar con el pozo total (GMV).</em>
+                <strong>Origen del Gasto Anual por Pagador (ARPPU One Pager = <span class="gr">$9.28 USD/año</span> = <span class="hl">$29,958 COP/año</span> a TRM $3,228.26 <a href="https://dolar-colombia.com/2026-11-06" target="_blank" class="ref-link">[F9]</a>) <a href="https://torneos-beta.onrender.com" target="_blank" class="badge-real">DATO PILOTO [F7]</a>:</strong>
+                En nuestro piloto real de 15 días (dic. 2025) con <strong>35 usuarios registrados</strong> (20 activos/día), circularon <strong>$300,000 COP</strong> en pozos y se cobraron <strong>$60,000 COP en comisiones</strong>
+                (<code>$60,000 ÷ 35 = $1,714.29 COP</code> quincenales × 24 quincenas = <code>$41,143 COP/año</code>, equivalentes a <strong>$9.28 USD/año</strong> a la TRM del piloto; a la TRM actual del Plan Financiero de $3,228.26 COP/USD <a href="https://dolar-colombia.com/2026-11-06" target="_blank" class="ref-link">[F9]</a> equivale a <strong>$29,958.25 COP/año</strong>).
+                En la Hoja 7 del Plan Financiero, el ingreso neto anual por pagador nuevo es <strong>$8.80 USD ($28,410 COP)</strong>, a solo <strong>-5.2%</strong> de los $9.28 USD del One Pager.
             </div>
 
             <table>
@@ -437,7 +436,7 @@
                         <th style="width:16%;">Clientes Potenciales</th>
                         <th style="width:36%;">Fórmula Explícita (Paso a Paso)</th>
                         <th style="width:16%;" class="num">Mercado Anual (USD)</th>
-                        <th style="width:18%;" class="num">Mercado Anual (COP)</th>
+                        <th style="width:18%;" class="num">Mercado Anual (COP)*</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -446,89 +445,97 @@
                         <td><strong>72,200,000</strong> MAU <a href="https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count" target="_blank" class="badge-real">[F1]</a></td>
                         <td><code>72,200,000 jugadores activos</code> <a href="https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count" target="_blank" class="ref-link">[F1]</a> <code>× $9.28 USD/año</code><br><span class="muted">Mercado total si todos los jugadores activos mensuales del mundo compitieran.</span></td>
                         <td class="num"><strong>$670,016,000</strong><br><span class="muted">(~$670.0M USD)</span></td>
-                        <td class="num"><strong>$2,948,070M COP</strong><br><span class="muted">($2.95 billones COP)</span></td>
+                        <td class="num"><strong>$2,162,986M COP</strong><br><span class="muted">($2.16 billones COP)</span></td>
                     </tr>
                     <tr class="row-sam">
                         <td>3A. SAM Global</td>
                         <td><strong>2,166,000</strong> jug./año<br><span class="muted">(~2.17M One Pager)</span></td>
                         <td><code>72,200,000 × 15% competitivos × 20% dispuestos = 2,166,000</code><br><code>2,166,000 jugadores × $9.28 USD/año = $20,100,480 USD</code></td>
                         <td class="num"><strong>$20,100,480</strong><br><span class="muted">($20.1M USD)</span></td>
-                        <td class="num"><strong>$88,442.1M COP</strong><br><span class="muted">($88.4 mil millones)</span></td>
+                        <td class="num"><strong>$64,889.6M COP</strong><br><span class="muted">($64.9 mil millones)</span></td>
                     </tr>
                     <tr class="row-sam">
                         <td>3B. SAM Colombia<br><span class="muted">(Geografía y canal hoy)</span></td>
-                        <td><strong>32,550</strong> jug./año <span class="badge-est">EST.</span><br><span class="muted">(32,490 sin redond.)</span></td>
-                        <td><code>2,170,000 (SAM Global) × 1.5% cuota CO = 32,550 jugadores</code><br><code>32,550 jugadores × $9.28 USD/año = $302,064 USD</code></td>
-                        <td class="num"><strong>$302,064</strong><br><span class="muted">(~$302K USD)</span></td>
-                        <td class="num"><strong>$1,329,081,600 COP</strong><br><span class="muted">(~$1,329.1M COP)</span></td>
+                        <td><strong>32,490</strong> jug./año <span class="badge-est">EST.</span><br><span class="muted">(32,550 con 2.17M)</span></td>
+                        <td><code>2,166,000 (SAM Global) × 1.5% cuota CO = 32,490 jugadores</code><br><code>32,490 jugadores × $9.28 USD/año = $301,507 USD</code></td>
+                        <td class="num"><strong>$301,507</strong><br><span class="muted">(~$302K USD)</span></td>
+                        <td class="num"><strong>$973,343,634 COP</strong><br><span class="muted">(~$973.3M COP)</span></td>
                     </tr>
                     <tr class="row-sam">
-                        <td>3C. SAM LATAM<br><span class="muted">(CO + 2 países M6–12)</span></td>
-                        <td><strong>141,050</strong> jug./año <span class="badge-est">EST.</span></td>
-                        <td><code>2,170,000 (SAM Global) × 6.5% (CO 1.5% + MX/PE/CL 5.0%)</code><br><code>141,050 jugadores × $9.28 USD/año = $1,308,944 USD</code></td>
-                        <td class="num"><strong>$1,308,944</strong><br><span class="muted">(~$1.31M USD)</span></td>
-                        <td class="num"><strong>$5,759,353,600 COP</strong><br><span class="muted">(~$5,759.4M COP)</span></td>
+                        <td>3C. SAM LATAM<br><span class="muted">(CO + expansión 2–3 años)</span></td>
+                        <td><strong>140,790</strong> jug./año <span class="badge-est">EST.</span></td>
+                        <td><code>2,166,000 (SAM Global) × 6.5% (CO 1.5% + MX/PE/CL/EC 5.0%)</code><br><code>140,790 jugadores × $9.28 USD/año = $1,306,531 USD</code></td>
+                        <td class="num"><strong>$1,306,531</strong><br><span class="muted">(~$1.31M USD)</span></td>
+                        <td class="num"><strong>$4,217,822,413 COP</strong><br><span class="muted">(~$4,217.8M COP)</span></td>
                     </tr>
                 </tbody>
             </table>
 
             <p class="muted">
-                <strong>Justificación de los 3 supuestos estimados del SAM:</strong>
-                <strong>(1) 15% competitivo (estimado):</strong> fracción de MAU que juega a diario, sigue el meta y busca subir de liga (10.83M globales).
-                <strong>(2) 20% dispuestos a pagar (estimado):</strong> fracción competitiva que entra a retos por dinero real con verificación automática y pagos locales (3% del MAU total).
-                <strong>(3) 1.5% cuota Colombia (estimado proxy):</strong> proporción conservadora sobre ~11M de gamers móviles en Colombia <a href="https://www.elcolombiano.com/negocios/JUEGOS-DE-CELULAR-MUEVEN-2600-MILLONES-DE-DOLARES-AL-ANO-EN-AMERICA-LATINA-Y-CIFRAS-DE-COLOMBIA-CG23526455" target="_blank" class="ref-link">[F6]</a>; en grupos regionales de WhatsApp de 4 países LATAM <a href="#f8" class="ref-link">[F8]</a>, Colombia aporta &gt;25% de los miembros.
+                *<strong>Conversión a COP con la TRM del Plan Financiero ($3,228.26 COP/USD <a href="https://dolar-colombia.com/2026-11-06" target="_blank" class="ref-link">[F9]</a>).</strong>
+                <strong>Supuestos estimados del SAM:</strong>
+                <strong>(1) 15% competitivo:</strong> fracción de MAU que juega a diario (~25M DAU / 72.2M MAU = 35% <a href="https://blog.udonis.co/mobile-marketing/mobile-games/clash-royale-player-count" target="_blank" class="ref-link">[F1]</a>; tomamos 15% competitivo = 10.83M).
+                <strong>(2) 20% dispuestos a pagar:</strong> fracción competitiva que entra a retos por dinero real con pagos locales (3% del MAU total).
+                <strong>(3) 1.5% cuota Colombia:</strong> proporción conservadora sobre ~11M de gamers móviles en CO <a href="https://www.elcolombiano.com/negocios/JUEGOS-DE-CELULAR-MUEVEN-2600-MILLONES-DE-DOLARES-AL-ANO-EN-AMERICA-LATINA-Y-CIFRAS-DE-COLOMBIA-CG23526455" target="_blank" class="ref-link">[F6]</a>; en grupos regionales de WhatsApp de 4 países LATAM <a href="#f8" class="ref-link">[F8]</a>, Colombia aporta &gt;25% de los miembros.
             </p>
         </div>
 
         <!-- SECCIÓN 4: SOM (1 A 3 AÑOS) -->
         <div class="section green-border">
             <div class="section-header">
-                <div class="section-title">4. SOM: Mercado Capturable en 1 a 3 Años (Coherente con One Pager y Plan Financiero)</div>
-                <div class="section-tag">Conecta el SOM del One Pager (500 pagadores) con el hito de ~300 partidas/día y la expansión a 3 años</div>
+                <div class="section-title">4. SOM: Mercado Capturable en 1 a 3 Años (Conciliado con Hoja 7, Hoja 9 y Panel del Plan Financiero)</div>
+                <div class="section-tag">El SOM, la proyección de ventas y el CAC cuentan exactamente la misma historia (TRM $3,228.26 COP)</div>
             </div>
 
             <table>
                 <thead>
                     <tr>
-                        <th style="width:16%;">Horizonte / Escenario</th>
-                        <th style="width:19%;">Registros × Conv. = Pagadores</th>
-                        <th style="width:33%;">Multiplicación Explícita (Clientes × Gasto / Actividad)</th>
-                        <th style="width:15%;" class="num">Ingresos Brutos</th>
-                        <th style="width:17%;" class="num">Ingreso Neto (25% Caja)*</th>
+                        <th style="width:17%;">Horizonte / Escenario</th>
+                        <th style="width:19%;">Registros × 10% = Pagadores</th>
+                        <th style="width:32%;">Cálculo Explícito (Partidas × Comisión Media $1,763.48 COP)</th>
+                        <th style="width:16%;" class="num">Comisiones Brutas (100%)</th>
+                        <th style="width:16%;" class="num">Ingreso Neto (25% Caja)*</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr class="row-som">
-                        <td><strong>Año 1 · Base Piloto</strong><br><span class="muted">(Cifra One Pager)</span></td>
+                        <td><strong>Año 1 · SOM One Pager</strong><br><span class="muted">(Conciliación Hoja 7)</span></td>
                         <td><code>5,000 reg. × 10%</code><br>= <strong>500 pagadores</strong><br><span class="muted">(1.54% del SAM CO)</span></td>
-                        <td><code>500 pagadores × $9.28 USD ($40,832 COP)/año</code><br><span class="muted">Escenario base asumiendo la misma frecuencia del piloto sin mejoras de retención ni VIP.</span></td>
-                        <td class="num"><strong>$4,640 USD</strong><br><strong>$20,416,000 COP</strong></td>
-                        <td class="num">$1,160 USD<br>$5,104,000 COP</td>
+                        <td><code>500 pagadores × $9.28 USD ($29,958 COP)/año = $4,640 USD</code><br><span class="muted">En la Hoja 7 del Plan Financiero se concilia contra los $4,400.15 USD netos proyectados (-5.2% de diferencia; ARPPU neto $8.80 USD).</span></td>
+                        <td class="num"><span class="muted">Ref. One Pager:</span><br><strong>$4,640 USD</strong></td>
+                        <td class="num"><strong>$4,640.00 USD</strong><br><strong>$14,979,126 COP</strong></td>
                     </tr>
                     <tr class="row-som">
-                        <td><strong>Año 1 · Meta Plan Fin.</strong><br><span class="muted">(Rampa a 300 part./día)</span></td>
-                        <td><code>5,000 reg. × 15%</code><br>= <strong>750 pagadores</strong><br><span class="muted">(2.30% del SAM CO)</span></td>
-                        <td><code>Prom. 140 part./día en Año 1 (cierra M12 en hito 300/día)</code><br><code>51,100 part./año × $1,300 COP comisión prom. (pozo $6K)</code><br><code>+ 75 VIPs × $13,200 COP × 12m = $11,880,000 COP</code></td>
-                        <td class="num"><strong>$17,798 USD</strong><br><strong>$78,310,000 COP</strong></td>
-                        <td class="num"><strong>$6,479 USD</strong><br><strong>$28,507,500 COP</strong></td>
+                        <td><strong>Año 1 · Plan Financiero</strong><br><span class="muted">(Escenario Base Hoja 7)</span></td>
+                        <td><code>5,000 reg. × 10%</code><br>= <strong>500 pagadores</strong><br><span class="muted">(3,600 pauta + 1,400 org.)</span></td>
+                        <td><code>4 part./día por c/100 usuarios → cierra M12 en 200 part./día</code><br><code>Prom. año 89.5 part./día = 32,220 partidas × $1,763.48 COP</code><br><span class="muted">(Cierra Mes 12 con $2,552,635 COP / $790.72 USD netos/mes)</span></td>
+                        <td class="num"><strong>$17,600.59 USD</strong><br><strong>$56,819,269 COP</strong></td>
+                        <td class="num"><strong>$4,400.15 USD</strong><br><strong>$14,204,817 COP</strong></td>
                     </tr>
                     <tr class="row-som">
-                        <td><strong>Año 2 · Consolidación</strong><br><span class="muted">(CO + 2 países LATAM)</span></td>
-                        <td><code>20,000 reg. × 12.5%</code><br>= <strong>2,500 pagadores</strong><br><span class="muted">(1.77% del SAM LATAM)</span></td>
-                        <td><code>320 part./día sostenidas (116,800 part./año) × $1,300 COP</code><br><code>= $151,840,000 COP comisiones + 250 VIPs ($39,600,000 COP)</code><br><span class="muted">(Al ARPPU base piloto: 2,500 × $9.28 = $23,200 USD / $102.1M COP)</span></td>
-                        <td class="num"><strong>$43,509 USD</strong><br><strong>$191,440,000 COP</strong></td>
-                        <td class="num"><strong>$17,627 USD</strong><br><strong>$77,560,000 COP</strong></td>
+                        <td><strong>Año 1 · Hito One Pager</strong><br><span class="muted">(Optimista Hoja 9: 300/día)</span></td>
+                        <td><code>5,000 reg. × 10%</code><br>= <strong>500 pagadores</strong><br><span class="muted">(Mayor recurrencia)</span></td>
+                        <td><code>6 part./día por c/100 usuarios → cierra M12 en 300 part./día</code><br><code>48,330 partidas en el año × $1,763.48 COP comisión media</code><br><span class="muted">(Eleva la relación LTV / CAC del Año 1 a 1.37x en Hoja 9)</span></td>
+                        <td class="num"><strong>$26,400.88 USD</strong><br><strong>$85,228,904 COP</strong></td>
+                        <td class="num"><strong>$6,600.22 USD</strong><br><strong>$21,307,226 COP</strong></td>
                     </tr>
                     <tr class="row-som">
-                        <td><strong>Año 3 · Escala LATAM</strong><br><span class="muted">(CO + MX, PE, CL, AR)</span></td>
-                        <td><code>45,000 reg. × 13.3%</code><br>= <strong>6,000 pagadores</strong><br><span class="muted">(0.28% del SAM Global)</span></td>
-                        <td><code>700 part./día (255,500 part./año) × $1,300 COP comisión</code><br><code>= $332,150,000 COP comisiones + 600 VIPs ($95,040,000 COP)</code><br><span class="muted">(Al ARPPU base piloto: 6,000 × $9.28 = $55,680 USD / $245.0M COP)</span></td>
-                        <td class="num"><strong>$97,089 USD</strong><br><strong>$427,190,000 COP</strong></td>
-                        <td class="num"><strong>$40,472 USD</strong><br><strong>$178,077,500 COP</strong></td>
+                        <td><strong>Año 2 · Escalera 10K</strong><br><span class="muted">(Panel fila 57: 400/día)</span></td>
+                        <td><code>10,000 reg. × 10%</code><br>= <strong>1,000 pagadores</strong><br><span class="muted">(3.08% del SAM CO)</span></td>
+                        <td><code>Rampa de 200 a 400 part./día (prom. 300/día = 108,000 part./año)</code><br><code>108,000 partidas × $1,763.48 COP comisión media</code><br><span class="muted">(Al cierre con 400 part./día deja $5,290,435 COP netos/mes)</span></td>
+                        <td class="num"><strong>$58,996.38 USD</strong><br><strong>$190,455,652 COP</strong></td>
+                        <td class="num"><strong>$14,749.09 USD</strong><br><strong>$47,613,913 COP</strong></td>
+                    </tr>
+                    <tr class="row-som">
+                        <td><strong>Año 3 · Escalera 25K</strong><br><span class="muted">(Panel fila 58: 1,000/día)</span></td>
+                        <td><code>25,000 reg. × 10%</code><br>= <strong>2,500 pagadores</strong><br><span class="muted">(1.78% del SAM LATAM)</span></td>
+                        <td><code>Rampa de 400 a 1,000 part./día (prom. 700/día = 252,000 part./año)</code><br><code>252,000 partidas × $1,763.48 COP comisión media</code><br><span class="muted">(Al cierre con 1,000 part./día deja $13,226,087 COP netos/mes)</span></td>
+                        <td class="num"><strong>$137,658.22 USD</strong><br><strong>$444,396,521 COP</strong></td>
+                        <td class="num"><strong>$34,414.55 USD</strong><br><strong>$111,099,130 COP</strong></td>
                     </tr>
                 </tbody>
             </table>
-            <p class="muted">*<strong>Regla contable del modelo:</strong> Del ingreso bruto por comisiones de partidas, el <strong>75% se devuelve automáticamente a los jugadores</strong> (sorteos, rankings, devolución, misiones, referidos, logros) y el <strong>25% restante + el 100% de las suscripciones VIP</strong> entra como ingreso neto de caja para UltimateClash.</p>
+            <p class="muted">*<strong>Regla contable del Plan Financiero (Hoja 5 y Hoja 7):</strong> Solo se modela lo ya construido hoy: de cada comisión cobrada, el <strong>25% es ingreso neto de la plataforma</strong> ($440.87 COP/partida), el <strong>35% se paga hoy a los usuarios</strong> en funciones ya activas (20% sorteos + 15% ranking = $617.22 COP/partida) y el <strong>40% restante queda en reserva</strong> para funciones en desarrollo (10% misiones + 5% logros + 15% devolución + 10% referidos = $705.39 COP/partida). No incluye ingresos por membresía VIP.</p>
         </div>
 
         <!-- FOOTER P1 -->
@@ -668,38 +675,39 @@
             <div class="section gold-border">
                 <div class="section-header">
                     <div class="section-title">7. Precio y Modelo de Cobro</div>
-                    <div class="section-tag">Por qué este precio vs. lo que pagan hoy</div>
+                    <div class="section-tag">Por qué este precio vs. lo que pagan hoy (Hoja 5, 9 y Gauss)</div>
                 </div>
                 <p><strong>1. Comisión escalonada por partida (10% a 25% del pozo):</strong></p>
                 <ul>
-                    <li>Retos desde <strong>$1,000 hasta $10,000 COP por jugador</strong> (pozos de <strong>$2,000 a $20,000 COP</strong>).</li>
-                    <li>En pozo mínimo ($2,000 COP) se cobra <strong>25%</strong> ($500 COP comisión; $1,500 COP premio). Baja linealmente hasta <strong>10%</strong> en pozos de $20,000 COP ($2,000 COP comisión; $18,000 COP premio).</li>
-                    <li>En el ticket típico de WhatsApp (<strong>$5,000 COP por jugador = pozo $10,000 COP</strong>), cobramos <strong>18.33% ($1,833 COP)</strong> vs. <strong>20% fijo ($2,000 COP)</strong> en WhatsApp <a href="#f8" class="ref-link">[F8]</a>.</li>
+                    <li>Retos desde <strong>$1,000 hasta $10,000 COP por jugador</strong> (pozos de <strong>$2,000 a $20,000 COP</strong>). En pozo mínimo ($2,000) cobra <strong>25%</strong> ($500 COP) y baja en línea recta hasta <strong>10%</strong> en pozo de $20,000 ($2,000 COP).</li>
+                    <li><strong>Ticket promedio (Campana de Gauss, μ = $5,000 COP, σ = $1,500 COP):</strong> Monto medio de <strong>$5,015 COP/jugador</strong> (pozo medio <strong>$10,030 COP</strong>) → <strong>comisión media de <span class="hl">$1,763 COP ($0.55 USD)</span> por partida (17.58% del pozo)</strong> vs. <strong>20% fijo ($2,006 COP)</strong> en WhatsApp <a href="#f8" class="ref-link">[F8]</a>.</li>
                 </ul>
-                <p><strong>2. Devolución del 75% → Costo neto real de solo 2.5% a 6.25% del pozo:</strong></p>
+                <p><strong>2. Reparto de la comisión y Margen Bruto por Unidad (Hoja 5 y 9):</strong></p>
                 <ul>
-                    <li>Cada comisión se reparte automáticamente en 7 categorías: <span class="gr">20% Sorteos + 15% Ranking + 15% Devolución + 10% Misiones + 10% Referidos + 5% Logros = 75% devuelto</span>, y <strong>25% ganancia neta de UltimateClash</strong>.</li>
-                    <li><strong>Por qué importa:</strong> Incluso quien pierde acumula tickets de sorteo y puntos; el costo neto para la comunidad es <strong>hasta 4 veces menor</strong> que en WhatsApp.</li>
+                    <li><strong>25% Ingreso neto de la plataforma:</strong> <strong>$441 COP ($0.14 USD) por partida</strong>. Descontando <strong>$47 COP</strong> de infraestructura variable (Render, Brevo, Gemini), deja un <strong>Margen Bruto por partida de <span class="gr">$394 COP ($0.12 USD)</span> = 22.4% de la comisión cobrada</strong> (89.5% del ingreso neto).</li>
+                    <li><strong>35% ya pagado hoy a los usuarios (implementado):</strong> <strong>20% Sorteos ($353 COP) + 15% Ranking ($265 COP) = $617 COP/partida</strong>.</li>
+                    <li><strong>40% en reserva (funciones por construir):</strong> 15% Devolución + 10% Misiones + 10% Referidos + 5% Logros = <strong>$705 COP/partida</strong> (guardado en reserva, no se cuenta como ingreso).</li>
                 </ul>
-                <p><strong>3. VIP ($13,200 COP / ~$3 USD mes) y Pasarela:</strong> Reduce costos de pasarela (en Wompi tarjeta: <code>+$840 COP ÷ 0.964</code>; Nequi manual sin recargo de plataforma) y multiplica recompensas.</p>
+                <p><strong>3. Pasarela (Wompi / Nequi):</strong> No es costo de la plataforma; quien deposita con Wompi asume <code>(monto + $840 COP) ÷ 0.964</code>.</p>
             </div>
 
             <!-- SECCIÓN 8: CANAL Y CAC -->
             <div class="section green-border">
                 <div class="section-header">
                     <div class="section-title">8. Canal y Adquisición (Coherente con CAC)</div>
-                    <div class="section-tag">Cómo llega al cliente y cuadre con Plan Financiero</div>
+                    <div class="section-tag">Cuadre exacto con Hoja 6 (CAC), Hoja 8 y Hoja 9 del Plan Financiero</div>
                 </div>
-                <p><strong>Cómo llega al cliente:</strong> Web App en <a href="https://torneos-beta.onrender.com" target="_blank" style="color:#a29bfe;">torneos-beta.onrender.com</a> (acceso inmediato en móvil/PC) + <strong>App nativa Android/iOS</strong> con alertas Push.</p>
-                <p style="margin-top:1px;"><strong>Cómo se enteran y cálculo explícito del CAC:</strong></p>
+                <p><strong>Cómo llega al cliente:</strong> Web App en <a href="https://torneos-beta.onrender.com" target="_blank" style="color:#a29bfe;">torneos-beta.onrender.com</a> (móvil/PC) con alertas Push y comunidad activa.</p>
+                <p style="margin-top:1px;"><strong>Presupuesto ($9,500 USD / $30,668,470 COP) y cálculo del CAC (Hoja 6):</strong></p>
                 <ul>
-                    <li><strong>1. Meta Ads + Micro-creadores de CR en LATAM ($9,000 USD / $39.6M COP):</strong> Reels/TikToks mostrando duelos automáticos y retiros reales en Nequi.
-                        <br>→ <strong>Costo por Registro (CPR objetivo): <span class="hl">$1.80 USD ($7,920 COP)</span></strong>.
-                        <br>→ <code>$9,000 USD ÷ $1.80 USD = 5,000 usuarios registrados</code>.
-                        <br>→ Con <strong>10% de conversión a pagador</strong> (500 pagadores One Pager):
-                        <br>→ <strong>CAC Pago = <code>$1.80 USD ÷ 10% = $18.00 USD ($79,200 COP)</code></strong>.</li>
-                    <li><strong>2. Torneos Gratuitos Iniciales + Alianzas con Admins de WhatsApp ($500 USD / $2.2M COP):</strong> Torneos semilla abiertos para migrar a los &gt;3,500 miembros de grupos activos y los 15 grupos cerrados <a href="#f8" class="ref-link">[F8]</a>.</li>
-                    <li><strong>3. Referidos autofinanciados (10% de la comisión):</strong> Al subir la conversión al <strong>15% (750 pagadores en Plan Financiero)</strong> gracias al tutorial/chatbot y referidos orgánicos, el <strong>CAC Mezclado baja a <span class="gr">$12.00 USD ($52,800 COP)</span></strong>.</li>
+                    <li><strong>1. Publicidad en Meta Ads y creadores ($9,000 USD = $29,054,340 COP, M1–M11):</strong>
+                        Costo estimado de <strong>$2.50 USD ($8,071 COP) por registro pagado</strong> → <code>$9,000 ÷ $2.50 = 3,600 registros por publicidad</code> (al 10% = <strong>360 pagadores</strong>; CAC puro pagado = <strong>$25.00 USD / $80,707 COP</strong>).</li>
+                    <li><strong>2. Canal orgánico + Torneos gratuitos de bienvenida ($500 USD = $1,614,130 COP, M1–M2):</strong>
+                        Atrae <strong>1,400 registros orgánicos</strong> desde grupos de WhatsApp <a href="#f8" class="ref-link">[F8]</a> (al 10% = <strong>140 pagadores</strong>) → Total = <strong>5,000 registrados y 500 pagadores nuevos</strong>.</li>
+                    <li><strong>3. CAC Mezclado del Año 1 (Hoja 6):</strong>
+                        <br>→ <strong>Costo por registro total:</strong> <code>$29,054,340 ÷ 5,000 =</code> <span class="hl">$5,811 COP ($1.80 USD)</span>.
+                        <br>→ <strong>CAC por pagador (publicidad):</strong> <code>$29,054,340 ÷ 500 =</code> <span class="gr">$58,109 COP ($18.00 USD)</span> (o <strong>$61,337 COP / $19.00 USD</strong> sumando torneos).</li>
+                    <li><strong>4. LTV y Equilibrio (Hoja 8 y 9):</strong> Con 24 part./mes por pagador (ARPPU neto <strong>$5,290 COP/mes</strong>) y 10% de <em>churn</em> (vida 10 meses), <strong>LTV = $52,904 COP ($16.39 USD)</strong> → <strong>LTV/CAC = 0.91x</strong> en base (recupera CAC en <strong>11 meses</strong>) y <strong>1.37x</strong> en 300 part./día. Equilibrio operativo sin marketing en <strong>Mes 2 (23 part./día)</strong> y total en <strong>Mes 10</strong>.</li>
                 </ul>
             </div>
         </div>
@@ -718,7 +726,7 @@
                 <div id="f5"><strong>[F5] Supercell Official News (10 feb. 2026):</strong> <em>The best games haven't been made yet</em> (casi +500% en nuevos jugadores de CR). <a href="https://supercell.com/en/news/the-best-games-havent-been-made-yet/" target="_blank">https://supercell.com/en/news/the-best-games-havent-been-made-yet/</a></div>
                 <div id="f6"><strong>[F6] El Colombiano / Adsmovil (2024–2025):</strong> <em>Juegos de celular en América Latina y cifras de Colombia</em> (~11M gamers móviles en CO). <a href="https://www.elcolombiano.com/negocios/JUEGOS-DE-CELULAR-MUEVEN-2600-MILLONES-DE-DOLARES-AL-ANO-EN-AMERICA-LATINA-Y-CIFRAS-DE-COLOMBIA-CG23526455" target="_blank">https://www.elcolombiano.com/negocios/JUEGOS-DE-CELULAR-MUEVEN-2600-MILLONES-DE-DOLARES-AL-ANO-EN-AMERICA-LATINA-Y-CIFRAS-DE-COLOMBIA-CG23526455</a></div>
                 <div id="f7"><strong>[F7] Piloto Propio UltimateClash (1–15 dic. 2025):</strong> Prueba comercial en vivo en <a href="https://torneos-beta.onrender.com" target="_blank">torneos-beta.onrender.com</a> con <strong>n = 35 usuarios registrados reales</strong>, 20 activos/día, 17 partidas/día, $300,000 COP circulados y $60,000 COP en comisiones + feedback directo de los 35 participantes.</div>
-                <div id="f8"><strong>[F8] Observación Primaria de Competencia (2025–2026):</strong> Relevamiento en <strong>18 grupos de WhatsApp</strong> de torneos de CR (3 activos con &gt;3,500 membresías y 20% de comisión fija; 15 cerrados por abandono) y análisis de <a href="https://mundogames.com/" target="_blank">mundogames.com</a> y <a href="https://torneum.com/" target="_blank">torneum.com</a>.</div>
+                <div id="f8"><strong>[F8] Observación Primaria (2025–2026) y [F9] TRM Plan Financiero:</strong> Relevamiento en <strong>18 grupos de WhatsApp</strong> (3 activos con &gt;3,500 membresías y 20% comisión; 15 cerrados), <a href="https://mundogames.com/" target="_blank">mundogames.com</a>, <a href="https://torneum.com/" target="_blank">torneum.com</a> y TRM del 6-nov-2026 (<strong>$3,228.26 COP/USD</strong>): <a href="https://dolar-colombia.com/2026-11-06" target="_blank">https://dolar-colombia.com/2026-11-06</a></div>
             </div>
         </div>
 
