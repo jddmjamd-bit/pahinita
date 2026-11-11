@@ -1287,9 +1287,9 @@ class RenderAcceptanceCheck {
         JsonObject reset = admin.reiniciarZonaPruebas(adminId);
         assertTrue(reset.get("success").getAsBoolean());
         JsonObject resumenTrasReset = reset.getAsJsonObject("resumen");
-        assertEquals(0L, resumenTrasReset.get("messages").getAsLong());
-        assertEquals(0L, resumenTrasReset.get("transactions").getAsLong());
-        assertEquals(0L, resumenTrasReset.get("matches").getAsLong());
+        assertEquals(0L, resumenTrasReset.get("mensajes").getAsLong());
+        assertEquals(0L, resumenTrasReset.get("transacciones").getAsLong());
+        assertEquals(0L, resumenTrasReset.get("partidas").getAsLong());
 
         ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, () -> assertMonto(BigDecimal.ZERO,
                 dao.queryOne("SELECT saldo FROM users WHERE id = ?", idTester).get("saldo").getAsBigDecimal()));
