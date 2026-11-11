@@ -1251,15 +1251,19 @@ class RenderAcceptanceCheck {
         ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, () -> {
             assertMonto(BigDecimal.ZERO,
                     dao.queryOne("SELECT saldo FROM users WHERE id = ?", idTester).get("saldo").getAsBigDecimal());
-            dao.update("INSERT INTO messages (canal, autor_nombre, contenido, tipo) VALUES ('general', ?, 'mensaje aislado', 'texto')",
+            dao.update("INSERT INTO messages (canal, usuario, texto, tipo) VALUES ('general', ?, 'mensaje aislado', 'texto')",
                     "qa_tester_" + sufijo);
             var inicio = finanzas.iniciarWompi(idTester, JsonParser.parseString("15000"));
             String refWompi = inicio.get("reference").getAsString();
+            long montoCentavos = inicio.get("amountInCents").getAsLong();
             JsonObject txPrueba = dao.queryOne(
                     "SELECT id FROM transactions WHERE usuario_id = ? AND referencia = ?",
                     idTester, refWompi);
             assertNotNull(txPrueba);
-            assertEquals("Aprobada", admin.procesarTransaccion(txPrueba.get("id").getAsInt(), "approve"));
+            var acreditacion = wallet.acreditarDepositoWompi(refWompi,
+                    "qa-zona-prueba-" + UUID.randomUUID(), montoCentavos, monto -> montoCentavos);
+            assertNotNull(acreditacion);
+            assertTrue(acreditacion.isSuccess());
             assertMonto(new BigDecimal("15000"),
                     dao.queryOne("SELECT saldo FROM users WHERE id = ?", idTester).get("saldo").getAsBigDecimal());
         });
