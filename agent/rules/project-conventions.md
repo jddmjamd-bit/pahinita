@@ -36,7 +36,8 @@
 | Texto libre del usuario | `ChatSanitizer` (o sus mismas reglas: quitar HTML/controles, límite de longitud, listas blancas) | Guardar o reenviar texto crudo |
 | Avisar a un usuario | `NotificadorUsuarios` (`notificarSaldo`, `emitirA`, `enviarPush`) desde un listener del bus | Llamar a FCM/socket directamente desde rutas |
 | Reaccionar a algo que ocurrió | `EventBus` + constante y `record` en `Eventos` | Acoplar llamadas directas dentro del flujo de partidas o pagos |
-| Hilos / tareas asíncronas | `Ejecutores` (`ejecutarIO`, `ejecutarPush`, `enCpu`, `timers()`) | `new Thread`, `Executors.*`, `CompletableFuture.runAsync` sin executor |
+| Hilos / tareas asíncronas | `Ejecutores` (`ejecutarIO`, `ejecutarPush`, `enCpu`, `timers()`) — propagan la zona activa (`normal` / `prueba`) | `new Thread`, `Executors.*`, `CompletableFuture.runAsync` sin executor |
+| Acceso a BD según zona (normal / sandbox) | `ConexionDB.getConnection()` para negocio (`ZONA_NORMAL` / `ZONA_PRUEBA`); `getConnectionPrincipal()` solo para auth, sesiones y rol/zona | Consultar datos de negocio en `getConnectionPrincipal()` o abrir auth/sesiones en `getConnectionPruebas()` |
 | Configuración | `AppConfig` (variable de entorno + default + rango) | `System.getenv` disperso, URLs/números/secretos escritos en el código |
 | Esquema de BD | Migración Flyway `V<n>__descripcion.sql` | DDL desde Java |
 | Rate limiting | `RateLimitMiddleware` (listas `RUTAS_FINANCIERAS`, `RUTAS_AUTH`) y `RateLimiter` para cupos por usuario | Endpoints sensibles sin límite |
@@ -108,14 +109,15 @@
 
 ## 9. Migraciones Flyway (A5)
 
-1. Toda tabla, columna, índice, constraint o dato semilla nuevo es un **archivo nuevo** en `src/main/resources/db/migration/`. **Revisa el número más alto existente** (hoy `V19`, el siguiente es `V20`) y, antes de commitear, verifica de nuevo que otro agente no haya usado ese número.
+1. Toda tabla, columna, índice, constraint o dato semilla nuevo es un **archivo nuevo** en `src/main/resources/db/migration/`. **Revisa el número más alto existente** (hoy `V23`, el siguiente es `V24`) y, antes de commitear, verifica de nuevo que otro agente no haya usado ese número.
 2. **Nunca editar, renumerar ni renombrar** un `V*` ya aplicado (checksum → el servidor no arranca). Para corregir, otra migración.
 3. Dinero en `NUMERIC(18, 2)` con `CHECK (... >= 0)` cuando aplique (patrón V19). Nada de `REAL`/`DOUBLE PRECISION` para dinero.
 4. Claves foráneas con `ON DELETE` explícito, índices en FKs y filtros frecuentes, `UNIQUE` donde haya idempotencia.
 5. Si una migración encuentra datos duplicados o inválidos: **fallar con un error explícito** (patrón V12/V17). Nunca borrar, fusionar ni reasignar datos de usuarios automáticamente.
 6. Tablas inmutables tipo auditoría (como `wallet_ledger`): trigger que bloquee `UPDATE/DELETE/TRUNCATE` (patrón V10/V11).
 7. Tablas nuevas financieras o con credenciales → registrarlas en `DbAdminService` (`TABLAS_NO_IMPORTABLES`, solo lectura u ocultas) y, si son credenciales, en la limpieza post-restore de `ConexionDB`.
-8. Documentar la tabla en `ARCHITECTURE.md` (sección 3) y la migración en la sección 14.
+8. Tablas nuevas de negocio → añadirlas (en orden hijo → padre) a `tablasBorrar` y su secuencia a `tablasSecuenciaId` en `ConexionDB.reiniciarDatosZonaPruebas()`, recreando semillas singleton o triggers si aplica. Columnas nuevas de identidad/configuración en `users` (sin saldo ni estadísticas) → copiarlas en `ConexionDB.sincronizarUsuarioConPruebas()`.
+9. Documentar la tabla en `ARCHITECTURE.md` (sección 3) y la migración en la sección 14.
 
 ## 10. Dinero y ledger (D1–D5)
 
@@ -142,6 +144,7 @@
 6. **Estado de juego en BD (A2):** colas, salas, brackets, partidas 2v2, guerras y torneos se persisten (`match_queue`, `active_matches` o tablas nuevas). Los mapas en memoria solo pueden ser **caché reconstruible** al reiniciar (patrón `recuperarEstadoDesdeBD()`) o contadores efímeros (rate limit). Los temporizadores se reprograman con el tiempo restante real tras un reinicio.
 7. **Concurrencia:** candado sobre el objeto de la entidad (`synchronized (match)`) **más** restricciones/condiciones en la BD; la BD es la fuente de verdad.
 8. **Resultados de Clash Royale:** validación estricta como `ClashApiServicio.findMatchingBattle()` (batallas posteriores al inicio, tags normalizados, tipo admitido). Si hay ambigüedad → disputa, nunca liquidar una elección dudosa.
+9. **Aislamiento por zona en memoria (`normal` vs `prueba`):** todo mapa, caché, cola o temporizador en memoria separa el estado por zona (`ConexionDB.esZonaPrueba()` / `EstadoZonaSocket`, patrón `SocketHandler` y `TemporizadorSalaService`), se limpia en `SocketHandler.limpiarEstadoZonaPrueba()` y retira al usuario de la zona anterior en `SocketHandler.notificarCambioZonaUsuario(...)`.
 
 ## 12. Bus de eventos (A4)
 
@@ -202,10 +205,34 @@ Al agregar o cambiar una funcionalidad visible para el usuario:
 - **FAQ:** agregar/editar preguntas en `frontend/src/data/faq.js` (`id` único y estable, `categoria` existente, texto plano, sin "apuesta"); mantener pasando la prueba P4.
 - **Chatbot IA:** agregar el tema a `ChatbotService.TEMAS` y una pregunta base a `PREGUNTAS_SEMILLA` para que la IA le pregunte al admin. No escribir respuestas con cifras de dinero fijas en el código.
 - **Tutorial interactivo:** cuando exista, agregar el paso correspondiente.
+- **Zona de Pruebas / Sandbox:** si la funcionalidad tiene reglas, límites o disponibilidad particular en el espacio de pruebas (admin y usuarios `prueba`), actualizar también `zona-pruebas-suscripcion` en `frontend/src/data/faq.js` y las entradas correspondientes en `ChatbotService` (`TEMAS` / `PREGUNTAS_SEMILLA`).
+
+## 18. Zona de Pruebas / Sandbox (espacio de pruebas para admin y usuarios `prueba`)
+
+La plataforma cuenta con un sandbox aislado (**Copia Temporal / Zona de Pruebas**, [`ARCHITECTURE.md`](../../ARCHITECTURE.md) sección 24, migración `V23`) respaldado por `TEST_DATABASE_URL` (o el esquema local `tf_zona_pruebas`). Solo acceden cuentas con `tipo_suscripcion = 'prueba'` (asignadas exclusivamente desde `/admin`) y administradores que activan `zona_admin = 'prueba'`.
+
+**Al agregar o modificar cualquier funcionalidad**, es obligatorio actualizar también lo necesario para que funcione y permanezca aislada en el sandbox:
+
+1. **BD y control de acceso (`ConexionDB`, `AdminService`, `DbAdminService`):**
+   - Los datos de negocio usan `GenericDAO` / `ConexionDB.getConnection()` (enruta por `ThreadLocal`: `ZONA_NORMAL` vs `ZONA_PRUEBA`); autenticación, sesiones (`user_sessions`), recuperación (`password_reset_tokens`) e identidad/rol/zona usan `getConnectionPrincipal()`.
+   - Nunca expongas la asignación de `tipo_suscripcion = 'prueba'` ni la edición de `zona_admin` fuera de `AdminService` (`/api/admin/*`); `DbAdminService` (`/admin-db`) debe seguir bloqueándolo.
+   - Agrega toda tabla de negocio nueva (en orden hijo → padre) a `tablasBorrar` y su secuencia a `tablasSecuenciaId` en `ConexionDB.reiniciarDatosZonaPruebas()`, restaurando filas semilla singleton (patrón `leaderboard_pools`, `raffle_pool`, `chatbot_config`) y triggers (patrón `wallet_ledger`) cuando aplique.
+   - Si añades columnas de identidad, verificación o configuración en `users` (nunca saldo ni estadísticas de juego), cópialas en `ConexionDB.sincronizarUsuarioConPruebas()`.
+   - Si la funcionalidad aporta contadores o métricas principales para el admin, considéralos en `ConexionDB.resumenZonaPruebas()` y la pestaña `test-zone` de `Admin.jsx`.
+2. **Hilos, tiempo real y tareas programadas (`Ejecutores`, `SocketHandler`, `Main`):**
+   - Todo trabajo asíncrono o temporizador debe ejecutarse con `Ejecutores` para heredar `ConexionDB.zonaActual()`. Nunca uses `new Thread` o `Executors.*` sueltos.
+   - Separa cualquier estado en memoria, cola, caché o temporizador entre `normal` y `prueba` (`ConexionDB.esZonaPrueba()`, patrón `SocketHandler.EstadoZonaSocket` y `TemporizadorSalaService`), límpialo en `SocketHandler.limpiarEstadoZonaPrueba()` y retira al usuario de la zona previa en `SocketHandler.notificarCambioZonaUsuario(...)`.
+   - Toda recuperación al arranque y tarea periódica en `Main` (`scheduler.scheduleAtFixedRate(...)`) debe ejecutarse también para `ZONA_PRUEBA` dentro de `if (conexion.tieneZonaPruebas()) ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, ...)`.
+   - Ninguna acción ejecutada desde `ZONA_PRUEBA` (dinero, webhooks, correos, push, voz o APIs externas) puede acreditar saldo real ni alterar datos o salas de usuarios en `ZONA_NORMAL`.
+3. **Frontend (`useAppStore.js`, `Admin.jsx`, páginas nuevas):**
+   - Todo estado global en `useAppStore.js` o vista/pestaña de `Admin.jsx` y páginas de usuario que dependa de datos de la zona debe limpiarse o recargarse ante `zona_cambiada`, `zona_pruebas_reiniciada` (`recargarZonaActiva()`) y cambios de `zonaActivaAdmin`.
+4. **Pruebas y documentación del sandbox:**
+   - Verifica en `RenderAcceptanceCheck` (o amplía `zonaDePruebasAislaOperacionesRestringeSuscripcionAlAdminYPermiteBorradoManual`) que lo nuevo en `ZONA_PRUEBA` no contamine `ZONA_NORMAL` y que `admin.reiniciarZonaPruebas(...)` limpie sus tablas sin errores de FK ni triggers.
+   - Si cambia el comportamiento o flujo del sandbox, actualiza `ARCHITECTURE.md` (sección 24), `GUIA_PRUEBAS_Y_VARIABLES.md`, la ayuda (sección 17) y la prueba `P11` en `frontend/scripts/acceptance.test.js`.
 
 ---
 
-## 18. Patrones obligatorios por tipo de funcionalidad (Fase 1)
+## 19. Patrones obligatorios por tipo de funcionalidad (Fase 1)
 
 Ya no hay bloqueos de Fase 0: todo se puede implementar, pero **cada grupo exige su patrón**.
 
@@ -222,10 +249,10 @@ Ya no hay bloqueos de Fase 0: todo se puede implementar, pero **cada grupo exige
 
 ---
 
-## 19. Después de cada tarea
+## 20. Después de cada tarea
 
 1. Compilar y verificar que no haya errores (sección 16).
-2. Verificar que el cambio funcione de punta a punta: el frontend llama al endpoint correcto, el evento tiene listener, la migración corre.
+2. Verificar que el cambio funcione de punta a punta (incluyendo en la Zona de Pruebas / Sandbox cuando aplique): el frontend llama al endpoint correcto, el evento tiene listener, la migración corre.
 3. **No resumir** lo hecho en el chat. En cambio, agregar la entrada al inicio de `CHANGELOG.md` (debajo de la línea `---`) con el formato:
    ```
    ## AAAA-MM-DD — descripción corta (Modelo usado)
@@ -238,12 +265,13 @@ Ya no hay bloqueos de Fase 0: todo se puede implementar, pero **cada grupo exige
 5. Actualizar `GUIA_PRUEBAS_Y_VARIABLES.md` si hay variables nuevas o casos de prueba manual nuevos; **si la prueba manual nueva se puede simular o verificar por JUnit (`*Test.java` o `RenderAcceptanceCheck`), automatizarla ahí mismo sin dejarla solo manual**.
 6. Si completaste un ítem del roadmap, marcarlo como hecho en `analisis_y_roadmap.md`.
 7. Agregar el contenido de ayuda correspondiente (sección 17).
-8. Ejecutar el archivo `actualizar-txt.bat`.
-9. Ejecutar `git diff --stat` y confirmar que solo se tocaron los archivos esperados (sin `.env`, secretos, `target/`, `contexto-txt/` ni builds).
-10. Notificar al usuario las verificaciones manuales que debe hacer.
-11. Seguir la regla de [auto-push](auto-push.md) (add, commit descriptivo en español con convencional commits, push a `main`) a no ser que se indique lo contrario.
+8. Adaptar e integrar el cambio en la **Zona de Pruebas / Sandbox** (sección 18: `ConexionDB`, estado en memoria, tareas en `Main`, UI/store y verificación de aislamiento/reinicio).
+9. Ejecutar el archivo `actualizar-txt.bat`.
+10. Ejecutar `git diff --stat` y confirmar que solo se tocaron los archivos esperados (sin `.env`, secretos, `target/`, `contexto-txt/` ni builds).
+11. Notificar al usuario las verificaciones manuales que debe hacer.
+12. Seguir la regla de [auto-push](auto-push.md) (add, commit descriptivo en español con convencional commits, push a `main`) a no ser que se indique lo contrario.
 
-## 20. Checklist rápido de seguridad (antes de terminar)
+## 21. Checklist rápido de seguridad (antes de terminar)
 
 - [ ] El `userId` sale de la sesión (HTTP) o del socket autenticado, nunca del cliente.
 - [ ] Rutas admin bajo `/api/admin/*` y rol verificado en la BD.
@@ -257,5 +285,6 @@ Ya no hay bloqueos de Fase 0: todo se puede implementar, pero **cada grupo exige
 - [ ] Esquema por migración Flyway nueva con el número correcto.
 - [ ] Configuración en `AppConfig` y documentada.
 - [ ] Sin `innerHTML`, sin datos de usuario en `localStorage`, sin "apuesta".
+- [ ] Contenido de ayuda (sección 17) y **Zona de Pruebas / Sandbox** (sección 18) al día e integrados.
 - [ ] Simulaciones de JUnit (`RenderAcceptanceCheck` y `*Test.java`) revisadas contra restricciones reales de `V*.sql`, toda prueba manual automatizable cubierta en JUnit, y `clean verify` / `build` ejecutados.
 - [ ] `CHANGELOG.md` (y `ARCHITECTURE.md`/guía si aplica) actualizados.

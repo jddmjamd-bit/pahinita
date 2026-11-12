@@ -11,6 +11,12 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-12 — Exigir integración de la Zona de Pruebas / Sandbox en las convenciones del proyecto (Gemini 4 Hydrogen)
+- Añadida la **sección 18 (`Zona de Pruebas / Sandbox`)** en `agent/rules/project-conventions.md` y actualizada la tabla de piezas reutilizables, Flyway (sección 9, migración actual `V23`), Socket.IO/estado en memoria (sección 11), ayuda en FAQ/Chatbot (sección 17), flujo posterior a cada tarea (sección 20) y checklist final (sección 21).
+- Documentada la obligación de mantener al día en cada nueva funcionalidad el reinicio y sincronización en `ConexionDB` (`reiniciarDatosZonaPruebas`, `sincronizarUsuarioConPruebas`, `resumenZonaPruebas`), el aislamiento en memoria/timers/tareas en `Main`/`Ejecutores`/`SocketHandler`, la recarga en frontend (`useAppStore.js`/`Admin.jsx`) y la verificación en `RenderAcceptanceCheck`.
+- **Verificación:** `git diff --check` limpio y ejecución de `actualizar-txt.bat`. Solo cambios documentales de reglas/changelog (sin cambios en código ejecutable).
+Archivos: `agent/rules/project-conventions.md`, `CHANGELOG.md`
+
 ## 2026-11-10 — Zona de Pruebas aislada para administración y aceptación JUnit (Codex)
 - Añadida una Zona de Pruebas separada de producción para las cuentas con suscripción `prueba`, con selector de zona para administradores, datos y actividad aislados, y reinicio manual desde el panel.
 - Añadida la migración `V23` y la sincronización de cuentas entre la base normal y la copia de pruebas; las sesiones, rutas y sockets respetan la zona activa sin mezclar saldos ni partidas.
