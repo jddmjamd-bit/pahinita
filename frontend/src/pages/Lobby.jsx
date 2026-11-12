@@ -4,21 +4,22 @@ import { useAppStore } from '../store/useAppStore';
 import { registrarPushNavegador, cerrarPushBusqueda } from '../services/browserPush';
 import './Lobby.css';
 
-function NotificacionEnVivo({ aviso, onExpire, onOpen, onDismiss }) {
+// Solo la notificación que está encima (activa) muestra y corre el temporizador de 5 s.
+// Las demás esperan sin contador; al quedar encima retoman con los segundos que les quedaban.
+function NotificacionEnVivo({ aviso, activa, onExpire, onOpen, onDismiss }) {
     const [restantes, setRestantes] = useState(5);
 
     useEffect(() => {
-        let cuenta = 5;
+        if (!activa) return undefined;
         const timer = setInterval(() => {
-            cuenta -= 1;
-            setRestantes(cuenta);
-            if (cuenta <= 0) {
-                clearInterval(timer);
-                onExpire(aviso.id);
-            }
+            setRestantes(actual => Math.max(0, actual - 1));
         }, 1000);
         return () => clearInterval(timer);
-    }, [aviso.id, onExpire]);
+    }, [activa]);
+
+    useEffect(() => {
+        if (activa && restantes <= 0) onExpire(aviso.id);
+    }, [activa, restantes, aviso.id, onExpire]);
 
     return (
         <article className="live-notification" key={aviso.id}>
@@ -26,9 +27,11 @@ function NotificacionEnVivo({ aviso, onExpire, onOpen, onDismiss }) {
                 <strong>{aviso.titulo}</strong>
                 <span>{aviso.mensaje}</span>
             </button>
-            <span className="live-notification-countdown" aria-label={`Se oculta en ${restantes} segundos`}>
-                {restantes}s
-            </span>
+            {activa && (
+                <span className="live-notification-countdown" aria-label={`Se oculta en ${restantes} segundos`}>
+                    {restantes}s
+                </span>
+            )}
             <button className="live-notification-dismiss" onClick={() => onDismiss(aviso.id)}
                 aria-label="Eliminar aviso">×</button>
         </article>
@@ -236,10 +239,11 @@ export default function Lobby() {
 
             {avisosEnVivo.length > 0 && (
                 <section className="live-notifications" aria-label="Avisos nuevos" aria-live="polite">
-                    {avisosEnVivo.map(aviso => (
+                    {avisosEnVivo.map((aviso, indice) => (
                         <NotificacionEnVivo
                             key={aviso.id}
                             aviso={aviso}
+                            activa={indice === 0}
                             onExpire={expirarNotificacion}
                             onOpen={notificacionAbierta}
                             onDismiss={descartarNotificacion}
