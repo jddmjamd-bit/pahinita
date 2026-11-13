@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
 import { API_BASE_URL, llamarApi } from '../store/llamarApi';
 import './Chat.css';
@@ -52,8 +53,24 @@ const comprimirImagen = (file) => new Promise((resolve, reject) => {
 
 const formatoMonto = (monto) => `$${Number(monto || 0).toLocaleString('es-CO')}`;
 
+const CANALES_CHAT = [
+    { id: 'general', label: '💬 General' },
+    { id: 'anuncios', label: '📢 Anuncios' },
+    { id: 'clash', label: '⚔️ Clash' },
+    { id: 'clash_logs', label: '📜 Registro' },
+    { id: 'pagos', label: '🧾 Pagos' }
+];
+const IDS_CANALES_CHAT = new Set(CANALES_CHAT.map(c => c.id));
+
+const leerCanalDeQuery = (search) => {
+    const param = new URLSearchParams(search || '').get('canal');
+    const limpio = typeof param === 'string' ? param.trim().toLowerCase() : '';
+    return IDS_CANALES_CHAT.has(limpio) ? limpio : '';
+};
+
 export default function Chat() {
-    const [canalActivo, setCanalActivo] = useState('general'); // 'general', 'anuncios', 'clash', 'clash_logs'
+    const location = useLocation();
+    const [canalActivo, setCanalActivo] = useState(() => leerCanalDeQuery(location.search) || 'general');
     const [imagenAmpliada, setImagenAmpliada] = useState(null);
     const [inputValues, setInputValues] = useState({
         general: '',
@@ -71,14 +88,43 @@ export default function Chat() {
     const [enviandoPago, setEnviandoPago] = useState(false);
     const [errorPago, setErrorPago] = useState('');
     const chatEndRef = useRef(null);
+    const chatTabsRef = useRef(null);
+    const dragTabsRef = useRef({ activo: false, inicioX: 0, scrollInicial: 0, movido: false });
+    const ultimoMarcadoRef = useRef('');
 
     const currentUser = useAppStore(state => state.user);
     const socket = useAppStore(state => state.socket);
     const connectSocket = useAppStore(state => state.connectSocket);
     const chatMessages = useAppStore(state => state.chatMessages);
+    const chatSinLeer = useAppStore(state => state.chatSinLeer);
+    const marcarCategoriaLeida = useAppStore(state => state.marcarCategoriaLeida);
     const sendChatMessage = useAppStore(state => state.sendChatMessage);
     const setChatHistory = useAppStore(state => state.setChatHistory);
     const esAdmin = currentUser?.tipo_suscripcion === 'admin';
+
+    useEffect(() => {
+        const canalQuery = leerCanalDeQuery(location.search);
+        if (canalQuery) setCanalActivo(canalQuery);
+    }, [location.search]);
+
+    useEffect(() => {
+        if (!currentUser?.id) return undefined;
+        const marcarSiVisible = () => {
+            if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+            const pendientes = Number(chatSinLeer?.[canalActivo] || 0);
+            if (pendientes <= 0) {
+                ultimoMarcadoRef.current = '';
+                return;
+            }
+            const clave = `${canalActivo}:${pendientes}`;
+            if (ultimoMarcadoRef.current === clave) return;
+            ultimoMarcadoRef.current = clave;
+            void marcarCategoriaLeida('chat', canalActivo);
+        };
+        marcarSiVisible();
+        document.addEventListener('visibilitychange', marcarSiVisible);
+        return () => document.removeEventListener('visibilitychange', marcarSiVisible);
+    }, [canalActivo, currentUser?.id, chatSinLeer, marcarCategoriaLeida]);
 
     useEffect(() => {
         if (!imagenAmpliada) return undefined;
@@ -293,14 +339,83 @@ export default function Chat() {
         });
     }, [chatMessages, canalActivo]);
 
+    const puntoCanal = (canalId) => Number(chatSinLeer?.[canalId] || 0) > 0
+        ? <span className="notification-dot chat-tab-dot" aria-label={`${chatSinLeer[canalId]} avisos nuevos`} />
+        : null;
+
+    const iniciarArrastreTabs = (e) => {
+        if (e.button !== 0 || !chatTabsRef.current) return;
+        dragTabsRef.current = {
+            activo: true,
+            inicioX: e.clientX,
+            scrollInicial: chatTabsRef.current.scrollLeft,
+            movido: false
+        };
+    };
+
+    const moverArrastreTabs = (e) => {
+        const estado = dragTabsRef.current;
+        if (!estado.activo || !chatTabsRef.current) return;
+        const dx = e.clientX - estado.inicioX;
+        if (Math.abs(dx) > 5) estado.movido = true;
+        if (estado.movido) {
+            chatTabsRef.current.scrollLeft = estado.scrollInicial - dx;
+        }
+    };
+
+    const terminarArrastreTabs = () => {
+        dragTabsRef.current.activo = false;
+        setTimeout(() => {
+            dragTabsRef.current.movido = false;
+        }, 0);
+    };
+
+    const capturarClickTabs = (e) => {
+        if (dragTabsRef.current.movido) {
+            e.preventDefault();
+            e.stopPropagation();
+            dragTabsRef.current.movido = false;
+        }
+    };
+
+    const desplazarTabsConRueda = (e) => {
+        const el = chatTabsRef.current;
+        if (!el || el.scrollWidth <= el.clientWidth) return;
+        if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+            el.scrollLeft += e.deltaY;
+        }
+    };
+
     return (
         <div className="chat-container">
-            <div className="chat-tabs">
-                <button className={`chat-tab ${canalActivo === 'general' ? 'active' : ''}`} onClick={() => setCanalActivo('general')}>💬 General</button>
-                <button className={`chat-tab ${canalActivo === 'anuncios' ? 'active' : ''}`} onClick={() => setCanalActivo('anuncios')}>📢 Anuncios</button>
-                <button className={`chat-tab ${canalActivo === 'clash' ? 'active' : ''}`} onClick={() => setCanalActivo('clash')}>⚔️ Clash</button>
-                <button className={`chat-tab ${canalActivo === 'clash_logs' ? 'active' : ''}`} onClick={() => setCanalActivo('clash_logs')}>📜 Registro</button>
-                <button className={`chat-tab ${canalActivo === 'pagos' ? 'active' : ''}`} onClick={() => setCanalActivo('pagos')}>🧾 Pagos</button>
+            <div
+                className="chat-tabs"
+                ref={chatTabsRef}
+                role="tablist"
+                aria-label="Canales de chat"
+                onMouseDown={iniciarArrastreTabs}
+                onMouseMove={moverArrastreTabs}
+                onMouseUp={terminarArrastreTabs}
+                onMouseLeave={terminarArrastreTabs}
+                onClickCapture={capturarClickTabs}
+                onWheel={desplazarTabsConRueda}
+            >
+                {CANALES_CHAT.map(canal => (
+                    <button
+                        key={canal.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={canalActivo === canal.id}
+                        className={`chat-tab ${canalActivo === canal.id ? 'active' : ''}`}
+                        onClick={(e) => {
+                            setCanalActivo(canal.id);
+                            e.currentTarget.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' });
+                        }}
+                    >
+                        <span>{canal.label}</span>
+                        {puntoCanal(canal.id)}
+                    </button>
+                ))}
             </div>
 
             <div className="chat-messages">

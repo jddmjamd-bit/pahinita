@@ -9,12 +9,15 @@ import com.torneosflash.socketio.SocketIOServer;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
 
 /** Persistencia, reparto en vivo y push de los avisos del usuario. */
 public final class NotificacionesService {
     private static final Set<String> CATEGORIAS = Set.of(
             "chat", "soporte", "asistente", "ranking", "sorteos", "partida", "finanzas");
+    private static final Set<String> CANALES_CHAT = Set.of(
+            "general", "anuncios", "clash", "clash_logs", "pagos");
 
     private final GenericDAO db;
     private final SocketIOServer io;
@@ -80,24 +83,99 @@ public final class NotificacionesService {
                 "SELECT id, categoria, titulo, mensaje, ruta, evento_clave, datos, leida_en, creada_en " +
                         "FROM user_notifications WHERE user_id = ? AND descartada_en IS NULL " +
                         "ORDER BY id DESC LIMIT 100", userId)));
+        agregarConteosSinLeer(resultado, userId);
+        return resultado;
+    }
+
+    /** Devuelve solo los conteos actualizados sin leer por categoría y por canal de chat. */
+    public JsonObject conteosSinLeer(int userId) {
+        JsonObject resultado = new JsonObject();
+        agregarConteosSinLeer(resultado, userId);
+        return resultado;
+    }
+
+    private void agregarConteosSinLeer(JsonObject destino, int userId) {
         JsonObject sinLeer = new JsonObject();
         for (JsonObject fila : db.query(
                 "SELECT categoria, COUNT(*) AS total FROM user_notifications " +
                         "WHERE user_id = ? AND leida_en IS NULL AND descartada_en IS NULL " +
                         "GROUP BY categoria", userId)) {
-            sinLeer.addProperty(fila.get("categoria").getAsString(), fila.get("total").getAsInt());
+            if (fila.has("categoria") && !fila.get("categoria").isJsonNull()
+                    && fila.has("total") && !fila.get("total").isJsonNull()) {
+                sinLeer.addProperty(fila.get("categoria").getAsString(), fila.get("total").getAsInt());
+            }
         }
-        resultado.add("sinLeer", sinLeer);
-        return resultado;
+        destino.add("sinLeer", sinLeer);
+
+        JsonObject chatSinLeer = new JsonObject();
+        for (JsonObject fila : db.query(
+                "SELECT COALESCE(NULLIF(datos->>'canal', ''), " +
+                        "CASE WHEN ruta = '/chat?canal=anuncios' THEN 'anuncios' " +
+                        "WHEN ruta = '/chat?canal=clash' THEN 'clash' " +
+                        "WHEN ruta = '/chat?canal=pagos' THEN 'pagos' " +
+                        "WHEN ruta = '/chat?canal=clash_logs' THEN 'clash_logs' " +
+                        "ELSE 'general' END) AS canal, COUNT(*) AS total " +
+                        "FROM user_notifications " +
+                        "WHERE user_id = ? AND leida_en IS NULL AND descartada_en IS NULL " +
+                        "AND (categoria = 'chat' OR ruta = '/chat?canal=pagos' OR datos->>'canal' = 'pagos') " +
+                        "GROUP BY 1", userId)) {
+            String canal = fila.has("canal") && !fila.get("canal").isJsonNull()
+                    ? normalizarCanalChat(fila.get("canal").getAsString())
+                    : "";
+            if (!canal.isEmpty() && fila.has("total") && !fila.get("total").isJsonNull()) {
+                chatSinLeer.addProperty(canal, fila.get("total").getAsInt());
+            }
+        }
+        destino.add("chatSinLeer", chatSinLeer);
     }
 
     public void marcarCategoriaLeida(int userId, String categoria) {
+        marcarCategoriaLeida(userId, categoria, "");
+    }
+
+    public void marcarCategoriaLeida(int userId, String categoria, String canal) {
         if (userId <= 0 || !CATEGORIAS.contains(categoria)) return;
-        db.update("UPDATE user_notifications SET leida_en = CURRENT_TIMESTAMP " +
-                "WHERE user_id = ? AND categoria = ? AND leida_en IS NULL AND descartada_en IS NULL",
-                userId, categoria);
+        String canalNorm = "chat".equals(categoria) ? normalizarCanalChat(canal) : "";
+        if (canalNorm.isEmpty()) {
+            db.update("UPDATE user_notifications SET leida_en = CURRENT_TIMESTAMP " +
+                    "WHERE user_id = ? AND categoria = ? AND leida_en IS NULL AND descartada_en IS NULL",
+                    userId, categoria);
+            JsonObject datos = new JsonObject();
+            datos.addProperty("categoria", categoria);
+            emitirAUsuario(userId, "notificaciones_leidas", datos);
+            return;
+        }
+
+        String rutaCanal = "/chat?canal=" + canalNorm;
+        if ("pagos".equals(canalNorm)) {
+            db.update("UPDATE user_notifications SET leida_en = CURRENT_TIMESTAMP " +
+                    "WHERE user_id = ? AND leida_en IS NULL AND descartada_en IS NULL " +
+                    "AND (categoria = 'chat' OR categoria = 'finanzas') " +
+                    "AND (datos->>'canal' = ? OR ruta = ?)",
+                    userId, canalNorm, rutaCanal);
+        } else if ("general".equals(canalNorm)) {
+            db.update("UPDATE user_notifications SET leida_en = CURRENT_TIMESTAMP " +
+                    "WHERE user_id = ? AND categoria = 'chat' AND leida_en IS NULL AND descartada_en IS NULL " +
+                    "AND (datos->>'canal' = ? OR ruta = ? OR (COALESCE(datos->>'canal', '') = '' AND ruta = '/chat'))",
+                    userId, canalNorm, rutaCanal);
+        } else {
+            db.update("UPDATE user_notifications SET leida_en = CURRENT_TIMESTAMP " +
+                    "WHERE user_id = ? AND categoria = 'chat' AND leida_en IS NULL AND descartada_en IS NULL " +
+                    "AND (datos->>'canal' = ? OR ruta = ?)",
+                    userId, canalNorm, rutaCanal);
+        }
+
+        JsonObject conteos = conteosSinLeer(userId);
+        JsonObject sinLeer = conteos.getAsJsonObject("sinLeer");
+        int restanteChat = sinLeer != null && sinLeer.has("chat") ? sinLeer.get("chat").getAsInt() : 0;
         JsonObject datos = new JsonObject();
-        datos.addProperty("categoria", categoria);
+        datos.addProperty("categoria", "chat");
+        datos.addProperty("canal", canalNorm);
+        datos.addProperty("sinLeerCategoria", restanteChat);
+        if ("pagos".equals(canalNorm)) {
+            int restanteFinanzas = sinLeer != null && sinLeer.has("finanzas") ? sinLeer.get("finanzas").getAsInt() : 0;
+            datos.addProperty("sinLeerFinanzas", restanteFinanzas);
+        }
         emitirAUsuario(userId, "notificaciones_leidas", datos);
     }
 
@@ -192,5 +270,11 @@ public final class NotificacionesService {
 
     private static String escaparLike(String valor) {
         return valor.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
+    private static String normalizarCanalChat(String canal) {
+        if (canal == null) return "";
+        String limpio = canal.trim().toLowerCase(Locale.ROOT);
+        return CANALES_CHAT.contains(limpio) ? limpio : "";
     }
 }

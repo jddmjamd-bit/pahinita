@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { useEffect, lazy, Suspense } from 'react'
+import { Component, useEffect, lazy, Suspense } from 'react'
 import { useAppStore } from './store/useAppStore'
 import { useCapacitor } from './hooks/useCapacitor'
 import { limpiarPushVisibles } from './services/browserPush'
@@ -20,7 +20,66 @@ const Faq = lazy(() => import('./pages/Faq'))
 
 const RUTAS_PUBLICAS = ['/auth', '/terminos', '/privacidad', '/faq'];
 
-function App() {
+// Evita pantallas vacías en celular si una vista diferida falla al reanudarse o queda un chunk viejo tras desplegar.
+class AppErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hayError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hayError: true };
+  }
+
+  componentDidCatch() {
+    if (typeof window !== 'undefined' && performance.now() > 3000) {
+      window.location.reload();
+    }
+  }
+
+  render() {
+    if (this.state.hayError) {
+      return (
+        <div className="center-screen" style={{ padding: '24px' }}>
+          <div style={{
+            maxWidth: '380px',
+            width: '100%',
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '14px',
+            padding: '24px',
+            textAlign: 'center',
+            boxShadow: 'var(--shadow-md)'
+          }}>
+            <h2 style={{ margin: '0 0 10px', fontSize: '1.15rem', color: 'var(--text-primary)' }}>
+              La vista necesitaba recargarse
+            </h2>
+            <p style={{ margin: '0 0 18px', fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              Recarga la página para recuperar la conexión y la versión más reciente.
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              style={{
+                width: '100%',
+                padding: '10px 16px',
+                borderRadius: '10px',
+                background: 'var(--accent-primary)',
+                color: '#fff',
+                fontWeight: 600
+              }}
+            >
+              Recargar página
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function AppContent() {
   const theme = useAppStore(state => state.theme);
   const toggleTheme = useAppStore(state => state.toggleTheme);
   const user = useAppStore(state => state.user);
@@ -55,6 +114,37 @@ function App() {
 
   useEffect(() => {
     void limpiarPushVisibles();
+  }, []);
+
+  // Al volver a la pestaña/app móvil evita vista previa congelada (bfcache) o chunks viejos y despierta el socket.
+  useEffect(() => {
+    const alMostrarPagina = (evento) => {
+      if (evento?.persisted) {
+        window.location.reload();
+      }
+    };
+    const alFallarPrecarga = (evento) => {
+      evento.preventDefault();
+      if (performance.now() > 3000) {
+        window.location.reload();
+      }
+    };
+    const alCambiarVisibilidad = () => {
+      if (document.visibilityState !== 'visible') return;
+      const socketActual = useAppStore.getState().socket;
+      if (socketActual && !socketActual.connected) {
+        socketActual.connect();
+      }
+    };
+
+    window.addEventListener('pageshow', alMostrarPagina);
+    window.addEventListener('vite:preloadError', alFallarPrecarga);
+    document.addEventListener('visibilitychange', alCambiarVisibilidad);
+    return () => {
+      window.removeEventListener('pageshow', alMostrarPagina);
+      window.removeEventListener('vite:preloadError', alFallarPrecarga);
+      document.removeEventListener('visibilitychange', alCambiarVisibilidad);
+    };
   }, []);
 
   useEffect(() => {
@@ -121,6 +211,14 @@ function App() {
         </Routes>
       </Suspense>
     </>
+  )
+}
+
+function App() {
+  return (
+    <AppErrorBoundary>
+      <AppContent />
+    </AppErrorBoundary>
   )
 }
 

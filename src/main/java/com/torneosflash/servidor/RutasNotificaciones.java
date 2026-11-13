@@ -38,8 +38,13 @@ public final class RutasNotificaciones {
             if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesión");
             JsonObject body = RutasAuth.parseBody(ctx);
             String categoria = Peticion.textoOpcional(body, "categoria", "");
-            notificaciones.marcarCategoriaLeida(userId, categoria);
-            ctx.json(RutasAuth.successJson("Notificaciones actualizadas", 0));
+            String canal = Peticion.textoOpcional(body, "canal", "");
+            notificaciones.marcarCategoriaLeida(userId, categoria, canal);
+            JsonObject respuesta = RutasAuth.successJson("Notificaciones actualizadas", 0);
+            JsonObject conteos = notificaciones.conteosSinLeer(userId);
+            respuesta.add("sinLeer", conteos.get("sinLeer"));
+            respuesta.add("chatSinLeer", conteos.get("chatSinLeer"));
+            ctx.json(respuesta);
         });
 
         app.post("/api/notificaciones/leer/{id}", ctx -> {

@@ -71,7 +71,20 @@ body {
   background-attachment: fixed;
   color: var(--text-primary);
   min-height: 100vh;
+  min-height: 100dvh;
   -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* Evita pantalla vacía por composición fija de fondo al reanudar en móviles */
+@media (max-width: 768px), (hover: none) {
+  body {
+    background-attachment: scroll;
+  }
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -114,6 +127,7 @@ h1, h2, h3, h4, h5, h6 {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 /* Modales (los usan Sorteos y Match) */

@@ -11,6 +11,21 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-13 — Navegación directa, pestañas desplazables en chat con punto por canal y recuperación/recarga móvil al reconectar socket (Gemini 4 Hydrogen)
+- Eliminado en el menú lateral (`Lobby.jsx`, `Lobby.css`) el encabezado `JUEGOS` y el submenú desplegable `⚔️ CLASH ROYALE`, dejando **`⚔️ Jugar / Privada`** y **`🎁 Sorteos`** directamente accesibles sin un clic previo; actualizada la guía en `frontend/src/data/faq.js`.
+- Barra de canales de chat desplazable/movible (`Chat.jsx`, `Chat.css`, `Lobby.css`): habilitado desplazamiento horizontal táctil, arrastre con mouse, rueda horizontal, `scrollIntoView` de la pestaña activa, margen izquierdo en móvil para librar el botón `☰` y `min-width: 0` en `.chat-area` / `.chat-container`.
+- Recuperación ante pantalla vacía/"vista previa" en celular y recarga única al reconectar (`Main.java`, `index.css`, `App.jsx`, `useAppStore.js`):
+  - `Main.java` sirve `index.html` y el fallback SPA con `Cache-Control: no-cache, no-store, must-revalidate` en UTF-8 y deja fuera del fallback rutas bajo `/assets/` o con extensión de archivo.
+  - `index.css` añade altura `100dvh` (`#root`, `body`, `.center-screen`, `.discord-layout`, `.sidebar`) y cambia `background-attachment: scroll` en pantallas móviles/táctiles.
+  - `App.jsx` envuelve la app en `AppErrorBoundary`, recarga en `pageshow` (`event.persisted`) y `vite:preloadError`, y reconecta el socket dormido en `visibilitychange`.
+  - `useAppStore.js` detecta la reconexión del socket tras una desconexión (`yaConectado && tuvoDesconexion`) y ejecuta una única recarga de página (`newSocket.disconnect(); window.location.reload()`).
+- Punto rojo de notificaciones por categoría de chat (`NotificacionesService.java`, `RutasNotificaciones.java`, `EvidenciaPagoListener.java`, `useAppStore.js`, `Chat.jsx`, `Lobby.jsx`):
+  - `GET /api/notificaciones` retorna el desglose `chatSinLeer` por canal (`general`, `anuncios`, `clash`, `pagos`) y `POST /api/notificaciones/leer/categoria` acepta `canal` opcional para marcar leído únicamente el canal visible activo desde `Chat.jsx` (incluidos comprobantes en `pagos` y soporte `?canal=`), sin limpiar toda la categoría desde `Lobby.jsx`.
+  - Renderizado el punto rojo `.notification-dot.chat-tab-dot` en cada pestaña de canal.
+- Añadidas pruebas en `NotificacionesServiceTest.java` (+ `SocketEspia.java`), `RenderAcceptanceCheck.java`, contrato `P13` en `frontend/scripts/acceptance.test.js` y documentación en `ARCHITECTURE.md` y `GUIA_PRUEBAS_Y_VARIABLES.md`.
+- **Verificación:** `.\mvnw.cmd clean verify` (`Tests run: 73, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`); en `frontend/`, `npm.cmd run lint` (`0` errores, `51` advertencias previas en 33 archivos), `npm.cmd run test:acceptance` (`12/12` contratos P2–P13) y `npm.cmd run build` (`vite build` exitoso). `RenderAcceptanceCheck` quedó compilado con el nuevo caso `notificacionesChatPorCanalSeparanConteoYLecturaSelectiva`, sin ejecutarse localmente por ausencia de `TEST_DATABASE_URL`.
+Archivos: `EvidenciaPagoListener.java`, `NotificacionesService.java`, `RutasNotificaciones.java`, `Main.java`, `NotificacionesServiceTest.java`, `SocketEspia.java`, `RenderAcceptanceCheck.java`, `App.jsx`, `index.css`, `useAppStore.js`, `Lobby.jsx`, `Lobby.css`, `Chat.jsx`, `Chat.css`, `faq.js`, `acceptance.test.js`, `ARCHITECTURE.md`, `GUIA_PRUEBAS_Y_VARIABLES.md`, `CHANGELOG.md`
+
 ## 2026-11-12 — Matchmaking justo: nivel discreto en título, visibilidad anticipada, autoemparejamiento y tiempos de aceptación
 - Migración `V25__matchmaking_emparejamiento_y_tiempos.sql`: agrega `es_automatico` a `matchmaking_challenges` para distinguir retos automáticos al emparejar jugadores en cola.
 - Título discreto (`Match.jsx`, `Match.css`): mueve el nivel cualitativo del jugador junto a `⚔️ Buscar partida` (`.mm-header-level`), presionable sin pistas visuales para desplegar/ocultar las variables que aplican (`.mm-header-vars-panel`), eliminando el encabezado redundante de `.fair-matchmaking-panel`.

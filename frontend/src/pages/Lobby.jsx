@@ -101,7 +101,6 @@ export default function Lobby() {
     }, [currentUser, connectSocket, disconnectSocket]);
 
     const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
-    const [clashMenuOpen, setClashMenuOpen] = useState(false);
     const [avisosOcultos, setAvisosOcultos] = useState(() => new Set());
     const [retoAhoraMs, setRetoAhoraMs] = useState(() => Date.now());
 
@@ -132,13 +131,12 @@ export default function Lobby() {
     }, [currentUser?.id, cargarNotificaciones, cargarEstadoMatchmaking, esNavegadorWeb, setPushToken]);
 
     useEffect(() => {
-        const categoria = location.pathname === '/chat' ? 'chat'
-            : location.pathname === '/soporte' ? 'soporte'
-                : location.pathname === '/chatbot' ? 'asistente'
-                    : location.pathname === '/leaderboard' ? 'ranking'
-                        : location.pathname === '/sorteos' ? 'sorteos'
-                            : location.pathname === '/match' ? 'partida'
-                                : location.pathname === '/finance' ? 'finanzas' : '';
+        const categoria = location.pathname === '/soporte' ? 'soporte'
+            : location.pathname === '/chatbot' ? 'asistente'
+                : location.pathname === '/leaderboard' ? 'ranking'
+                    : location.pathname === '/sorteos' ? 'sorteos'
+                        : location.pathname === '/match' ? 'partida'
+                            : location.pathname === '/finance' ? 'finanzas' : '';
         if (categoria) void marcarCategoriaLeida(categoria);
     }, [location.pathname, currentUser?.id, marcarCategoriaLeida]);
 
@@ -221,26 +219,12 @@ export default function Lobby() {
                     <div className={`channel ${isActive('/chat')}`} onClick={() => handleNavigation('/chat')}>
                         <span># 💬 Chat / Anuncios</span>{punto('chat')}
                     </div>
-                    <div className="category">JUEGOS</div>
-                    
-                    <div className="dropdown-group">
-                        <div className="channel category-title" onClick={() => setClashMenuOpen(!clashMenuOpen)}>
-                            <span>⚔️ CLASH ROYALE</span>
-                            <span>{clashMenuOpen ? '▲' : '▼'}</span>
-                        </div>
-                        
-                        {clashMenuOpen && (
-                            <div className="submenu">
-                                <div className={`channel sub-channel ${isActive('/match')}`} onClick={() => handleNavigation('/match')}>
-                                    <span>⚔️ Jugar / Privada</span>{punto('partida')}
-                                </div>
-                                <div className={`channel sub-channel ${isActive('/sorteos')}`} onClick={() => handleNavigation('/sorteos')}>
-                                    <span>🎁 Sorteos</span>{punto('sorteos')}
-                                </div>
-                            </div>
-                        )}
+                    <div className={`channel ${isActive('/match')}`} onClick={() => handleNavigation('/match')}>
+                        <span>⚔️ Jugar / Privada</span>{punto('partida')}
                     </div>
-                    
+                    <div className={`channel ${isActive('/sorteos')}`} onClick={() => handleNavigation('/sorteos')}>
+                        <span>🎁 Sorteos</span>{punto('sorteos')}
+                    </div>
                     <div className={`channel ${isActive('/leaderboard')}`} onClick={() => handleNavigation('/leaderboard')}>
                         <span>🏆 Rankings</span>{punto('ranking')}
                     </div>

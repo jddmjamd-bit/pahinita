@@ -261,6 +261,10 @@ public class Main {
             ctx.header("X-Frame-Options", "DENY");
             ctx.header("Referrer-Policy", "strict-origin-when-cross-origin");
             ctx.header("Content-Security-Policy", politicaCsp);
+            String rutaActual = ctx.path();
+            if ("/".equals(rutaActual) || "/index.html".equals(rutaActual)) {
+                ctx.header("Cache-Control", "no-cache, no-store, must-revalidate");
+            }
             // HSTS solo se anuncia cuando el origen canónico está configurado con HTTPS.
             // No incluye subdominios: cada uno debe habilitarse cuando también use HTTPS.
             if (sitioHttps) ctx.header("Strict-Transport-Security", "max-age=31536000");
@@ -431,14 +435,18 @@ public class Main {
         // SPA Fallback (Para React Router)
         // ============================================
         app.error(404, ctx -> {
-            if (!ctx.path().startsWith("/api/")) {
+            String ruta404 = ctx.path();
+            if (!ruta404.startsWith("/api/")
+                    && !ruta404.startsWith("/assets/")
+                    && !ruta404.matches(".*\\.[A-Za-z0-9]{1,8}$")) {
                 try {
                     String[] possiblePaths = { "public/index.html", "../public/index.html",
                             "src/main/resources/public/index.html" };
                     for (String path : possiblePaths) {
                         File indexFile = new File(path);
                         if (indexFile.exists()) {
-                            ctx.html(new String(java.nio.file.Files.readAllBytes(indexFile.toPath())));
+                            ctx.header("Cache-Control", "no-cache, no-store, must-revalidate");
+                            ctx.html(java.nio.file.Files.readString(indexFile.toPath(), java.nio.charset.StandardCharsets.UTF_8));
                             return;
                         }
                     }

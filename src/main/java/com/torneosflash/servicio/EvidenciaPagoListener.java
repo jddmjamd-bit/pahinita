@@ -43,6 +43,7 @@ public class EvidenciaPagoListener {
             JsonObject aviso = new JsonObject();
             aviso.addProperty("evidenciaId", e.evidenciaId());
             aviso.addProperty("transaccionId", e.transaccionId());
+            aviso.addProperty("canal", EvidenciaPagoService.CANAL);
             notificador.notificar(e.userId(), "finanzas", "Comprobante de retiro publicado",
                     "Publicamos el comprobante de tu retiro de $" +
                             e.monto().setScale(0, RoundingMode.HALF_UP).toPlainString() +

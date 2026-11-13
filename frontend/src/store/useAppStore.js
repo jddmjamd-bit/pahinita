@@ -17,6 +17,27 @@ const eliminarUsuarioPersistido = () => {
 
 eliminarUsuarioPersistido();
 
+const CANALES_CHAT_VALIDOS = new Set(['general', 'anuncios', 'clash', 'clash_logs', 'pagos']);
+
+const extraerCanalDeAviso = (aviso) => {
+    if (!aviso) return '';
+    const datos = parsearDatosAviso(aviso.datos);
+    const canalDatos = typeof datos?.canal === 'string' ? datos.canal.trim().toLowerCase() : '';
+    if (CANALES_CHAT_VALIDOS.has(canalDatos)) return canalDatos;
+    const ruta = typeof aviso.ruta === 'string' ? aviso.ruta : '';
+    const match = ruta.match(/[?&]canal=([a-z0-9_]+)/i);
+    if (match && CANALES_CHAT_VALIDOS.has(match[1].toLowerCase())) return match[1].toLowerCase();
+    if (aviso.categoria === 'chat') return 'general';
+    return '';
+};
+
+const avisoPerteneceACanal = (aviso, canal) => {
+    if (!aviso || !canal) return false;
+    const canalAviso = extraerCanalDeAviso(aviso);
+    if (canalAviso !== canal) return false;
+    return aviso.categoria === 'chat' || (canal === 'pagos' && aviso.categoria === 'finanzas');
+};
+
 export const useAppStore = create((set, get) => ({
     // Modo Claro/Oscuro
     theme: localStorage.getItem('appTheme') || 'dark',
@@ -84,6 +105,7 @@ export const useAppStore = create((set, get) => ({
             chatMessages: { general: [], anuncios: [], clash: [], clash_logs: [], pagos: [] },
             notificaciones: [],
             notificacionesSinLeer: {},
+            chatSinLeer: {},
             busquedasVisibles: [],
             retoRecibido: null,
             retoEnviado: null,
@@ -111,6 +133,7 @@ export const useAppStore = create((set, get) => ({
             chatMessages: { general: [], anuncios: [], clash: [], clash_logs: [], pagos: [] },
             notificaciones: [],
             notificacionesSinLeer: {},
+            chatSinLeer: {},
             usuariosOnline: 0,
             busquedasVisibles: [],
             retoRecibido: null,
@@ -158,6 +181,7 @@ export const useAppStore = create((set, get) => ({
     // Centro de notificaciones persistentes.
     notificaciones: [],
     notificacionesSinLeer: {},
+    chatSinLeer: {},
     usuariosOnline: 0,
     cargarNotificaciones: async () => {
         const { ok, data } = await llamarApi('/api/notificaciones');
@@ -167,7 +191,8 @@ export const useAppStore = create((set, get) => ({
             notificaciones: Array.isArray(data.items)
                 ? data.items.map(item => ({ ...item, recibidoEn: item.creada_en ? Date.parse(item.creada_en) || ahora : ahora }))
                 : [],
-            notificacionesSinLeer: data.sinLeer || {}
+            notificacionesSinLeer: data.sinLeer || {},
+            chatSinLeer: data.chatSinLeer || {}
         });
     },
     marcarNotificacionLeida: async (id) => {
@@ -179,28 +204,75 @@ export const useAppStore = create((set, get) => ({
             await get().cargarNotificaciones();
             return;
         }
-        set(state => ({
-            notificaciones: state.notificaciones.map(item => Number(item.id) === Number(id) && !item.leida_en
-                ? { ...item, leida_en: new Date().toISOString() } : item),
-            notificacionesSinLeer: {
-                ...state.notificacionesSinLeer,
-                [aviso.categoria]: Math.max(0, (state.notificacionesSinLeer[aviso.categoria] || 0) -
-                    (state.notificaciones.find(item => Number(item.id) === Number(id) && !item.leida_en) ? 1 : 0))
-            }
-        }));
+        set(state => {
+            const sinLeerItem = state.notificaciones.find(item => Number(item.id) === Number(id) && !item.leida_en);
+            const canalAviso = sinLeerItem ? extraerCanalDeAviso(sinLeerItem) : '';
+            const chatSinLeer = canalAviso
+                ? { ...state.chatSinLeer, [canalAviso]: Math.max(0, (state.chatSinLeer[canalAviso] || 0) - 1) }
+                : state.chatSinLeer;
+            return {
+                notificaciones: state.notificaciones.map(item => Number(item.id) === Number(id) && !item.leida_en
+                    ? { ...item, leida_en: new Date().toISOString() } : item),
+                notificacionesSinLeer: {
+                    ...state.notificacionesSinLeer,
+                    [aviso.categoria]: Math.max(0, (state.notificacionesSinLeer[aviso.categoria] || 0) -
+                        (sinLeerItem ? 1 : 0))
+                },
+                chatSinLeer
+            };
+        });
     },
-    marcarCategoriaLeida: async (categoria) => {
+    marcarCategoriaLeida: async (categoria, canal = '') => {
         if (!categoria) return;
-        const { ok } = await llamarApi('/api/notificaciones/leer/categoria', {
-            method: 'POST', body: JSON.stringify({ categoria })
+        const canalNorm = categoria === 'chat' && CANALES_CHAT_VALIDOS.has(String(canal || '').trim().toLowerCase())
+            ? String(canal).trim().toLowerCase()
+            : '';
+        const { ok, data } = await llamarApi('/api/notificaciones/leer/categoria', {
+            method: 'POST',
+            body: JSON.stringify(canalNorm ? { categoria, canal: canalNorm } : { categoria })
         });
         if (!ok) return;
         const ahora = new Date().toISOString();
-        set(state => ({
-            notificaciones: state.notificaciones.map(item => item.categoria === categoria && !item.leida_en
-                ? { ...item, leida_en: ahora } : item),
-            notificacionesSinLeer: { ...state.notificacionesSinLeer, [categoria]: 0 }
-        }));
+        set(state => {
+            if (canalNorm) {
+                const leidasChat = state.notificaciones.filter(item =>
+                    !item.leida_en && item.categoria === 'chat' && extraerCanalDeAviso(item) === canalNorm).length;
+                const leidasFinanzas = canalNorm === 'pagos'
+                    ? state.notificaciones.filter(item =>
+                        !item.leida_en && item.categoria === 'finanzas' && extraerCanalDeAviso(item) === 'pagos').length
+                    : 0;
+                const sinLeer = data?.sinLeer ? data.sinLeer : { ...state.notificacionesSinLeer };
+                if (!data?.sinLeer) {
+                    sinLeer.chat = Math.max(0, (sinLeer.chat || 0) - leidasChat);
+                    if (canalNorm === 'pagos') {
+                        sinLeer.finanzas = Math.max(0, (sinLeer.finanzas || 0) - leidasFinanzas);
+                    }
+                }
+                return {
+                    notificaciones: state.notificaciones.map(item =>
+                        !item.leida_en && avisoPerteneceACanal(item, canalNorm)
+                            ? { ...item, leida_en: ahora }
+                            : item),
+                    notificacionesSinLeer: sinLeer,
+                    chatSinLeer: data?.chatSinLeer || { ...state.chatSinLeer, [canalNorm]: 0 }
+                };
+            }
+            const chatSinLeer = { ...state.chatSinLeer };
+            if (categoria === 'chat') {
+                delete chatSinLeer.general;
+                delete chatSinLeer.anuncios;
+                delete chatSinLeer.clash;
+                delete chatSinLeer.clash_logs;
+            } else if (categoria === 'finanzas') {
+                delete chatSinLeer.pagos;
+            }
+            return {
+                notificaciones: state.notificaciones.map(item => item.categoria === categoria && !item.leida_en
+                    ? { ...item, leida_en: ahora } : item),
+                notificacionesSinLeer: data?.sinLeer || { ...state.notificacionesSinLeer, [categoria]: 0 },
+                chatSinLeer: data?.chatSinLeer || chatSinLeer
+            };
+        });
     },
     descartarNotificacion: async (id) => {
         const aviso = get().notificaciones.find(item => Number(item.id) === Number(id));
@@ -211,10 +283,13 @@ export const useAppStore = create((set, get) => ({
             const actual = state.notificaciones.find(item => Number(item.id) === Number(id));
             const nuevas = state.notificaciones.filter(item => Number(item.id) !== Number(id));
             const sinLeer = { ...state.notificacionesSinLeer };
+            const chatSinLeer = { ...state.chatSinLeer };
             if (actual && !actual.leida_en) {
                 sinLeer[aviso.categoria] = Math.max(0, (sinLeer[aviso.categoria] || 0) - 1);
+                const canalAviso = extraerCanalDeAviso(actual);
+                if (canalAviso) chatSinLeer[canalAviso] = Math.max(0, (chatSinLeer[canalAviso] || 0) - 1);
             }
-            return { notificaciones: nuevas, notificacionesSinLeer: sinLeer };
+            return { notificaciones: nuevas, notificacionesSinLeer: sinLeer, chatSinLeer };
         });
     },
 
@@ -229,8 +304,20 @@ export const useAppStore = create((set, get) => ({
         });
 
         let yaConectado = false;
+        let tuvoDesconexion = false;
+        let recargandoPorReconexion = false;
         newSocket.on('connect', () => {
             console.log('Socket conectado:', newSocket.id);
+            // Al volver a conectarse el socket tras desconexión (ej. móvil retomando después de un tiempo),
+            // forzamos una recarga única para despejar vistas congeladas o bundles viejos.
+            if (yaConectado && tuvoDesconexion && get().socket === newSocket && !recargandoPorReconexion) {
+                recargandoPorReconexion = true;
+                if (typeof window !== 'undefined' && typeof window.location?.reload === 'function') {
+                    newSocket.disconnect();
+                    window.location.reload();
+                    return;
+                }
+            }
             const currentUser = get().user;
             if (currentUser) {
                 newSocket.emit('registrar_socket');
@@ -243,6 +330,7 @@ export const useAppStore = create((set, get) => ({
         });
 
         newSocket.on('disconnect', () => {
+            tuvoDesconexion = true;
             console.log('Socket desconectado');
         });
 
@@ -255,12 +343,17 @@ export const useAppStore = create((set, get) => ({
             const avisoConMarca = { ...aviso, recibidoEn: Date.now() };
             set(state => {
                 if (state.notificaciones.some(item => Number(item.id) === Number(aviso.id))) return state;
+                const canalAviso = extraerCanalDeAviso(aviso);
+                const chatSinLeer = canalAviso
+                    ? { ...state.chatSinLeer, [canalAviso]: (state.chatSinLeer[canalAviso] || 0) + 1 }
+                    : state.chatSinLeer;
                 return {
                     notificaciones: [avisoConMarca, ...state.notificaciones].slice(0, 100),
                     notificacionesSinLeer: {
                         ...state.notificacionesSinLeer,
                         [aviso.categoria]: (state.notificacionesSinLeer[aviso.categoria] || 0) + 1
-                    }
+                    },
+                    chatSinLeer
                 };
             });
             if (aviso.categoria === 'partida') {
@@ -283,24 +376,71 @@ export const useAppStore = create((set, get) => ({
             set(state => {
                 const aviso = state.notificaciones.find(item => Number(item.id) === Number(data?.id));
                 if (!aviso || aviso.leida_en) return state;
+                const canalAviso = extraerCanalDeAviso(aviso);
+                const chatSinLeer = canalAviso
+                    ? { ...state.chatSinLeer, [canalAviso]: Math.max(0, (state.chatSinLeer[canalAviso] || 0) - 1) }
+                    : state.chatSinLeer;
                 return {
                     notificaciones: state.notificaciones.map(item => Number(item.id) === Number(data.id)
                         ? { ...item, leida_en: new Date().toISOString() } : item),
                     notificacionesSinLeer: {
                         ...state.notificacionesSinLeer,
                         [aviso.categoria]: Math.max(0, (state.notificacionesSinLeer[aviso.categoria] || 0) - 1)
-                    }
+                    },
+                    chatSinLeer
                 };
             });
         });
         newSocket.on('notificaciones_leidas', (data) => {
             if (!data?.categoria) return;
             const ahora = new Date().toISOString();
-            set(state => ({
-                notificaciones: state.notificaciones.map(item => item.categoria === data.categoria && !item.leida_en
-                    ? { ...item, leida_en: ahora } : item),
-                notificacionesSinLeer: { ...state.notificacionesSinLeer, [data.categoria]: 0 }
-            }));
+            const canalNorm = data.categoria === 'chat' && CANALES_CHAT_VALIDOS.has(String(data.canal || '').trim().toLowerCase())
+                ? String(data.canal).trim().toLowerCase()
+                : '';
+            set(state => {
+                if (canalNorm) {
+                    const leidasChat = state.notificaciones.filter(item =>
+                        !item.leida_en && item.categoria === 'chat' && extraerCanalDeAviso(item) === canalNorm).length;
+                    const leidasFinanzas = canalNorm === 'pagos'
+                        ? state.notificaciones.filter(item =>
+                            !item.leida_en && item.categoria === 'finanzas' && extraerCanalDeAviso(item) === 'pagos').length
+                        : 0;
+                    const sinLeer = {
+                        ...state.notificacionesSinLeer,
+                        chat: typeof data.sinLeerCategoria === 'number'
+                            ? data.sinLeerCategoria
+                            : Math.max(0, (state.notificacionesSinLeer.chat || 0) - leidasChat)
+                    };
+                    if (canalNorm === 'pagos') {
+                        sinLeer.finanzas = typeof data.sinLeerFinanzas === 'number'
+                            ? data.sinLeerFinanzas
+                            : Math.max(0, (state.notificacionesSinLeer.finanzas || 0) - leidasFinanzas);
+                    }
+                    return {
+                        notificaciones: state.notificaciones.map(item =>
+                            !item.leida_en && avisoPerteneceACanal(item, canalNorm)
+                                ? { ...item, leida_en: ahora }
+                                : item),
+                        notificacionesSinLeer: sinLeer,
+                        chatSinLeer: { ...state.chatSinLeer, [canalNorm]: 0 }
+                    };
+                }
+                const chatSinLeer = { ...state.chatSinLeer };
+                if (data.categoria === 'chat') {
+                    delete chatSinLeer.general;
+                    delete chatSinLeer.anuncios;
+                    delete chatSinLeer.clash;
+                    delete chatSinLeer.clash_logs;
+                } else if (data.categoria === 'finanzas') {
+                    delete chatSinLeer.pagos;
+                }
+                return {
+                    notificaciones: state.notificaciones.map(item => item.categoria === data.categoria && !item.leida_en
+                        ? { ...item, leida_en: ahora } : item),
+                    notificacionesSinLeer: { ...state.notificacionesSinLeer, [data.categoria]: 0 },
+                    chatSinLeer
+                };
+            });
         });
         newSocket.on('notificacion_eliminada', (data) => {
             if (data?.id) {
@@ -308,10 +448,16 @@ export const useAppStore = create((set, get) => ({
                     const aviso = state.notificaciones.find(item => Number(item.id) === Number(data.id));
                     if (!aviso) return state;
                     const sinLeer = { ...state.notificacionesSinLeer };
-                    if (!aviso.leida_en) sinLeer[aviso.categoria] = Math.max(0, (sinLeer[aviso.categoria] || 0) - 1);
+                    const chatSinLeer = { ...state.chatSinLeer };
+                    if (!aviso.leida_en) {
+                        sinLeer[aviso.categoria] = Math.max(0, (sinLeer[aviso.categoria] || 0) - 1);
+                        const canalAviso = extraerCanalDeAviso(aviso);
+                        if (canalAviso) chatSinLeer[canalAviso] = Math.max(0, (chatSinLeer[canalAviso] || 0) - 1);
+                    }
                     return {
                         notificaciones: state.notificaciones.filter(item => Number(item.id) !== Number(data.id)),
-                        notificacionesSinLeer: sinLeer
+                        notificacionesSinLeer: sinLeer,
+                        chatSinLeer
                     };
                 });
                 return;
@@ -322,10 +468,15 @@ export const useAppStore = create((set, get) => ({
                     const removidas = state.notificaciones.filter(item => coincide(item.evento_clave));
                     const nuevas = state.notificaciones.filter(item => !coincide(item.evento_clave));
                     const sinLeer = { ...state.notificacionesSinLeer };
+                    const chatSinLeer = { ...state.chatSinLeer };
                     for (const aviso of removidas) {
-                        if (!aviso.leida_en) sinLeer[aviso.categoria] = Math.max(0, (sinLeer[aviso.categoria] || 0) - 1);
+                        if (!aviso.leida_en) {
+                            sinLeer[aviso.categoria] = Math.max(0, (sinLeer[aviso.categoria] || 0) - 1);
+                            const canalAviso = extraerCanalDeAviso(aviso);
+                            if (canalAviso) chatSinLeer[canalAviso] = Math.max(0, (chatSinLeer[canalAviso] || 0) - 1);
+                        }
                     }
-                    return { notificaciones: nuevas, notificacionesSinLeer: sinLeer };
+                    return { notificaciones: nuevas, notificacionesSinLeer: sinLeer, chatSinLeer };
                 });
             }
         });

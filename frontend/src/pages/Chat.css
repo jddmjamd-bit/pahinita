@@ -2,17 +2,40 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+    width: 100%;
+    min-width: 0;
     background: var(--bg-base);
     overflow: hidden;
 }
 .chat-tabs {
     display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    width: 100%;
+    max-width: 100%;
     background: var(--bg-surface);
-    padding: 15px 20px;
-    gap: 15px;
+    padding: 14px 20px;
+    gap: 12px;
     border-bottom: 1px solid var(--border-color);
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+    scrollbar-width: thin;
+    cursor: grab;
+}
+.chat-tabs:active {
+    cursor: grabbing;
+}
+.chat-tabs::-webkit-scrollbar {
+    height: 4px;
 }
 .chat-tab {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
     background: transparent;
     color: var(--text-secondary);
     border: none;
@@ -22,6 +45,7 @@
     font-weight: 500;
     box-shadow: none;
     width: auto;
+    user-select: none;
 }
 .chat-tab:hover {
     background: var(--bg-surface-elevated);
@@ -31,6 +55,22 @@
 .chat-tab.active {
     background: var(--accent-primary);
     color: white;
+}
+.chat-tab-dot {
+    margin-left: 0;
+}
+.chat-tab.active .chat-tab-dot {
+    box-shadow: 0 0 0 2px var(--bg-surface);
+}
+@media (max-width: 768px) {
+    .chat-tabs {
+        padding: 14px 16px 14px 68px;
+        gap: 10px;
+        scrollbar-width: none;
+    }
+    .chat-tabs::-webkit-scrollbar {
+        display: none;
+    }
 }
 .chat-messages {
     flex: 1;

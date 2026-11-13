@@ -1407,6 +1407,74 @@ class RenderAcceptanceCheck {
         dao.update("UPDATE users SET estado = 'normal' WHERE id IN (?, ?)", idBusc, idElite);
     }
 
+    @Test
+    void notificacionesChatPorCanalSeparanConteoYLecturaSelectiva() {
+        String sufijo = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        int idReceptor = crearUsuario("qa_notif_" + sufijo, "user", BigDecimal.ZERO);
+        NotificacionesService notifSrv = new NotificacionesService(dao, io, null, "");
+
+        JsonObject datosGeneral = new JsonObject();
+        datosGeneral.addProperty("canal", "general");
+        JsonObject datosAnuncios = new JsonObject();
+        datosAnuncios.addProperty("canal", "anuncios");
+        JsonObject datosClash = new JsonObject();
+        datosClash.addProperty("canal", "clash");
+        JsonObject datosPagos = new JsonObject();
+        datosPagos.addProperty("canal", "pagos");
+
+        notifSrv.notificar(idReceptor, "chat", "General", "Hola general", "/chat?canal=general", "", datosGeneral, false);
+        notifSrv.notificar(idReceptor, "chat", "General legado", "Sin query", "/chat", "", null, false);
+        notifSrv.notificar(idReceptor, "chat", "Anuncio", "Aviso oficial", "/chat?canal=anuncios", "", datosAnuncios, false);
+        notifSrv.notificar(idReceptor, "chat", "Clash", "Reto en clash", "/chat?canal=clash", "", datosClash, false);
+        notifSrv.notificar(idReceptor, "finanzas", "Comprobante", "Pago publicado", "/chat?canal=pagos", "", datosPagos, false);
+        notifSrv.notificar(idReceptor, "finanzas", "Recarga", "Movimiento en cartera", "/finance", "", null, false);
+
+        JsonObject listado = notifSrv.listar(idReceptor);
+        JsonObject sinLeerInicial = listado.getAsJsonObject("sinLeer");
+        assertNotNull(sinLeerInicial);
+        assertEquals(4, sinLeerInicial.get("chat").getAsInt());
+        assertEquals(2, sinLeerInicial.get("finanzas").getAsInt());
+        JsonObject chatSinLeer = listado.getAsJsonObject("chatSinLeer");
+        assertNotNull(chatSinLeer);
+        assertEquals(2, chatSinLeer.get("general").getAsInt());
+        assertEquals(1, chatSinLeer.get("anuncios").getAsInt());
+        assertEquals(1, chatSinLeer.get("clash").getAsInt());
+        assertEquals(1, chatSinLeer.get("pagos").getAsInt());
+
+        notifSrv.marcarCategoriaLeida(idReceptor, "chat", "anuncios");
+        JsonObject trasAnuncios = notifSrv.conteosSinLeer(idReceptor);
+        assertEquals(3, conteoNotif(trasAnuncios.getAsJsonObject("sinLeer"), "chat"));
+        assertEquals(2, conteoNotif(trasAnuncios.getAsJsonObject("sinLeer"), "finanzas"));
+        assertEquals(2, conteoNotif(trasAnuncios.getAsJsonObject("chatSinLeer"), "general"));
+        assertEquals(0, conteoNotif(trasAnuncios.getAsJsonObject("chatSinLeer"), "anuncios"));
+        assertEquals(1, conteoNotif(trasAnuncios.getAsJsonObject("chatSinLeer"), "clash"));
+        assertEquals(1, conteoNotif(trasAnuncios.getAsJsonObject("chatSinLeer"), "pagos"));
+
+        notifSrv.marcarCategoriaLeida(idReceptor, "chat", "pagos");
+        JsonObject trasPagos = notifSrv.conteosSinLeer(idReceptor);
+        assertEquals(3, conteoNotif(trasPagos.getAsJsonObject("sinLeer"), "chat"));
+        assertEquals(1, conteoNotif(trasPagos.getAsJsonObject("sinLeer"), "finanzas"));
+        assertEquals(0, conteoNotif(trasPagos.getAsJsonObject("chatSinLeer"), "pagos"));
+
+        notifSrv.marcarCategoriaLeida(idReceptor, "chat", "general");
+        JsonObject trasGeneral = notifSrv.conteosSinLeer(idReceptor);
+        assertEquals(1, conteoNotif(trasGeneral.getAsJsonObject("sinLeer"), "chat"));
+        assertEquals(0, conteoNotif(trasGeneral.getAsJsonObject("chatSinLeer"), "general"));
+        assertEquals(1, conteoNotif(trasGeneral.getAsJsonObject("chatSinLeer"), "clash"));
+
+        notifSrv.marcarCategoriaLeida(idReceptor, "chat");
+        JsonObject trasTodoChat = notifSrv.conteosSinLeer(idReceptor);
+        assertEquals(0, conteoNotif(trasTodoChat.getAsJsonObject("sinLeer"), "chat"));
+        assertEquals(1, conteoNotif(trasTodoChat.getAsJsonObject("sinLeer"), "finanzas"));
+        assertEquals(0, conteoNotif(trasTodoChat.getAsJsonObject("chatSinLeer"), "clash"));
+    }
+
+    private static int conteoNotif(JsonObject mapa, String clave) {
+        return mapa != null && mapa.has(clave) && !mapa.get(clave).isJsonNull()
+                ? mapa.get(clave).getAsInt()
+                : 0;
+    }
+
     private static String tagPruebaUnico() {
         StringBuilder tag = new StringBuilder("#");
         for (int i = 0; i < 8; i++) {

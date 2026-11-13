@@ -116,8 +116,8 @@ export const PREGUNTAS = [
         ],
         pasos: [
             'Chat / Anuncios: los canales de conversación y los avisos del administrador.',
-            'Clash Royale → Jugar / Privada: busca partida y sala privada con tu rival.',
-            'Clash Royale → Sorteos: sorteos activos, tus tickets y la encuesta del próximo premio.',
+            'Jugar / Privada: busca partida y sala privada con tu rival.',
+            'Sorteos: sorteos activos, tus tickets y la encuesta del próximo premio.',
             'Rankings: los mejores jugadores por periodo y los premios.',
             'Asistente: el asistente que resuelve dudas.',
             'Ayuda / FAQ: esta página.',
@@ -239,7 +239,7 @@ export const PREGUNTAS = [
         categoria: 'partidas',
         pregunta: '¿Cómo busco una partida?',
         respuesta: [
-            'Entra a Clash Royale → Jugar / Privada. Si no estás en una partida verás la pantalla «¿Listo para jugar?».'
+            'Entra a Jugar / Privada en el menú lateral. Si no estás en una partida verás la pantalla «¿Listo para jugar?».'
         ],
         pasos: [
             'Pulsa «Buscar partida». Verás «Buscando rival...».',
@@ -350,7 +350,7 @@ export const PREGUNTAS = [
             'Tú pones tus tickets en los sorteos que quieras con los botones + y −. Cuando el sorteo reúne todos los tickets necesarios, se elige un ganador entre los participantes (mientras más tickets pongas, más opciones tienes) y se anuncia en la tarjeta del sorteo. El administrador te contacta por WhatsApp.'
         ],
         pasos: [
-            'Entra a Clash Royale → Sorteos.',
+            'Entra a Sorteos en el menú lateral.',
             'Mira tus tickets disponibles arriba.',
             'En el sorteo que te guste, pulsa + para poner un ticket (− para quitarlo).',
             'Espera a que se complete: el ganador aparece en la tarjeta con 🏆.'
@@ -439,7 +439,7 @@ export const PREGUNTAS = [
         categoria: 'chats',
         pregunta: '¿Cuáles son los canales de chat y para qué sirve cada uno?',
         respuesta: [
-            'En Chat / Anuncios hay cinco pestañas:'
+            'En Chat / Anuncios hay cinco pestañas (en celular puedes deslizar horizontalmente la barra superior para verlas todas):'
         ],
         pasos: [
             '💬 General: conversación libre entre todos los jugadores.',
@@ -455,7 +455,7 @@ export const PREGUNTAS = [
         categoria: 'chats',
         pregunta: '¿Dónde veo los avisos nuevos y cuántos usuarios están conectados?',
         respuesta: [
-            'Los avisos nuevos aparecen como tarjetas al entrar o mientras estás en la plataforma. Tienen una X para descartarlos y, al abrirlos, te llevan a la sección relacionada. Los puntos junto a Chat, Jugar/Privada, Sorteos, Rankings, Asistente y Hablar con el admin señalan mensajes o novedades sin leer.',
+            'Los avisos nuevos aparecen como tarjetas al entrar o mientras estás en la plataforma. Tienen una X para descartarlos y, al abrirlos, te llevan a la sección relacionada. Los puntos junto a Chat (y en cada pestaña de canal), Jugar/Privada, Sorteos, Rankings, Asistente y Hablar con el admin señalan mensajes o novedades sin leer.',
             'La cantidad de usuarios conectados aparece abajo del menú lateral. Desde el menú también puedes activar los avisos push del navegador; primero debes permitirlos en la ventana del navegador.'
         ]
     },
