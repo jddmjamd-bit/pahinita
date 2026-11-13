@@ -1329,7 +1329,7 @@ class RenderAcceptanceCheck {
         mmSrv.guardarDatosClashYRecalcular(idBusc,
                 new MatchmakingPuntaje.DatosClash(4200, 4300, null, null, null, null, null, null));
         mmSrv.guardarDatosClashYRecalcular(idSim,
-                new MatchmakingPuntaje.DatosClash(4100, 4200, null, null, null, null, null, null));
+                new MatchmakingPuntaje.DatosClash(3500, 3600, null, null, null, null, null, null));
         mmSrv.guardarDatosClashYRecalcular(idElite,
                 new MatchmakingPuntaje.DatosClash(9200, 9500, 10, 2800, 10, 2900, 120, 90));
 
@@ -1344,10 +1344,10 @@ class RenderAcceptanceCheck {
         // Oleada 0: rival similar notificado; élite aún retenido
         mmSrv.notificarGrupoOleada(idBusc, nameBusc, 0);
         assertNotNull(dao.queryOne(
-                "SELECT id FROM matchmaking_search_notified WHERE buscador_id = ? AND receptor_id = ?",
+                "SELECT buscador_id FROM matchmaking_search_notified WHERE buscador_id = ? AND receptor_id = ?",
                 idBusc, idSim));
         assertNull(dao.queryOne(
-                "SELECT id FROM matchmaking_search_notified WHERE buscador_id = ? AND receptor_id = ?",
+                "SELECT buscador_id FROM matchmaking_search_notified WHERE buscador_id = ? AND receptor_id = ?",
                 idBusc, idElite));
 
         var bloqueado = mmSrv.solicitarRetoContraBuscador(idElite, nameElite, idBusc);

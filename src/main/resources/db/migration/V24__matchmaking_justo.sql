@@ -60,3 +60,4 @@ CREATE TABLE IF NOT EXISTS matchmaking_challenges (
 
 CREATE INDEX IF NOT EXISTS idx_mm_challenges_buscador_estado
     ON matchmaking_challenges (buscador_id, estado);
+
