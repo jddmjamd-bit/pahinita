@@ -121,17 +121,21 @@ test('P11: Admin gestiona la Zona de Pruebas (selector de zona, suscripción pru
   assert.ok(PREGUNTAS.some(p => p.id === 'zona-pruebas-suscripcion'))
 })
 
-test('P12: Matchmaking justo oculta el puntaje numérico, notifica por Web/App/PC y confirma retos de jugadores superiores', () => {
+test('P12: Matchmaking justo oculta el puntaje numérico, notifica en segundo plano Web/App/PC, deja opcional ver variables y confirma retos de jugadores superiores', () => {
   assert.match(store, /\/api\/matchmaking\/estado/)
   assert.match(store, /newSocket\.on\('matchmaking_reto_recibido'/)
   assert.match(store, /newSocket\.on\('matchmaking_reto_respuesta'/)
   assert.match(store, /despacharAvisoCanales/)
   assert.match(matchJsx, /desafiar_busqueda/)
   assert.match(matchJsx, /fair-matchmaking-panel/)
-  assert.match(matchJsx, /solicitarPermisoNotificacionesPc/)
+  assert.match(matchJsx, /mostrarVariables/)
+  assert.match(matchJsx, /mm-toggle-vars-btn/)
+  assert.doesNotMatch(matchJsx, /Activar avisos en PC/)
+  assert.doesNotMatch(matchJsx, /mm-channels-row/)
   assert.match(lobbyJsx, /responder_reto_matchmaking/)
   assert.match(lobbyJsx, /mm-challenge-modal/)
   assert.match(matchCss, /\.fair-matchmaking-panel\b/)
+  assert.match(matchCss, /\.mm-toggle-vars-btn\b/)
   assert.match(lobbyCss, /\.mm-challenge-modal\b/)
   assert.match(canalesJs, /CANALES_MATCHMAKING\s*=\s*\['web',\s*'app',\s*'pc'\]/)
   assert.match(canalesJs, /LocalNotifications/)

@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-12 — Ajustes de interfaz en Matchmaking justo (sin controles de notificación y detalle opcional de variables)
+- Eliminados de la vista de búsqueda (`Match.jsx` y `Match.css`) el botón `"Activar avisos en PC"` y las insignias de estado de canales (`Web / App / PC`), dejando las notificaciones en segundo plano activas por defecto hasta implementar la función dedicada de **Configuración de notificaciones** (prioridad `4.5`).
+- Ocultadas por defecto las píldoras de variables que aplican al puntaje (`Win rate`, `Clash Royale`, `Liga plataforma`) detrás del botón opcional **`"Ver variables que aplican"`** / **`"Ocultar variables"`**, manteniendo el perfil cualitativo sin exponer el puntaje numérico.
+- Actualizado el contrato `P12` en `frontend/scripts/acceptance.test.js` y regenerados los `.txt` con `actualizar-txt.bat`.
+- **Verificación:** en `frontend/`, `npx.cmd oxlint src/pages/Match.jsx` (`0` errores, `3` advertencias previas), `npm.cmd run lint` (`0` errores, `51` advertencias previas en 32 archivos), `npm.cmd run test:acceptance` (`11/11` contratos P2–P12) y `npm.cmd run build` pasaron sin errores. Backend Java sin cambios respecto a la corrida verificada en `2ede1c1`.
+Archivos: `Match.jsx`, `Match.css`, `acceptance.test.js`, `CHANGELOG.md`
+
 ## 2026-11-12 — Matchmaking justo por puntaje oculto, oleadas progresivas y guía de Ligas (Prioridad 15)
 - Implementado el motor de **Matchmaking justo (`MatchmakingPuntaje` y `MatchmakingService`)** con puntaje interno oculto `[0, 1000]` combinando win rate de plataforma (`0.35`, suavizado bayesiano y omitido con `0` partidas), Liga de plataforma (`0.25`, omitida mientras no se implemente `Ligas 12.2`) y Clash Royale (`0.40`: copas, Path of Legends y ranking/medallas mundiales) mediante **renormalización dinámica sin penalizar variables faltantes**. El número exacto nunca se expone a clientes: la UI solo muestra nivel relativo y bandas.
 - Añadida la migración `V24__matchmaking_justo.sql` (`matchmaking_profiles`, `matchmaking_search_notified`, `matchmaking_challenges` y columnas de oleada en `match_queue`), endpoints `GET /api/matchmaking/estado` (`RutasMatchmaking`), reacciones por `EventBus` (`MatchmakingListener`), variables opcionales `MATCHMAKING_*` en `AppConfig`, limpieza de Zona de Pruebas en `ConexionDB` y recuperación A2 de oleadas al reiniciar en `SocketHandler`.

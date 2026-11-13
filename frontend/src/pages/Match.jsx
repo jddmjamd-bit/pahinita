@@ -1,13 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Capacitor } from '@capacitor/core';
 import { useAppStore } from '../store/useAppStore';
 import { llamarApi } from '../store/llamarApi';
-import { registrarPushNavegador } from '../services/browserPush';
-import {
-    permisoNotificacionesPc,
-    solicitarPermisoNotificacionesPc,
-    resumenCanalesNotificacion
-} from '../services/notificacionesCanales';
 import './Match.css';
 import VozDiscord from '../components/VozDiscord';
 
@@ -74,7 +67,7 @@ export default function Match() {
     const [apiResult, setApiResult] = useState(() => useAppStore.getState().matchState.resultado || null); // { esGanador, premio, ganador, mensaje } o { disputa: true, mensaje }
     const [flujoCompletado, setFlujoCompletado] = useState(() => useAppStore.getState().matchState.status === 'finished');
     const [ahoraMs, setAhoraMs] = useState(() => Date.now());
-    const [permisoPc, setPermisoPc] = useState(() => permisoNotificacionesPc());
+    const [mostrarVariables, setMostrarVariables] = useState(false);
 
     const currentUser = useAppStore(state => state.user);
     const socket = useAppStore(state => state.socket);
@@ -82,8 +75,6 @@ export default function Match() {
     const matchState = useAppStore(state => state.matchState);
     const setMatchState = useAppStore(state => state.setMatchState);
     const clearMatchState = useAppStore(state => state.clearMatchState);
-    const pushToken = useAppStore(state => state.pushToken);
-    const setPushToken = useAppStore(state => state.setPushToken);
     const busquedasVisibles = useAppStore(state => state.busquedasVisibles);
     const retoEnviado = useAppStore(state => state.retoEnviado);
     const avisoMatchmaking = useAppStore(state => state.avisoMatchmaking);
@@ -531,20 +522,7 @@ export default function Match() {
     // Sin partida en curso: pantalla para buscar rival
     if (!matchState.inMatch) {
         const buscando = matchState.status === 'searching';
-        const canales = resumenCanalesNotificacion({
-            esNativo: Capacitor.isNativePlatform(),
-            pushToken,
-            permisoPc
-        });
         const variables = matchmakingConfig?.variables || {};
-        const activarNotificacionesPc = async () => {
-            const permiso = await solicitarPermisoNotificacionesPc();
-            setPermisoPc(permiso);
-            if (permiso === 'granted' && currentUser?.id) {
-                const res = await registrarPushNavegador(currentUser.id);
-                if (res?.token) setPushToken(res.token);
-            }
-        };
         const handleDesafiarBusqueda = (busqueda) => {
             const targetId = busqueda.buscadorId ?? busqueda.userId;
             if (!socket || !targetId) return;
@@ -584,7 +562,7 @@ export default function Match() {
                             </div>
                             <h2>Buscando rival justo...</h2>
                             <p>
-                                Primero avisamos por Web, App y PC a jugadores de tu mismo nivel o inferior;
+                                Primero avisamos a jugadores de tu mismo nivel o inferior;
                                 los niveles superiores se notifican por oleadas hasta 2 minutos antes del cierre.
                             </p>
                             <button className="search-btn cancel" onClick={handleCancelarBusqueda}>Cancelar búsqueda</button>
@@ -599,7 +577,7 @@ export default function Match() {
                         </>
                     )}
 
-                    <section className="fair-matchmaking-panel" aria-label="Matchmaking justo y canales">
+                    <section className="fair-matchmaking-panel" aria-label="Matchmaking justo">
                         <div className="mm-panel-header">
                             <div>
                                 <h4>🎯 Matchmaking Justo</h4>
@@ -607,32 +585,29 @@ export default function Match() {
                                     Perfil actual: <strong>{matchmakingConfig?.perfilCualitativo || 'Calibrando'}</strong> (tu puntaje exacto es privado).
                                 </p>
                             </div>
-                            {!Capacitor.isNativePlatform() && (permisoPc === 'default' || permisoPc === 'prompt') && (
-                                <button type="button" className="mm-pc-btn" onClick={activarNotificacionesPc}>
-                                    🔔 Activar avisos en PC
-                                </button>
-                            )}
+                            <button
+                                type="button"
+                                className="mm-toggle-vars-btn"
+                                aria-expanded={mostrarVariables}
+                                onClick={() => setMostrarVariables(prev => !prev)}
+                            >
+                                {mostrarVariables ? '🔼 Ocultar variables' : '👁️ Ver variables que aplican'}
+                            </button>
                         </div>
 
-                        <div className="mm-pills-row">
-                            <span className={`mm-pill ${variables.winRate ? 'ok' : ''}`}>
-                                📊 Win rate: {variables.winRate ? 'Activo' : 'Sin partidas aún (no afecta)'}
-                            </span>
-                            <span className={`mm-pill ${variables.clash ? 'ok' : ''}`}>
-                                🏆 Clash Royale: {variables.clash ? 'Copas / PoL activos' : 'Pendiente (no afecta)'}
-                            </span>
-                            <span className={`mm-pill ${variables.liga ? 'ok' : ''}`}>
-                                🛡 Liga plataforma: {variables.liga ? 'Activa' : 'Próximamente (no afecta)'}
-                            </span>
-                        </div>
-
-                        <div className="mm-channels-row">
-                            {canales.map(canal => (
-                                <span key={canal.id} className={`mm-channel-badge ${canal.activo ? 'activo' : ''}`}>
-                                    {canal.nombre}: {canal.estado}
+                        {mostrarVariables && (
+                            <div className="mm-pills-row">
+                                <span className={`mm-pill ${variables.winRate ? 'ok' : ''}`}>
+                                    📊 Win rate: {variables.winRate ? 'Activo' : 'Sin partidas aún (no afecta)'}
                                 </span>
-                            ))}
-                        </div>
+                                <span className={`mm-pill ${variables.clash ? 'ok' : ''}`}>
+                                    🏆 Clash Royale: {variables.clash ? 'Copas / PoL activos' : 'Pendiente (no afecta)'}
+                                </span>
+                                <span className={`mm-pill ${variables.liga ? 'ok' : ''}`}>
+                                    🛡 Liga plataforma: {variables.liga ? 'Activa' : 'Próximamente (no afecta)'}
+                                </span>
+                            </div>
+                        )}
 
                         <div className="mm-active-searches">
                             <h5>🎮 Rivales buscando ahora ({busquedasVisibles.length})</h5>
@@ -641,7 +616,7 @@ export default function Match() {
                             ) : (
                                 <ul className="mm-search-list">
                                     {busquedasVisibles.map(b => {
-                                        const id = b.buscadorId ?? b.oderId;
+                                        const id = b.buscadorId ?? b.userId;
                                         const bloqueado = b.retoEstado === 'pendiente' || b.retoEstado === 'rechazado';
                                         return (
                                             <li key={id} className="mm-search-item">

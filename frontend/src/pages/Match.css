@@ -454,14 +454,24 @@
 }
 .mm-panel-header h4 { margin: 0 0 4px; color: var(--text-primary); }
 .mm-sub { margin: 0; font-size: 0.85rem; color: var(--text-secondary); }
-.mm-pc-btn { width: auto; padding: 8px 14px; font-size: 0.85rem; }
-.mm-pills-row, .mm-channels-row {
+.mm-toggle-vars-btn {
+    width: auto;
+    padding: 8px 14px;
+    font-size: 0.85rem;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+.mm-toggle-vars-btn:hover {
+    border-color: var(--accent-primary);
+}
+.mm-pills-row {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
     margin-bottom: 10px;
 }
-.mm-pill, .mm-channel-badge {
+.mm-pill {
     font-size: 0.8rem;
     padding: 4px 10px;
     border-radius: 999px;
@@ -469,7 +479,7 @@
     border: 1px solid var(--border-color);
     color: var(--text-secondary);
 }
-.mm-pill.ok, .mm-channel-badge.activo {
+.mm-pill.ok {
     border-color: rgba(16, 185, 129, 0.45);
     color: var(--accent-success);
 }
