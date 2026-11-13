@@ -4,6 +4,7 @@ import { API_BASE_URL, llamarApi } from './llamarApi';
 import { cerrarSesionConPush } from '../services/pushTokens';
 import { cerrarPushBusqueda } from '../services/browserPush';
 import { despacharAvisoCanales } from '../services/notificacionesCanales';
+import { formatearTiempoTexto, parsearDatosAviso } from '../utils/tiempoMatchmaking';
 
 const eliminarUsuarioPersistido = () => {
     try {
@@ -161,8 +162,11 @@ export const useAppStore = create((set, get) => ({
     cargarNotificaciones: async () => {
         const { ok, data } = await llamarApi('/api/notificaciones');
         if (!ok || !data) return;
+        const ahora = Date.now();
         set({
-            notificaciones: Array.isArray(data.items) ? data.items : [],
+            notificaciones: Array.isArray(data.items)
+                ? data.items.map(item => ({ ...item, recibidoEn: item.creada_en ? Date.parse(item.creada_en) || ahora : ahora }))
+                : [],
             notificacionesSinLeer: data.sinLeer || {}
         });
     },
@@ -248,10 +252,11 @@ export const useAppStore = create((set, get) => ({
         });
         newSocket.on('notificacion_nueva', (aviso) => {
             if (!aviso?.id) return;
+            const avisoConMarca = { ...aviso, recibidoEn: Date.now() };
             set(state => {
                 if (state.notificaciones.some(item => Number(item.id) === Number(aviso.id))) return state;
                 return {
-                    notificaciones: [aviso, ...state.notificaciones].slice(0, 100),
+                    notificaciones: [avisoConMarca, ...state.notificaciones].slice(0, 100),
                     notificacionesSinLeer: {
                         ...state.notificacionesSinLeer,
                         [aviso.categoria]: (state.notificacionesSinLeer[aviso.categoria] || 0) + 1
@@ -259,13 +264,18 @@ export const useAppStore = create((set, get) => ({
                 };
             });
             if (aviso.categoria === 'partida') {
-                const datosAviso = aviso.datos && typeof aviso.datos === 'object' ? aviso.datos : {};
+                const datosAviso = parsearDatosAviso(aviso.datos);
+                const tagAviso = datosAviso.tipoMatchmaking === 'match_confirmado'
+                    ? `mm-confirmado-${datosAviso.challengeId || aviso.id}`
+                    : datosAviso.challengeId
+                        ? `reto-${datosAviso.challengeId}`
+                        : (datosAviso.buscadorId ? `busqueda-${datosAviso.buscadorId}` : `notif-${aviso.id}`);
                 void despacharAvisoCanales({
                     titulo: aviso.titulo || 'Notificación de partida',
                     mensaje: aviso.mensaje || '',
-                    tag: datosAviso.challengeId ? `reto-${datosAviso.challengeId}` : (datosAviso.buscadorId ? `busqueda-${datosAviso.buscadorId}` : `notif-${aviso.id}`),
+                    tag: tagAviso,
                     link: aviso.ruta || '/match',
-                    urgente: datosAviso.tipoMatchmaking === 'reto_superior'
+                    urgente: datosAviso.tipoMatchmaking === 'reto_superior' || datosAviso.tipoMatchmaking === 'match_confirmado'
                 });
             }
         });
@@ -441,16 +451,22 @@ export const useAppStore = create((set, get) => ({
             const buscadorId = Number(data?.buscadorId ?? data?.oderId);
             const yoId = Number(get().user?.id);
             if (!buscadorId || (yoId && buscadorId === yoId)) return;
+            const ahora = Date.now();
             set(state => {
                 const resto = state.busquedasVisibles.filter(item => Number(item.buscadorId ?? item.oderId) !== buscadorId);
-                return { busquedasVisibles: [{ ...data, buscadorId, oderId: buscadorId }, ...resto] };
+                return { busquedasVisibles: [{ ...data, buscadorId, oderId: buscadorId, recibidoEn: ahora }, ...resto] };
             });
-            void despacharAvisoCanales({
-                titulo: data?.eresMejor ? 'Rival buscando partida (oleada)' : 'Alguien busca partida',
-                mensaje: `${data?.username || 'Un jugador'} busca rival · ${data?.etiquetaNivel || 'Disponible para ti'}`,
-                tag: `busqueda-${buscadorId}`,
-                link: '/match'
-            });
+            if (data?.habilitada !== false && data?.notificarAviso === true) {
+                const tiempoTxt = Number(data?.segundosRestantesAceptar) > 0
+                    ? ` · Te quedan ${formatearTiempoTexto(data.segundosRestantesAceptar)} para aceptar`
+                    : '';
+                void despacharAvisoCanales({
+                    titulo: data?.eresMejor ? 'Rival buscando partida (oleada)' : 'Alguien busca partida',
+                    mensaje: `${data?.username || 'Un jugador'} busca rival · ${data?.etiquetaNivel || 'Disponible para ti'}${tiempoTxt}`,
+                    tag: `busqueda-${buscadorId}`,
+                    link: '/match'
+                });
+            }
         });
         newSocket.on('busqueda_cancelada', (data) => {
             const userId = get().user?.id;
@@ -468,10 +484,14 @@ export const useAppStore = create((set, get) => ({
         });
         newSocket.on('matchmaking_reto_recibido', (data) => {
             if (!data?.challengeId) return;
-            set({ retoRecibido: data });
+            const conMarca = { ...data, recibidoEn: Date.now() };
+            set({ retoRecibido: conMarca });
+            const tiempoTxt = Number(data.expiraEnSegundos) > 0 && !String(data.mensaje || '').includes('para aceptar')
+                ? ` Te quedan ${formatearTiempoTexto(data.expiraEnSegundos)} para aceptar.`
+                : '';
             void despacharAvisoCanales({
-                titulo: 'Un jugador superior quiere enfrentarte',
-                mensaje: data.mensaje || `${data.retadorUsername || 'Un rival'} es mejor que tú. ¿Aun así quieres jugar contra él?`,
+                titulo: data.esAutomatico ? 'Emparejamiento disponible con rival superior' : 'Un jugador superior quiere enfrentarte',
+                mensaje: (data.mensaje || `${data.retadorUsername || 'Un rival'} es mejor que tú. ¿Aun así quieres jugar contra él?`) + tiempoTxt,
                 tag: `reto-${data.challengeId}`,
                 link: '/match',
                 urgente: true
@@ -500,6 +520,18 @@ export const useAppStore = create((set, get) => ({
                             ? { ...item, retoEstado: 'pendiente', retoId: data.challengeId } : item)
                 }));
                 return;
+            }
+            if (data.aceptado === true) {
+                const tiempoTxt = Number(data.segundosRestantesAceptar) > 0
+                    ? ` (tienes ${formatearTiempoTexto(data.segundosRestantesAceptar)} para responder)`
+                    : '';
+                void despacharAvisoCanales({
+                    titulo: '¡Partida confirmada!',
+                    mensaje: (data.mensaje || `${data.buscadorUsername || 'Tu rival'} aceptó jugar contra ti.`) + tiempoTxt,
+                    tag: `mm-confirmado-${data.challengeId || data.buscadorId}`,
+                    link: '/match',
+                    urgente: true
+                });
             }
             set(state => ({
                 retoEnviado: null,
@@ -562,10 +594,13 @@ export const useAppStore = create((set, get) => ({
     cargarEstadoMatchmaking: async () => {
         const { ok, data } = await llamarApi('/api/matchmaking/estado');
         if (!ok || !data?.success) return;
+        const ahora = Date.now();
         set({
             matchmakingConfig: data,
-            busquedasVisibles: Array.isArray(data.busquedasVisibles) ? data.busquedasVisibles : [],
-            retoRecibido: data.retoRecibidoPendiente || null,
+            busquedasVisibles: Array.isArray(data.busquedasVisibles)
+                ? data.busquedasVisibles.map(b => ({ ...b, recibidoEn: ahora }))
+                : [],
+            retoRecibido: data.retoRecibidoPendiente ? { ...data.retoRecibidoPendiente, recibidoEn: ahora } : null,
             retoEnviado: data.retoEnviadoPendiente || null
         });
     },

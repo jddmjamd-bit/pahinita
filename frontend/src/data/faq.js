@@ -566,9 +566,9 @@ export const PREGUNTAS = [
         categoria: 'partidas',
         pregunta: '¿Cómo funciona el matchmaking justo, las oleadas y los avisos de nivel?',
         respuesta: [
-            'Cada jugador tiene un puntaje competitivo interno (privado, nunca se muestra el número exacto) calculado con su win rate en la plataforma, sus trofeos y Path of Legends / medallas mundiales de Clash Royale, y su liga de plataforma cuando el sistema de ligas esté activo. Si aún no tienes alguna de esas variables, simplemente se omite para no perjudicarte.',
-            'Cuando alguien busca partida, la notificación (por Web, App y PC) llega primero al instante a jugadores con nivel igual o inferior. A los jugadores superiores se les envía de forma progresiva por grupos de rango durante la ventana de búsqueda, garantizando que incluso los mejores la reciban al menos 2 minutos antes de cumplirse los 10 minutos de espera.',
-            'No verás un número exacto, sino qué tan por encima estás tú o el otro jugador. Si un rival superior quiere jugar contra ti, recibirás un aviso preguntando si aun así aceptas enfrentarlo.'
+            'Cada jugador tiene un puntaje competitivo interno (privado, nunca se muestra el número exacto) calculado con su win rate en la plataforma, sus trofeos y Path of Legends / medallas mundiales de Clash Royale, y su liga de plataforma cuando el sistema de ligas esté activo. Si aún no tienes alguna de esas variables, simplemente se omite para no perjudicarte; al tocar tu nivel junto al título de Buscar partida puedes consultar qué variables aplican.',
+            'Cuando alguien busca partida, la notificación llega primero al instante a jugadores con nivel igual o inferior. Los jugadores de grupos superiores ven en la lista la búsqueda activa junto con cuánto falta para que se les habilite y, una vez liberada su oleada (garantizando que incluso los más altos reciban aviso al menos 2 minutos antes de cumplirse los 10 minutos), cada notificación muestra cuánto tiempo les queda para aceptar.',
+            'Si tanto un jugador más bajo como uno más alto están buscando partida al mismo tiempo, en cuanto el superior queda habilitado se emparejan automáticamente preguntando primero al de menor nivel si quiere jugar contra el mejor; solo si acepta, se le notifica al jugador superior.'
         ]
     },
     {

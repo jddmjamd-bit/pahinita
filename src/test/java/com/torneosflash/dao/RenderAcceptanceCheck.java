@@ -1341,7 +1341,7 @@ class RenderAcceptanceCheck {
                 "max_grupo_liberado = 0, expira_en = EXCLUDED.expira_en",
                 idBusc, nameBusc, scoreBusc);
 
-        // Oleada 0: rival similar notificado; élite aún retenido
+        // Oleada 0: rival similar notificado; élite aún retenido sin push, pero ve la búsqueda con cuenta regresiva
         mmSrv.notificarGrupoOleada(idBusc, nameBusc, 0);
         assertNotNull(dao.queryOne(
                 "SELECT buscador_id FROM matchmaking_search_notified WHERE buscador_id = ? AND receptor_id = ?",
@@ -1349,6 +1349,14 @@ class RenderAcceptanceCheck {
         assertNull(dao.queryOne(
                 "SELECT buscador_id FROM matchmaking_search_notified WHERE buscador_id = ? AND receptor_id = ?",
                 idBusc, idElite));
+        assertNotNull(dao.queryOne(
+                "SELECT id FROM user_notifications WHERE user_id = ? AND categoria = 'partida' AND mensaje LIKE '%para aceptar%'",
+                idSim));
+
+        JsonObject estadoAntesElite = mmSrv.estadoMatchmakingUsuario(idElite);
+        var busqEliteAntes = estadoAntesElite.getAsJsonArray("busquedasVisibles").get(0).getAsJsonObject();
+        assertFalse(busqEliteAntes.get("habilitada").getAsBoolean());
+        assertTrue(busqEliteAntes.get("segundosParaHabilitar").getAsLong() > 0L);
 
         var bloqueado = mmSrv.solicitarRetoContraBuscador(idElite, nameElite, idBusc);
         assertInstanceOf(MatchmakingService.ResultadoSolicitudReto.Rechazado.class, bloqueado);
@@ -1361,12 +1369,22 @@ class RenderAcceptanceCheck {
         assertNotNull(filaNotifElite);
         assertTrue(filaNotifElite.get("es_receptor_mejor").getAsBoolean());
 
-        // El retador élite intenta jugar => pregunta al buscador si acepta enfrentar a un jugador mejor
-        var solicitud = mmSrv.solicitarRetoContraBuscador(idElite, nameElite, idBusc);
+        // Si ambos están buscando y el mayor ya quedó habilitado: pregunta primero al menor sin notificar aún al mayor
+        dao.update("UPDATE users SET estado = 'buscando_partida' WHERE id = ?", idElite);
+        double scoreElite = mmSrv.obtenerPuntajeInternoYAsegurar(idElite);
+        dao.update(
+                "INSERT INTO match_queue (user_id, username, puntaje_buscador, max_grupo_liberado, duracion_total_seg, expira_en) " +
+                "VALUES (?, ?, ?, 0, 600, CURRENT_TIMESTAMP + INTERVAL '10 minutes') " +
+                "ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, puntaje_buscador = EXCLUDED.puntaje_buscador, expira_en = EXCLUDED.expira_en",
+                idElite, nameElite, scoreElite);
+
+        var solicitud = mmSrv.intentarEmparejarAutomaticoConSuperior(idBusc, nameBusc, idElite, nameElite);
         var esperando = assertInstanceOf(MatchmakingService.ResultadoSolicitudReto.EsperandoConfirmacion.class, solicitud);
-        assertNotNull(dao.queryOne(
-                "SELECT id FROM matchmaking_challenges WHERE id = ? AND estado = 'pendiente'",
-                esperando.challengeId()));
+        JsonObject filaReto = dao.queryOne(
+                "SELECT id, es_automatico FROM matchmaking_challenges WHERE id = ? AND estado = 'pendiente'",
+                esperando.challengeId());
+        assertNotNull(filaReto);
+        assertTrue(filaReto.get("es_automatico").getAsBoolean());
 
         var rechazo = mmSrv.responderRetoBuscador(idBusc, esperando.challengeId(), false);
         assertTrue(rechazo.valido());
@@ -1374,6 +1392,9 @@ class RenderAcceptanceCheck {
         assertEquals("rechazado", dao.queryOne(
                 "SELECT estado FROM matchmaking_challenges WHERE id = ?", esperando.challengeId())
                 .get("estado").getAsString());
+        assertNull(dao.queryOne(
+                "SELECT id FROM user_notifications WHERE user_id = ? AND categoria = 'partida' AND titulo = 'Solicitud no aceptada'",
+                idElite));
 
         JsonObject estadoPublico = mmSrv.estadoMatchmakingUsuario(idElite);
         assertTrue(estadoPublico.get("puntajeOculto").getAsBoolean());
@@ -1381,8 +1402,9 @@ class RenderAcceptanceCheck {
         assertFalse(estadoPublico.toString().contains("puntaje_interno"));
 
         mmSrv.limpiarBusqueda(idBusc);
-        dao.update("DELETE FROM match_queue WHERE user_id = ?", idBusc);
-        dao.update("UPDATE users SET estado = 'normal' WHERE id = ?", idBusc);
+        mmSrv.limpiarBusqueda(idElite);
+        dao.update("DELETE FROM match_queue WHERE user_id IN (?, ?)", idBusc, idElite);
+        dao.update("UPDATE users SET estado = 'normal' WHERE id IN (?, ?)", idBusc, idElite);
     }
 
     private static String tagPruebaUnico() {

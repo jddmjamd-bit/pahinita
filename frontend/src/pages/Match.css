@@ -454,22 +454,35 @@
 }
 .mm-panel-header h4 { margin: 0 0 4px; color: var(--text-primary); }
 .mm-sub { margin: 0; font-size: 0.85rem; color: var(--text-secondary); }
-.mm-toggle-vars-btn {
+.mm-header-level {
     width: auto;
-    padding: 8px 14px;
-    font-size: 0.85rem;
-    background: var(--bg-surface);
-    color: var(--text-primary);
+    padding: 5px 12px;
+    font-size: 0.84rem;
+    font-weight: 600;
+    border-radius: 999px;
+    background: var(--bg-base);
+    color: var(--text-secondary);
     border: 1px solid var(--border-color);
+    box-shadow: none;
+    cursor: default;
 }
-.mm-toggle-vars-btn:hover {
-    border-color: var(--accent-primary);
+.mm-header-level:hover {
+    background: var(--bg-base);
+    color: var(--text-secondary);
+    transform: none;
+    box-shadow: none;
+}
+.mm-header-vars-panel {
+    padding: 14px 20px;
+    background: var(--bg-surface-elevated);
+    border-bottom: 1px solid var(--border-color);
+    text-align: left;
 }
 .mm-pills-row {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
 }
 .mm-pill {
     font-size: 0.8rem;
@@ -483,7 +496,7 @@
     border-color: rgba(16, 185, 129, 0.45);
     color: var(--accent-success);
 }
-.mm-active-searches { margin-top: 14px; }
+.mm-active-searches { margin-top: 2px; }
 .mm-active-searches h5 { margin: 0 0 10px; font-size: 0.92rem; color: var(--text-primary); }
 .mm-empty { font-size: 0.85rem; color: var(--text-secondary); margin: 0; }
 .mm-search-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -502,6 +515,8 @@
 .mm-level-tag { font-size: 0.82rem; color: var(--text-secondary); }
 .mm-level-tag.mejor { color: var(--accent-success); }
 .mm-level-tag.rival-mejor { color: var(--accent-warning); }
+.mm-lock-tag { font-size: 0.8rem; color: var(--text-secondary); }
+.mm-accept-time-tag { font-size: 0.8rem; color: var(--accent-warning); font-weight: 500; }
 .mm-challenge-btn { width: auto; padding: 8px 14px; font-size: 0.85rem; }
 .mm-notice-banner, .mm-pending-banner {
     display: flex;

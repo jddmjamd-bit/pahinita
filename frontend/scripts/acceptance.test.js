@@ -18,6 +18,7 @@ const adminJsx = await readFile(new URL('../src/pages/Admin.jsx', import.meta.ur
 const adminCss = await readFile(new URL('../src/pages/Admin.css', import.meta.url), 'utf8')
 const canalesJs = await readFile(new URL('../src/services/notificacionesCanales.js', import.meta.url), 'utf8')
 const capacitorJs = await readFile(new URL('../src/hooks/useCapacitor.js', import.meta.url), 'utf8')
+const tiempoJs = await readFile(new URL('../src/utils/tiempoMatchmaking.js', import.meta.url), 'utf8')
 
 test('P2: las rutas privadas esperan la sesión, envían al login si no hay usuario y dejan /faq pública', () => {
   assert.match(app, /RUTAS_PUBLICAS\s*=\s*\[[^\]]*'\/faq'[^\]]*\]/)
@@ -121,7 +122,7 @@ test('P11: Admin gestiona la Zona de Pruebas (selector de zona, suscripción pru
   assert.ok(PREGUNTAS.some(p => p.id === 'zona-pruebas-suscripcion'))
 })
 
-test('P12: Matchmaking justo oculta el puntaje numérico, notifica en segundo plano Web/App/PC, deja opcional ver variables y confirma retos de jugadores superiores', () => {
+test('P12: Matchmaking justo oculta el puntaje numérico, muestra nivel discreto tocable en el título, anticipa búsquedas con tiempos de habilitación/aceptación y notifica al mayor solo si el menor acepta', () => {
   assert.match(store, /\/api\/matchmaking\/estado/)
   assert.match(store, /newSocket\.on\('matchmaking_reto_recibido'/)
   assert.match(store, /newSocket\.on\('matchmaking_reto_respuesta'/)
@@ -129,14 +130,22 @@ test('P12: Matchmaking justo oculta el puntaje numérico, notifica en segundo pl
   assert.match(matchJsx, /desafiar_busqueda/)
   assert.match(matchJsx, /fair-matchmaking-panel/)
   assert.match(matchJsx, /mostrarVariables/)
-  assert.match(matchJsx, /mm-toggle-vars-btn/)
+  assert.match(matchJsx, /mm-header-level/)
+  assert.match(matchJsx, /mm-header-vars-panel/)
+  assert.match(matchJsx, /segundosParaHabilitar/)
+  assert.match(matchJsx, /segundosRestantesAceptar/)
   assert.doesNotMatch(matchJsx, /Activar avisos en PC/)
   assert.doesNotMatch(matchJsx, /mm-channels-row/)
+  assert.doesNotMatch(matchJsx, /Ver variables que aplican/)
   assert.match(lobbyJsx, /responder_reto_matchmaking/)
   assert.match(lobbyJsx, /mm-challenge-modal/)
+  assert.match(lobbyJsx, /mm-challenge-countdown/)
+  assert.match(lobbyJsx, /live-notification-accept-left/)
   assert.match(matchCss, /\.fair-matchmaking-panel\b/)
-  assert.match(matchCss, /\.mm-toggle-vars-btn\b/)
+  assert.match(matchCss, /\.mm-header-level\b/)
   assert.match(lobbyCss, /\.mm-challenge-modal\b/)
+  assert.match(lobbyCss, /\.mm-challenge-countdown\b/)
+  assert.match(tiempoJs, /formatearTiempoReloj/)
   assert.match(canalesJs, /CANALES_MATCHMAKING\s*=\s*\['web',\s*'app',\s*'pc'\]/)
   assert.match(canalesJs, /LocalNotifications/)
   assert.match(canalesJs, /window\.Notification/)

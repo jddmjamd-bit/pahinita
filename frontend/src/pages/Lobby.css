@@ -324,7 +324,9 @@
 }
 .mm-challenge-modal h3 { margin-bottom: 10px; font-size: 1.1rem; }
 .mm-challenge-modal p { color: var(--text-secondary); line-height: 1.45; margin-bottom: 8px; }
-.mm-challenge-question { color: var(--text-primary) !important; font-weight: 600; margin-bottom: 16px !important; }
+.mm-challenge-question { color: var(--text-primary) !important; font-weight: 600; margin-bottom: 8px !important; }
+.mm-challenge-countdown { color: var(--accent-warning) !important; font-size: 0.9rem; margin-bottom: 16px !important; }
+.live-notification-accept-left { display: block; margin-top: 4px; font-size: 0.78rem; color: var(--accent-warning); font-weight: 600; }
 .mm-challenge-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .mm-challenge-actions button { flex: 1; min-width: 140px; }
 .mm-challenge-accept { background: linear-gradient(135deg, var(--accent-success), #059669); color: #fff; }

@@ -109,7 +109,7 @@
 
 ## 9. Migraciones Flyway (A5)
 
-1. Toda tabla, columna, índice, constraint o dato semilla nuevo es un **archivo nuevo** en `src/main/resources/db/migration/`. **Revisa el número más alto existente** (hoy `V24`, el siguiente es `V25`) y, antes de commitear, verifica de nuevo que otro agente no haya usado ese número.
+1. Toda tabla, columna, índice, constraint o dato semilla nuevo es un **archivo nuevo** en `src/main/resources/db/migration/`. **Revisa el número más alto existente** (hoy `V25`, el siguiente es `V26`) y, antes de commitear, verifica de nuevo que otro agente no haya usado ese número.
 2. **Nunca editar, renumerar ni renombrar** un `V*` ya aplicado (checksum → el servidor no arranca). Para corregir, otra migración.
 3. Dinero en `NUMERIC(18, 2)` con `CHECK (... >= 0)` cuando aplique (patrón V19). Nada de `REAL`/`DOUBLE PRECISION` para dinero.
 4. Claves foráneas con `ON DELETE` explícito, índices en FKs y filtros frecuentes, `UNIQUE` donde haya idempotencia.

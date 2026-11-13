@@ -11,6 +11,17 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-12 — Matchmaking justo: nivel discreto en título, visibilidad anticipada, autoemparejamiento y tiempos de aceptación
+- Migración `V25__matchmaking_emparejamiento_y_tiempos.sql`: agrega `es_automatico` a `matchmaking_challenges` para distinguir retos automáticos al emparejar jugadores en cola.
+- Título discreto (`Match.jsx`, `Match.css`): mueve el nivel cualitativo del jugador junto a `⚔️ Buscar partida` (`.mm-header-level`), presionable sin pistas visuales para desplegar/ocultar las variables que aplican (`.mm-header-vars-panel`), eliminando el encabezado redundante de `.fair-matchmaking-panel`.
+- Visibilidad anticipada, emparejamiento automático y tiempos restantes (`MatchmakingService.java`, `SocketHandler.java`, `tiempoMatchmaking.js`, `useAppStore.js`, `Lobby.jsx`, `Lobby.css`):
+  - Los jugadores de grupos superiores ven búsquedas activas en *"Rivales buscando ahora"* antes de que libere su oleada, con cuenta regresiva hasta habilitarse (`habilitada = false`, `segundosParaHabilitar`).
+  - Cuando ambos están buscando partida y el jugador de mayor nivel queda habilitado para el de menor nivel, se emparejan automáticamente consultando primero solo al jugador de menor nivel; únicamente si acepta se notifica al jugador superior (`match_confirmado`) y se abre la sala.
+  - Todos los avisos (oleada Web/App/PC, toast en vivo, tarjetas de búsqueda, modal de confirmación y confirmación al superior) indican el tiempo restante para aceptar.
+- Actualizados `MatchmakingServiceTest.java`, `RenderAcceptanceCheck.java`, `frontend/scripts/acceptance.test.js`, `frontend/src/data/faq.js`, `ARCHITECTURE.md`, `agent/rules/project-conventions.md` y `GUIA_PRUEBAS_Y_VARIABLES.md`.
+- **Verificación:** `.\mvnw.cmd clean verify` (`Tests run: 72, Failures: 0, Errors: 0, Skipped: 0`, `BUILD SUCCESS`); en `frontend/`, `npx.cmd oxlint` en los archivos modificados (`0` errores), `npm.cmd run lint` (`0` errores, `51` advertencias en 33 archivos), `npm.cmd run test:acceptance` (`11/11` contratos P2–P12) y `npm.cmd run build` (`vite build` exitoso).
+Archivos: `V25__matchmaking_emparejamiento_y_tiempos.sql`, `MatchmakingService.java`, `SocketHandler.java`, `tiempoMatchmaking.js`, `useAppStore.js`, `Match.jsx`, `Match.css`, `Lobby.jsx`, `Lobby.css`, `faq.js`, `MatchmakingServiceTest.java`, `RenderAcceptanceCheck.java`, `acceptance.test.js`, `ARCHITECTURE.md`, `project-conventions.md`, `GUIA_PRUEBAS_Y_VARIABLES.md`, `CHANGELOG.md`
+
 ## 2026-11-12 — Ajustes de interfaz en Matchmaking justo (sin controles de notificación y detalle opcional de variables)
 - Eliminados de la vista de búsqueda (`Match.jsx` y `Match.css`) el botón `"Activar avisos en PC"` y las insignias de estado de canales (`Web / App / PC`), dejando las notificaciones en segundo plano activas por defecto hasta implementar la función dedicada de **Configuración de notificaciones** (prioridad `4.5`).
 - Ocultadas por defecto las píldoras de variables que aplican al puntaje (`Win rate`, `Clash Royale`, `Liga plataforma`) detrás del botón opcional **`"Ver variables que aplican"`** / **`"Ocultar variables"`**, manteniendo el perfil cualitativo sin exponer el puntaje numérico.

@@ -231,7 +231,7 @@ public class SocketHandler {
                     matchmaking.asegurarYRecalcularPerfil(userId);
                     matchmaking.refrescarClashEnSegundoPlano(userId, false);
 
-                    // Enviar únicamente búsquedas activas cuya oleada actual ya incluya a este usuario
+                    // Enviar búsquedas activas visibles al reconectar (las de grupo superior bloqueado muestran cuánto falta para habilitarse)
                     for (Map.Entry<Integer, BusquedaActiva> entry : busquedasActivas().entrySet()) {
                         if (entry.getKey() != userId) {
                             JsonObject visible = matchmaking.prepararBusquedaParaReceptor(
@@ -240,6 +240,7 @@ public class SocketHandler {
                                     userId,
                                     entry.getValue().maxGrupoLiberado);
                             if (visible != null) {
+                                visible.addProperty("notificarAviso", false);
                                 client.emit("alguien_buscando", visible);
                             }
                         }
@@ -646,10 +647,22 @@ public class SocketHandler {
                                     resp.buscadorUsername(), resp.retadorId(),
                                     "No fue posible abrir la sala (saldo mínimo o partida simultánea).");
                         } else {
+                            int tiempoSalaSeg = config.getNegociacionGraciaDesconexionSegundos()
+                                    + config.getNegociacionDesconexionSegundos();
+                            matchmaking.notificarMatchConfirmadoARetador(
+                                    challengeId, buscadorId, resp.buscadorUsername(),
+                                    resp.retadorId(), tiempoSalaSeg, resp.esAutomatico());
+
                             JsonObject okRetador = new JsonObject();
                             okRetador.addProperty("challengeId", challengeId);
                             okRetador.addProperty("aceptado", true);
+                            okRetador.addProperty("esAutomatico", resp.esAutomatico());
                             okRetador.addProperty("buscadorId", buscadorId);
+                            okRetador.addProperty("buscadorUsername", resp.buscadorUsername());
+                            okRetador.addProperty("segundosRestantesAceptar", tiempoSalaSeg);
+                            okRetador.addProperty("expiraEnEpochMs", System.currentTimeMillis() + (tiempoSalaSeg * 1000L));
+                            okRetador.addProperty("mensaje", "¡" + resp.buscadorUsername()
+                                    + " aceptó jugar contra ti! Entra a la sala privada.");
                             SocketIOClient retadorSocket = buscarSocketConectado(resp.retadorId());
                             if (retadorSocket != null) {
                                 retadorSocket.emit("matchmaking_reto_respuesta", okRetador);
@@ -1638,10 +1651,30 @@ public class SocketHandler {
                 BusquedaActiva rival = entry.getValue();
                 if (estaEnPartidaActiva(rival.userId)) continue;
                 // Emparejamiento automático inmediato únicamente cuando ambos tienen nivel competitivo similar;
-                // si uno es mejor que el otro, se notifican por oleada/reto para mantener la confirmación previa.
+                // si uno es mejor que el otro, se maneja por oleada con confirmación previa del menor.
                 if (!MatchmakingPuntaje.sonNivelSimilar(myPuntaje, rival.puntajeBuscador)) continue;
                 if (crearSalaEntreJugadores(myId, myData, meSocket, rival.userId, null, rival.socket)) {
-                    break;
+                    return;
+                }
+            }
+        }
+
+        // Si el usuario recién llegado es superior y ya quedó habilitado en la oleada de un buscador más bajo,
+        // emparejar en confirmación enviando primero la pregunta únicamente al de menor rango.
+        String myUsername = str(myData, "username") != null ? str(myData, "username") : "Jugador";
+        for (Map.Entry<Integer, BusquedaActiva> entry : busquedasActivas().entrySet()) {
+            if (entry.getKey() != myId) {
+                BusquedaActiva rival = entry.getValue();
+                if (estaEnPartidaActiva(rival.userId)) continue;
+                if (myPuntaje <= rival.puntajeBuscador) continue;
+                MatchmakingPuntaje.ComparacionNivel comp = MatchmakingPuntaje.comparar(
+                        myPuntaje, rival.puntajeBuscador, myUsername, rival.username);
+                if (comp.esReceptorMejor() && comp.grupoRango() <= rival.maxGrupoLiberado) {
+                    var resAuto = matchmaking.intentarEmparejarAutomaticoConSuperior(
+                            rival.userId, rival.username, myId, myUsername);
+                    if (resAuto instanceof MatchmakingService.ResultadoSolicitudReto.EsperandoConfirmacion) {
+                        break;
+                    }
                 }
             }
         }

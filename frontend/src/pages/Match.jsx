@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { llamarApi } from '../store/llamarApi';
+import { calcularRestanteSegundos, formatearTiempoReloj } from '../utils/tiempoMatchmaking';
 import './Match.css';
 import VozDiscord from '../components/VozDiscord';
 
@@ -101,6 +102,7 @@ export default function Match() {
     const chatEndRef = useRef(null);
     const simulacionRef = useRef(0); // id de la última consulta de ganancia (descarta respuestas viejas)
     const gananciaTimerRef = useRef(null); // S8: debounce de la consulta de ganancia (antes: una petición por cada tecla/flecha del input)
+    const ultimaSyncBusquedasRef = useRef(0);
 
     useEffect(() => () => clearTimeout(gananciaTimerRef.current), []);
 
@@ -128,15 +130,30 @@ export default function Match() {
 
     useEffect(() => {
         const hayRelojEnVivo = Boolean(
-            matchState.inMatch && view === 'private' && (
-                matchState.timerNegociacion?.activo ||
-                (matchState.rivalDesconectado && matchState.rivalDesconectado.tiempo !== 'indefinido')
+            (!matchState.inMatch && busquedasVisibles.length > 0) || (
+                matchState.inMatch && view === 'private' && (
+                    matchState.timerNegociacion?.activo ||
+                    (matchState.rivalDesconectado && matchState.rivalDesconectado.tiempo !== 'indefinido')
+                )
             )
         );
         if (!hayRelojEnVivo) return undefined;
-        const tick = setInterval(() => setAhoraMs(Date.now()), 250);
+        const intervalo = !matchState.inMatch ? 1000 : 250;
+        const tick = setInterval(() => {
+            const ahora = Date.now();
+            setAhoraMs(ahora);
+            const algunaListaPorHabilitar = !matchState.inMatch && busquedasVisibles.some(item =>
+                item?.habilitada === false
+                && calcularRestanteSegundos(item.segundosParaHabilitar, item.recibidoEn, ahora) <= 0
+            );
+            if (algunaListaPorHabilitar && (ahora - ultimaSyncBusquedasRef.current) > 3000) {
+                ultimaSyncBusquedasRef.current = ahora;
+                void cargarEstadoMatchmaking();
+            }
+        }, intervalo);
         return () => clearInterval(tick);
-    }, [matchState.inMatch, view, matchState.timerNegociacion?.activo, matchState.rivalDesconectado]);
+    }, [matchState.inMatch, view, matchState.timerNegociacion?.activo, matchState.rivalDesconectado,
+        busquedasVisibles, cargarEstadoMatchmaking]);
 
     useEffect(() => {
         // Auto-scroll chat
@@ -525,7 +542,7 @@ export default function Match() {
         const variables = matchmakingConfig?.variables || {};
         const handleDesafiarBusqueda = (busqueda) => {
             const targetId = busqueda.buscadorId ?? busqueda.userId;
-            if (!socket || !targetId) return;
+            if (!socket || !targetId || busqueda.habilitada === false) return;
             if (busqueda.esBuscadorMejor) {
                 const ok = window.confirm(
                     `${busqueda.username} está por encima de tu nivel (${busqueda.etiquetaNivel}). ¿Confirmas que quieres jugar contra él?`
@@ -540,7 +557,31 @@ export default function Match() {
             <div className="match-container">
                 <header className="match-header">
                     <h3>⚔️ Buscar partida</h3>
+                    <button
+                        type="button"
+                        className="mm-header-level"
+                        aria-expanded={mostrarVariables}
+                        onClick={() => setMostrarVariables(prev => !prev)}
+                    >
+                        Nivel: {matchmakingConfig?.perfilCualitativo || 'Calibrando'}
+                    </button>
                 </header>
+                {mostrarVariables && (
+                    <div className="mm-header-vars-panel">
+                        <div className="mm-pills-row">
+                            <span className={`mm-pill ${variables.winRate ? 'ok' : ''}`}>
+                                📊 Win rate: {variables.winRate ? 'Activo' : 'Sin partidas aún (no afecta)'}
+                            </span>
+                            <span className={`mm-pill ${variables.clash ? 'ok' : ''}`}>
+                                🏆 Clash Royale: {variables.clash ? 'Copas / PoL activos' : 'Pendiente (no afecta)'}
+                            </span>
+                            <span className={`mm-pill ${variables.liga ? 'ok' : ''}`}>
+                                🛡 Liga plataforma: {variables.liga ? 'Activa' : 'Próximamente (no afecta)'}
+                            </span>
+                        </div>
+                        <p className="mm-sub">Tu puntaje numérico exacto es privado.</p>
+                    </div>
+                )}
                 <div className="search-view-content">
                     {avisoMatchmaking && (
                         <div className="mm-notice-banner" role="status">
@@ -562,8 +603,8 @@ export default function Match() {
                             </div>
                             <h2>Buscando rival justo...</h2>
                             <p>
-                                Primero avisamos a jugadores de tu mismo nivel o inferior;
-                                los niveles superiores se notifican por oleadas hasta 2 minutos antes del cierre.
+                                Primero avisamos a jugadores de tu mismo nivel o inferior; los niveles superiores verán tu búsqueda
+                                y quedarán habilitados por oleadas (con confirmación previa tuya) hasta 2 minutos antes del cierre.
                             </p>
                             <button className="search-btn cancel" onClick={handleCancelarBusqueda}>Cancelar búsqueda</button>
                         </>
@@ -578,46 +619,24 @@ export default function Match() {
                     )}
 
                     <section className="fair-matchmaking-panel" aria-label="Matchmaking justo">
-                        <div className="mm-panel-header">
-                            <div>
-                                <h4>🎯 Matchmaking Justo</h4>
-                                <p className="mm-sub">
-                                    Perfil actual: <strong>{matchmakingConfig?.perfilCualitativo || 'Calibrando'}</strong> (tu puntaje exacto es privado).
-                                </p>
-                            </div>
-                            <button
-                                type="button"
-                                className="mm-toggle-vars-btn"
-                                aria-expanded={mostrarVariables}
-                                onClick={() => setMostrarVariables(prev => !prev)}
-                            >
-                                {mostrarVariables ? '🔼 Ocultar variables' : '👁️ Ver variables que aplican'}
-                            </button>
-                        </div>
-
-                        {mostrarVariables && (
-                            <div className="mm-pills-row">
-                                <span className={`mm-pill ${variables.winRate ? 'ok' : ''}`}>
-                                    📊 Win rate: {variables.winRate ? 'Activo' : 'Sin partidas aún (no afecta)'}
-                                </span>
-                                <span className={`mm-pill ${variables.clash ? 'ok' : ''}`}>
-                                    🏆 Clash Royale: {variables.clash ? 'Copas / PoL activos' : 'Pendiente (no afecta)'}
-                                </span>
-                                <span className={`mm-pill ${variables.liga ? 'ok' : ''}`}>
-                                    🛡 Liga plataforma: {variables.liga ? 'Activa' : 'Próximamente (no afecta)'}
-                                </span>
-                            </div>
-                        )}
-
                         <div className="mm-active-searches">
                             <h5>🎮 Rivales buscando ahora ({busquedasVisibles.length})</h5>
                             {busquedasVisibles.length === 0 ? (
-                                <p className="mm-empty">No hay búsquedas visibles para tu nivel en este momento.</p>
+                                <p className="mm-empty">No hay búsquedas visibles en este momento.</p>
                             ) : (
                                 <ul className="mm-search-list">
                                     {busquedasVisibles.map(b => {
                                         const id = b.buscadorId ?? b.userId;
-                                        const bloqueado = b.retoEstado === 'pendiente' || b.retoEstado === 'rechazado';
+                                        const habilitadaAhora = b.habilitada !== false;
+                                        const restanteHabilitar = habilitadaAhora
+                                            ? 0
+                                            : calcularRestanteSegundos(b.segundosParaHabilitar, b.recibidoEn, ahoraMs);
+                                        const restanteAceptar = calcularRestanteSegundos(
+                                            b.segundosRestantesAceptar, b.recibidoEn, ahoraMs, b.expiraEnEpochMs
+                                        );
+                                        const bloqueado = !habilitadaAhora
+                                            || b.retoEstado === 'pendiente'
+                                            || b.retoEstado === 'rechazado';
                                         return (
                                             <li key={id} className="mm-search-item">
                                                 <div className="mm-search-info">
@@ -625,6 +644,17 @@ export default function Match() {
                                                     <span className={`mm-level-tag ${b.eresMejor ? 'mejor' : (b.esBuscadorMejor ? 'rival-mejor' : 'similar')}`}>
                                                         {b.etiquetaNivel || 'Nivel competitivo disponible'}
                                                     </span>
+                                                    {!habilitadaAhora ? (
+                                                        <span className="mm-lock-tag">
+                                                            {restanteHabilitar > 0
+                                                                ? `🔒 Se habilitará en ${formatearTiempoReloj(restanteHabilitar)}`
+                                                                : '🔒 Habilitándose...'}
+                                                        </span>
+                                                    ) : (b.segundosRestantesAceptar > 0 || b.expiraEnEpochMs) ? (
+                                                        <span className="mm-accept-time-tag">
+                                                            ⏱ Tiempo para aceptar: {formatearTiempoReloj(restanteAceptar)}
+                                                        </span>
+                                                    ) : null}
                                                 </div>
                                                 <button
                                                     type="button"
@@ -632,9 +662,13 @@ export default function Match() {
                                                     disabled={!socket || bloqueado}
                                                     onClick={() => handleDesafiarBusqueda(b)}
                                                 >
-                                                    {b.retoEstado === 'pendiente'
-                                                        ? 'Esperando confirmación'
-                                                        : (b.retoEstado === 'rechazado' ? 'Prefirió otro rival' : '⚔️ Jugar')}
+                                                    {!habilitadaAhora
+                                                        ? (restanteHabilitar > 0
+                                                            ? `⏳ En ${formatearTiempoReloj(restanteHabilitar)}`
+                                                            : '⏳ Habilitándose...')
+                                                        : b.retoEstado === 'pendiente'
+                                                            ? 'Esperando confirmación'
+                                                            : (b.retoEstado === 'rechazado' ? 'Prefirió otro rival' : '⚔️ Jugar')}
                                                 </button>
                                             </li>
                                         );

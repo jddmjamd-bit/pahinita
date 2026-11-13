@@ -74,10 +74,11 @@ public class MatchmakingService {
             String buscadorUsername,
             int retadorId,
             String retadorUsername,
+            boolean esAutomatico,
             String mensajeError
     ) {
         static ResultadoRespuestaReto error(String mensaje) {
-            return new ResultadoRespuestaReto(false, false, 0, 0, "", 0, "", mensaje);
+            return new ResultadoRespuestaReto(false, false, 0, 0, "", 0, "", false, mensaje);
         }
     }
 
@@ -118,7 +119,8 @@ public class MatchmakingService {
             "  actualizado_en = CURRENT_TIMESTAMP";
 
     private static final String SQL_CANDIDATOS_OLEADA =
-            "SELECT u.id, u.username, u.total_victorias, u.total_derrotas, u.total_partidas, " +
+            "SELECT u.id, u.username, u.estado AS usuario_estado, u.total_victorias, u.total_derrotas, u.total_partidas, " +
+            "EXISTS (SELECT 1 FROM match_queue mq WHERE mq.user_id = u.id AND mq.expira_en > CURRENT_TIMESTAMP) AS esta_buscando, " +
             "mp.user_id AS mp_user_id, mp.clash_trophies, mp.clash_best_trophies, " +
             "mp.clash_pol_league, mp.clash_pol_trophies, mp.clash_pol_best_league, mp.clash_pol_best_trophies, " +
             "mp.clash_pol_rank, mp.clash_pol_best_rank, mp.clash_actualizado_en, " +
@@ -133,8 +135,8 @@ public class MatchmakingService {
     private static final String SQL_CREAR_O_RENOVAR_RETO =
             "INSERT INTO matchmaking_challenges (" +
             "  buscador_id, retador_id, buscador_username, retador_username, grupo_rango, " +
-            "  diferencia_puntaje, etiqueta_para_buscador, etiqueta_para_retador, estado, creado_en, expira_en, respondido_en" +
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + make_interval(secs => ?), NULL) " +
+            "  diferencia_puntaje, etiqueta_para_buscador, etiqueta_para_retador, es_automatico, estado, creado_en, expira_en, respondido_en" +
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + make_interval(secs => ?), NULL) " +
             "ON CONFLICT (buscador_id, retador_id) DO UPDATE SET " +
             "  buscador_username = EXCLUDED.buscador_username, " +
             "  retador_username = EXCLUDED.retador_username, " +
@@ -142,6 +144,7 @@ public class MatchmakingService {
             "  diferencia_puntaje = EXCLUDED.diferencia_puntaje, " +
             "  etiqueta_para_buscador = EXCLUDED.etiqueta_para_buscador, " +
             "  etiqueta_para_retador = EXCLUDED.etiqueta_para_retador, " +
+            "  es_automatico = EXCLUDED.es_automatico, " +
             "  estado = 'pendiente', " +
             "  creado_en = CURRENT_TIMESTAMP, " +
             "  expira_en = EXCLUDED.expira_en, " +
@@ -285,14 +288,43 @@ public class MatchmakingService {
     }
 
     /**
-     * Construye el payload seguro (sin puntaje numérico) para mostrar una búsqueda activa al receptor,
-     * o {@code null} si la búsqueda aún no ha liberado la oleada correspondiente al receptor.
+     * Construye el payload seguro (sin puntaje numérico) para mostrar una búsqueda activa al receptor.
+     * Si la oleada del receptor todavía no está liberada, marca {@code habilitada=false} e indica el tiempo
+     * restante para que se habilite; en todo momento incluye el tiempo restante para aceptar la partida.
      */
     public JsonObject prepararBusquedaParaReceptor(
             int buscadorId,
             String buscadorUsername,
             int receptorId,
             int maxGrupoLiberado) {
+        if (buscadorId <= 0 || receptorId <= 0 || buscadorId == receptorId) {
+            return null;
+        }
+        int duracionDefault = (config != null ? config.getBusquedaTimeoutMinutos() : 10) * 60;
+        JsonObject filaCola = db.queryOne(
+                "SELECT duracion_total_seg, " +
+                "EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - creado_en)) AS segs_transcurridos, " +
+                "EXTRACT(EPOCH FROM (expira_en - CURRENT_TIMESTAMP)) AS segs_restantes " +
+                "FROM match_queue WHERE user_id = ?",
+                buscadorId);
+        int duracionTotalSeg = filaCola != null ? Math.max(10, intOrDefault(filaCola, "duracion_total_seg", duracionDefault)) : duracionDefault;
+        long segsTranscurridos = filaCola != null ? Math.max(0L, longOrZero(filaCola, "segs_transcurridos")) : 0L;
+        long segsRestantes = filaCola != null
+                ? Math.max(1L, longOrDefault(filaCola, "segs_restantes", duracionTotalSeg))
+                : duracionDefault;
+        return prepararBusquedaParaReceptor(
+                buscadorId, buscadorUsername, receptorId, maxGrupoLiberado,
+                duracionTotalSeg, segsTranscurridos, segsRestantes);
+    }
+
+    private JsonObject prepararBusquedaParaReceptor(
+            int buscadorId,
+            String buscadorUsername,
+            int receptorId,
+            int maxGrupoLiberado,
+            int duracionTotalSeg,
+            long segsTranscurridos,
+            long segsRestantes) {
         if (buscadorId <= 0 || receptorId <= 0 || buscadorId == receptorId) {
             return null;
         }
@@ -310,35 +342,52 @@ public class MatchmakingService {
 
         MatchmakingPuntaje.ComparacionNivel comp =
                 MatchmakingPuntaje.comparar(scoreRecept, scoreBusc, nameRecept, nameBusc);
-        if (comp.grupoRango() > maxGrupoLiberado) {
-            return null;
-        }
+        int margenSeg = config != null ? config.getMatchmakingMargenFinalSegundos() : 120;
+        boolean habilitada = comp.grupoRango() <= maxGrupoLiberado;
+        long segsParaHabilitar = calcularSegundosRestantesOleada(
+                comp.grupoRango(), habilitada, duracionTotalSeg, margenSeg, segsTranscurridos, segsRestantes);
 
         JsonObject retoExistente = db.queryOne(
-                "SELECT id, estado FROM matchmaking_challenges " +
+                "SELECT id, estado, es_automatico FROM matchmaking_challenges " +
                 "WHERE buscador_id = ? AND retador_id = ? " +
                 "  AND (estado = 'rechazado' OR (estado = 'pendiente' AND expira_en > CURRENT_TIMESTAMP))",
                 buscadorId, receptorId);
 
-        JsonObject payload = construirPayloadBusquedaVisible(buscadorId, nameBusc, comp);
+        JsonObject payload = construirPayloadBusquedaVisible(
+                buscadorId, nameBusc, comp, habilitada, segsParaHabilitar, segsRestantes, false);
         if (retoExistente != null) {
-            payload.addProperty("retoId", retoExistente.get("id").getAsInt());
-            payload.addProperty("retoEstado", strDefault(retoExistente, "estado", ""));
+            String estadoReto = strDefault(retoExistente, "estado", "");
+            boolean esAuto = boolDefault(retoExistente, "es_automatico", false);
+            // Si fue un emparejamiento automático pendiente de respuesta del menor, aún no se revela ni notifica al superior.
+            if (!("pendiente".equals(estadoReto) && esAuto)) {
+                payload.addProperty("retoId", retoExistente.get("id").getAsInt());
+                payload.addProperty("retoEstado", estadoReto);
+            }
         }
         return payload;
     }
 
     /**
      * Libera una oleada {@code grupoObjetivo} (0 = igual o menor nivel; 1..5 = rangos superiores)
-     * para la búsqueda activa de {@code buscadorId}, enviando notificaciones Web, App y PC sin duplicados.
+     * para la búsqueda activa de {@code buscadorId}:
+     * <ul>
+     *   <li>A grupos aún bloqueados ({@code grupoRango > grupoObjetivo}) les actualiza la vista pasiva en tiempo real
+     *       sin disparar notificación todavía (mostrando el tiempo restante para habilitarse).</li>
+     *   <li>Si un jugador superior recién habilitado también está buscando partida en cola, dispara emparejamiento
+     *       automático preguntando primero al buscador de menor rango sin notificar al superior hasta que acepte.</li>
+     *   <li>Si el candidato no está en cola, envía la notificación Web, App y PC indicando cuánto tiempo falta para aceptar.</li>
+     * </ul>
      *
      * @return cantidad de nuevos usuarios notificados en esta oleada
      */
     public int notificarGrupoOleada(int buscadorId, String buscadorUsername, int grupoObjetivo) {
         if (buscadorId <= 0) return 0;
 
+        int duracionDefault = (config != null ? config.getBusquedaTimeoutMinutos() : 10) * 60;
         JsonObject cola = db.queryOne(
-                "SELECT user_id, username, puntaje_buscador, max_grupo_liberado " +
+                "SELECT user_id, username, puntaje_buscador, max_grupo_liberado, duracion_total_seg, " +
+                "EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - creado_en)) AS segs_transcurridos, " +
+                "EXTRACT(EPOCH FROM (expira_en - CURRENT_TIMESTAMP)) AS segs_restantes " +
                 "FROM match_queue WHERE user_id = ? AND expira_en > CURRENT_TIMESTAMP",
                 buscadorId);
         if (cola == null) {
@@ -352,6 +401,10 @@ public class MatchmakingService {
         String nameBusc = (buscadorUsername != null && !buscadorUsername.isBlank())
                 ? buscadorUsername
                 : strDefault(cola, "username", "Jugador");
+        int duracionTotalSeg = Math.max(10, intOrDefault(cola, "duracion_total_seg", duracionDefault));
+        long segsTranscurridos = Math.max(0L, longOrZero(cola, "segs_transcurridos"));
+        long segsRestantes = Math.max(1L, longOrDefault(cola, "segs_restantes", duracionTotalSeg));
+        int margenFinalSeg = config != null ? config.getMatchmakingMargenFinalSegundos() : 120;
 
         db.update(
                 "UPDATE match_queue SET max_grupo_liberado = GREATEST(max_grupo_liberado, ?), " +
@@ -360,6 +413,7 @@ public class MatchmakingService {
 
         ArrayList<JsonObject> candidatos = db.query(SQL_CANDIDATOS_OLEADA, buscadorId, buscadorId);
         int enviados = 0;
+        PuertoSocket socket = this.puertoSocket;
 
         for (JsonObject cand : candidatos) {
             int candId = cand.get("id").getAsInt();
@@ -368,7 +422,29 @@ public class MatchmakingService {
 
             MatchmakingPuntaje.ComparacionNivel comp =
                     MatchmakingPuntaje.comparar(puntajeCand, puntajeBuscador, candUsername, nameBusc);
+            boolean candBuscando = boolDefault(cand, "esta_buscando", false)
+                    && "buscando_partida".equals(strDefault(cand, "usuario_estado", ""));
+
             if (comp.grupoRango() > grupoAcotado) {
+                // Grupo superior aún no habilitado: solo actualizar su vista pasiva al iniciar búsqueda para mostrar cuenta regresiva.
+                if (grupoAcotado == 0 && socket != null) {
+                    long segsHabilitar = calcularSegundosRestantesOleada(
+                            comp.grupoRango(), false, duracionTotalSeg, margenFinalSeg, segsTranscurridos, segsRestantes);
+                    socket.emitirBusquedaVisible(candId, construirPayloadBusquedaVisible(
+                            buscadorId, nameBusc, comp, false, segsHabilitar, segsRestantes, false));
+                }
+                continue;
+            }
+
+            if (candBuscando) {
+                if (comp.esReceptorMejor()) {
+                    // Ambos están buscando y el superior ya quedó habilitado: emparejar automático preguntando primero al menor.
+                    intentarEmparejarAutomaticoConSuperior(buscadorId, nameBusc, candId, candUsername);
+                } else if (comp.esBuscadorMejor() && socket != null) {
+                    // Si el menor también busca por su cuenta, solo actualizamos la vista pasiva sin interrumpirlo con push.
+                    socket.emitirBusquedaVisible(candId, construirPayloadBusquedaVisible(
+                            buscadorId, nameBusc, comp, true, 0L, segsRestantes, false));
+                }
                 continue;
             }
 
@@ -384,8 +460,9 @@ public class MatchmakingService {
             String titulo = comp.esReceptorMejor()
                     ? "Rival buscando partida (oleada progresiva)"
                     : "Alguien busca partida";
-            String mensaje = nameBusc + " busca partida · " + comp.etiquetaParaCandidato() + ".";
-            JsonObject datos = construirDatosNotificacionBusqueda(buscadorId, nameBusc, comp);
+            String mensaje = nameBusc + " busca partida · " + comp.etiquetaParaCandidato()
+                    + ". Te quedan " + formatearTiempoTexto(segsRestantes) + " para aceptar.";
+            JsonObject datos = construirDatosNotificacionBusqueda(buscadorId, nameBusc, comp, segsRestantes);
 
             if (notificaciones != null) {
                 notificaciones.notificar(
@@ -399,9 +476,9 @@ public class MatchmakingService {
                         true
                 );
             }
-            PuertoSocket socket = this.puertoSocket;
             if (socket != null) {
-                socket.emitirBusquedaVisible(candId, construirPayloadBusquedaVisible(buscadorId, nameBusc, comp));
+                socket.emitirBusquedaVisible(candId, construirPayloadBusquedaVisible(
+                        buscadorId, nameBusc, comp, true, 0L, segsRestantes, true));
             }
         }
 
@@ -421,6 +498,27 @@ public class MatchmakingService {
             int retadorId,
             String retadorUsername,
             int buscadorId) {
+        return solicitarRetoConModo(retadorId, retadorUsername, buscadorId, false);
+    }
+
+    /**
+     * Cuando tanto el jugador de menor nivel ({@code buscadorId}) como uno superior ({@code retadorId})
+     * están buscando partida y la oleada ya habilitó al superior, los empareja automáticamente
+     * enviando primero la confirmación al jugador más bajo sin notificar aún al superior.
+     */
+    public ResultadoSolicitudReto intentarEmparejarAutomaticoConSuperior(
+            int buscadorId,
+            String buscadorUsername,
+            int retadorId,
+            String retadorUsername) {
+        return solicitarRetoConModo(retadorId, retadorUsername, buscadorId, true);
+    }
+
+    private ResultadoSolicitudReto solicitarRetoConModo(
+            int retadorId,
+            String retadorUsername,
+            int buscadorId,
+            boolean esAutomatico) {
         if (retadorId <= 0 || buscadorId <= 0 || retadorId == buscadorId) {
             return new ResultadoSolicitudReto.Rechazado("SOLICITUD_INVALIDA", "No puedes desafiarte a ti mismo.");
         }
@@ -437,15 +535,36 @@ public class MatchmakingService {
                     "Esta búsqueda ya terminó o el jugador ya está en partida.");
         }
 
-        JsonObject retadorBusy = db.queryOne(
-                "SELECT (u.sala_actual IS NOT NULL OR EXISTS (" +
-                "  SELECT 1 FROM active_matches am WHERE am.player1_id = u.id OR am.player2_id = u.id" +
-                ")) AS ocupado FROM users u WHERE u.id = ?",
-                retadorId);
-        if (retadorBusy != null && retadorBusy.has("ocupado") && !retadorBusy.get("ocupado").isJsonNull()
-                && retadorBusy.get("ocupado").getAsBoolean()) {
-            return new ResultadoSolicitudReto.Rechazado("YA_EN_PARTIDA",
-                    "Ya estás en una sala o partida activa.");
+        if (esAutomatico) {
+            JsonObject colaRetador = db.queryOne(
+                    "SELECT q.user_id FROM match_queue q JOIN users u ON u.id = q.user_id " +
+                    "WHERE q.user_id = ? AND q.expira_en > CURRENT_TIMESTAMP " +
+                    "  AND u.estado = 'buscando_partida' AND u.sala_actual IS NULL " +
+                    "  AND NOT EXISTS (SELECT 1 FROM active_matches am WHERE am.player1_id = u.id OR am.player2_id = u.id)",
+                    retadorId);
+            if (colaRetador == null) {
+                return new ResultadoSolicitudReto.Rechazado("RETADOR_NO_BUSCANDO",
+                        "El jugador superior ya no está en la cola de búsqueda.");
+            }
+            JsonObject retoAutoActivoRetador = db.queryOne(
+                    "SELECT id FROM matchmaking_challenges " +
+                    "WHERE retador_id = ? AND es_automatico = TRUE AND estado = 'pendiente' AND expira_en > CURRENT_TIMESTAMP",
+                    retadorId);
+            if (retoAutoActivoRetador != null) {
+                return new ResultadoSolicitudReto.Rechazado("RETADOR_CON_OTRO_RETO",
+                        "El jugador superior ya está pendiente de confirmación en otra partida.");
+            }
+        } else {
+            JsonObject retadorBusy = db.queryOne(
+                    "SELECT (u.sala_actual IS NOT NULL OR EXISTS (" +
+                    "  SELECT 1 FROM active_matches am WHERE am.player1_id = u.id OR am.player2_id = u.id" +
+                    ")) AS ocupado FROM users u WHERE u.id = ?",
+                    retadorId);
+            if (retadorBusy != null && retadorBusy.has("ocupado") && !retadorBusy.get("ocupado").isJsonNull()
+                    && retadorBusy.get("ocupado").getAsBoolean()) {
+                return new ResultadoSolicitudReto.Rechazado("YA_EN_PARTIDA",
+                        "Ya estás en una sala o partida activa.");
+            }
         }
 
         String buscadorUsername = strDefault(cola, "username", "Jugador");
@@ -467,6 +586,10 @@ public class MatchmakingService {
         }
 
         if (!comp.requiereConfirmacionBuscador()) {
+            if (esAutomatico) {
+                return new ResultadoSolicitudReto.Rechazado("NO_ES_SUPERIOR",
+                        "El rival tiene nivel similar o inferior.");
+            }
             return new ResultadoSolicitudReto.EmpezarPartidaDirecta(
                     buscadorId, buscadorUsername, retadorId, nombreRetador, comp);
         }
@@ -511,6 +634,7 @@ public class MatchmakingService {
                 diferencia,
                 comp.etiquetaParaBuscador(),
                 comp.etiquetaParaCandidato(),
+                esAutomatico,
                 expiraSeg);
         if (challengeId <= 0) {
             return new ResultadoSolicitudReto.Rechazado("RETO_NO_CREADO",
@@ -518,10 +642,11 @@ public class MatchmakingService {
         }
 
         JsonObject payloadBuscador = construirPayloadRetoRecibido(
-                challengeId, buscadorId, buscadorUsername, retadorId, nombreRetador, comp, expiraSeg);
-        String titulo = "Rival superior quiere jugar contra ti";
-        String mensaje = nombreRetador + " es mejor que tú (" + comp.etiquetaParaBuscador()
-                + "). ¿Aun así quieres jugar contra él?";
+                challengeId, buscadorId, buscadorUsername, retadorId, nombreRetador, comp, expiraSeg, esAutomatico);
+        String titulo = esAutomatico
+                ? "Emparejamiento disponible con rival superior"
+                : "Rival superior quiere jugar contra ti";
+        String mensaje = payloadBuscador.get("mensaje").getAsString();
 
         if (notificaciones != null) {
             notificaciones.notificar(
@@ -557,7 +682,7 @@ public class MatchmakingService {
                 "UPDATE matchmaking_challenges " +
                 "SET estado = ?, respondido_en = CURRENT_TIMESTAMP " +
                 "WHERE id = ? AND buscador_id = ? AND estado = 'pendiente' AND expira_en > CURRENT_TIMESTAMP " +
-                "RETURNING id, buscador_id, retador_id, buscador_username, retador_username",
+                "RETURNING id, buscador_id, retador_id, buscador_username, retador_username, es_automatico",
                 nuevoEstado, challengeId, buscadorId);
 
         if (notificaciones != null) {
@@ -571,13 +696,62 @@ public class MatchmakingService {
         int retadorId = fila.get("retador_id").getAsInt();
         String buscadorUsername = strDefault(fila, "buscador_username", "Jugador");
         String retadorUsername = strDefault(fila, "retador_username", "Rival");
+        boolean esAutomatico = boolDefault(fila, "es_automatico", false);
 
         if (!acepta) {
-            notificarRespuestaARetador(challengeId, false, buscadorId, buscadorUsername, retadorId,
-                    buscadorUsername + " prefirió seguir buscando un rival de su nivel.");
+            if (!esAutomatico) {
+                notificarRespuestaARetador(challengeId, false, buscadorId, buscadorUsername, retadorId,
+                        buscadorUsername + " prefirió seguir buscando un rival de su nivel.");
+            } else {
+                emparejarSiguienteSuperiorDisponible(buscadorId, buscadorUsername);
+            }
         }
         return new ResultadoRespuestaReto(true, acepta, challengeId, buscadorId, buscadorUsername,
-                retadorId, retadorUsername, null);
+                retadorId, retadorUsername, esAutomatico, null);
+    }
+
+    /**
+     * Notifica al jugador superior (Web, App y PC) únicamente después de que el jugador de menor nivel
+     * aceptó jugar contra él, indicando el tiempo límite para responder/entrar a la sala.
+     */
+    public void notificarMatchConfirmadoARetador(
+            int challengeId,
+            int buscadorId,
+            String buscadorUsername,
+            int retadorId,
+            int tiempoSalaSeg,
+            boolean esAutomatico) {
+        if (retadorId <= 0) return;
+        int segsSeguro = Math.max(10, tiempoSalaSeg);
+        String tiempoTxt = formatearTiempoTexto(segsSeguro);
+        String titulo = "¡Partida confirmada!";
+        String mensaje = buscadorUsername + " aceptó jugar contra ti. Entra a la sala privada (tienes "
+                + tiempoTxt + " para responder).";
+
+        JsonObject datos = new JsonObject();
+        datos.addProperty("challengeId", challengeId);
+        datos.addProperty("buscadorId", buscadorId);
+        datos.addProperty("buscadorUsername", buscadorUsername);
+        datos.addProperty("aceptado", true);
+        datos.addProperty("esAutomatico", esAutomatico);
+        datos.addProperty("segundosRestantesAceptar", segsSeguro);
+        datos.addProperty("expiraEnEpochMs", System.currentTimeMillis() + (segsSeguro * 1000L));
+        datos.addProperty("tipoMatchmaking", "match_confirmado");
+        datos.addProperty("mensaje", mensaje);
+        datos.add("canales", canalesJson());
+
+        if (notificaciones != null) {
+            notificaciones.notificar(
+                    retadorId,
+                    "partida",
+                    titulo,
+                    mensaje,
+                    "/match",
+                    "mm-aceptado:" + challengeId + ":" + retadorId,
+                    datos,
+                    true
+            );
+        }
     }
 
     public void notificarRespuestaARetador(
@@ -621,22 +795,47 @@ public class MatchmakingService {
         ArrayList<JsonObject> pendientes = db.query(
                 "UPDATE matchmaking_challenges SET estado = 'cancelado', respondido_en = CURRENT_TIMESTAMP " +
                 "WHERE buscador_id = ? AND estado = 'pendiente' " +
-                "RETURNING id, retador_id, buscador_username",
+                "RETURNING id, retador_id, buscador_username, es_automatico",
                 buscadorId);
 
         for (JsonObject reto : pendientes) {
             int retoId = reto.get("id").getAsInt();
             int retadorId = reto.get("retador_id").getAsInt();
             String buscadorUsername = strDefault(reto, "buscador_username", "El buscador");
+            boolean esAuto = boolDefault(reto, "es_automatico", false);
             if (notificaciones != null) {
                 notificaciones.eliminarPorEvento("reto_mm:" + retoId);
             }
-            notificarRespuestaARetador(retoId, false, buscadorId, buscadorUsername, retadorId,
-                    "La búsqueda de " + buscadorUsername + " ya finalizó.");
+            if (!esAuto) {
+                notificarRespuestaARetador(retoId, false, buscadorId, buscadorUsername, retadorId,
+                        "La búsqueda de " + buscadorUsername + " ya finalizó.");
+            }
+        }
+
+        // Si el usuario que canceló también tenía un emparejamiento automático pendiente como retador superior, cerrar el aviso en el menor.
+        ArrayList<JsonObject> pendientesComoRetador = db.query(
+                "UPDATE matchmaking_challenges SET estado = 'cancelado', respondido_en = CURRENT_TIMESTAMP " +
+                "WHERE retador_id = ? AND es_automatico = TRUE AND estado = 'pendiente' " +
+                "RETURNING id, buscador_id",
+                buscadorId);
+        PuertoSocket socket = this.puertoSocket;
+        for (JsonObject reto : pendientesComoRetador) {
+            int retoId = reto.get("id").getAsInt();
+            int otroBuscadorId = reto.get("buscador_id").getAsInt();
+            if (notificaciones != null) {
+                notificaciones.eliminarPorEvento("reto_mm:" + retoId);
+            }
+            if (socket != null) {
+                JsonObject cierre = new JsonObject();
+                cierre.addProperty("challengeId", retoId);
+                cierre.addProperty("aceptado", false);
+                socket.emitirEventoUsuario(otroBuscadorId, "matchmaking_reto_cerrado", cierre);
+            }
         }
 
         db.update("DELETE FROM matchmaking_search_notified WHERE buscador_id = ?", buscadorId);
-        db.update("DELETE FROM matchmaking_challenges WHERE buscador_id = ?", buscadorId);
+        db.update("DELETE FROM matchmaking_challenges WHERE buscador_id = ? OR (retador_id = ? AND es_automatico = TRUE)",
+                buscadorId, buscadorId);
     }
 
     /**
@@ -659,10 +858,12 @@ public class MatchmakingService {
         canales.add("app");
         canales.add("pc");
 
-        // Búsquedas activas visibles actualmente para este usuario
+        // Búsquedas activas visibles para este usuario (incluye bloqueadas de grupo superior mostrando cuánto falta)
         JsonArray busquedasVisibles = new JsonArray();
         ArrayList<JsonObject> colasActivas = db.query(
-                "SELECT q.user_id, q.username, q.max_grupo_liberado " +
+                "SELECT q.user_id, q.username, q.max_grupo_liberado, q.duracion_total_seg, " +
+                "EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - q.creado_en)) AS segs_transcurridos, " +
+                "EXTRACT(EPOCH FROM (q.expira_en - CURRENT_TIMESTAMP)) AS segs_restantes " +
                 "FROM match_queue q JOIN users u ON u.id = q.user_id " +
                 "WHERE q.user_id <> ? AND q.expira_en > CURRENT_TIMESTAMP AND u.estado = 'buscando_partida' " +
                 "ORDER BY q.creado_en ASC",
@@ -672,7 +873,12 @@ public class MatchmakingService {
             String buscName = strDefault(q, "username", "Jugador");
             int maxGrupo = q.has("max_grupo_liberado") && !q.get("max_grupo_liberado").isJsonNull()
                     ? q.get("max_grupo_liberado").getAsInt() : 0;
-            JsonObject visible = prepararBusquedaParaReceptor(buscId, buscName, userId, maxGrupo);
+            int colaDuracion = q.has("duracion_total_seg") && !q.get("duracion_total_seg").isJsonNull()
+                    ? Math.max(10, q.get("duracion_total_seg").getAsInt()) : duracionSeg;
+            long segsTrans = Math.max(0L, longOrZero(q, "segs_transcurridos"));
+            long segsRest = Math.max(1L, longOrDefault(q, "segs_restantes", colaDuracion));
+            JsonObject visible = prepararBusquedaParaReceptor(
+                    buscId, buscName, userId, maxGrupo, colaDuracion, segsTrans, segsRest);
             if (visible != null) {
                 busquedasVisibles.add(visible);
             }
@@ -681,7 +887,7 @@ public class MatchmakingService {
         // Reto pendiente recibido como buscador
         JsonObject retoRecibido = null;
         JsonObject filaRecibido = db.queryOne(
-                "SELECT id, buscador_id, retador_id, buscador_username, retador_username, " +
+                "SELECT id, buscador_id, retador_id, buscador_username, retador_username, es_automatico, " +
                 "grupo_rango, etiqueta_para_buscador, EXTRACT(EPOCH FROM (expira_en - CURRENT_TIMESTAMP)) AS segs_restantes " +
                 "FROM matchmaking_challenges " +
                 "WHERE buscador_id = ? AND estado = 'pendiente' AND expira_en > CURRENT_TIMESTAMP " +
@@ -696,18 +902,19 @@ public class MatchmakingService {
             int grupo = filaRecibido.get("grupo_rango").getAsInt();
             String etiq = strDefault(filaRecibido, "etiqueta_para_buscador", "");
             int expiraRest = Math.max(1, filaRecibido.get("segs_restantes").getAsBigDecimal().intValue());
+            boolean esAuto = boolDefault(filaRecibido, "es_automatico", false);
             MatchmakingPuntaje.ComparacionNivel compSimulada = new MatchmakingPuntaje.ComparacionNivel(
                     grupo, grupo, true, false, true, MatchmakingPuntaje.nombreBanda(grupo), "", etiq);
-            retoRecibido = construirPayloadRetoRecibido(cid, buscId, buscName, retId, retName, compSimulada, expiraRest);
+            retoRecibido = construirPayloadRetoRecibido(cid, buscId, buscName, retId, retName, compSimulada, expiraRest, esAuto);
         }
 
-        // Reto pendiente enviado como retador superior
+        // Reto pendiente enviado manualmente como retador superior (los automáticos no se revelan hasta que el menor acepte)
         JsonObject retoEnviado = null;
         JsonObject filaEnviado = db.queryOne(
                 "SELECT id, buscador_id, buscador_username, grupo_rango, etiqueta_para_retador, " +
                 "EXTRACT(EPOCH FROM (expira_en - CURRENT_TIMESTAMP)) AS segs_restantes " +
                 "FROM matchmaking_challenges " +
-                "WHERE retador_id = ? AND estado = 'pendiente' AND expira_en > CURRENT_TIMESTAMP " +
+                "WHERE retador_id = ? AND es_automatico = FALSE AND estado = 'pendiente' AND expira_en > CURRENT_TIMESTAMP " +
                 "ORDER BY id DESC LIMIT 1",
                 userId);
         if (filaEnviado != null) {
@@ -739,6 +946,27 @@ public class MatchmakingService {
         return res;
     }
 
+    private void emparejarSiguienteSuperiorDisponible(int buscadorId, String buscadorUsername) {
+        JsonObject buscadorCola = db.queryOne(
+                "SELECT max_grupo_liberado FROM match_queue WHERE user_id = ? AND expira_en > CURRENT_TIMESTAMP",
+                buscadorId);
+        if (buscadorCola == null) return;
+        ArrayList<JsonObject> otrosBuscadores = db.query(
+                "SELECT q.user_id, q.username FROM match_queue q JOIN users u ON u.id = q.user_id " +
+                "WHERE q.user_id <> ? AND q.expira_en > CURRENT_TIMESTAMP AND u.estado = 'buscando_partida' " +
+                "  AND u.sala_actual IS NULL ORDER BY q.creado_en ASC",
+                buscadorId);
+        for (JsonObject otro : otrosBuscadores) {
+            int otroId = otro.get("user_id").getAsInt();
+            String otroUsername = strDefault(otro, "username", "Jugador");
+            ResultadoSolicitudReto res = intentarEmparejarAutomaticoConSuperior(
+                    buscadorId, buscadorUsername, otroId, otroUsername);
+            if (res instanceof ResultadoSolicitudReto.EsperandoConfirmacion) {
+                break;
+            }
+        }
+    }
+
     private void programarExpiracionReto(
             int challengeId,
             int buscadorId,
@@ -752,9 +980,10 @@ public class MatchmakingService {
                         "UPDATE matchmaking_challenges " +
                         "SET estado = 'expirado', respondido_en = CURRENT_TIMESTAMP " +
                         "WHERE id = ? AND estado = 'pendiente' " +
-                        "RETURNING id",
+                        "RETURNING id, es_automatico",
                         challengeId);
                 if (vencido != null) {
+                    boolean esAuto = boolDefault(vencido, "es_automatico", false);
                     if (notificaciones != null) {
                         notificaciones.eliminarPorEvento("reto_mm:" + challengeId);
                     }
@@ -764,8 +993,12 @@ public class MatchmakingService {
                         expPayload.addProperty("challengeId", challengeId);
                         socket.emitirEventoUsuario(buscadorId, "matchmaking_reto_expirado", expPayload);
                     }
-                    notificarRespuestaARetador(challengeId, false, buscadorId, buscadorUsername, retadorId,
-                            "El jugador no respondió a tiempo tu solicitud de partida.");
+                    if (!esAuto) {
+                        notificarRespuestaARetador(challengeId, false, buscadorId, buscadorUsername, retadorId,
+                                "El jugador no respondió a tiempo tu solicitud de partida.");
+                    } else {
+                        emparejarSiguienteSuperiorDisponible(buscadorId, buscadorUsername);
+                    }
                 }
             } catch (Exception e) {
                 logger.warn("Error expirando reto matchmaking {}: {}", challengeId, e.getMessage());
@@ -884,7 +1117,11 @@ public class MatchmakingService {
     private static JsonObject construirPayloadBusquedaVisible(
             int buscadorId,
             String buscadorUsername,
-            MatchmakingPuntaje.ComparacionNivel comp) {
+            MatchmakingPuntaje.ComparacionNivel comp,
+            boolean habilitada,
+            long segundosParaHabilitar,
+            long segundosRestantesAceptar,
+            boolean notificarAviso) {
         JsonObject payload = new JsonObject();
         payload.addProperty("userId", buscadorId);
         payload.addProperty("buscadorId", buscadorId);
@@ -896,6 +1133,11 @@ public class MatchmakingService {
         payload.addProperty("eresMejor", comp.esReceptorMejor());
         payload.addProperty("esBuscadorMejor", comp.esBuscadorMejor());
         payload.addProperty("requiereConfirmacionBuscador", comp.requiereConfirmacionBuscador());
+        payload.addProperty("habilitada", habilitada);
+        payload.addProperty("segundosParaHabilitar", Math.max(0L, segundosParaHabilitar));
+        payload.addProperty("segundosRestantesAceptar", Math.max(0L, segundosRestantesAceptar));
+        payload.addProperty("expiraEnEpochMs", System.currentTimeMillis() + (Math.max(0L, segundosRestantesAceptar) * 1000L));
+        payload.addProperty("notificarAviso", notificarAviso);
         payload.add("canales", canalesJson());
         return payload;
     }
@@ -903,8 +1145,10 @@ public class MatchmakingService {
     private static JsonObject construirDatosNotificacionBusqueda(
             int buscadorId,
             String buscadorUsername,
-            MatchmakingPuntaje.ComparacionNivel comp) {
-        JsonObject datos = construirPayloadBusquedaVisible(buscadorId, buscadorUsername, comp);
+            MatchmakingPuntaje.ComparacionNivel comp,
+            long segundosRestantesAceptar) {
+        JsonObject datos = construirPayloadBusquedaVisible(
+                buscadorId, buscadorUsername, comp, true, 0L, segundosRestantesAceptar, true);
         datos.addProperty("userId", buscadorId);
         datos.addProperty("tipoMatchmaking", "busqueda_partida");
         return datos;
@@ -917,7 +1161,15 @@ public class MatchmakingService {
             int retadorId,
             String retadorUsername,
             MatchmakingPuntaje.ComparacionNivel comp,
-            int expiraSeg) {
+            int expiraSeg,
+            boolean esAutomatico) {
+        String tiempoTxt = formatearTiempoTexto(expiraSeg);
+        String textoMensaje = esAutomatico
+                ? "¡Emparejamiento automático! " + retadorUsername + " es mejor que tú ("
+                + comp.etiquetaParaBuscador() + "). ¿Quieres jugar contra él? Te quedan "
+                + tiempoTxt + " para aceptar."
+                : retadorUsername + " es mejor que tú (" + comp.etiquetaParaBuscador()
+                + "). ¿Aun así quieres jugar contra él? Te quedan " + tiempoTxt + " para aceptar.";
         JsonObject payload = new JsonObject();
         payload.addProperty("challengeId", challengeId);
         payload.addProperty("buscadorId", buscadorId);
@@ -928,12 +1180,42 @@ public class MatchmakingService {
         payload.addProperty("nivelesDiferencia", comp.nivelesDiferencia());
         payload.addProperty("nombreBanda", comp.nombreBanda());
         payload.addProperty("etiquetaNivel", comp.etiquetaParaBuscador());
-        payload.addProperty("mensaje", retadorUsername + " es mejor que tú (" + comp.etiquetaParaBuscador()
-                + "). ¿Aun así quieres jugar contra él?");
+        payload.addProperty("esAutomatico", esAutomatico);
+        payload.addProperty("mensaje", textoMensaje);
         payload.addProperty("expiraEnSegundos", expiraSeg);
+        payload.addProperty("segundosRestantesAceptar", expiraSeg);
+        payload.addProperty("expiraEnEpochMs", System.currentTimeMillis() + (expiraSeg * 1000L));
         payload.addProperty("tipoMatchmaking", "reto_superior");
         payload.add("canales", canalesJson());
         return payload;
+    }
+
+    private static long calcularSegundosRestantesOleada(
+            int grupoRango,
+            boolean habilitada,
+            int duracionTotalSeg,
+            int margenSeg,
+            long segsTranscurridos,
+            long segsRestantes) {
+        if (habilitada || grupoRango <= 0) {
+            return 0L;
+        }
+        long objetivoSeg = MatchmakingPuntaje.calcularSegundosOleada(grupoRango, duracionTotalSeg, margenSeg);
+        long faltantes = Math.max(1L, objetivoSeg - Math.max(0L, segsTranscurridos));
+        return Math.min(Math.max(1L, segsRestantes), faltantes);
+    }
+
+    static String formatearTiempoTexto(long segTotal) {
+        long s = Math.max(0L, segTotal);
+        long min = s / 60L;
+        long seg = s % 60L;
+        if (min > 0 && seg > 0) {
+            return min + " min " + seg + " s";
+        }
+        if (min > 0) {
+            return min + " min";
+        }
+        return seg + " s";
     }
 
     private static JsonArray canalesJson() {
@@ -972,9 +1254,36 @@ public class MatchmakingService {
         return (val != null && !val.isBlank()) ? val : defecto;
     }
 
+    private static boolean boolDefault(JsonObject obj, String campo, boolean defecto) {
+        if (obj == null || !obj.has(campo) || obj.get(campo).isJsonNull()) return defecto;
+        try {
+            return obj.get(campo).getAsBoolean();
+        } catch (RuntimeException e) {
+            return defecto;
+        }
+    }
+
     private static int intOrZero(JsonObject obj, String campo) {
         Integer v = intOrNull(obj, campo);
         return v != null ? v : 0;
+    }
+
+    private static int intOrDefault(JsonObject obj, String campo, int defecto) {
+        Integer v = intOrNull(obj, campo);
+        return v != null ? v : defecto;
+    }
+
+    private static long longOrZero(JsonObject obj, String campo) {
+        return longOrDefault(obj, campo, 0L);
+    }
+
+    private static long longOrDefault(JsonObject obj, String campo, long defecto) {
+        if (obj == null || !obj.has(campo) || obj.get(campo).isJsonNull()) return defecto;
+        try {
+            return Math.round(obj.get(campo).getAsDouble());
+        } catch (RuntimeException e) {
+            return defecto;
+        }
     }
 
     private static Integer intOrNull(JsonObject obj, String campo) {

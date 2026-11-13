@@ -314,8 +314,8 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | C17 | `negociacion_live` después de que ambos votaron | Bloqueado si ya hay 2 votos — **Bug 3 fix**. |
 | C18 | Exención única de desconexión al entrar a Discord desde sala privada *(lógica automatizada en `TemporizadorSalaServiceTest` y `RenderAcceptanceCheck`)* | Al abrir voz/bot de Discord en sala privada, esa primera desconexión no cuenta tiempo; si se desconecta una segunda vez en la misma sala sí aplica 30s de gracia + 90s de desconexión. |
 | C19 | Temporizador opcional individual de 2:30 en negociación *(lógica automatizada en `TemporizadorSalaServiceTest` y `RenderAcceptanceCheck`)* | Cualquiera de los dos puede activarlo en cualquier momento; enviar mensaje privado, cambiar modo/monto o presionar Comenzar/confirmar reinicia solo el propio reloj a 2:30 sin aumentar el del rival; llegar a 0 cancela la sala (`salidas_chat` +1). |
-| C20 | Matchmaking justo: oleadas progresivas, puntaje oculto y renormalización sin variables faltantes *(lógica automatizada en `MatchmakingPuntajeTest`, `MatchmakingServiceTest` y `RenderAcceptanceCheck`)* | Jugadores de igual o menor puntaje reciben aviso inmediato (Web/App/PC); los mejores (grupos 1..5) van recibiendo la notificación durante los 10 min dejando al grupo más alto 2 min antes de expirar (`480s`). Quien carece de win rate o Liga no es penalizado; las respuestas nunca exponen `puntaje_interno` numérico. |
-| C21 | Confirmación ante retador superior en Matchmaking Justo *(lógica automatizada en `MatchmakingServiceTest`, `RenderAcceptanceCheck` y contrato P12)* | Si un jugador de grupo superior intenta retar al buscador tras liberarse su oleada, se crea un reto en `matchmaking_challenges` y el buscador recibe alerta + modal (*"es mejor que tú... ¿aun así quieres jugar contra él?"*) en Web/App/PC; aceptar abre sala atómica y rechazar deja al buscador en cola. |
+| C20 | Matchmaking justo: oleadas progresivas, visibilidad previa y tiempos de aceptación *(lógica automatizada en `MatchmakingPuntajeTest`, `MatchmakingServiceTest`, `RenderAcceptanceCheck` y contrato P12)* | Jugadores de igual o menor puntaje reciben aviso inmediato (Web/App/PC); los mejores (grupos 1..5) ven la búsqueda en lista con su cuenta regresiva (`segundosParaHabilitar`) y reciben la notificación escalonadamente dejando al grupo más alto 2 min antes de expirar (`480s`). Cada notificación incluye cuánto tiempo falta para aceptar; el nivel junto al título de Buscar partida abre opcionalmente el detalle de variables al oprimirlo. |
+| C21 | Emparejamiento automático y confirmación ante rival superior *(lógica automatizada en `MatchmakingServiceTest`, `RenderAcceptanceCheck` y contrato P12)* | Si un jugador superior y uno inferior buscan partida al mismo tiempo, al habilitarse la oleada se emparejan preguntando primero al de menor nivel (*"¿Quieres jugar contra él? Te quedan X para aceptar"*); el jugador superior no recibe notificación hasta que el menor acepte. Al aceptar, se crea sala atómica y se notifica al mayor con el tiempo límite de respuesta; rechazar deja silenciosamente al superior en cola. |
 
 ### 💬 D — Chat
 
@@ -458,6 +458,6 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 
 | # | Prueba | Resultado esperado |
 |---|--------|-------------------|
-| Q1 | Verificar `SELECT version, success FROM flyway_schema_history ORDER BY installed_rank` | V1 a V24, todas con `success = true`. |
-| Q2 | Arrancar con BD vacía | Flyway aplica las migraciones actuales (V1–V24) automáticamente. |
+| Q1 | Verificar `SELECT version, success FROM flyway_schema_history ORDER BY installed_rank` | V1 a V25, todas con `success = true`. |
+| Q2 | Arrancar con BD vacía | Flyway aplica las migraciones actuales (V1–V25) automáticamente. |
 | Q3 | V17 con duplicados existentes | Migración aborta con mensaje explicativo (no borra datos). |

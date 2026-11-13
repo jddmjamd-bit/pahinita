@@ -2,17 +2,29 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
 import { registrarPushNavegador, cerrarPushBusqueda } from '../services/browserPush';
+import {
+    calcularRestanteSegundos,
+    formatearTiempoReloj,
+    parsearDatosAviso
+} from '../utils/tiempoMatchmaking';
 import './Lobby.css';
 
 // Solo la notificación que está encima (activa) muestra y corre el temporizador de 5 s.
 // Las demás esperan sin contador; al quedar encima retoman con los segundos que les quedaban.
 function NotificacionEnVivo({ aviso, activa, onExpire, onOpen, onDismiss }) {
     const [restantes, setRestantes] = useState(5);
+    const [ahoraMs, setAhoraMs] = useState(() => Date.now());
+    const datosAviso = parsearDatosAviso(aviso?.datos);
+    const segAceptarTotal = Number(datosAviso.segundosRestantesAceptar ?? datosAviso.expiraEnSegundos ?? 0);
+    const tiempoAceptar = aviso?.categoria === 'partida' && (segAceptarTotal > 0 || Number(datosAviso.expiraEnEpochMs) > 0)
+        ? calcularRestanteSegundos(segAceptarTotal, aviso?.recibidoEn, ahoraMs, datosAviso.expiraEnEpochMs)
+        : 0;
 
     useEffect(() => {
         if (!activa) return undefined;
         const timer = setInterval(() => {
             setRestantes(actual => Math.max(0, actual - 1));
+            setAhoraMs(Date.now());
         }, 1000);
         return () => clearInterval(timer);
     }, [activa]);
@@ -26,6 +38,11 @@ function NotificacionEnVivo({ aviso, activa, onExpire, onOpen, onDismiss }) {
             <button className="live-notification-open" onClick={() => onOpen(aviso)}>
                 <strong>{aviso.titulo}</strong>
                 <span>{aviso.mensaje}</span>
+                {tiempoAceptar > 0 && (
+                    <small className="live-notification-accept-left">
+                        ⏱ Te quedan {formatearTiempoReloj(tiempoAceptar)} para aceptar
+                    </small>
+                )}
             </button>
             {activa && (
                 <span className="live-notification-countdown" aria-label={`Se oculta en ${restantes} segundos`}>
@@ -86,6 +103,22 @@ export default function Lobby() {
     const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [clashMenuOpen, setClashMenuOpen] = useState(false);
     const [avisosOcultos, setAvisosOcultos] = useState(() => new Set());
+    const [retoAhoraMs, setRetoAhoraMs] = useState(() => Date.now());
+
+    useEffect(() => {
+        if (!retoRecibido) return undefined;
+        const timer = setInterval(() => setRetoAhoraMs(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, [retoRecibido]);
+
+    const retoRestanteSeg = retoRecibido
+        ? calcularRestanteSegundos(
+            retoRecibido.expiraEnSegundos ?? retoRecibido.segundosRestantesAceptar ?? 90,
+            retoRecibido.recibidoEn,
+            retoAhoraMs,
+            retoRecibido.expiraEnEpochMs
+        )
+        : 0;
 
     useEffect(() => {
         if (!currentUser?.id) return;
@@ -244,12 +277,17 @@ export default function Lobby() {
             {retoRecibido && (
                 <div className="mm-challenge-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="mm-reto-titulo">
                     <div className="mm-challenge-modal">
-                        <h3 id="mm-reto-titulo">⚠️ Rival superior quiere jugar contra ti</h3>
+                        <h3 id="mm-reto-titulo">
+                            {retoRecibido.esAutomatico ? '⚠️ Emparejamiento con rival superior' : '⚠️ Rival superior quiere jugar contra ti'}
+                        </h3>
                         <p>
                             <strong>{retoRecibido.retadorUsername}</strong> es mejor que tú
                             {retoRecibido.etiquetaNivel ? ` (${retoRecibido.etiquetaNivel})` : ''}.
                         </p>
                         <p className="mm-challenge-question">¿Aun así quieres jugar contra él?</p>
+                        <p className="mm-challenge-countdown">
+                            ⏳ Tiempo para aceptar: <strong>{formatearTiempoReloj(retoRestanteSeg)}</strong>
+                        </p>
                         <div className="mm-challenge-actions">
                             <button
                                 type="button"

@@ -28,6 +28,7 @@ class MatchmakingServiceTest {
     private static final class DaoMemoria extends GenericDAO {
         final Map<Integer, JsonObject> usuarios = new HashMap<>();
         final Map<Integer, Double> puntajes = new HashMap<>();
+        final Set<Integer> buscando = new HashSet<>();
         final Set<String> notificadosBusqueda = new HashSet<>();
         final List<JsonObject> notificacionesCreadas = new ArrayList<>();
         final List<String> eventosEliminados = new ArrayList<>();
@@ -43,6 +44,7 @@ class MatchmakingServiceTest {
             registrarUsuario(2, "rival_igual", 495.0, 5, 5, 10, 4450);
             registrarUsuario(3, "rival_menor", 280.0, 1, 9, 10, 2000);
             registrarUsuario(4, "rival_elite", 900.0, 19, 1, 20, 9000);
+            buscando.add(1);
         }
 
         private void registrarUsuario(int id, String username, double score, int w, int l, int t, int trophies) {
@@ -86,21 +88,26 @@ class MatchmakingServiceTest {
                 return usuarios.get((Integer) params[0]);
             }
             if (sql.contains("FROM match_queue q JOIN users u")) {
-                if (!colaActiva || ((Integer) params[0]) != 1) return null;
+                int uid = (Integer) params[0];
+                if (!colaActiva || !buscando.contains(uid)) return null;
                 JsonObject q = new JsonObject();
-                q.addProperty("user_id", 1);
-                q.addProperty("username", "buscador");
-                q.addProperty("puntaje_buscador", puntajes.get(1));
+                q.addProperty("user_id", uid);
+                q.addProperty("username", usuarios.get(uid).get("username").getAsString());
+                q.addProperty("puntaje_buscador", puntajes.get(uid));
                 q.addProperty("max_grupo_liberado", maxGrupoLiberadoCola);
                 return q;
             }
             if (sql.contains("FROM match_queue WHERE user_id = ?")) {
-                if (!colaActiva || ((Integer) params[0]) != 1) return null;
+                int uid = (Integer) params[0];
+                if (!colaActiva || !buscando.contains(uid)) return null;
                 JsonObject q = new JsonObject();
-                q.addProperty("user_id", 1);
-                q.addProperty("username", "buscador");
-                q.addProperty("puntaje_buscador", puntajes.get(1));
+                q.addProperty("user_id", uid);
+                q.addProperty("username", usuarios.get(uid).get("username").getAsString());
+                q.addProperty("puntaje_buscador", puntajes.get(uid));
                 q.addProperty("max_grupo_liberado", maxGrupoLiberadoCola);
+                q.addProperty("duracion_total_seg", 600);
+                q.addProperty("segs_transcurridos", maxGrupoLiberadoCola == 0 ? 0L : 480L);
+                q.addProperty("segs_restantes", maxGrupoLiberadoCola == 0 ? 600L : 120L);
                 return q;
             }
             if (sql.contains("AS ocupado FROM users")) {
@@ -108,9 +115,31 @@ class MatchmakingServiceTest {
                 r.addProperty("ocupado", false);
                 return r;
             }
+            if (sql.contains("FROM matchmaking_challenges") && sql.contains("retador_id = ? AND es_automatico = TRUE")) {
+                int retId = (Integer) params[0];
+                for (Map<Integer, JsonObject> delBusc : retosPorPar.values()) {
+                    JsonObject r = delBusc.get(retId);
+                    if (r != null && "pendiente".equals(r.get("estado").getAsString())
+                            && r.has("es_automatico") && r.get("es_automatico").getAsBoolean()) {
+                        return r;
+                    }
+                }
+                return null;
+            }
             if (sql.contains("FROM matchmaking_challenges") && sql.contains("WHERE buscador_id = ? AND retador_id = ?")) {
                 Map<Integer, JsonObject> delBusc = retosPorPar.get(params[0]);
                 return delBusc == null ? null : delBusc.get(params[1]);
+            }
+            if (sql.contains("FROM matchmaking_challenges") && sql.contains("retador_id = ? AND es_automatico = FALSE")) {
+                int retId = (Integer) params[0];
+                for (Map<Integer, JsonObject> delBusc : retosPorPar.values()) {
+                    JsonObject r = delBusc.get(retId);
+                    if (r != null && "pendiente".equals(r.get("estado").getAsString())
+                            && (!r.has("es_automatico") || !r.get("es_automatico").getAsBoolean())) {
+                        return r;
+                    }
+                }
+                return null;
             }
             if (sql.contains("UPDATE matchmaking_challenges") && sql.contains("RETURNING id, buscador_id")) {
                 String estado = (String) params[0];
@@ -142,17 +171,28 @@ class MatchmakingServiceTest {
                 for (JsonObject u : usuarios.values()) {
                     int id = u.get("id").getAsInt();
                     if (id != buscadorId && !notificadosBusqueda.contains(buscadorId + ":" + id)) {
-                        lista.add(u);
+                        JsonObject copia = u.deepCopy();
+                        boolean estaEnCola = buscando.contains(id);
+                        copia.addProperty("esta_buscando", estaEnCola);
+                        copia.addProperty("usuario_estado", estaEnCola ? "buscando_partida" : "normal");
+                        lista.add(copia);
                     }
                 }
             } else if (sql.contains("FROM match_queue q JOIN users u") && sql.contains("q.user_id <> ?")) {
-                int receptorId = (Integer) params[0];
-                if (colaActiva && receptorId != 1) {
-                    JsonObject q = new JsonObject();
-                    q.addProperty("user_id", 1);
-                    q.addProperty("username", "buscador");
-                    q.addProperty("max_grupo_liberado", maxGrupoLiberadoCola);
-                    lista.add(q);
+                int exclId = (Integer) params[0];
+                if (colaActiva) {
+                    for (Integer uid : buscando) {
+                        if (uid != exclId) {
+                            JsonObject q = new JsonObject();
+                            q.addProperty("user_id", uid);
+                            q.addProperty("username", usuarios.get(uid).get("username").getAsString());
+                            q.addProperty("max_grupo_liberado", maxGrupoLiberadoCola);
+                            q.addProperty("duracion_total_seg", 600);
+                            q.addProperty("segs_transcurridos", maxGrupoLiberadoCola == 0 ? 0L : 480L);
+                            q.addProperty("segs_restantes", maxGrupoLiberadoCola == 0 ? 600L : 120L);
+                            lista.add(q);
+                        }
+                    }
                 }
             }
             return lista;
@@ -202,6 +242,7 @@ class MatchmakingServiceTest {
                 r.addProperty("buscador_username", (String) params[2]);
                 r.addProperty("retador_username", (String) params[3]);
                 r.addProperty("grupo_rango", (Integer) params[4]);
+                r.addProperty("es_automatico", Boolean.TRUE.equals(params[8]));
                 r.addProperty("estado", "pendiente");
                 r.addProperty("vigente", true);
                 retosPorPar.computeIfAbsent(buscadorId, k -> new HashMap<>()).put(retadorId, r);
@@ -237,10 +278,12 @@ class MatchmakingServiceTest {
         assertTrue(dao.notificadosBusqueda.contains("1:3"));
         assertFalse(dao.notificadosBusqueda.contains("1:4"));
 
-        // Cada notificación incluye canales web/app/pc y jamás expone puntajes numéricos
+        // Cada notificación incluye canales web/app/pc, tiempo restante para aceptar y jamás expone puntajes numéricos
         assertEquals(2, dao.notificacionesCreadas.size());
         for (JsonObject n : dao.notificacionesCreadas) {
             String datosJson = n.get("datos").getAsString();
+            assertTrue(n.get("mensaje").getAsString().contains("para aceptar"));
+            assertTrue(datosJson.contains("\"segundosRestantesAceptar\""));
             assertTrue(datosJson.contains("\"web\""));
             assertTrue(datosJson.contains("\"app\""));
             assertTrue(datosJson.contains("\"pc\""));
@@ -249,11 +292,75 @@ class MatchmakingServiceTest {
             assertFalse(datosJson.contains("500.0"));
         }
 
+        // Aunque el élite aún no recibe push en oleada 0, ya ve la búsqueda bloqueada con cuánto le falta para habilitarse
+        assertTrue(socketsEmitidos.stream().anyMatch(s -> s.startsWith("4:") && s.contains("\"habilitada\":false")
+                && s.contains("\"segundosParaHabilitar\":")));
+        JsonObject estadoEliteAntes = servicio.estadoMatchmakingUsuario(4);
+        JsonArray visiblesEliteAntes = estadoEliteAntes.getAsJsonArray("busquedasVisibles");
+        assertEquals(1, visiblesEliteAntes.size());
+        assertFalse(visiblesEliteAntes.get(0).getAsJsonObject().get("habilitada").getAsBoolean());
+        assertTrue(visiblesEliteAntes.get(0).getAsJsonObject().get("segundosParaHabilitar").getAsLong() > 0L);
+
         // Oleada final (grupo 5): ahora sí recibe el élite (id 4), sin duplicar los ya avisados
         int env5 = servicio.notificarGrupoOleada(1, "buscador", 5);
         assertEquals(1, env5);
         assertTrue(dao.notificadosBusqueda.contains("1:4"));
         assertEquals(3, dao.notificacionesCreadas.size());
+        assertTrue(dao.notificacionesCreadas.get(2).get("mensaje").getAsString().contains("para aceptar"));
+    }
+
+    @Test
+    void emparejamientoAutomaticoConSuperiorPreguntaPrimeroAlMenorYNotificaAlMayorSoloSiAcepta() {
+        DaoMemoria dao = new DaoMemoria();
+        dao.buscando.add(4); // Tanto buscador (1) como rival_elite (4) están buscando partida
+        NotificacionesService notif = new NotificacionesService(dao, new SocketIOServer(null), null, "");
+        MatchmakingService servicio = new MatchmakingService(dao, null, notif, new AppConfig(), null);
+
+        List<String> eventos = new ArrayList<>();
+        servicio.setPuenteSocket(new MatchmakingService.PuertoSocket() {
+            @Override
+            public void emitirBusquedaVisible(int receptorId, JsonObject payload) {
+                eventos.add("vis:" + receptorId + ":" + payload.get("habilitada").getAsBoolean());
+            }
+
+            @Override
+            public void emitirEventoUsuario(int userId, String evento, JsonObject payload) {
+                eventos.add(userId + ":" + evento + ":" + payload.get("esAutomatico").getAsBoolean());
+            }
+        });
+
+        // Al liberar oleada 5 estando ambos en cola: se pregunta primero SOLO al menor (1); el élite (4) no se notifica aún
+        dao.maxGrupoLiberadoCola = 5;
+        servicio.notificarGrupoOleada(1, "buscador", 5);
+
+        assertTrue(eventos.contains("1:matchmaking_reto_recibido:true"));
+        assertEquals(1L, dao.notificacionesCreadas.stream().filter(n -> n.get("user_id").getAsInt() == 1).count());
+        assertEquals(0L, dao.notificacionesCreadas.stream().filter(n -> n.get("user_id").getAsInt() == 4).count());
+        assertTrue(dao.notificacionesCreadas.stream()
+                .filter(n -> n.get("user_id").getAsInt() == 1)
+                .allMatch(n -> n.get("mensaje").getAsString().contains("para aceptar")));
+
+        // Si el menor rechaza un emparejamiento automático, el élite no recibe notificación de rechazo
+        int retoId = dao.retosPorPar.get(1).get(4).get("id").getAsInt();
+        var rechazo = servicio.responderRetoBuscador(1, retoId, false);
+        assertTrue(rechazo.valido());
+        assertFalse(rechazo.aceptado());
+        assertTrue(rechazo.esAutomatico());
+        assertEquals(0L, dao.notificacionesCreadas.stream().filter(n -> n.get("user_id").getAsInt() == 4).count());
+
+        // Si acepta un nuevo emparejamiento automático, entonces ahí sí se notifica al mayor con su límite de tiempo
+        dao.retosPorPar.clear();
+        var solicitud2 = servicio.intentarEmparejarAutomaticoConSuperior(1, "buscador", 4, "rival_elite");
+        var esp2 = assertInstanceOf(MatchmakingService.ResultadoSolicitudReto.EsperandoConfirmacion.class, solicitud2);
+        var acepta = servicio.responderRetoBuscador(1, esp2.challengeId(), true);
+        assertTrue(acepta.aceptado());
+        servicio.notificarMatchConfirmadoARetador(esp2.challengeId(), 1, "buscador", 4, 120, true);
+
+        assertEquals(1L, dao.notificacionesCreadas.stream()
+                .filter(n -> n.get("user_id").getAsInt() == 4
+                        && n.get("mensaje").getAsString().contains("aceptó jugar contra ti")
+                        && n.get("mensaje").getAsString().contains("para responder"))
+                .count());
     }
 
     @Test
