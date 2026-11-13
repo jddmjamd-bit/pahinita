@@ -1422,12 +1422,12 @@ class RenderAcceptanceCheck {
         JsonObject datosPagos = new JsonObject();
         datosPagos.addProperty("canal", "pagos");
 
-        notifSrv.notificar(idReceptor, "chat", "General", "Hola general", "/chat?canal=general", "", datosGeneral, false);
-        notifSrv.notificar(idReceptor, "chat", "General legado", "Sin query", "/chat", "", null, false);
-        notifSrv.notificar(idReceptor, "chat", "Anuncio", "Aviso oficial", "/chat?canal=anuncios", "", datosAnuncios, false);
-        notifSrv.notificar(idReceptor, "chat", "Clash", "Reto en clash", "/chat?canal=clash", "", datosClash, false);
-        notifSrv.notificar(idReceptor, "finanzas", "Comprobante", "Pago publicado", "/chat?canal=pagos", "", datosPagos, false);
-        notifSrv.notificar(idReceptor, "finanzas", "Recarga", "Movimiento en cartera", "/finance", "", null, false);
+        assertNotNull(notifSrv.notificar(idReceptor, "chat", "General", "Hola general", "/chat?canal=general", null, datosGeneral, false));
+        assertNotNull(notifSrv.notificar(idReceptor, "chat", "General legado", "Sin query", "/chat", "", null, false));
+        assertNotNull(notifSrv.notificar(idReceptor, "chat", "Anuncio", "Aviso oficial", "/chat?canal=anuncios", "", datosAnuncios, false));
+        assertNotNull(notifSrv.notificar(idReceptor, "chat", "Clash", "Reto en clash", "/chat?canal=clash", null, datosClash, false));
+        assertNotNull(notifSrv.notificar(idReceptor, "finanzas", "Comprobante", "Pago publicado", "/chat?canal=pagos", null, datosPagos, false));
+        assertNotNull(notifSrv.notificar(idReceptor, "finanzas", "Recarga", "Movimiento en cartera", "/finance", null, null, false));
 
         JsonObject listado = notifSrv.listar(idReceptor);
         JsonObject sinLeerInicial = listado.getAsJsonObject("sinLeer");

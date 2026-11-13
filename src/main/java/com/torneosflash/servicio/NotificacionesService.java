@@ -39,13 +39,15 @@ public final class NotificacionesService {
         if (userId <= 0 || !CATEGORIAS.contains(categoria)) return null;
         String rutaSegura = rutaSegura(ruta);
         String datosJson = datos == null || datos.isJsonNull() ? "{}" : datos.toString();
+        // Una clave en blanco se trata como NULL para no colisionar en uq_user_notifications_evento_usuario.
+        String claveEvento = eventoClave == null || eventoClave.isBlank() ? null : limitar(eventoClave, 180);
         int id = db.insertReturningId(
                 "INSERT INTO user_notifications " +
                         "(user_id, categoria, titulo, mensaje, ruta, evento_clave, datos) " +
                         "VALUES (?, ?, ?, ?, ?, ?, ?::jsonb) " +
                         "ON CONFLICT (user_id, evento_clave) WHERE evento_clave IS NOT NULL DO NOTHING " +
                         "RETURNING id",
-                userId, categoria, limitar(titulo, 140), limitar(mensaje, 500), rutaSegura, eventoClave, datosJson);
+                userId, categoria, limitar(titulo, 140), limitar(mensaje, 500), rutaSegura, claveEvento, datosJson);
         if (id <= 0) return null;
 
         JsonObject aviso = db.queryOne(
@@ -59,7 +61,7 @@ public final class NotificacionesService {
             String destino = siteUrl + rutaSegura;
             String link = destino + (destino.contains("?") ? "&" : "?") + "notificacionId=" + id;
             push.enviarPush(db, userId, limitar(titulo, 140), limitar(mensaje, 500), link,
-                    eventoClave == null ? "tf-" + id : etiquetaPush(eventoClave), String.valueOf(id));
+                    claveEvento == null ? "tf-" + id : etiquetaPush(claveEvento), String.valueOf(id));
         }
         return aviso;
     }

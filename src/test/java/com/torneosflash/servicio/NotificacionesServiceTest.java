@@ -26,15 +26,27 @@ class NotificacionesServiceTest {
         @Override
         public int insertReturningId(String sql, Object... params) {
             if (sql.contains("INSERT INTO user_notifications")) {
+                int userId = (Integer) params[0];
+                String eventoClave = params[5] == null ? null : String.valueOf(params[5]);
+                // Replica uq_user_notifications_evento_usuario (evento_clave IS NOT NULL).
+                if (eventoClave != null && filas.stream().anyMatch(f -> f.get("user_id").getAsInt() == userId
+                        && f.has("evento_clave") && !f.get("evento_clave").isJsonNull()
+                        && eventoClave.equals(f.get("evento_clave").getAsString()))) {
+                    return 0;
+                }
                 int id = ++secuenciaId;
                 JsonObject n = new JsonObject();
                 n.addProperty("id", id);
-                n.addProperty("user_id", (Integer) params[0]);
+                n.addProperty("user_id", userId);
                 n.addProperty("categoria", String.valueOf(params[1]));
                 n.addProperty("titulo", String.valueOf(params[2]));
                 n.addProperty("mensaje", String.valueOf(params[3]));
                 n.addProperty("ruta", params[4] == null ? "" : String.valueOf(params[4]));
-                n.addProperty("evento_clave", params[5] == null ? "" : String.valueOf(params[5]));
+                if (eventoClave == null) {
+                    n.add("evento_clave", com.google.gson.JsonNull.INSTANCE);
+                } else {
+                    n.addProperty("evento_clave", eventoClave);
+                }
                 String datosRaw = params[6] == null ? null : String.valueOf(params[6]);
                 if (datosRaw != null && !datosRaw.isBlank() && !"null".equals(datosRaw)) {
                     n.add("datos", JsonParser.parseString(datosRaw));
@@ -214,12 +226,12 @@ class NotificacionesServiceTest {
         JsonObject datosPagos = new JsonObject();
         datosPagos.addProperty("canal", "pagos");
 
-        servicio.notificar(7, "chat", "General", "Mensaje en general", "/chat?canal=general", "", datosGeneral, false);
-        servicio.notificar(7, "chat", "Legado", "Ruta /chat sin query", "/chat", "", null, false);
-        servicio.notificar(7, "chat", "Anuncios", "Anuncio nuevo", "/chat?canal=anuncios", "", datosAnuncios, false);
-        servicio.notificar(7, "chat", "Clash", "Sala de clash", "/chat?canal=clash", "", datosClash, false);
-        servicio.notificar(7, "finanzas", "Pagos", "Comprobante", "/chat?canal=pagos", "", datosPagos, false);
-        servicio.notificar(7, "finanzas", "Saldo", "Recarga", "/finance", "", null, false);
+        assertNotNull(servicio.notificar(7, "chat", "General", "Mensaje en general", "/chat?canal=general", "", datosGeneral, false));
+        assertNotNull(servicio.notificar(7, "chat", "Legado", "Ruta /chat sin query", "/chat", "", null, false));
+        assertNotNull(servicio.notificar(7, "chat", "Anuncios", "Anuncio nuevo", "/chat?canal=anuncios", "", datosAnuncios, false));
+        assertNotNull(servicio.notificar(7, "chat", "Clash", "Sala de clash", "/chat?canal=clash", null, datosClash, false));
+        assertNotNull(servicio.notificar(7, "finanzas", "Pagos", "Comprobante", "/chat?canal=pagos", null, datosPagos, false));
+        assertNotNull(servicio.notificar(7, "finanzas", "Saldo", "Recarga", "/finance", null, null, false));
 
         JsonObject listado = servicio.listar(7);
         JsonObject sinLeerInicial = listado.getAsJsonObject("sinLeer");
@@ -270,6 +282,19 @@ class NotificacionesServiceTest {
         assertEquals(0, conteo(trasTodo.getAsJsonObject("sinLeer"), "chat"));
         assertEquals(1, conteo(trasTodo.getAsJsonObject("sinLeer"), "finanzas"));
         assertEquals(0, conteo(trasTodo.getAsJsonObject("chatSinLeer"), "clash"));
+    }
+
+    @Test
+    void claveEventoEnBlancoNoColisionaYClaveRealDeduplica() {
+        DaoMemoria dao = new DaoMemoria();
+        NotificacionesService servicio = new NotificacionesService(dao, new SocketEspia(), null, "");
+
+        assertNotNull(servicio.notificar(9, "chat", "Aviso 1", "Primero", "/chat", "", null, false));
+        assertNotNull(servicio.notificar(9, "chat", "Aviso 2", "Segundo", "/chat", "   ", null, false));
+        assertNotNull(servicio.notificar(9, "ranking", "Corte 1", "Ganaste", "/leaderboard", "corte:1:9", null, false));
+        assertNull(servicio.notificar(9, "ranking", "Corte 1 dup", "Duplicado", "/leaderboard", "corte:1:9", null, false));
+
+        assertEquals(3, dao.filas.size());
     }
 
     private static int conteo(JsonObject mapa, String clave) {
