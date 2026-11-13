@@ -34,6 +34,17 @@ function App() {
   useCapacitor();
 
   useEffect(() => {
+    const manejarNavegacionExterna = (evento) => {
+      const ruta = evento?.detail?.ruta;
+      if (typeof ruta === 'string' && ruta.startsWith('/')) {
+        navigate(ruta);
+      }
+    };
+    window.addEventListener('torneos:navegar', manejarNavegacionExterna);
+    return () => window.removeEventListener('torneos:navegar', manejarNavegacionExterna);
+  }, [navigate]);
+
+  useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 

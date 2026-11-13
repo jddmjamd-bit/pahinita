@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { useAppStore } from '../store/useAppStore';
 import { llamarApi } from '../store/llamarApi';
+import { registrarPushNavegador } from '../services/browserPush';
+import {
+    permisoNotificacionesPc,
+    solicitarPermisoNotificacionesPc,
+    resumenCanalesNotificacion
+} from '../services/notificacionesCanales';
 import './Match.css';
 import VozDiscord from '../components/VozDiscord';
 
@@ -67,6 +74,7 @@ export default function Match() {
     const [apiResult, setApiResult] = useState(() => useAppStore.getState().matchState.resultado || null); // { esGanador, premio, ganador, mensaje } o { disputa: true, mensaje }
     const [flujoCompletado, setFlujoCompletado] = useState(() => useAppStore.getState().matchState.status === 'finished');
     const [ahoraMs, setAhoraMs] = useState(() => Date.now());
+    const [permisoPc, setPermisoPc] = useState(() => permisoNotificacionesPc());
 
     const currentUser = useAppStore(state => state.user);
     const socket = useAppStore(state => state.socket);
@@ -74,6 +82,14 @@ export default function Match() {
     const matchState = useAppStore(state => state.matchState);
     const setMatchState = useAppStore(state => state.setMatchState);
     const clearMatchState = useAppStore(state => state.clearMatchState);
+    const pushToken = useAppStore(state => state.pushToken);
+    const setPushToken = useAppStore(state => state.setPushToken);
+    const busquedasVisibles = useAppStore(state => state.busquedasVisibles);
+    const retoEnviado = useAppStore(state => state.retoEnviado);
+    const avisoMatchmaking = useAppStore(state => state.avisoMatchmaking);
+    const setAvisoMatchmaking = useAppStore(state => state.setAvisoMatchmaking);
+    const matchmakingConfig = useAppStore(state => state.matchmakingConfig);
+    const cargarEstadoMatchmaking = useAppStore(state => state.cargarEstadoMatchmaking);
 
     // Deja la pantalla lista para una partida nueva (partida cancelada o el usuario cierra el resultado)
     const resetMatch = useCallback(() => {
@@ -102,6 +118,11 @@ export default function Match() {
     }, [currentUser, connectSocket]);
 
     // Mantiene la vista local sincronizada con el estado persistente que el socket restaura al reconectar.
+    useEffect(() => {
+        if (!currentUser?.id) return;
+        void cargarEstadoMatchmaking();
+    }, [currentUser?.id, cargarEstadoMatchmaking]);
+
     useEffect(() => {
         if (!matchState.inMatch) return;
         setView(matchState.status === 'playing' || matchState.status === 'finished' ? 'game_result' : 'private');
@@ -271,7 +292,12 @@ export default function Match() {
         };
 
         const onErrorSocket = (data) => {
-            if (!data || !['cancelar_busqueda', 'cancelar_inicio', 'cancelar_match', 'activar_timer_negociacion'].includes(data.evento)) return;
+            if (!data) return;
+            if (['desafiar_busqueda', 'responder_reto_matchmaking'].includes(data.evento)) {
+                setAvisoMatchmaking(data.mensaje || 'No se pudo completar la acción.');
+                return;
+            }
+            if (!['cancelar_busqueda', 'cancelar_inicio', 'cancelar_match', 'activar_timer_negociacion'].includes(data.evento)) return;
             alert(data.mensaje || 'No se pudo completar la operación. Inténtalo de nuevo.');
             if (data.evento === 'cancelar_busqueda') setMatchState({ status: 'searching' });
         };
@@ -505,30 +531,143 @@ export default function Match() {
     // Sin partida en curso: pantalla para buscar rival
     if (!matchState.inMatch) {
         const buscando = matchState.status === 'searching';
+        const canales = resumenCanalesNotificacion({
+            esNativo: Capacitor.isNativePlatform(),
+            pushToken,
+            permisoPc
+        });
+        const variables = matchmakingConfig?.variables || {};
+        const activarNotificacionesPc = async () => {
+            const permiso = await solicitarPermisoNotificacionesPc();
+            setPermisoPc(permiso);
+            if (permiso === 'granted' && currentUser?.id) {
+                const res = await registrarPushNavegador(currentUser.id);
+                if (res?.token) setPushToken(res.token);
+            }
+        };
+        const handleDesafiarBusqueda = (busqueda) => {
+            const targetId = busqueda.buscadorId ?? busqueda.userId;
+            if (!socket || !targetId) return;
+            if (busqueda.esBuscadorMejor) {
+                const ok = window.confirm(
+                    `${busqueda.username} está por encima de tu nivel (${busqueda.etiquetaNivel}). ¿Confirmas que quieres jugar contra él?`
+                );
+                if (!ok) return;
+            }
+            setAvisoMatchmaking(null);
+            socket.emit('desafiar_busqueda', { buscadorId: targetId });
+        };
+
         return (
             <div className="match-container">
                 <header className="match-header">
                     <h3>⚔️ Buscar partida</h3>
                 </header>
                 <div className="search-view-content">
+                    {avisoMatchmaking && (
+                        <div className="mm-notice-banner" role="status">
+                            <span>{avisoMatchmaking}</span>
+                            <button type="button" className="mm-notice-close" onClick={() => setAvisoMatchmaking(null)}>✕</button>
+                        </div>
+                    )}
+
+                    {retoEnviado && (
+                        <div className="mm-pending-banner" role="status">
+                            ⏳ Esperando confirmación de <strong>{retoEnviado.buscadorUsername}</strong> (como eres superior, le preguntamos si aun así quiere jugar contra ti).
+                        </div>
+                    )}
+
                     {buscando ? (
                         <>
                             <div className="spinner-container">
                                 <div className="pulse-emoji">🔍</div>
                             </div>
-                            <h2>Buscando rival...</h2>
-                            <p>Te llevamos a la sala en cuanto alguien acepte.</p>
+                            <h2>Buscando rival justo...</h2>
+                            <p>
+                                Primero avisamos por Web, App y PC a jugadores de tu mismo nivel o inferior;
+                                los niveles superiores se notifican por oleadas hasta 2 minutos antes del cierre.
+                            </p>
                             <button className="search-btn cancel" onClick={handleCancelarBusqueda}>Cancelar búsqueda</button>
                         </>
                     ) : (
                         <>
                             <div className="pulse-emoji">⚔️</div>
                             <h2>¿Listo para jugar?</h2>
-                            <p>Te emparejamos con otro jugador y acuerdan modo y monto en una sala privada.</p>
+                            <p>Te emparejamos por nivel justo y acuerdan modo y monto en una sala privada.</p>
                             <button className="search-btn" onClick={handleBuscar} disabled={!socket || !currentUser}>🔍 Buscar partida</button>
                             <VozDiscord enPartida={false} />
                         </>
                     )}
+
+                    <section className="fair-matchmaking-panel" aria-label="Matchmaking justo y canales">
+                        <div className="mm-panel-header">
+                            <div>
+                                <h4>🎯 Matchmaking Justo</h4>
+                                <p className="mm-sub">
+                                    Perfil actual: <strong>{matchmakingConfig?.perfilCualitativo || 'Calibrando'}</strong> (tu puntaje exacto es privado).
+                                </p>
+                            </div>
+                            {!Capacitor.isNativePlatform() && (permisoPc === 'default' || permisoPc === 'prompt') && (
+                                <button type="button" className="mm-pc-btn" onClick={activarNotificacionesPc}>
+                                    🔔 Activar avisos en PC
+                                </button>
+                            )}
+                        </div>
+
+                        <div className="mm-pills-row">
+                            <span className={`mm-pill ${variables.winRate ? 'ok' : ''}`}>
+                                📊 Win rate: {variables.winRate ? 'Activo' : 'Sin partidas aún (no afecta)'}
+                            </span>
+                            <span className={`mm-pill ${variables.clash ? 'ok' : ''}`}>
+                                🏆 Clash Royale: {variables.clash ? 'Copas / PoL activos' : 'Pendiente (no afecta)'}
+                            </span>
+                            <span className={`mm-pill ${variables.liga ? 'ok' : ''}`}>
+                                🛡 Liga plataforma: {variables.liga ? 'Activa' : 'Próximamente (no afecta)'}
+                            </span>
+                        </div>
+
+                        <div className="mm-channels-row">
+                            {canales.map(canal => (
+                                <span key={canal.id} className={`mm-channel-badge ${canal.activo ? 'activo' : ''}`}>
+                                    {canal.nombre}: {canal.estado}
+                                </span>
+                            ))}
+                        </div>
+
+                        <div className="mm-active-searches">
+                            <h5>🎮 Rivales buscando ahora ({busquedasVisibles.length})</h5>
+                            {busquedasVisibles.length === 0 ? (
+                                <p className="mm-empty">No hay búsquedas visibles para tu nivel en este momento.</p>
+                            ) : (
+                                <ul className="mm-search-list">
+                                    {busquedasVisibles.map(b => {
+                                        const id = b.buscadorId ?? b.oderId;
+                                        const bloqueado = b.retoEstado === 'pendiente' || b.retoEstado === 'rechazado';
+                                        return (
+                                            <li key={id} className="mm-search-item">
+                                                <div className="mm-search-info">
+                                                    <strong>{b.username}</strong>
+                                                    <span className={`mm-level-tag ${b.eresMejor ? 'mejor' : (b.esBuscadorMejor ? 'rival-mejor' : 'similar')}`}>
+                                                        {b.etiquetaNivel || 'Nivel competitivo disponible'}
+                                                    </span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    className="mm-challenge-btn"
+                                                    disabled={!socket || bloqueado}
+                                                    onClick={() => handleDesafiarBusqueda(b)}
+                                                >
+                                                    {b.retoEstado === 'pendiente'
+                                                        ? 'Esperando confirmación'
+                                                        : (b.retoEstado === 'rechazado' ? 'Prefirió otro rival' : '⚔️ Jugar')}
+                                                </button>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            )}
+                        </div>
+                    </section>
                 </div>
             </div>
         );

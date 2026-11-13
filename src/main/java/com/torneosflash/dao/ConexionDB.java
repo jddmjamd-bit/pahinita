@@ -1113,7 +1113,10 @@ public class ConexionDB {
                 "voice_channels",
                 "discord_links",
                 "active_matches",
+                "matchmaking_challenges",
+                "matchmaking_search_notified",
                 "match_queue",
+                "matchmaking_profiles",
                 "matches",
                 "user_notifications",
                 "messages",
@@ -1135,7 +1138,7 @@ public class ConexionDB {
                 "media_files", "chatbot_conocimiento", "chatbot_mensajes",
                 "legal_acceptances", "wallet_ledger", "support_tickets",
                 "payment_evidences", "voice_channels", "match_queue", "active_matches",
-                "user_notifications"
+                "matchmaking_challenges", "user_notifications"
         };
 
         try (Connection conn = getConnectionPruebas()) {

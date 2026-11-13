@@ -109,7 +109,7 @@
 
 ## 9. Migraciones Flyway (A5)
 
-1. Toda tabla, columna, índice, constraint o dato semilla nuevo es un **archivo nuevo** en `src/main/resources/db/migration/`. **Revisa el número más alto existente** (hoy `V23`, el siguiente es `V24`) y, antes de commitear, verifica de nuevo que otro agente no haya usado ese número.
+1. Toda tabla, columna, índice, constraint o dato semilla nuevo es un **archivo nuevo** en `src/main/resources/db/migration/`. **Revisa el número más alto existente** (hoy `V24`, el siguiente es `V25`) y, antes de commitear, verifica de nuevo que otro agente no haya usado ese número.
 2. **Nunca editar, renumerar ni renombrar** un `V*` ya aplicado (checksum → el servidor no arranca). Para corregir, otra migración.
 3. Dinero en `NUMERIC(18, 2)` con `CHECK (... >= 0)` cuando aplique (patrón V19). Nada de `REAL`/`DOUBLE PRECISION` para dinero.
 4. Claves foráneas con `ON DELETE` explícito, índices en FKs y filtros frecuentes, `UNIQUE` donde haya idempotencia.
@@ -246,6 +246,18 @@ Ya no hay bloqueos de Fase 0: todo se puede implementar, pero **cada grupo exige
 | Pasarelas manuales (Llaves, Nu, Daviplata) | Flujo Nequi manual + evidencias: aprobación admin, montos desde la BD, transición condicional del estado de la transacción |
 | Matchmaking justo, 2v2, torneos (todos contra todos, eliminatoria, mundial), guerra y liga de clanes | Estado persistido + recuperación al reiniciar (11.6); rooms (11.1); inicio atómico e idempotente al estilo `iniciarPartidaTorneo`; validación estricta de resultados y disputa ante ambigüedad (11.8) |
 | Notificaciones y su configuración | Listener del bus + `NotificadorUsuarios`; respetar la preferencia del usuario antes de enviar; push en `ejecutarPush` |
+
+### 19.1 Guía obligatoria para implementar Ligas (Prioridad 12.2) sobre Matchmaking Justo
+
+El matchmaking justo (`MatchmakingPuntaje` y `MatchmakingService`) ya reserva la integración de ligas sin romper el emparejamiento actual. Al construir el sistema de **Ligas (12.2)** se deben seguir estas reglas:
+
+1. **Cantidad recomendada de ligas: 8 ligas principales (`liga_nivel` de `1` a `8`)**:
+   - `1` = `bronce` (Bronce), `2` = `plata` (Plata), `3` = `oro` (Oro), `4` = `platino` (Platino), `5` = `diamante` (Diamante), `6` = `maestro` (Maestro), `7` = `campeon` (Campeón), `8` = `leyenda` (Leyenda).
+   - **Por qué exactamente 8**: en `MatchmakingPuntaje.calcularLigaSubscore`, `8` niveles sobre escala `[0, 1000]` producen saltos de `~142.8` puntos por liga, alineados con los 5 rangos de diferencia entre oleadas (`±15`, `60`, `130`, `220`, `330`). Menos de 5 ligas mezclan niveles muy distintos; más de 10 fragmentan demasiado los rangos cuando la base de usuarios simultáneos aún crece. Si se agregan subdivisiones visuales (I/II/III), mantén las 8 ligas base o pasa el total real en `totalNiveles`.
+2. **¿Se cambia la fórmula del puntaje al implementar Ligas?**
+   - **Por defecto NO hace falta cambiarla**: `MatchmakingPuntaje` ya define los 3 pesos base (`PESO_WIN_RATE = 0.35`, `PESO_LIGA = 0.25`, `PESO_CLASH = 0.40`). Hoy, cuando `liga_nivel` es `NULL`, la fórmula renormaliza automáticamente `0.35` y `0.40` sobre `0.75` para que no afecte a nadie.
+   - **Cómo conectarlo**: cuando un jugador entre o cambie de liga (o al corte de temporada), llama a `MatchmakingService.actualizarLigaUsuario(userId, ligaClave, ligaNivel, MatchmakingPuntaje.LIGAS_RECOMENDADAS_TOTAL)` desde un listener de `EventBus`. El 25% de Liga se activará de inmediato en `matchmaking_profiles` sin migrar puntajes ni afectar cuentas antiguas sin liga aún.
+   - **Cuándo ajustar pesos**: solo si los datos reales en producción muestran que la liga interna predice mejor el rendimiento en retos 1v1 que Clash Royale, ajusta las constantes en `MatchmakingPuntaje.java` (por ejemplo `PESO_LIGA = 0.30`, `PESO_WIN_RATE = 0.30`, `PESO_CLASH = 0.40`) manteniendo SIEMPRE: (a) renormalización dinámica ante variables ausentes, (b) `puntaje_interno` 100% oculto para los usuarios (solo diferencias relativas por rangos), y (c) no asignar Liga 1 forzada durante reinicios de temporada antes de jugar partidas de clasificación (dejar `liga_nivel = NULL` o conservar liga atenuada hasta calibrar para no hundir artificialmente el puntaje).
 
 ---
 

@@ -123,7 +123,7 @@
 |------|---------|--------|-------|
 | **10** | Tutorial interactivo | **S5.5M** | Onboarding paso a paso al primer login. Overlay con tooltips guiados. Frontend-heavy. **( se puede hacer en cualquier momento despu�s del frontend React)** |
 | **11** | Logros | **S5.5H / A4H** | Similar al motor de misiones pero permanentes. `achievements`, `user_achievements`. Recompensas en tickets/VIP. Puede reusar infraestructura de misiones. |
-| **12.2** | Ligas (arenas) | **O5.5H / A4H** | Trofeos/copas que suben/bajan con victorias/derrotas. Rangos: Bronce  Plata  Oro  etc. Al subir: desbloquear montos de apuesta mayores, multiplicador VIP. Tablas: `leagues`, `user_league`. Afecta matchmaking y devoluci�n. |
+| **12.2** | Ligas (arenas) | **O5.5H / A4H** | Trofeos/copas que suben/bajan con victorias/derrotas (ver guía de 8 ligas e integración con Matchmaking Justo en `agent/rules/project-conventions.md` §19.1). Rangos: Bronce  Plata  Oro  etc. Al subir: desbloquear montos de apuesta mayores, multiplicador VIP. Tablas: `leagues`, `user_league`. Afecta matchmaking y devoluci�n. |
 | **12.5** | Sistema de devoluci�n | **O4.6T / A4H** | Algoritmo complejo. Variables: duraci�n partida, torres destruidas, da�o, diferencia de copas, diferencia de arena, si tiene coach. Resultado: % de devoluci�n (0-100%). Depende de: Ligas (12.2). |
 
 ---
@@ -132,7 +132,7 @@
 
 | Prio | Feature | Modelo | Notas |
 |------|---------|--------|-------|
-| **15** | Matchmaking justo | **O5.5H / A4H** | Emparejar por rango de copas/arena + winrate. No solo por monto. Expandir cola con filtros. Depende de: Ligas (12.2). |
+| **15** | ~~Matchmaking justo~~ **[IMPLEMENTADO]** | **O5.5H / A4H** | Puntaje interno oculto (`[0, 1000]`) por win rate plataforma + Liga plataforma (opcional mientras no exista 12.2, renormalizada dinámicamente sin penalizar faltantes) + Clash Royale (copas, Path of Legends y ranking/medallas mundiales). Oleadas por rangos (grupos 0..5) en Web/App/PC dejando 2 min antes de expirar, confirmación explícita al buscador cuando un jugador superior solicita enfrentarlo, migración `V24` y guía de integración para Ligas en `agent/rules/project-conventions.md` (§19.1). |
 | **16.2** | 2v2 | **O5.5H / A4H** | Equipos de 2. Crear sala, invitar amigo, buscar rival 2v2. Liquidaci�n dividida. Depende de: Sistema de amigos (7). |
 | **16.7** | Sistema VIP | **O5.5M / A4H** | Puntos VIP se acumulan por actividad. Niveles VIP desbloquean: jugar entre amigos, stats detalladas, nombre personalizado, multiplicador en liga/misi�n/logro/devoluci�n/referidos/tickets. Tablas: `vip_levels`, `user_vip`. |
 | **17.7** | Torneos todos contra todos | **O5.5H / A4H** | Round-robin. El que m�s victorias tenga gana. Tablas: `tournaments`, `tournament_participants`, `tournament_matches`. |

@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { io } from 'socket.io-client';
 import { API_BASE_URL, llamarApi } from './llamarApi';
 import { cerrarSesionConPush } from '../services/pushTokens';
+import { cerrarPushBusqueda } from '../services/browserPush';
+import { despacharAvisoCanales } from '../services/notificacionesCanales';
 
 const eliminarUsuarioPersistido = () => {
     try {
@@ -80,11 +82,17 @@ export const useAppStore = create((set, get) => ({
         set({
             chatMessages: { general: [], anuncios: [], clash: [], clash_logs: [], pagos: [] },
             notificaciones: [],
-            notificacionesSinLeer: {}
+            notificacionesSinLeer: {},
+            busquedasVisibles: [],
+            retoRecibido: null,
+            retoEnviado: null,
+            avisoMatchmaking: null,
+            matchmakingConfig: null
         });
         get().clearMatchState();
         await get().sincronizarSesion();
         await get().cargarNotificaciones();
+        await get().cargarEstadoMatchmaking();
     },
     logout: () => {
         const { pushToken, pushTokenAnterior } = get();
@@ -103,6 +111,11 @@ export const useAppStore = create((set, get) => ({
             notificaciones: [],
             notificacionesSinLeer: {},
             usuariosOnline: 0,
+            busquedasVisibles: [],
+            retoRecibido: null,
+            retoEnviado: null,
+            avisoMatchmaking: null,
+            matchmakingConfig: null,
             matchState: { inMatch: false, salaId: null, rival: null, gameMode: '', monto: 0, maxMonto: 10000, status: 'idle', rivalDesconectado: null, timerNegociacion: null }
         });
     },
@@ -245,6 +258,16 @@ export const useAppStore = create((set, get) => ({
                     }
                 };
             });
+            if (aviso.categoria === 'partida') {
+                const datosAviso = aviso.datos && typeof aviso.datos === 'object' ? aviso.datos : {};
+                void despacharAvisoCanales({
+                    titulo: aviso.titulo || 'Notificación de partida',
+                    mensaje: aviso.mensaje || '',
+                    tag: datosAviso.challengeId ? `reto-${datosAviso.challengeId}` : (datosAviso.buscadorId ? `busqueda-${datosAviso.buscadorId}` : `notif-${aviso.id}`),
+                    link: aviso.ruta || '/match',
+                    urgente: datosAviso.tipoMatchmaking === 'reto_superior'
+                });
+            }
         });
         newSocket.on('notificacion_leida', (data) => {
             set(state => {
@@ -285,8 +308,9 @@ export const useAppStore = create((set, get) => ({
             }
             if (data?.eventoClave) {
                 set(state => {
-                    const removidas = state.notificaciones.filter(item => item.evento_clave === data.eventoClave);
-                    const nuevas = state.notificaciones.filter(item => item.evento_clave !== data.eventoClave);
+                    const coincide = (clave) => clave === data.eventoClave || clave?.startsWith(`${data.eventoClave}:`);
+                    const removidas = state.notificaciones.filter(item => coincide(item.evento_clave));
+                    const nuevas = state.notificaciones.filter(item => !coincide(item.evento_clave));
                     const sinLeer = { ...state.notificacionesSinLeer };
                     for (const aviso of removidas) {
                         if (!aviso.leida_en) sinLeer[aviso.categoria] = Math.max(0, (sinLeer[aviso.categoria] || 0) - 1);
@@ -332,6 +356,7 @@ export const useAppStore = create((set, get) => ({
             if (!data) return;
             const yo = get().user;
             const rival = data.p1?.id === yo?.id ? data.p2 : data.p1;
+            set({ retoRecibido: null, retoEnviado: null, avisoMatchmaking: null });
             get().setMatchState({
                 inMatch: true,
                 salaId: data.salaId,
@@ -408,12 +433,81 @@ export const useAppStore = create((set, get) => ({
             if (!get().matchState.inMatch) get().setMatchState({ status: 'searching' });
         });
         newSocket.on('error_busqueda', () => get().setMatchState({ status: 'idle' }));
-        newSocket.on('busqueda_timeout', () => get().setMatchState({ status: 'idle' }));
+        newSocket.on('busqueda_timeout', () => set(state => ({
+            matchState: { ...state.matchState, status: 'idle' },
+            retoRecibido: null
+        })));
+        newSocket.on('alguien_buscando', (data) => {
+            const buscadorId = Number(data?.buscadorId ?? data?.oderId);
+            const yoId = Number(get().user?.id);
+            if (!buscadorId || (yoId && buscadorId === yoId)) return;
+            set(state => {
+                const resto = state.busquedasVisibles.filter(item => Number(item.buscadorId ?? item.oderId) !== buscadorId);
+                return { busquedasVisibles: [{ ...data, buscadorId, oderId: buscadorId }, ...resto] };
+            });
+            void despacharAvisoCanales({
+                titulo: data?.eresMejor ? 'Rival buscando partida (oleada)' : 'Alguien busca partida',
+                mensaje: `${data?.username || 'Un jugador'} busca rival · ${data?.etiquetaNivel || 'Disponible para ti'}`,
+                tag: `busqueda-${buscadorId}`,
+                link: '/match'
+            });
+        });
         newSocket.on('busqueda_cancelada', (data) => {
             const userId = get().user?.id;
-            if (userId && Number(data?.oderId) === Number(userId) && !get().matchState.inMatch) {
+            const canceledId = Number(data?.oderId);
+            if (canceledId) {
+                void cerrarPushBusqueda(`busqueda:${canceledId}`);
+                set(state => ({
+                    busquedasVisibles: state.busquedasVisibles.filter(item => Number(item.buscadorId ?? item.oderId) !== canceledId),
+                    retoEnviado: state.retoEnviado && Number(state.retoEnviado.buscadorId) === canceledId ? null : state.retoEnviado
+                }));
+            }
+            if (userId && canceledId === Number(userId) && !get().matchState.inMatch) {
                 get().setMatchState({ inMatch: false, salaId: null, rival: null, status: 'idle' });
             }
+        });
+        newSocket.on('matchmaking_reto_recibido', (data) => {
+            if (!data?.challengeId) return;
+            set({ retoRecibido: data });
+            void despacharAvisoCanales({
+                titulo: 'Un jugador superior quiere enfrentarte',
+                mensaje: data.mensaje || `${data.retadorUsername || 'Un rival'} es mejor que tú. ¿Aun así quieres jugar contra él?`,
+                tag: `reto-${data.challengeId}`,
+                link: '/match',
+                urgente: true
+            });
+        });
+        newSocket.on('matchmaking_reto_cerrado', (data) => {
+            set(state => ({
+                retoRecibido: state.retoRecibido && (!data?.challengeId || Number(state.retoRecibido.challengeId) === Number(data.challengeId))
+                    ? null : state.retoRecibido
+            }));
+        });
+        newSocket.on('matchmaking_reto_expirado', (data) => {
+            set(state => ({
+                retoRecibido: state.retoRecibido && (!data?.challengeId || Number(state.retoRecibido.challengeId) === Number(data.challengeId))
+                    ? null : state.retoRecibido
+            }));
+        });
+        newSocket.on('matchmaking_reto_respuesta', (data) => {
+            if (!data) return;
+            if (data.pendiente) {
+                set(state => ({
+                    retoEnviado: data,
+                    avisoMatchmaking: data.mensaje || null,
+                    busquedasVisibles: state.busquedasVisibles.map(item =>
+                        Number(item.buscadorId ?? item.oderId) === Number(data.buscadorId)
+                            ? { ...item, retoEstado: 'pendiente', retoId: data.challengeId } : item)
+                }));
+                return;
+            }
+            set(state => ({
+                retoEnviado: null,
+                avisoMatchmaking: data.mensaje || null,
+                busquedasVisibles: state.busquedasVisibles.map(item =>
+                    Number(item.buscadorId ?? item.oderId) === Number(data.buscadorId) && data.aceptado === false
+                        ? { ...item, retoEstado: 'rechazado' } : item)
+            }));
         });
         newSocket.on('cancelacion_completada', (data) => {
             if (data?.evento === 'cancelar_busqueda') {
@@ -460,8 +554,27 @@ export const useAppStore = create((set, get) => ({
         rivalDesconectado: null,
         timerNegociacion: null
     },
+    busquedasVisibles: [],
+    retoRecibido: null,
+    retoEnviado: null,
+    avisoMatchmaking: null,
+    matchmakingConfig: null,
+    cargarEstadoMatchmaking: async () => {
+        const { ok, data } = await llamarApi('/api/matchmaking/estado');
+        if (!ok || !data?.success) return;
+        set({
+            matchmakingConfig: data,
+            busquedasVisibles: Array.isArray(data.busquedasVisibles) ? data.busquedasVisibles : [],
+            retoRecibido: data.retoRecibidoPendiente || null,
+            retoEnviado: data.retoEnviadoPendiente || null
+        });
+    },
+    setAvisoMatchmaking: (aviso) => set({ avisoMatchmaking: aviso }),
+    setRetoRecibido: (reto) => set({ retoRecibido: reto }),
     setMatchState: (newState) => set((state) => ({ matchState: { ...state.matchState, ...newState } })),
     clearMatchState: () => set({ 
+        retoRecibido: null,
+        retoEnviado: null,
         matchState: { inMatch: false, salaId: null, rival: null, gameMode: '', monto: 0, maxMonto: 10000, status: 'idle', rivalDesconectado: null, timerNegociacion: null }
     }),
 }));

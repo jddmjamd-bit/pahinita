@@ -135,8 +135,9 @@ public class AuthService {
         }
 
         String nombreClash = "";
+        JsonObject perfilClash = null;
         try {
-            JsonObject perfilClash = clashApi.verificarTag(playerTag);
+            perfilClash = clashApi.verificarTag(playerTag);
             if (perfilClash != null && perfilClash.has("name") && !perfilClash.get("name").isJsonNull()) {
                 nombreClash = ChatSanitizer.limpiarTexto(perfilClash.get("name").getAsString(), 60);
             }
@@ -169,7 +170,8 @@ public class AuthService {
             throw ServicioException.interno("No se pudo completar el registro", null);
         }
         if (eventos != null) {
-            eventos.emit(Eventos.USER_REGISTERED, new Eventos.UsuarioRegistrado(newId, username, nombreClash));
+            eventos.emit(Eventos.USER_REGISTERED, new Eventos.UsuarioRegistrado(
+                    newId, username, nombreClash, MatchmakingPuntaje.DatosClash.desdeJsonApi(perfilClash)));
         }
     }
 

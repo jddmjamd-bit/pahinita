@@ -102,6 +102,9 @@
 | Variable | Default | Rango | Descripción |
 |----------|---------|-------|-------------|
 | `BUSQUEDA_TIMEOUT_MINUTOS` | `10` | 1-1440 | Tiempo máximo de búsqueda de rival. |
+| `MATCHMAKING_MARGEN_FINAL_SEGUNDOS` | `120` | 0-1800 | Segundos mínimos antes del timeout en que llega la última oleada (grupo 5). |
+| `MATCHMAKING_CLASH_CACHE_MINUTOS` | `30` | 1-1440 | Minutos de caché de métricas Clash antes de refrescar en segundo plano. |
+| `MATCHMAKING_RETO_EXPIRACION_SEGUNDOS` | `90` | 15-600 | Tiempo para que el buscador confirme o rechace a un rival superior. |
 | `NEGOCIACION_GRACIA_DESCONEXION_SEGUNDOS` | `30` | 1-600 | Segundos de gracia tras desconexión en negociación antes de iniciar el conteo de abandono. |
 | `NEGOCIACION_DESCONEXION_SEGUNDOS` | `90` | 1-3600 | Timer de abandono por desconexión en negociación (corre pasado el margen de gracia). |
 | `NEGOCIACION_TIMER_ACCION_SEGUNDOS` | `150` | 2-3600 | Duración individual (2:30 por defecto) del temporizador opcional de acción en sala privada. |
@@ -311,6 +314,8 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | C17 | `negociacion_live` después de que ambos votaron | Bloqueado si ya hay 2 votos — **Bug 3 fix**. |
 | C18 | Exención única de desconexión al entrar a Discord desde sala privada *(lógica automatizada en `TemporizadorSalaServiceTest` y `RenderAcceptanceCheck`)* | Al abrir voz/bot de Discord en sala privada, esa primera desconexión no cuenta tiempo; si se desconecta una segunda vez en la misma sala sí aplica 30s de gracia + 90s de desconexión. |
 | C19 | Temporizador opcional individual de 2:30 en negociación *(lógica automatizada en `TemporizadorSalaServiceTest` y `RenderAcceptanceCheck`)* | Cualquiera de los dos puede activarlo en cualquier momento; enviar mensaje privado, cambiar modo/monto o presionar Comenzar/confirmar reinicia solo el propio reloj a 2:30 sin aumentar el del rival; llegar a 0 cancela la sala (`salidas_chat` +1). |
+| C20 | Matchmaking justo: oleadas progresivas, puntaje oculto y renormalización sin variables faltantes *(lógica automatizada en `MatchmakingPuntajeTest`, `MatchmakingServiceTest` y `RenderAcceptanceCheck`)* | Jugadores de igual o menor puntaje reciben aviso inmediato (Web/App/PC); los mejores (grupos 1..5) van recibiendo la notificación durante los 10 min dejando al grupo más alto 2 min antes de expirar (`480s`). Quien carece de win rate o Liga no es penalizado; las respuestas nunca exponen `puntaje_interno` numérico. |
+| C21 | Confirmación ante retador superior en Matchmaking Justo *(lógica automatizada en `MatchmakingServiceTest`, `RenderAcceptanceCheck` y contrato P12)* | Si un jugador de grupo superior intenta retar al buscador tras liberarse su oleada, se crea un reto en `matchmaking_challenges` y el buscador recibe alerta + modal (*"es mejor que tú... ¿aun así quieres jugar contra él?"*) en Web/App/PC; aceptar abre sala atómica y rechazar deja al buscador en cola. |
 
 ### 💬 D — Chat
 
@@ -453,6 +458,6 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 
 | # | Prueba | Resultado esperado |
 |---|--------|-------------------|
-| Q1 | Verificar `SELECT version, success FROM flyway_schema_history ORDER BY installed_rank` | V1 a V22, todas con `success = true`. |
-| Q2 | Arrancar con BD vacía | Flyway aplica las migraciones actuales (V1–V22) automáticamente. |
+| Q1 | Verificar `SELECT version, success FROM flyway_schema_history ORDER BY installed_rank` | V1 a V24, todas con `success = true`. |
+| Q2 | Arrancar con BD vacía | Flyway aplica las migraciones actuales (V1–V24) automáticamente. |
 | Q3 | V17 con duplicados existentes | Migración aborta con mensaje explicativo (no borra datos). |

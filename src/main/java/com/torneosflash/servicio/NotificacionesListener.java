@@ -20,7 +20,7 @@ public final class NotificacionesListener {
     public void registrar(EventBus bus) {
         bus.on(Eventos.CHAT_MESSAGE_PUBLISHED, "notificacion-chat-publico", this::mensajePublico);
         bus.on(Eventos.PRIVATE_MESSAGE_PUBLISHED, "notificacion-chat-privado", this::mensajePrivado);
-        bus.on(Eventos.MATCH_SEARCH_STARTED, "notificacion-busqueda-iniciada", this::busquedaIniciada);
+        // Las notificaciones iniciales y progresivas de búsqueda las gestiona MatchmakingService por oleadas (Prioridad 15).
         bus.on(Eventos.MATCH_SEARCH_ENDED, "notificacion-busqueda-terminada", this::busquedaTerminada);
         bus.on(Eventos.MATCH_ROOM_CREATED, "limpiar-aviso-busqueda-al-emparejar", this::emparejada);
         bus.on(Eventos.LEADERBOARD_CUT_COMPLETED, "notificacion-corte-ranking", this::corteRanking);
@@ -56,15 +56,6 @@ public final class NotificacionesListener {
         datos.addProperty("salaId", mensaje.salaId());
         notificaciones.notificar(mensaje.destinatarioId(), "partida", "Mensaje de " + mensaje.username(),
                 mensaje.preview(), "/match", "mensaje-privado:" + mensaje.messageId(), datos, true);
-    }
-
-    private void busquedaIniciada(EventBus.Evento evento) {
-        Eventos.BusquedaMatch busqueda = evento.datos(Eventos.BusquedaMatch.class);
-        if (busqueda == null || busqueda.userId() <= 0) return;
-        JsonObject datos = new JsonObject();
-        datos.addProperty("userId", busqueda.userId());
-        notificaciones.notificarATodos(Set.of(busqueda.userId()), "partida", "Alguien busca partida",
-                busqueda.username() + " está buscando rival.", "/match", claveBusqueda(busqueda.userId()), datos, true);
     }
 
     private void busquedaTerminada(EventBus.Evento evento) {

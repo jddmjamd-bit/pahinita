@@ -5,6 +5,7 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { Camera } from '@capacitor/camera';
 import { useAppStore } from '../store/useAppStore';
 import { activarRegistroPush, registrarTokenPush } from '../services/pushTokens';
+import { despacharAvisoCanales } from '../services/notificacionesCanales';
 
 export function useCapacitor() {
   const userId = useAppStore(state => state.user?.id ?? null);
@@ -57,6 +58,25 @@ export function useCapacitor() {
         });
         await agregarListener('registrationError', () => {
           if (activo) console.warn('Falló el registro de notificaciones push');
+        });
+        await agregarListener('pushNotificationReceived', notification => {
+          if (!activo) return;
+          const datos = notification?.data || {};
+          void despacharAvisoCanales({
+            titulo: notification?.title || 'TorneosFlash',
+            mensaje: notification?.body || '',
+            tag: datos.tag || '',
+            link: datos.link || '/match',
+            urgente: datos.tipoMatchmaking === 'reto_superior'
+          });
+          if (datos.tipoMatchmaking) {
+            void useAppStore.getState().cargarEstadoMatchmaking();
+          }
+        });
+        await agregarListener('pushNotificationActionPerformed', action => {
+          if (!activo || typeof window === 'undefined') return;
+          const ruta = action?.notification?.data?.link || '/match';
+          window.dispatchEvent(new CustomEvent('torneos:navegar', { detail: { ruta } }));
         });
         if (!activo) return;
         await PushNotifications.register();

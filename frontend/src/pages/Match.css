@@ -435,3 +435,81 @@
         flex-direction: column;
     }
 }
+
+.fair-matchmaking-panel {
+    margin-top: 26px;
+    padding: 18px;
+    text-align: left;
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+.mm-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+.mm-panel-header h4 { margin: 0 0 4px; color: var(--text-primary); }
+.mm-sub { margin: 0; font-size: 0.85rem; color: var(--text-secondary); }
+.mm-pc-btn { width: auto; padding: 8px 14px; font-size: 0.85rem; }
+.mm-pills-row, .mm-channels-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+.mm-pill, .mm-channel-badge {
+    font-size: 0.8rem;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+}
+.mm-pill.ok, .mm-channel-badge.activo {
+    border-color: rgba(16, 185, 129, 0.45);
+    color: var(--accent-success);
+}
+.mm-active-searches { margin-top: 14px; }
+.mm-active-searches h5 { margin: 0 0 10px; font-size: 0.92rem; color: var(--text-primary); }
+.mm-empty { font-size: 0.85rem; color: var(--text-secondary); margin: 0; }
+.mm-search-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.mm-search-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    flex-wrap: wrap;
+}
+.mm-search-info { display: flex; flex-direction: column; gap: 3px; }
+.mm-level-tag { font-size: 0.82rem; color: var(--text-secondary); }
+.mm-level-tag.mejor { color: var(--accent-success); }
+.mm-level-tag.rival-mejor { color: var(--accent-warning); }
+.mm-challenge-btn { width: auto; padding: 8px 14px; font-size: 0.85rem; }
+.mm-notice-banner, .mm-pending-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 16px;
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--accent-warning);
+    color: var(--text-primary);
+    text-align: left;
+    font-size: 0.88rem;
+}
+.mm-notice-close {
+    width: auto;
+    padding: 4px 8px;
+    background: transparent;
+    color: var(--text-secondary);
+}

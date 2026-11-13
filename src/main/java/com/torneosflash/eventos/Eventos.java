@@ -1,6 +1,7 @@
 package com.torneosflash.eventos;
 
 import com.torneosflash.servicio.ComisionService;
+import com.torneosflash.servicio.MatchmakingPuntaje;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -38,8 +39,13 @@ public final class Eventos {
      * @param userId      id de la cuenta creada en {@code users}
      * @param username    nombre de usuario registrado
      * @param nombreClash nombre público del perfil en Clash Royale (puede ser vacío)
+     * @param datosClash  snapshot inicial de trofeos/Path of Legends si ya se consultó al registrar (puede ser null)
      */
-    public record UsuarioRegistrado(int userId, String username, String nombreClash) {}
+    public record UsuarioRegistrado(int userId, String username, String nombreClash, MatchmakingPuntaje.DatosClash datosClash) {
+        public UsuarioRegistrado(int userId, String username, String nombreClash) {
+            this(userId, username, nombreClash, null);
+        }
+    }
 
     /**
      * Una partida terminó y ya se liquidó (el dinero ya se movió y el match quedó {@code finalizada} en la BD).

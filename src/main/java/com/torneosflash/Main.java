@@ -26,6 +26,8 @@ import com.torneosflash.servicio.DbAdminService;
 import com.torneosflash.servicio.FinanzasService;
 import com.torneosflash.servicio.LeaderboardService;
 import com.torneosflash.servicio.MediaService;
+import com.torneosflash.servicio.MatchmakingListener;
+import com.torneosflash.servicio.MatchmakingService;
 import com.torneosflash.servicio.NotificadorUsuarios;
 import com.torneosflash.servicio.NotificacionesListener;
 import com.torneosflash.servicio.NotificacionesService;
@@ -305,6 +307,8 @@ public class Main {
                 config.getAppBaseUrl());
         NotificadorUsuarios notificador = new NotificadorUsuarios(socketServer, db, pushService, notificaciones);
         new NotificacionesListener(notificaciones, db).registrar(eventBus);
+        MatchmakingService matchmakingService = new MatchmakingService(db, clashApi, notificaciones, config, ejecutores);
+        new MatchmakingListener(matchmakingService).registrarEn(eventBus);
         new CorreoAdminActividadListener(correo, db, config.getAppBaseUrl()).registrar(eventBus);
         CifradoTokenJugador cifradoTokenJugador = new CifradoTokenJugador(config.getJwtSecret());
         AuthService authService = new AuthService(usuarioDAO, db, clashApi, ejecutores, config, eventBus,
@@ -361,6 +365,7 @@ public class Main {
         RutasSorteos.register(app, sorteoService);
         RutasLeaderboard.register(app, leaderboardService);
         RutasNotificaciones.register(app, notificaciones, config);
+        RutasMatchmaking.register(app, matchmakingService);
         RutasComisiones.register(app, comisiones, validadorMonto);
         RutasMedia.register(app, mediaService);
         RutasChatbot.register(app, chatbotService, config, limitadorChatbot);
@@ -375,7 +380,7 @@ public class Main {
                 ejecutores.timers());
         temporizadorSala.registrar(eventBus);
         SocketHandler socketHandler = new SocketHandler(db, socketServer, clashApi, pushService, wallet, validadorMonto,
-                eventBus, config, ejecutores, temporizadorSala);
+                eventBus, config, ejecutores, temporizadorSala, matchmakingService);
         adminService.setSocketHandler(socketHandler);
         socketHandler.registrar();
 

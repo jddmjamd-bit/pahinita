@@ -50,8 +50,11 @@ public class AppConfig {
     private final Set<String> corsAllowedOrigins;
 
     // --- Temporizadores y límites de partidas/chat (A7). Los usa SocketHandler /
-    // TemporizadorSalaService. ---
+    // TemporizadorSalaService / MatchmakingService. ---
     private final int busquedaTimeoutMinutos;
+    private final int matchmakingMargenFinalSegundos;
+    private final int matchmakingClashCacheMinutos;
+    private final int matchmakingRetoExpiracionSegundos;
     private final int negociacionGraciaDesconexionSegundos;
     private final int negociacionDesconexionSegundos;
     private final int negociacionTimerAccionSegundos;
@@ -194,6 +197,9 @@ public class AppConfig {
         this.corsAllowedOrigins = construirOrigenesCors(this.appBaseUrl, getEnv("CORS_ALLOWED_ORIGINS", ""));
 
         this.busquedaTimeoutMinutos = getEnvEntero("BUSQUEDA_TIMEOUT_MINUTOS", 10, 1, 1440);
+        this.matchmakingMargenFinalSegundos = getEnvEntero("MATCHMAKING_MARGEN_FINAL_SEGUNDOS", 120, 0, 3600);
+        this.matchmakingClashCacheMinutos = getEnvEntero("MATCHMAKING_CLASH_CACHE_MINUTOS", 30, 1, 1440);
+        this.matchmakingRetoExpiracionSegundos = getEnvEntero("MATCHMAKING_RETO_EXPIRACION_SEGUNDOS", 90, 15, 600);
         this.negociacionGraciaDesconexionSegundos = getEnvEntero("NEGOCIACION_GRACIA_DESCONEXION_SEGUNDOS", 30, 1, 600);
         this.negociacionDesconexionSegundos = getEnvEntero("NEGOCIACION_DESCONEXION_SEGUNDOS", 90, 1, 3600);
         this.negociacionTimerAccionSegundos = getEnvEntero("NEGOCIACION_TIMER_ACCION_SEGUNDOS", 150, 2, 3600);
@@ -612,6 +618,19 @@ public class AppConfig {
 
     public int getBusquedaTimeoutMinutos() {
         return busquedaTimeoutMinutos;
+    }
+
+    /** Segundos finales del tiempo de búsqueda para que la última oleada llegue antes del cierre (default 120s = 2 min). */
+    public int getMatchmakingMargenFinalSegundos() {
+        return matchmakingMargenFinalSegundos;
+    }
+
+    public int getMatchmakingClashCacheMinutos() {
+        return matchmakingClashCacheMinutos;
+    }
+
+    public int getMatchmakingRetoExpiracionSegundos() {
+        return matchmakingRetoExpiracionSegundos;
     }
 
     public int getNegociacionGraciaDesconexionSegundos() {

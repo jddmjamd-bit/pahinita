@@ -562,6 +562,16 @@ export const PREGUNTAS = [
         ]
     },
     {
+        id: 'matchmaking-justo',
+        categoria: 'partidas',
+        pregunta: '¿Cómo funciona el matchmaking justo, las oleadas y los avisos de nivel?',
+        respuesta: [
+            'Cada jugador tiene un puntaje competitivo interno (privado, nunca se muestra el número exacto) calculado con su win rate en la plataforma, sus trofeos y Path of Legends / medallas mundiales de Clash Royale, y su liga de plataforma cuando el sistema de ligas esté activo. Si aún no tienes alguna de esas variables, simplemente se omite para no perjudicarte.',
+            'Cuando alguien busca partida, la notificación (por Web, App y PC) llega primero al instante a jugadores con nivel igual o inferior. A los jugadores superiores se les envía de forma progresiva por grupos de rango durante la ventana de búsqueda, garantizando que incluso los mejores la reciban al menos 2 minutos antes de cumplirse los 10 minutos de espera.',
+            'No verás un número exacto, sino qué tan por encima estás tú o el otro jugador. Si un rival superior quiere jugar contra ti, recibirás un aviso preguntando si aun así aceptas enfrentarlo.'
+        ]
+    },
+    {
         id: 'zona-pruebas-suscripcion',
         categoria: 'cuenta',
         pregunta: '¿Qué es la Zona de Pruebas (suscripción «prueba») y quién puede activarla?',

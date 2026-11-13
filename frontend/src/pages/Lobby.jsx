@@ -51,7 +51,10 @@ export default function Lobby() {
     const notificaciones = useAppStore(state => state.notificaciones);
     const notificacionesSinLeer = useAppStore(state => state.notificacionesSinLeer);
     const usuariosOnline = useAppStore(state => state.usuariosOnline);
+    const retoRecibido = useAppStore(state => state.retoRecibido);
+    const setRetoRecibido = useAppStore(state => state.setRetoRecibido);
     const cargarNotificaciones = useAppStore(state => state.cargarNotificaciones);
+    const cargarEstadoMatchmaking = useAppStore(state => state.cargarEstadoMatchmaking);
     const marcarCategoriaLeida = useAppStore(state => state.marcarCategoriaLeida);
     const marcarNotificacionLeida = useAppStore(state => state.marcarNotificacionLeida);
     const descartarNotificacion = useAppStore(state => state.descartarNotificacion);
@@ -87,12 +90,13 @@ export default function Lobby() {
     useEffect(() => {
         if (!currentUser?.id) return;
         void cargarNotificaciones();
+        void cargarEstadoMatchmaking();
         if (esNavegadorWeb && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
             void registrarPushNavegador(currentUser.id).then(resultado => {
                 if (resultado.token) setPushToken(resultado.token);
             });
         }
-    }, [currentUser?.id, cargarNotificaciones, esNavegadorWeb, setPushToken]);
+    }, [currentUser?.id, cargarNotificaciones, cargarEstadoMatchmaking, esNavegadorWeb, setPushToken]);
 
     useEffect(() => {
         const categoria = location.pathname === '/chat' ? 'chat'
@@ -236,6 +240,47 @@ export default function Lobby() {
                 )}
                 <Outlet />
             </main>
+
+            {retoRecibido && (
+                <div className="mm-challenge-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="mm-reto-titulo">
+                    <div className="mm-challenge-modal">
+                        <h3 id="mm-reto-titulo">⚠️ Rival superior quiere jugar contra ti</h3>
+                        <p>
+                            <strong>{retoRecibido.retadorUsername}</strong> es mejor que tú
+                            {retoRecibido.etiquetaNivel ? ` (${retoRecibido.etiquetaNivel})` : ''}.
+                        </p>
+                        <p className="mm-challenge-question">¿Aun así quieres jugar contra él?</p>
+                        <div className="mm-challenge-actions">
+                            <button
+                                type="button"
+                                className="mm-challenge-accept"
+                                onClick={() => {
+                                    socket?.emit('responder_reto_matchmaking', {
+                                        challengeId: retoRecibido.challengeId,
+                                        acepta: true
+                                    });
+                                    setRetoRecibido(null);
+                                }}
+                            >
+                                ✅ Sí, jugar igual
+                            </button>
+                            <button
+                                type="button"
+                                className="mm-challenge-decline"
+                                onClick={() => {
+                                    socket?.emit('responder_reto_matchmaking', {
+                                        challengeId: retoRecibido.challengeId,
+                                        acepta: false
+                                    });
+                                    setRetoRecibido(null);
+                                }}
+                            >
+                                ❌ No, seguir buscando
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {avisosEnVivo.length > 0 && (
                 <section className="live-notifications" aria-label="Avisos nuevos" aria-live="polite">

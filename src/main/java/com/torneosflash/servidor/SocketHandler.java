@@ -11,6 +11,8 @@ import com.torneosflash.eventos.EventBus;
 import com.torneosflash.eventos.Eventos;
 import com.torneosflash.servicio.ChatSanitizer;
 import com.torneosflash.servicio.ClashApiServicio;
+import com.torneosflash.servicio.MatchmakingPuntaje;
+import com.torneosflash.servicio.MatchmakingService;
 import com.torneosflash.servicio.NotificacionPushServicio;
 import com.torneosflash.servicio.RateLimiter;
 import com.torneosflash.servicio.TemporizadorSalaService;
@@ -60,18 +62,24 @@ public class SocketHandler {
     private final ScheduledExecutorService scheduler; // A8: temporizadores cortos (Ejecutores.timers()), nunca HTTP externo
     private final Ejecutores ejecutores; // A8: pool de IO para el sondeo de la API de Clash
     private final TemporizadorSalaService temporizadorSala;
+    private final MatchmakingService matchmaking;
     private final RateLimiter socketRateLimiter = new RateLimiter(); // A3: límite por usuario para eventos de socket
     private static final int LIMITE_CHAT_SOCKET_POR_MIN = 25;
     private static final int LIMITE_BUSQUEDA_SOCKET_POR_MIN = 6;
     private static final int LIMITE_TIMER_SOCKET_POR_MIN = 10;
+    private static final int LIMITE_RETO_SOCKET_POR_MIN = 12;
     private final Gson gson = new Gson();
 
     public SocketHandler(GenericDAO db, SocketIOServer io, ClashApiServicio clashApi, NotificacionPushServicio pushService, WalletService wallet, ValidadorMonto validador, EventBus eventos, AppConfig config, Ejecutores ejecutores) {
         this(db, io, clashApi, pushService, wallet, validador, eventos, config, ejecutores,
-                new TemporizadorSalaService(db, io, config, ejecutores.timers()));
+                new TemporizadorSalaService(db, io, config, ejecutores.timers()), null);
     }
 
     public SocketHandler(GenericDAO db, SocketIOServer io, ClashApiServicio clashApi, NotificacionPushServicio pushService, WalletService wallet, ValidadorMonto validador, EventBus eventos, AppConfig config, Ejecutores ejecutores, TemporizadorSalaService temporizadorSala) {
+        this(db, io, clashApi, pushService, wallet, validador, eventos, config, ejecutores, temporizadorSala, null);
+    }
+
+    public SocketHandler(GenericDAO db, SocketIOServer io, ClashApiServicio clashApi, NotificacionPushServicio pushService, WalletService wallet, ValidadorMonto validador, EventBus eventos, AppConfig config, Ejecutores ejecutores, TemporizadorSalaService temporizadorSala, MatchmakingService matchmaking) {
         this.db = db;
         this.io = io;
         this.clashApi = clashApi;
@@ -83,6 +91,9 @@ public class SocketHandler {
         this.ejecutores = ejecutores;
         this.scheduler = ejecutores.timers();
         this.temporizadorSala = temporizadorSala;
+        this.matchmaking = matchmaking != null
+                ? matchmaking
+                : new MatchmakingService(db, clashApi, null, config, ejecutores);
     }
 
     private EstadoZonaSocket estadoZonaActual() {
@@ -117,6 +128,24 @@ public class SocketHandler {
      * Registra todos los event handlers del Socket.IO server y recupera el estado persistido en BD (A2).
      */
     public void registrar() {
+        matchmaking.setPuenteSocket(new MatchmakingService.PuertoSocket() {
+            @Override
+            public void emitirBusquedaVisible(int receptorId, JsonObject payload) {
+                SocketIOClient destino = buscarSocketConectado(receptorId);
+                if (destino != null) {
+                    destino.emit("alguien_buscando", payload);
+                }
+            }
+
+            @Override
+            public void emitirEventoUsuario(int userId, String evento, JsonObject payload) {
+                SocketIOClient destino = buscarSocketConectado(userId);
+                if (destino != null) {
+                    destino.emit(evento, payload);
+                }
+            }
+        });
+
         List<Eventos.PartidaIniciada> partidasReconciliadas = wallet.reconciliarPartidasTorneoAlReiniciar();
         recuperarEstadoDesdeBD();
         for (Eventos.PartidaIniciada partida : partidasReconciliadas) {
@@ -198,14 +227,28 @@ public class SocketHandler {
                     if (nuevoUsuarioOnline) io.emit("usuarios_online", online);
                     logger.info("✅ Usuario " + username + " (" + userId + ") está ONLINE");
 
-                    // Enviar búsquedas activas de otros usuarios
+                    // Asegurar perfil de matchmaking y refrescar Clash API en segundo plano sin bloquear el socket
+                    matchmaking.asegurarYRecalcularPerfil(userId);
+                    matchmaking.refrescarClashEnSegundoPlano(userId, false);
+
+                    // Enviar únicamente búsquedas activas cuya oleada actual ya incluya a este usuario
                     for (Map.Entry<Integer, BusquedaActiva> entry : busquedasActivas().entrySet()) {
                         if (entry.getKey() != userId) {
-                            JsonObject bData = new JsonObject();
-                            bData.addProperty("username", entry.getValue().username);
-                            bData.addProperty("oderId", entry.getValue().userId);
-                            client.emit("alguien_buscando", bData);
+                            JsonObject visible = matchmaking.prepararBusquedaParaReceptor(
+                                    entry.getValue().userId,
+                                    entry.getValue().username,
+                                    userId,
+                                    entry.getValue().maxGrupoLiberado);
+                            if (visible != null) {
+                                client.emit("alguien_buscando", visible);
+                            }
                         }
+                    }
+
+                    // Si el usuario tiene un reto pendiente de un jugador superior, reenviarlo al reconectar
+                    JsonObject estadoMm = matchmaking.estadoMatchmakingUsuario(userId);
+                    if (estadoMm.has("retoRecibidoPendiente") && estadoMm.get("retoRecibidoPendiente").isJsonObject()) {
+                        client.emit("matchmaking_reto_recibido", estadoMm.getAsJsonObject("retoRecibidoPendiente"));
                     }
 
                     // Verificar si ESTE usuario tiene una búsqueda activa (reconexión o recuperación tras reinicio)
@@ -429,34 +472,194 @@ public class SocketHandler {
 
                         String username = row.get("username").getAsString();
                         final int busquedaMinutos = config.getBusquedaTimeoutMinutos();
-                        if (persistirBusquedaSiDisponible(userId, username, busquedaMinutos) != 1) {
+                        final int duracionTotalSeg = busquedaMinutos * 60;
+                        matchmaking.refrescarClashEnSegundoPlano(userId, false);
+                        double puntajeBuscador = matchmaking.obtenerPuntajeInternoYAsegurar(userId);
+
+                        if (persistirBusquedaSiDisponible(userId, username, busquedaMinutos, puntajeBuscador, duracionTotalSeg) != 1) {
                             emitirErrorSocket(client, "buscar_partida", "BUSQUEDA_NO_DISPONIBLE",
                                     "No se pudo iniciar la búsqueda. Actualiza el estado e inténtalo de nuevo.");
                             return;
                         }
 
                         colaEsperaClash().add(client);
-                        BusquedaActiva busqueda = new BusquedaActiva(userId, username, client);
+                        BusquedaActiva busqueda = new BusquedaActiva(userId, username, client, puntajeBuscador);
                         busquedasActivas().put(userId, busqueda);
 
                         // Timer de búsqueda (BUSQUEDA_TIMEOUT_MINUTOS, default 10) // A7
-                        programarTimeoutBusqueda(busqueda, busquedaMinutos * 60L, busquedaMinutos);
-
-                        // Notificar a todos
-                        JsonObject buscandoData = new JsonObject();
-                        buscandoData.addProperty("username", username);
-                        buscandoData.addProperty("oderId", userId);
-                        io.emit("alguien_buscando", buscandoData);
-                        eventos.emit(Eventos.MATCH_SEARCH_STARTED, new Eventos.BusquedaMatch(userId, username));
+                        programarTimeoutBusqueda(busqueda, duracionTotalSeg, busquedaMinutos);
 
                         logClash("🔍 " + username + " busca...");
 
-                        // intentarMatcheo es synchronized en esta misma instancia; el monitor es reentrante.
-                        intentarMatcheo(client, userId, row);
+                        // Emparaje inmediato SOLO si hay otro jugador en cola con nivel competitivo similar.
+                        intentarMatcheo(client, userId, row, puntajeBuscador);
+
+                        // Si sigue en búsqueda (no hubo match similar inmediato), lanzar oleadas progresivas Web/App/PC.
+                        if (busquedasActivas().get(userId) == busqueda) {
+                            programarOleadasBusqueda(busqueda, 0L, duracionTotalSeg);
+                            eventos.emit(Eventos.MATCH_SEARCH_STARTED, new Eventos.BusquedaMatch(userId, username));
+                        }
                     }
 
                 } catch (Exception e) {
                     logger.error("Error buscar_partida: {}", e.getMessage(), e);
+                }
+            });
+
+            // --- DESAFIAR BÚSQUEDA ACTIVA (MATCHMAKING JUSTO) ---
+            socket.on("desafiar_busqueda", (client, data) -> {
+                Integer retadorId = usuarioAutenticado(client, "desafiar_busqueda");
+                if (retadorId == null) return;
+                if (!socketRateLimiter.intentar("reto|" + retadorId, LIMITE_RETO_SOCKET_POR_MIN).isPermitido()) {
+                    emitirErrorSocket(client, "desafiar_busqueda", "RATE_LIMIT",
+                            "Demasiados intentos seguidos. Espera unos segundos.");
+                    return;
+                }
+                try {
+                    JsonObject req = (data != null && data.length > 0 && data[0] instanceof JsonElement el && el.isJsonObject())
+                            ? el.getAsJsonObject() : null;
+                    int buscadorId = (req != null && req.has("buscadorId") && !req.get("buscadorId").isJsonNull())
+                            ? req.get("buscadorId").getAsInt() : 0;
+                    if (buscadorId <= 0 || buscadorId == retadorId) {
+                        emitirErrorSocket(client, "desafiar_busqueda", "SOLICITUD_INVALIDA",
+                                "Selecciona una búsqueda válida para desafiar.");
+                        return;
+                    }
+
+                    JsonObject retadorRow = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", retadorId);
+                    BigDecimal minTorneo = validador.getMinTorneo();
+                    if (retadorRow == null || !retadorRow.has("saldo") || retadorRow.get("saldo").isJsonNull()
+                            || retadorRow.get("saldo").getAsBigDecimal().compareTo(minTorneo) < 0) {
+                        emitirErrorSocket(client, "desafiar_busqueda", "SALDO_INSUFICIENTE",
+                                "Saldo insuficiente (mínimo " + ValidadorMonto.formatear(minTorneo) + ")");
+                        return;
+                    }
+                    String retadorUsername = str(retadorRow, "username") != null ? str(retadorRow, "username") : "Jugador";
+
+                    synchronized (this) {
+                        if (estaEnPartidaActiva(retadorId) || estaEnPartidaPersistida(retadorId)) {
+                            emitirErrorSocket(client, "desafiar_busqueda", "YA_EN_PARTIDA",
+                                    "Ya estás en una sala o partida activa.");
+                            return;
+                        }
+
+                        MatchmakingService.ResultadoSolicitudReto resultado =
+                                matchmaking.solicitarRetoContraBuscador(retadorId, retadorUsername, buscadorId);
+
+                        if (resultado instanceof MatchmakingService.ResultadoSolicitudReto.Rechazado rech) {
+                            emitirErrorSocket(client, "desafiar_busqueda", rech.codigo(), rech.mensaje());
+                            return;
+                        }
+
+                        if (resultado instanceof MatchmakingService.ResultadoSolicitudReto.EsperandoConfirmacion esp) {
+                            JsonObject ack = new JsonObject();
+                            ack.addProperty("pendiente", true);
+                            ack.addProperty("challengeId", esp.challengeId());
+                            ack.addProperty("buscadorId", esp.buscadorId());
+                            ack.addProperty("buscadorUsername", esp.buscadorUsername());
+                            ack.addProperty("etiquetaNivel", esp.comparacion().etiquetaParaCandidato());
+                            ack.addProperty("expiraEnSegundos", esp.expiraSegundos());
+                            ack.addProperty("mensaje", "Como eres superior a " + esp.buscadorUsername()
+                                    + ", le preguntamos si aun así quiere jugar contra ti.");
+                            client.emit("matchmaking_reto_respuesta", ack);
+                            return;
+                        }
+
+                        if (resultado instanceof MatchmakingService.ResultadoSolicitudReto.EmpezarPartidaDirecta directa) {
+                            BusquedaActiva busc = busquedasActivas().get(directa.buscadorId());
+                            boolean creada = crearSalaEntreJugadores(
+                                    directa.retadorId(), retadorRow, client,
+                                    directa.buscadorId(), null, busc != null ? busc.socket : null);
+                            if (!creada) {
+                                emitirErrorSocket(client, "desafiar_busqueda", "NO_DISPONIBLE",
+                                        "No se pudo iniciar la sala en este momento. Inténtalo de nuevo.");
+                            } else {
+                                JsonObject ok = new JsonObject();
+                                ok.addProperty("aceptado", true);
+                                ok.addProperty("buscadorId", directa.buscadorId());
+                                client.emit("matchmaking_reto_respuesta", ok);
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.error("Error desafiar_busqueda (retadorId={}): {}", retadorId, e.getMessage(), e);
+                    emitirErrorSocket(client, "desafiar_busqueda", "ERROR_INTERNO",
+                            "No se pudo procesar el desafío. Inténtalo de nuevo.");
+                }
+            });
+
+            // --- RESPONDER RETO DE JUGADOR SUPERIOR (MATCHMAKING JUSTO) ---
+            socket.on("responder_reto_matchmaking", (client, data) -> {
+                Integer buscadorId = usuarioAutenticado(client, "responder_reto_matchmaking");
+                if (buscadorId == null) return;
+                if (!socketRateLimiter.intentar("resp_reto|" + buscadorId, LIMITE_RETO_SOCKET_POR_MIN).isPermitido()) {
+                    emitirErrorSocket(client, "responder_reto_matchmaking", "RATE_LIMIT",
+                            "Espera unos segundos antes de responder nuevamente.");
+                    return;
+                }
+                try {
+                    JsonObject req = (data != null && data.length > 0 && data[0] instanceof JsonElement el && el.isJsonObject())
+                            ? el.getAsJsonObject() : null;
+                    int challengeId = (req != null && req.has("challengeId") && !req.get("challengeId").isJsonNull())
+                            ? req.get("challengeId").getAsInt() : 0;
+                    boolean acepta = req != null && req.has("acepta") && !req.get("acepta").isJsonNull()
+                            && req.get("acepta").getAsBoolean();
+                    if (challengeId <= 0) {
+                        emitirErrorSocket(client, "responder_reto_matchmaking", "SOLICITUD_INVALIDA",
+                                "Solicitud de confirmación inválida.");
+                        return;
+                    }
+
+                    synchronized (this) {
+                        MatchmakingService.ResultadoRespuestaReto resp =
+                                matchmaking.responderRetoBuscador(buscadorId, challengeId, acepta);
+                        if (!resp.valido()) {
+                            emitirErrorSocket(client, "responder_reto_matchmaking", "RETO_NO_VALIDO",
+                                    resp.mensajeError());
+                            return;
+                        }
+
+                        JsonObject cierre = new JsonObject();
+                        cierre.addProperty("challengeId", challengeId);
+                        cierre.addProperty("aceptado", resp.aceptado());
+                        client.emit("matchmaking_reto_cerrado", cierre);
+
+                        if (!resp.aceptado()) {
+                            return;
+                        }
+
+                        if (!busquedasActivas().containsKey(buscadorId) && db.queryOne(
+                                "SELECT user_id FROM match_queue WHERE user_id = ? AND expira_en > CURRENT_TIMESTAMP",
+                                buscadorId) == null) {
+                            emitirErrorSocket(client, "responder_reto_matchmaking", "BUSQUEDA_TERMINADA",
+                                    "Tu búsqueda ya no está activa.");
+                            return;
+                        }
+
+                        boolean creada = crearSalaEntreJugadores(
+                                buscadorId, null, client,
+                                resp.retadorId(), null, buscarSocketConectado(resp.retadorId()));
+                        if (!creada) {
+                            emitirErrorSocket(client, "responder_reto_matchmaking", "RETADOR_NO_DISPONIBLE",
+                                    resp.retadorUsername() + " ya no está disponible o no cumple el saldo mínimo. Tu búsqueda sigue activa.");
+                            matchmaking.notificarRespuestaARetador(challengeId, false, buscadorId,
+                                    resp.buscadorUsername(), resp.retadorId(),
+                                    "No fue posible abrir la sala (saldo mínimo o partida simultánea).");
+                        } else {
+                            JsonObject okRetador = new JsonObject();
+                            okRetador.addProperty("challengeId", challengeId);
+                            okRetador.addProperty("aceptado", true);
+                            okRetador.addProperty("buscadorId", buscadorId);
+                            SocketIOClient retadorSocket = buscarSocketConectado(resp.retadorId());
+                            if (retadorSocket != null) {
+                                retadorSocket.emit("matchmaking_reto_respuesta", okRetador);
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.error("Error responder_reto_matchmaking (userId={}): {}", buscadorId, e.getMessage(), e);
+                    emitirErrorSocket(client, "responder_reto_matchmaking", "ERROR_INTERNO",
+                            "No se pudo procesar tu respuesta.");
                 }
             });
 
@@ -1088,7 +1291,9 @@ public class SocketHandler {
             }
 
             ArrayList<JsonObject> filasCola = db.query(
-                    "SELECT user_id, username, EXTRACT(EPOCH FROM (expira_en - CURRENT_TIMESTAMP)) AS segundos_restantes " +
+                    "SELECT user_id, username, puntaje_buscador, max_grupo_liberado, duracion_total_seg, " +
+                    "EXTRACT(EPOCH FROM (expira_en - CURRENT_TIMESTAMP)) AS segundos_restantes, " +
+                    "EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - creado_en)) AS segundos_transcurridos " +
                     "FROM match_queue ORDER BY creado_en ASC");
             int busquedasRecuperadas = 0;
 
@@ -1097,19 +1302,32 @@ public class SocketHandler {
                 String username = str(row, "username") != null ? str(row, "username") : "Jugador";
                 long segsRestantes = row.has("segundos_restantes") && !row.get("segundos_restantes").isJsonNull()
                         ? row.get("segundos_restantes").getAsBigDecimal().longValue() : 0L;
+                long segsTranscurridos = row.has("segundos_transcurridos") && !row.get("segundos_transcurridos").isJsonNull()
+                        ? Math.max(0L, row.get("segundos_transcurridos").getAsBigDecimal().longValue()) : 0L;
+                int duracionTotalSeg = row.has("duracion_total_seg") && !row.get("duracion_total_seg").isJsonNull()
+                        ? Math.max(10, row.get("duracion_total_seg").getAsInt())
+                        : config.getBusquedaTimeoutMinutos() * 60;
+                double puntajeBuscador = row.has("puntaje_buscador") && !row.get("puntaje_buscador").isJsonNull()
+                        ? row.get("puntaje_buscador").getAsDouble()
+                        : matchmaking.obtenerPuntajeInternoYAsegurar(userId);
+                int maxGrupo = row.has("max_grupo_liberado") && !row.get("max_grupo_liberado").isJsonNull()
+                        ? row.get("max_grupo_liberado").getAsInt() : 0;
 
                 if (segsRestantes <= 0 || estaEnPartidaActiva(userId)) {
                     db.update("DELETE FROM match_queue WHERE user_id = ?", userId);
+                    matchmaking.limpiarBusqueda(userId);
                     if (!estaEnPartidaActiva(userId)) {
                         db.update("UPDATE users SET estado = 'normal' WHERE id = ? AND estado = 'buscando_partida'", userId);
                     }
                     continue;
                 }
 
-                BusquedaActiva busqueda = new BusquedaActiva(userId, username, null);
+                BusquedaActiva busqueda = new BusquedaActiva(userId, username, null, puntajeBuscador);
+                busqueda.maxGrupoLiberado = maxGrupo;
                 busquedasActivas().put(userId, busqueda);
                 db.update("UPDATE users SET estado = 'buscando_partida' WHERE id = ?", userId);
                 programarTimeoutBusqueda(busqueda, segsRestantes, config.getBusquedaTimeoutMinutos());
+                programarOleadasBusqueda(busqueda, segsTranscurridos, duracionTotalSeg);
                 busquedasRecuperadas++;
             }
 
@@ -1164,8 +1382,39 @@ public class SocketHandler {
         }, Math.max(1L, delaySegundos), TimeUnit.SECONDS);
     }
 
+    private void programarOleadasBusqueda(BusquedaActiva busqueda, long segsTranscurridos, int duracionTotalSeg) {
+        if (busqueda == null) return;
+        int duracion = Math.max(10, duracionTotalSeg);
+        int margen = config.getMatchmakingMargenFinalSegundos();
+        int maxGrupoDebido = MatchmakingPuntaje.grupoMaximoPorTranscurrido(segsTranscurridos, duracion, margen);
+
+        if (!busqueda.oleadaInicialEnviada || busqueda.maxGrupoLiberado < maxGrupoDebido) {
+            busqueda.oleadaInicialEnviada = true;
+            busqueda.maxGrupoLiberado = Math.max(busqueda.maxGrupoLiberado, maxGrupoDebido);
+            final int grupoCatchUp = busqueda.maxGrupoLiberado;
+            ejecutores.ejecutarIO("mm-oleada-inicial", () -> {
+                if (busquedasActivas().get(busqueda.userId) == busqueda) {
+                    matchmaking.notificarGrupoOleada(busqueda.userId, busqueda.username, grupoCatchUp);
+                }
+            });
+        }
+
+        for (int g = Math.max(1, maxGrupoDebido + 1); g <= MatchmakingPuntaje.MAX_GRUPO_RANGO; g++) {
+            long objetivoSeg = MatchmakingPuntaje.calcularSegundosOleada(g, duracion, margen);
+            long delaySeg = Math.max(1L, objetivoSeg - Math.max(0L, segsTranscurridos));
+            final int grupoWave = g;
+            ScheduledFuture<?> waveFuture = scheduler.schedule(() -> ejecutores.ejecutarIO("mm-oleada-grupo-" + grupoWave, () -> {
+                if (busquedasActivas().get(busqueda.userId) == busqueda) {
+                    busqueda.maxGrupoLiberado = Math.max(busqueda.maxGrupoLiberado, grupoWave);
+                    matchmaking.notificarGrupoOleada(busqueda.userId, busqueda.username, grupoWave);
+                }
+            }), delaySeg, TimeUnit.SECONDS);
+            busqueda.waveFutures.add(waveFuture);
+        }
+    }
+
     /** Persiste estado y cola juntos; no deja al usuario buscando si no se creó la fila de cola. */
-    private int persistirBusquedaSiDisponible(int userId, String username, int busquedaMinutos) {
+    private int persistirBusquedaSiDisponible(int userId, String username, int busquedaMinutos, double puntajeBuscador, int duracionTotalSeg) {
         return db.update(
                 "WITH usuario_disponible AS (" +
                 "  UPDATE users u SET estado = 'buscando_partida' " +
@@ -1173,11 +1422,13 @@ public class SocketHandler {
                 "    AND NOT EXISTS (SELECT 1 FROM active_matches am WHERE am.player1_id = u.id OR am.player2_id = u.id) " +
                 "  RETURNING u.id" +
                 ") " +
-                "INSERT INTO match_queue (user_id, username, creado_en, expira_en) " +
-                "SELECT id, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + make_interval(mins => ?) FROM usuario_disponible " +
+                "INSERT INTO match_queue (user_id, username, puntaje_buscador, max_grupo_liberado, duracion_total_seg, creado_en, expira_en, margenes_actualizados_en) " +
+                "SELECT id, ?, ?, 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + make_interval(mins => ?), CURRENT_TIMESTAMP FROM usuario_disponible " +
                 "ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, " +
-                "creado_en = EXCLUDED.creado_en, expira_en = EXCLUDED.expira_en",
-                userId, username, busquedaMinutos);
+                "puntaje_buscador = EXCLUDED.puntaje_buscador, max_grupo_liberado = 0, " +
+                "duracion_total_seg = EXCLUDED.duracion_total_seg, creado_en = EXCLUDED.creado_en, " +
+                "expira_en = EXCLUDED.expira_en, margenes_actualizados_en = CURRENT_TIMESTAMP",
+                userId, username, puntajeBuscador, duracionTotalSeg, busquedaMinutos);
     }
 
     /** Cancela solo si persiste una búsqueda y el usuario no tiene una sala activa. */
@@ -1212,9 +1463,10 @@ public class SocketHandler {
         colaEsperaClash().removeIf(socket -> Objects.equals(idAutenticadoSocket(socket), userId));
         if (busqueda != null) {
             busquedasActivas().remove(userId, busqueda);
-            if (busqueda.timeoutFuture != null) busqueda.timeoutFuture.cancel(false);
+            busqueda.cancelarTimers();
         } else {
-            busquedasActivas().remove(userId);
+            BusquedaActiva previa = busquedasActivas().remove(userId);
+            if (previa != null) previa.cancelarTimers();
         }
     }
 
@@ -1370,77 +1622,125 @@ public class SocketHandler {
         }
     }
 
-    private synchronized void intentarMatcheo(SocketIOClient meSocket, int myId, JsonObject myData) {
+    private SocketIOClient buscarSocketConectado(int userId) {
+        for (SocketIOClient s : io.getSockets().values()) {
+            if (s != null && s.isConnected() && Objects.equals(idAutenticadoSocket(s), userId)) {
+                return s;
+            }
+        }
+        return null;
+    }
+
+    private synchronized void intentarMatcheo(SocketIOClient meSocket, int myId, JsonObject myData, double myPuntaje) {
         if (!busquedasActivas().containsKey(myId) || estaEnPartidaActiva(myId)) return;
         for (Map.Entry<Integer, BusquedaActiva> entry : busquedasActivas().entrySet()) {
             if (entry.getKey() != myId) {
                 BusquedaActiva rival = entry.getValue();
                 if (estaEnPartidaActiva(rival.userId)) continue;
-                SocketIOClient rivalSocket = rival.socket;
-                boolean rivalConectado = rivalSocket != null && rivalSocket.isConnected();
-
-                String myUsername = myData.get("username").getAsString();
-                // M1: Sufijo aleatorio de 4 cifras para evitar predecibilidad y colisiones en el mismo milisegundo (cumple ^sala_\d{1,20}$)
-                String salaId = "sala_" + System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(1000, 10000);
-                meSocket.setCurrentRoom(salaId);
-                meSocket.join(salaId);
-                if (rivalConectado) { rivalSocket.setCurrentRoom(salaId); rivalSocket.join(salaId); }
-
-                ActiveMatch match = new ActiveMatch(salaId, myId, myUsername, rival.userId, rival.username);
-                match.players.add(meSocket);
-                if (rivalSocket != null) {
-                    match.players.add(rivalSocket);
+                // Emparejamiento automático inmediato únicamente cuando ambos tienen nivel competitivo similar;
+                // si uno es mejor que el otro, se notifican por oleada/reto para mantener la confirmación previa.
+                if (!MatchmakingPuntaje.sonNivelSimilar(myPuntaje, rival.puntajeBuscador)) continue;
+                if (crearSalaEntreJugadores(myId, myData, meSocket, rival.userId, null, rival.socket)) {
+                    break;
                 }
-                activeMatches().put(salaId, match);
-                temporizadorSala.registrarSala(salaId, match);
-
-                // A2: Persistir la sala en active_matches y retirar a ambos de match_queue
-                db.update(
-                        "INSERT INTO active_matches (sala_id, player1_id, player1_username, player2_id, player2_username) " +
-                        "VALUES (?, ?, ?, ?, ?) ON CONFLICT (sala_id) DO NOTHING",
-                        salaId, myId, myUsername, rival.userId, rival.username);
-                db.update("DELETE FROM match_queue WHERE user_id IN (?, ?)", myId, rival.userId);
-
-                // Si el rival se emparejó estando temporalmente desconectado (ej. tras un reinicio), darle margen de reconexión
-                if (!rivalConectado) {
-                    temporizadorSala.alDesconectarEnNegociacion(salaId, match, rival.userId, rival.username, false);
-                }
-
-                JsonObject rivalData = db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", rival.userId);
-                BigDecimal miSaldo = myData.has("saldo") && !myData.get("saldo").isJsonNull()
-                        ? myData.get("saldo").getAsBigDecimal() : BigDecimal.ZERO;
-                BigDecimal rivalSaldo = rivalData != null && rivalData.has("saldo") && !rivalData.get("saldo").isJsonNull()
-                        ? rivalData.get("saldo").getAsBigDecimal() : BigDecimal.ZERO;
-                BigDecimal maxMonto = miSaldo.min(rivalSaldo); // REVIEW-MONEY
-
-                db.update("UPDATE users SET estado = 'partida_encontrada', sala_actual = ? WHERE id IN (?, ?)",
-                        salaId, myId, rival.userId);
-                logClash("⚔️ MATCH: " + myUsername + " vs " + rival.username);
-
-                JsonObject matchData = new JsonObject();
-                matchData.addProperty("salaId", salaId);
-                matchData.add("p1", UsuarioVista.paraRival(myData)); // S6: solo vista pública (sin password/email/teléfono/saldo)
-                matchData.add("p2", UsuarioVista.paraRival(rivalData));
-                matchData.addProperty("maxMonto", maxMonto);
-
-                meSocket.emit("partida_encontrada", matchData);
-                if (rivalConectado) rivalSocket.emit("partida_encontrada", matchData);
-                eventos.emit(Eventos.MATCH_ROOM_CREATED, new Eventos.SalaPartidaCreada(salaId, List.of(myId, rival.userId)));
-
-                // Limpiar búsquedas en memoria
-                colaEsperaClash().removeIf(s -> s.getUserData() != null &&
-                        (s.getUserData().get("id").getAsInt() == myId || s.getUserData().get("id").getAsInt() == rival.userId));
-                for (int playerId : new int[]{myId, rival.userId}) {
-                    BusquedaActiva b = busquedasActivas().remove(playerId);
-                    if (b != null && b.timeoutFuture != null) b.timeoutFuture.cancel(false);
-                    JsonObject cancelData = new JsonObject();
-                    cancelData.addProperty("oderId", playerId);
-                    cancelData.addProperty("username", b != null ? b.username : "");
-                    io.emit("busqueda_cancelada", cancelData);
-                }
-                break;
             }
         }
+    }
+
+    private synchronized boolean crearSalaEntreJugadores(
+            int p1Id, JsonObject p1RowOpt, SocketIOClient p1SocketOpt,
+            int p2Id, JsonObject p2RowOpt, SocketIOClient p2SocketOpt) {
+        if (p1Id <= 0 || p2Id <= 0 || p1Id == p2Id) return false;
+        if (estaEnPartidaActiva(p1Id) || estaEnPartidaActiva(p2Id)
+                || estaEnPartidaPersistida(p1Id) || estaEnPartidaPersistida(p2Id)) {
+            return false;
+        }
+
+        JsonObject p1Data = p1RowOpt != null
+                ? p1RowOpt
+                : db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", p1Id);
+        JsonObject p2Data = p2RowOpt != null
+                ? p2RowOpt
+                : db.queryOne("SELECT " + UsuarioVista.COLUMNAS_SESION + " FROM users WHERE id = ?", p2Id);
+        if (p1Data == null || p2Data == null) return false;
+
+        BigDecimal minTorneo = validador.getMinTorneo();
+        BigDecimal saldo1 = p1Data.has("saldo") && !p1Data.get("saldo").isJsonNull()
+                ? p1Data.get("saldo").getAsBigDecimal() : BigDecimal.ZERO;
+        BigDecimal saldo2 = p2Data.has("saldo") && !p2Data.get("saldo").isJsonNull()
+                ? p2Data.get("saldo").getAsBigDecimal() : BigDecimal.ZERO;
+        if (saldo1.compareTo(minTorneo) < 0 || saldo2.compareTo(minTorneo) < 0) {
+            return false;
+        }
+
+        SocketIOClient p1Socket = (p1SocketOpt != null && p1SocketOpt.isConnected())
+                ? p1SocketOpt : buscarSocketConectado(p1Id);
+        SocketIOClient p2Socket = (p2SocketOpt != null && p2SocketOpt.isConnected())
+                ? p2SocketOpt : buscarSocketConectado(p2Id);
+        boolean p1Conectado = p1Socket != null && p1Socket.isConnected();
+        boolean p2Conectado = p2Socket != null && p2Socket.isConnected();
+
+        String p1Username = str(p1Data, "username") != null ? str(p1Data, "username") : "Jugador 1";
+        String p2Username = str(p2Data, "username") != null ? str(p2Data, "username") : "Jugador 2";
+
+        // M1: Sufijo aleatorio de 4 cifras para evitar predecibilidad y colisiones en el mismo milisegundo (cumple ^sala_\d{1,20}$)
+        String salaId = "sala_" + System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(1000, 10000);
+        if (p1Conectado) {
+            p1Socket.setCurrentRoom(salaId);
+            p1Socket.join(salaId);
+        }
+        if (p2Conectado) {
+            p2Socket.setCurrentRoom(salaId);
+            p2Socket.join(salaId);
+        }
+
+        ActiveMatch match = new ActiveMatch(salaId, p1Id, p1Username, p2Id, p2Username);
+        if (p1Socket != null) match.players.add(p1Socket);
+        if (p2Socket != null) match.players.add(p2Socket);
+        activeMatches().put(salaId, match);
+        temporizadorSala.registrarSala(salaId, match);
+
+        // A2: Persistir la sala en active_matches y retirar a ambos de match_queue
+        db.update(
+                "INSERT INTO active_matches (sala_id, player1_id, player1_username, player2_id, player2_username) " +
+                "VALUES (?, ?, ?, ?, ?) ON CONFLICT (sala_id) DO NOTHING",
+                salaId, p1Id, p1Username, p2Id, p2Username);
+        db.update("DELETE FROM match_queue WHERE user_id IN (?, ?)", p1Id, p2Id);
+
+        if (!p1Conectado) {
+            temporizadorSala.alDesconectarEnNegociacion(salaId, match, p1Id, p1Username, false);
+        }
+        if (!p2Conectado) {
+            temporizadorSala.alDesconectarEnNegociacion(salaId, match, p2Id, p2Username, false);
+        }
+
+        BigDecimal maxMonto = saldo1.min(saldo2); // REVIEW-MONEY
+        db.update("UPDATE users SET estado = 'partida_encontrada', sala_actual = ? WHERE id IN (?, ?)",
+                salaId, p1Id, p2Id);
+        logClash("⚔️ MATCH: " + p1Username + " vs " + p2Username);
+
+        JsonObject matchData = new JsonObject();
+        matchData.addProperty("salaId", salaId);
+        matchData.add("p1", UsuarioVista.paraRival(p1Data)); // S6: solo vista pública (sin password/email/teléfono/saldo)
+        matchData.add("p2", UsuarioVista.paraRival(p2Data));
+        matchData.addProperty("maxMonto", maxMonto);
+
+        if (p1Conectado) p1Socket.emit("partida_encontrada", matchData);
+        if (p2Conectado) p2Socket.emit("partida_encontrada", matchData);
+        eventos.emit(Eventos.MATCH_ROOM_CREATED, new Eventos.SalaPartidaCreada(salaId, List.of(p1Id, p2Id)));
+
+        // Limpiar búsquedas en memoria
+        colaEsperaClash().removeIf(s -> s.getUserData() != null &&
+                (s.getUserData().get("id").getAsInt() == p1Id || s.getUserData().get("id").getAsInt() == p2Id));
+        for (int playerId : new int[]{p1Id, p2Id}) {
+            BusquedaActiva b = busquedasActivas().remove(playerId);
+            if (b != null) b.cancelarTimers();
+            JsonObject cancelData = new JsonObject();
+            cancelData.addProperty("oderId", playerId);
+            cancelData.addProperty("username", b != null ? b.username : (playerId == p1Id ? p1Username : p2Username));
+            io.emit("busqueda_cancelada", cancelData);
+        }
+        return true;
     }
 
     private void iniciarPollingApi(String salaId, ActiveMatch match, List<Integer> ids) {
@@ -1782,7 +2082,7 @@ public class SocketHandler {
         }
         estadoPrueba.activeMatches.clear();
         for (BusquedaActiva b : estadoPrueba.busquedasActivas.values()) {
-            if (b.timeoutFuture != null) b.timeoutFuture.cancel(false);
+            b.cancelarTimers();
         }
         estadoPrueba.busquedasActivas.clear();
         estadoPrueba.colaEsperaClash.clear();
@@ -1833,8 +2133,9 @@ public class SocketHandler {
         estAnterior.colaEsperaClash.removeIf(s -> Objects.equals(idAutenticadoSocket(s), userId));
         BusquedaActiva bPrev = estAnterior.busquedasActivas.remove(userId);
         if (bPrev != null) {
-            if (bPrev.timeoutFuture != null) bPrev.timeoutFuture.cancel(false);
+            bPrev.cancelarTimers();
             ConexionDB.ejecutarEnZona(zonaAnterior, () -> {
+                matchmaking.limpiarBusqueda(userId);
                 db.update("DELETE FROM match_queue WHERE user_id = ?", userId);
                 db.update("UPDATE users SET estado = 'normal' WHERE id = ? AND estado = 'buscando_partida'", userId);
                 JsonObject cancelData = new JsonObject();
@@ -2037,12 +2338,31 @@ public class SocketHandler {
         int userId;
         String username;
         SocketIOClient socket;
+        double puntajeBuscador;
+        volatile int maxGrupoLiberado;
+        volatile boolean oleadaInicialEnviada;
         ScheduledFuture<?> timeoutFuture;
+        final List<ScheduledFuture<?>> waveFutures = new CopyOnWriteArrayList<>();
 
         BusquedaActiva(int userId, String username, SocketIOClient socket) {
+            this(userId, username, socket, MatchmakingPuntaje.PUNTAJE_NEUTRO_DEFECTO);
+        }
+
+        BusquedaActiva(int userId, String username, SocketIOClient socket, double puntajeBuscador) {
             this.userId = userId;
             this.username = username;
             this.socket = socket;
+            this.puntajeBuscador = puntajeBuscador;
+        }
+
+        void cancelarTimers() {
+            if (timeoutFuture != null) {
+                timeoutFuture.cancel(false);
+            }
+            for (ScheduledFuture<?> wave : waveFutures) {
+                if (wave != null) wave.cancel(false);
+            }
+            waveFutures.clear();
         }
     }
 }

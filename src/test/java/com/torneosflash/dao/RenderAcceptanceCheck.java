@@ -1266,6 +1266,9 @@ class RenderAcceptanceCheck {
             assertTrue(acreditacion.isSuccess());
             assertMonto(new BigDecimal("15000"),
                     dao.queryOne("SELECT saldo FROM users WHERE id = ?", idTester).get("saldo").getAsBigDecimal());
+            new MatchmakingService(dao, null, null, config, ejecutores).asegurarYRecalcularPerfil(idTester);
+            assertTrue(dao.queryOne("SELECT COUNT(*) AS total FROM matchmaking_profiles WHERE user_id = ?", idTester)
+                    .get("total").getAsLong() >= 1L);
         });
 
         // Ninguna operación de la zona de pruebas contamina la base principal.
@@ -1291,10 +1294,95 @@ class RenderAcceptanceCheck {
         assertEquals(0L, resumenTrasReset.get("transacciones").getAsLong());
         assertEquals(0L, resumenTrasReset.get("partidas").getAsLong());
 
-        ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, () -> assertMonto(BigDecimal.ZERO,
-                dao.queryOne("SELECT saldo FROM users WHERE id = ?", idTester).get("saldo").getAsBigDecimal()));
+        ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, () -> {
+            assertMonto(BigDecimal.ZERO,
+                    dao.queryOne("SELECT saldo FROM users WHERE id = ?", idTester).get("saldo").getAsBigDecimal());
+            assertEquals(0L, dao.queryOne("SELECT COUNT(*) AS total FROM matchmaking_profiles")
+                    .get("total").getAsLong());
+            assertEquals(0L, dao.queryOne("SELECT COUNT(*) AS total FROM matchmaking_challenges")
+                    .get("total").getAsLong());
+        });
         assertMonto(new BigDecimal("50000"),
                 dao.queryOne("SELECT saldo FROM users WHERE id = ?", idTester).get("saldo").getAsBigDecimal());
+    }
+
+    @Test
+    void matchmakingJustoOleadasConfirmacionYNoExponePuntaje() {
+        String sufijo = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String nameBusc = "mm_busc_" + sufijo;
+        String nameSim = "mm_sim_" + sufijo;
+        String nameElite = "mm_elite_" + sufijo;
+        int idBusc = crearUsuario(nameBusc, "user", BigDecimal.ZERO);
+        int idSim = crearUsuario(nameSim, "user", BigDecimal.ZERO);
+        int idElite = crearUsuario(nameElite, "user", BigDecimal.ZERO);
+
+        dao.update("UPDATE users SET total_victorias = 0, total_derrotas = 0, total_partidas = 0, estado = 'buscando_partida' WHERE id = ?",
+                idBusc);
+        dao.update("UPDATE users SET total_victorias = 5, total_derrotas = 5, total_partidas = 10 WHERE id = ?",
+                idSim);
+        dao.update("UPDATE users SET total_victorias = 18, total_derrotas = 2, total_partidas = 20 WHERE id = ?",
+                idElite);
+
+        NotificacionesService notifSrv = new NotificacionesService(dao, io, null, "");
+        MatchmakingService mmSrv = new MatchmakingService(dao, null, notifSrv, config, ejecutores);
+
+        mmSrv.guardarDatosClashYRecalcular(idBusc,
+                new MatchmakingPuntaje.DatosClash(4200, 4300, null, null, null, null, null, null));
+        mmSrv.guardarDatosClashYRecalcular(idSim,
+                new MatchmakingPuntaje.DatosClash(4100, 4200, null, null, null, null, null, null));
+        mmSrv.guardarDatosClashYRecalcular(idElite,
+                new MatchmakingPuntaje.DatosClash(9200, 9500, 10, 2800, 10, 2900, 120, 90));
+
+        double scoreBusc = mmSrv.obtenerPuntajeInternoYAsegurar(idBusc);
+        dao.update(
+                "INSERT INTO match_queue (user_id, username, puntaje_buscador, max_grupo_liberado, duracion_total_seg, expira_en) " +
+                "VALUES (?, ?, ?, 0, 600, CURRENT_TIMESTAMP + INTERVAL '10 minutes') " +
+                "ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, puntaje_buscador = EXCLUDED.puntaje_buscador, " +
+                "max_grupo_liberado = 0, expira_en = EXCLUDED.expira_en",
+                idBusc, nameBusc, scoreBusc);
+
+        // Oleada 0: rival similar notificado; élite aún retenido
+        mmSrv.notificarGrupoOleada(idBusc, nameBusc, 0);
+        assertNotNull(dao.queryOne(
+                "SELECT id FROM matchmaking_search_notified WHERE buscador_id = ? AND receptor_id = ?",
+                idBusc, idSim));
+        assertNull(dao.queryOne(
+                "SELECT id FROM matchmaking_search_notified WHERE buscador_id = ? AND receptor_id = ?",
+                idBusc, idElite));
+
+        var bloqueado = mmSrv.solicitarRetoContraBuscador(idElite, nameElite, idBusc);
+        assertInstanceOf(MatchmakingService.ResultadoSolicitudReto.Rechazado.class, bloqueado);
+
+        // Oleada 5 (2 min antes del vencimiento): ahora sí llega al mejor jugador
+        mmSrv.notificarGrupoOleada(idBusc, nameBusc, MatchmakingPuntaje.MAX_GRUPO_RANGO);
+        JsonObject filaNotifElite = dao.queryOne(
+                "SELECT grupo_rango, es_receptor_mejor FROM matchmaking_search_notified WHERE buscador_id = ? AND receptor_id = ?",
+                idBusc, idElite);
+        assertNotNull(filaNotifElite);
+        assertTrue(filaNotifElite.get("es_receptor_mejor").getAsBoolean());
+
+        // El retador élite intenta jugar => pregunta al buscador si acepta enfrentar a un jugador mejor
+        var solicitud = mmSrv.solicitarRetoContraBuscador(idElite, nameElite, idBusc);
+        var esperando = assertInstanceOf(MatchmakingService.ResultadoSolicitudReto.EsperandoConfirmacion.class, solicitud);
+        assertNotNull(dao.queryOne(
+                "SELECT id FROM matchmaking_challenges WHERE id = ? AND estado = 'pendiente'",
+                esperando.challengeId()));
+
+        var rechazo = mmSrv.responderRetoBuscador(idBusc, esperando.challengeId(), false);
+        assertTrue(rechazo.valido());
+        assertFalse(rechazo.aceptado());
+        assertEquals("rechazado", dao.queryOne(
+                "SELECT estado FROM matchmaking_challenges WHERE id = ?", esperando.challengeId())
+                .get("estado").getAsString());
+
+        JsonObject estadoPublico = mmSrv.estadoMatchmakingUsuario(idElite);
+        assertTrue(estadoPublico.get("puntajeOculto").getAsBoolean());
+        assertFalse(estadoPublico.toString().contains("puntajeInterno"));
+        assertFalse(estadoPublico.toString().contains("puntaje_interno"));
+
+        mmSrv.limpiarBusqueda(idBusc);
+        dao.update("DELETE FROM match_queue WHERE user_id = ?", idBusc);
+        dao.update("UPDATE users SET estado = 'normal' WHERE id = ?", idBusc);
     }
 
     private static String tagPruebaUnico() {

@@ -150,7 +150,10 @@ TorneosFlash/
 | `legal_acceptances` | Registro de aceptación de documentos legales | `user_id`, `documento`, `version`, `aceptado_en` |
 | `support_tickets` | Tickets de "Hablar con el admin" (24.5) | `user_id`, `categoria` (pregunta/sugerencia/bug/cuenta/otro), `asunto`, `mensaje`, `estado` (abierto/resuelto), `respuesta`, `respondido_por`, `fecha_creacion`, `fecha_respuesta` |
 | `payment_evidences` | Comprobantes de retiros pagados que el admin publica en el canal «pagos» (7) | `transaction_id` (UNIQUE: una por retiro), `user_id` (a quien se pagó), `admin_id`, `monto`, `metodo`, `nota`, `imagen` (data URI base64), `fecha`. Usuario, monto y método se copian de la transacción |
-| `match_queue` | Cola de búsquedas de partida activas persistidas en BD (A2) | `id`, `user_id` (UNIQUE), `username`, `creado_en`, `expira_en` |
+| `match_queue` | Cola de búsquedas de partida activas persistidas en BD (A2, V24) | `id`, `user_id` (UNIQUE), `username`, `creado_en`, `expira_en`, `puntaje_buscador`, `max_grupo_liberado`, `duracion_total_seg`, `margenes_actualizados_en` |
+| `matchmaking_profiles` | Perfil competitivo oculto de matchmaking justo (V24) | `user_id` (PK), `clash_trophies`, `clash_best_trophies`, `clash_pol_*`, `clash_pol_rank`, `liga_clave`, `liga_nivel`, `liga_total_niveles`, `puntaje_interno` (nunca expuesto en respuestas), `tiene_win_rate`, `tiene_clash`, `tiene_liga`, `actualizado_en` |
+| `matchmaking_search_notified` | Deduplicación de avisos por oleada de búsqueda (V24) | `id`, `buscador_id`, `receptor_id`, `grupo_rango`, `es_receptor_mejor`, `etiqueta_nivel`, `notificado_en` |
+| `matchmaking_challenges` | Confirmaciones pendientes/resueltas cuando un rival superior solicita jugar contra el buscador (V24) | `id`, `buscador_id`, `retador_id`, `grupo_rango`, `diferencia_puntaje`, `etiqueta_para_buscador`, `etiqueta_para_retador`, `estado`, `expira_en`, `respondido_en` |
 | `active_matches` | Salas en negociación y partidas en curso persistidas en BD (A2, V21) | `id`, `sala_id` (UNIQUE), `player1_id`, `player2_id`, `iniciado`, `inicio_revision`, `monto`, `match_db_id`, `player_tag1`, `player_tag2`, `match_start_time`, `last_modo`, `last_dinero`, `votos_json`, `confirmaciones_json`, `poll_count`, `discord_exencion_p1`, `discord_exencion_p2`, `timer_activo`, `timer_activado_por`, `timer_p1_vence_en`, `timer_p2_vence_en` |
 
 **Tokens FCM en Capacitor:** `useCapacitor` escucha el evento nativo `registration`, conserva el token solo en memoria y lo registra en `POST /api/register-token` cuando existe una sesión; una renovación envía el token anterior para reemplazarlo en la misma transacción. Al cerrar sesión, el cliente incluye los tokens de este dispositivo en `POST /api/logout`, que los elimina por usuario antes de borrar la cookie. Los tokens que FCM invalide se eliminan al recibir el error correspondiente del proveedor.
@@ -191,6 +194,8 @@ sequenceDiagram
 > **Inicio de partida recuperable (V14):** `WalletService.iniciarPartidaTorneo()` bloquea la fila de `active_matches` y, en una única transacción, inserta `matches` con el `sala_id` único, descuenta ambos saldos, agrega los dos asientos al ledger y marca la sala iniciada con su `match_db_id`, tags y hora de inicio. Un reintento de la misma sala devuelve la partida persistida sin repetir el débito. Al arrancar, `reconciliarPartidasTorneoAlReiniciar()` vincula automáticamente una partida antigua solo si encuentra un único `matches` compatible posterior a la última actualización de la negociación y los dos movimientos correspondientes del ledger. Si hay más de un candidato, marca `inicio_revision` y conserva la sala bloqueada, sin cobrar ni eliminarla por timeout; requiere conciliación administrativa.
 
 **Validación del resultado de Clash:** `ClashApiServicio.findMatchingBattle()` solo correlaciona batallas posteriores al inicio de la partida, de tipos admitidos (`PvP`, amistosa, compañero de clan o torneo) y con exactamente un jugador en cada lado. Comprueba los dos tags normalizados y las coronas enteras. Si hay más de una batalla posible o el resultado no se puede validar, `SocketHandler` pasa la partida a disputa en vez de liquidar una elección ambigua. Formatos 2v2, guerras y desafíos no se aceptan.
+
+**Matchmaking justo por puntaje oculto y oleadas progresivas (Prioridad 15):** `MatchmakingPuntaje` calcula `puntaje_interno` (`[0, 1000]`) ponderando win rate de plataforma (`0.35`, suavizado bayesiano y omitido con `0` partidas), Liga de plataforma (`0.25`, omitida mientras no exista `Ligas 12.2` ni se llame `MatchmakingService.actualizarLigaUsuario(...)`) y Clash Royale (`0.40`, renormalizado entre copas, Path of Legends y ranking/medallas mundiales). El número exacto jamás se envía al frontend; `GET /api/matchmaking/estado` (`RutasMatchmaking`) y los sockets solo entregan bandas relativas (`grupoRango` 0–5, `nivelesDiferencia` y etiquetas cualitativas). Al buscar partida, los jugadores de igual o menor nivel (`grupo 0`) reciben notificación inmediata por Web (`user_notifications`), App (`Capacitor` Push + puente `LocalNotifications`) y PC (`Service Worker`/`Notification API`); los grupos superiores `1..5` se liberan de forma escalonada dentro de los `BUSQUEDA_TIMEOUT_MINUTOS` (10 min por defecto) garantizando que el grupo `5` llegue `MATCHMAKING_MARGEN_FINAL_SEGUNDOS` (2 min) antes de expirar (`0s`, `96s`, `192s`, `288s`, `384s`, `480s`). Cuando un jugador superior envía `desafiar_busqueda`, se registra un reto en `matchmaking_challenges` y el buscador decide (`responder_reto_matchmaking`) ante el aviso *"es mejor que tú... ¿aun así quieres jugar contra él?"*. `SocketHandler.recuperarEstadoDesdeBD()` reanuda también las oleadas pendientes según el tiempo transcurrido al reiniciar.
 
 ---
 
@@ -405,6 +410,9 @@ Toda configuración de despliegue se lee en `config/AppConfig` (nada de números
 | `SOCKET_IO_PORT` | `9092` | 0 - 65535 | Puerto interno donde escucha `netty-socketio` (Javalin expone `/socket.io/` en `PORT` y redirige internamente; si está ocupado elige uno libre) |
 | `SOCKET_IO_POLLING_MAX_CONCURRENT` | la mitad de `HTTP_MAX_THREADS` (32 por defecto) | 2–la mitad de `HTTP_MAX_THREADS` | Presupuesto total de solicitudes del puente HTTP long-polling, repartido por igual entre GET largos y POST de eventos; reserva al menos la mitad del pool HTTP para otras rutas. React usa WebSocket directo (`transports: ['websocket']`) |
 | `BUSQUEDA_TIMEOUT_MINUTOS` | `10` | 1 - 1440 | Minutos de búsqueda de rival antes de cancelarla (`SocketHandler`) |
+| `MATCHMAKING_MARGEN_FINAL_SEGUNDOS` | `120` | 0 - 1800 | Margen mínimo (2 min por defecto) entre la oleada final (grupo 5) y la expiración de la búsqueda (`MatchmakingPuntaje`) |
+| `MATCHMAKING_CLASH_CACHE_MINUTOS` | `30` | 1 - 1440 | Vigencia en minutos de la caché de métricas Clash antes de refrescar en segundo plano (`MatchmakingService`) |
+| `MATCHMAKING_RETO_EXPIRACION_SEGUNDOS` | `90` | 15 - 600 | Tiempo máximo que tiene el buscador para confirmar o rechazar un reto de un jugador superior |
 | `NEGOCIACION_GRACIA_DESCONEXION_SEGUNDOS` | `30` | 1 - 600 | Segundos de gracia tras caer el socket en negociación antes de iniciar el conteo de desconexión |
 | `NEGOCIACION_DESCONEXION_SEGUNDOS` | `90` | 1 - 3600 | Segundos que se espera a un jugador desconectado durante la negociación (pasada la gracia de 30 s) antes de cancelar el match |
 | `NEGOCIACION_TIMER_ACCION_SEGUNDOS` | `150` | 2 - 3600 | Duración individual (2:30 por defecto) del temporizador opcional de acción por jugador en la sala privada |
@@ -518,6 +526,8 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | `V20__voz_desde_sala_privada.sql` | Permite asociar `voice_channels` a `sala_id` desde la sala privada antes de existir `match_id` |
 | `V21__temporizadores_sala_y_gracia_discord.sql` | Persiste en `active_matches` el estado de exención única de Discord (`discord_exencion_p1/p2`) y los vencimientos individuales del temporizador opcional de 2:30 (`timer_*`) |
 | `V22__notificaciones_persistentes_y_posiciones_leaderboard.sql` | Crea el centro de avisos, snapshots públicos de ganadores de cortes y posiciones anteriores para movimientos del ranking |
+| `V23__zona_pruebas_y_suscripcion_prueba.sql` | Añade campos de zona activa y suscripción `prueba` para aislar la Zona de Pruebas administrativa |
+| `V24__matchmaking_justo.sql` | Crea `matchmaking_profiles`, `matchmaking_search_notified` y `matchmaking_challenges`, además de columnas de oleada y puntaje oculto en `match_queue` |
 
 **Cómo se comporta según el estado de la BD** (`baselineOnMigrate=true`, `baselineVersion=0`):
 
@@ -528,7 +538,7 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | Ya migrada | Aplica solo los scripts nuevos; si no hay, no hace nada |
 
 **Reglas**
-- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente número disponible es V23). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
+- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente número disponible es V25). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
 - **Nunca editar un `V*` ya aplicado:** Flyway guarda el checksum y `validateOnMigrate` hace fallar el arranque. Para corregir algo, una migración nueva.
 - **Fail-fast:** si una migración falla, `Main` loguea el error y sale con código 1 (no se sirve tráfico con el esquema a medias). Cada script corre en su propia transacción en PostgreSQL: si falla se revierte entero.
 - `cleanDisabled=true`: la app nunca puede ejecutar `flyway clean`.
@@ -563,6 +573,7 @@ RutasX (servidor/)                        XService (servicio/)
 | `RutasAdmin` | `AdminService` | Calcular la IP del cliente en `/check-ip` |
 | `RutasSorteos` | `SorteoService` | Leer el userId de la sesión JWT (`Peticion.userIdDeSesion`) en las rutas de consulta |
 | `RutasLeaderboard` | `LeaderboardService` | Nada más que parsear `periodo` / `userId` |
+| `RutasMatchmaking` | `MatchmakingService` | Leer el userId de sesión para `GET /api/matchmaking/estado` sin exponer puntajes numéricos |
 | `RutasNotificaciones` | `NotificacionesService` | Configuración pública del push web y operaciones autenticadas del centro (listar, leer, descartar) |
 | `RutasMedia` | `MediaService` | Headers de la respuesta (`Content-Range`, `nosniff`, caché) |
 | `RutasDbAdmin` | `DbAdminService` | Acceso al panel: clave `X-DB-Admin-Key`, bloqueo por IP, cabeceras de seguridad (S10) |
