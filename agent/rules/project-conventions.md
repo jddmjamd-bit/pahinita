@@ -184,7 +184,12 @@
 7. **Vocabulario (F5):** "monto", "torneo", "reto", "desafío". **Nunca** "apuesta"/"apostar" (frontend, backend, FAQ, prompts del chatbot y textos legales).
 8. Diseño: responsivo (`@media (max-width: ...)`), modo claro/oscuro con las variables CSS de `index.css` (`var(--...)`), sin colores sueltos.
 9. Capacitor: no usar APIs que rompan en nativo; `android/` e `ios/` son generados: no editarlos a mano salvo configuración necesaria.
-10. Invariantes críticas del frontend (sesión, persistencia, FAQ) se protegen con pruebas en `frontend/scripts/acceptance.test.js`.
+10. Invariantes críticas del frontend (sesión, persistencia, FAQ, Modo Vista Previa) se protegen con pruebas en `frontend/scripts/acceptance.test.js`.
+11. **Modo Vista Previa (`modoVistaPrevia` + `vistaPreviaDemo.js`):** toda pantalla o sección nueva de usuario (salvo `/admin`, que exige sesión real de admin) debe funcionar también en el Modo Vista Previa (`!user && modoVistaPrevia`), mostrando datos de ejemplo desde `frontend/src/data/vistaPreviaDemo.js` sin abrir Socket.IO ni llamar endpoints privados, y llamando a `solicitarAutenticacionVistaPrevia('...')` cuando el visitante intente interactuar.
+12. **Revisión visual obligatoria (PC y celular) en cada cambio visual:** cada vez que se modifique cualquier aspecto visual (`*.jsx`, `*.css`, layout, textos visibles, modales o estilos), **es obligatorio revisar visualmente cómo se ve antes de terminar**:
+    - Levantar el frontend (`npx vite preview` tras `npm run build` o `npm run dev`), entrar a `/auth`, oprimir **`👀 Ver vista previa de la página`** y recorrer las vistas tocadas.
+    - Comprobar tanto **vista de PC** (`~1280×800`) como **vista de celular** (`~390×844`, menú `☰`, scroll, botones y modales) verificando que no haya desbordes, elementos encimados, textos cortados ni pantallas en blanco.
+    - Usar el subagente `browser` (o capturas con Chrome headless `--headless --screenshot --window-size=...` si el puerto de depuración remota de Chrome no está activo), cerrar el servidor temporal al terminar y dejar constancia en **Verificación** del `CHANGELOG.md`.
 
 ## 16. Pruebas y verificación
 
@@ -265,7 +270,8 @@ El matchmaking justo (`MatchmakingPuntaje` y `MatchmakingService`) ya reserva la
 
 1. Compilar y verificar que no haya errores (sección 16).
 2. Verificar que el cambio funcione de punta a punta (incluyendo en la Zona de Pruebas / Sandbox cuando aplique): el frontend llama al endpoint correcto, el evento tiene listener, la migración corre.
-3. **No resumir** lo hecho en el chat. En cambio, agregar la entrada al inicio de `CHANGELOG.md` (debajo de la línea `---`) con el formato:
+3. **Si hubo cambios visuales o de interfaz**, realizar la **revisión visual obligatoria en PC y celular** (sección 15.12) entrando por el Modo Vista Previa (`👀 Ver vista previa de la página` en `/auth`) y actualizar `vistaPreviaDemo.js` si se agregaron vistas o estados nuevos.
+4. **No resumir** lo hecho en el chat. En cambio, agregar la entrada al inicio de `CHANGELOG.md` (debajo de la línea `---`) con el formato:
    ```
    ## AAAA-MM-DD — descripción corta (Modelo usado)
    - Cambio 1
@@ -273,15 +279,15 @@ El matchmaking justo (`MatchmakingPuntaje` y `MatchmakingService`) ya reserva la
    - **Verificación:** qué se ejecutó y qué queda pendiente
    Archivos: `archivo1.java`, `archivo2.jsx`
    ```
-4. Editar `ARCHITECTURE.md` solo si el cambio es significativo (tabla, endpoint, evento, variable de entorno, flujo o estructura de carpetas nuevos), en su sección correspondiente.
-5. Actualizar `GUIA_PRUEBAS_Y_VARIABLES.md` si hay variables nuevas o casos de prueba manual nuevos; **si la prueba manual nueva se puede simular o verificar por JUnit (`*Test.java` o `RenderAcceptanceCheck`), automatizarla ahí mismo sin dejarla solo manual**.
-6. Si completaste un ítem del roadmap, marcarlo como hecho en `analisis_y_roadmap.md`.
-7. Agregar el contenido de ayuda correspondiente (sección 17).
-8. Adaptar e integrar el cambio en la **Zona de Pruebas / Sandbox** (sección 18: `ConexionDB`, estado en memoria, tareas en `Main`, UI/store y verificación de aislamiento/reinicio).
-9. Ejecutar el archivo `actualizar-txt.bat`.
-10. Ejecutar `git diff --stat` y confirmar que solo se tocaron los archivos esperados (sin `.env`, secretos, `target/`, `contexto-txt/` ni builds).
-11. Notificar al usuario las verificaciones manuales que debe hacer.
-12. Seguir la regla de [auto-push](auto-push.md) (add, commit descriptivo en español con convencional commits, push a `main`) a no ser que se indique lo contrario.
+5. Editar `ARCHITECTURE.md` solo si el cambio es significativo (tabla, endpoint, evento, variable de entorno, flujo o estructura de carpetas nuevos), en su sección correspondiente.
+6. Actualizar `GUIA_PRUEBAS_Y_VARIABLES.md` si hay variables nuevas o casos de prueba manual nuevos; **si la prueba manual nueva se puede simular o verificar por JUnit (`*Test.java` o `RenderAcceptanceCheck`), automatizarla ahí mismo sin dejarla solo manual**.
+7. Si completaste un ítem del roadmap, marcarlo como hecho en `analisis_y_roadmap.md`.
+8. Agregar el contenido de ayuda correspondiente (sección 17).
+9. Adaptar e integrar el cambio en la **Zona de Pruebas / Sandbox** (sección 18: `ConexionDB`, estado en memoria, tareas en `Main`, UI/store y verificación de aislamiento/reinicio).
+10. Ejecutar el archivo `actualizar-txt.bat`.
+11. Ejecutar `git diff --stat` y confirmar que solo se tocaron los archivos esperados (sin `.env`, secretos, `target/`, `contexto-txt/` ni builds).
+12. Notificar al usuario las verificaciones manuales que debe hacer.
+13. Seguir la regla de [auto-push](auto-push.md) (add, commit descriptivo en español con convencional commits, push a `main`) a no ser que se indique lo contrario.
 
 ## 21. Checklist rápido de seguridad (antes de terminar)
 
@@ -297,6 +303,7 @@ El matchmaking justo (`MatchmakingPuntaje` y `MatchmakingService`) ya reserva la
 - [ ] Esquema por migración Flyway nueva con el número correcto.
 - [ ] Configuración en `AppConfig` y documentada.
 - [ ] Sin `innerHTML`, sin datos de usuario en `localStorage`, sin "apuesta".
+- [ ] Si hubo cambios visuales: actualizado `vistaPreviaDemo.js` (si aplica) y **revisada visualmente la interfaz en versión PC y celular** usando el Modo Vista Previa (sección 15.11 y 15.12).
 - [ ] Contenido de ayuda (sección 17) y **Zona de Pruebas / Sandbox** (sección 18) al día e integrados.
 - [ ] Simulaciones de JUnit (`RenderAcceptanceCheck` y `*Test.java`) revisadas contra restricciones reales de `V*.sql`, toda prueba manual automatizable cubierta en JUnit, y `clean verify` / `build` ejecutados.
 - [ ] `CHANGELOG.md` (y `ARCHITECTURE.md`/guía si aplica) actualizados.
