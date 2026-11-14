@@ -11,6 +11,23 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-14 — Sincronización y pruebas del sistema de referidos en Zona de Pruebas (`🧪`)
+- Sincronización bidireccional de vínculos de referidos en `ConexionDB.java`:
+  - `sincronizarUsuariosPruebaYAdmin()` y `sincronizarUsuarioConPruebas(int userId)` ahora también replican a la base aislada (`TEST_DATABASE_URL`) la cadena de referidores (`users.referido_por_id`) y las filas de la tabla `referrals` asociadas a cuentas `prueba`/`admin` (conservando intactos en la copia temporal sus saldos de prueba, configuración de `%` compartido y métricas acumuladas propias de la Zona de Pruebas).
+  - `resumenZonaPruebas()` agrega conteos temporales `referidos` y `pagosReferidos`.
+- Sincronización inmediata en registro y al consultar en Zona de Pruebas:
+  - `UsuarioDAO.registrarConAceptacionLegal`: al registrar una cuenta usando el código de un referidor con `tipo_suscripcion` `'prueba'` o `'admin'`, sincroniza de inmediato al nuevo usuario y su vínculo de referido en la Zona de Pruebas fuera de la transacción principal.
+  - `ReferidosService.obtenerResumenUsuario`: cuando se consulta en Zona de Pruebas, sincroniza la red de referidos del usuario y expone `tipoSuscripcion` en cada tarjeta de referido.
+  - `AdminService.estadisticas` y `AdminService.estadoZonaPruebas`: en Zona de Pruebas resincronizan referidos antes de calcular métricas y devuelven `codigo_referido`, `referido_por_id` y `referido_por_username` en el listado administrativo.
+- Visibilidad en frontend (`Referidos.jsx`, `Admin.jsx`):
+  - `Referidos.jsx` se refresca ante `zona_cambiada` y `zona_pruebas_reiniciada`, y en Zona de Pruebas muestra en cada referido un badge con su estado (`🧪 En Zona de Pruebas` vs `Zona Normal (free) · Pásalo a 'prueba' en Admin para jugar pruebas`).
+  - `Admin.jsx` (`test-zone`) muestra `Cód: ...` y `🎁 Referido por @...` por usuario y permite buscar por código o referidor.
+- Cobertura extendida en `RenderAcceptanceCheck.sistemaReferidosVinculaEnRegistroReparteComisionesYAcreditaAdminSinReferidor()`: valida promoción a `prueba`, registro directo con código de cuenta `prueba`, lectura en `AdminService.estadoZonaPruebas`, aislamiento de montos entre zonas y persistencia del vínculo tras `reiniciarZonaPruebas`.
+- **Verificación:**
+  - `.\mvnw.cmd clean verify`: compilación de 76 fuentes principales y 19 de prueba (`BUILD SUCCESS`, `77/77` pruebas Surefire locales aprobadas; `RenderAcceptanceCheck` compilado para ejecución contra PostgreSQL `TEST_DATABASE_URL` en despliegue).
+  - En `frontend/`: `npm.cmd run build` (`2.63s`), `npm.cmd run test:acceptance` (`14/14` contratos P2–P15), `npm.cmd run test:visual` (`3/3` pruebas headless en PC `1280×800` y celular `390×844` con inspección de las capturas de `/referidos`) y `npm.cmd run lint` (`0` errores, `54` advertencias previas en 36 archivos).
+Archivos: `src/main/java/com/torneosflash/dao/ConexionDB.java`, `src/main/java/com/torneosflash/dao/UsuarioDAO.java`, `src/main/java/com/torneosflash/servicio/ReferidosService.java`, `src/main/java/com/torneosflash/servicio/AdminService.java`, `frontend/src/pages/Referidos.jsx`, `frontend/src/pages/Admin.jsx`, `src/test/java/com/torneosflash/dao/RenderAcceptanceCheck.java`, `CHANGELOG.md`
+
 ## 2026-11-14 — Validación visual headless automatizada (`npm run test:visual`) y revisión visual de Referidos
 - Añadida `playwright-core` en `devDependencies` de `frontend/package.json` (sin descarga de binarios en `postinstall` para mantener rápido y compatible `npm ci` en `Dockerfile` sobre `node:22-alpine`) junto con el script `"test:visual": "node --test scripts/visual.test.js"`.
 - Creada la suite visual headless `frontend/scripts/visual.test.js`:

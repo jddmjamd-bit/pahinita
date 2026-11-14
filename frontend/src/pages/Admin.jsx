@@ -350,7 +350,9 @@ export default function Admin() {
         if (!q) return true;
         return (u.username || '').toLowerCase().includes(q)
             || (u.email || '').toLowerCase().includes(q)
-            || (u.tipo_suscripcion || '').toLowerCase().includes(q);
+            || (u.tipo_suscripcion || '').toLowerCase().includes(q)
+            || (u.codigo_referido || '').toLowerCase().includes(q)
+            || (u.referido_por_username || '').toLowerCase().includes(q);
     });
 
     return (
@@ -778,6 +780,8 @@ export default function Admin() {
                                                 </span>
                                                 <span className="user-email">
                                                     {u.email} · Saldo principal: ${formatearMonto(u.saldo)}
+                                                    {u.codigo_referido ? ` · Cód: ${u.codigo_referido}` : ''}
+                                                    {u.referido_por_username ? ` · 🎁 Referido por @${u.referido_por_username}` : ''}
                                                 </span>
                                             </div>
                                             <div className="test-zone-user-actions">

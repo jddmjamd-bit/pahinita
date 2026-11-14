@@ -108,9 +108,13 @@ export default function Referidos() {
         const refrescar = () => { void cargarResumen(); };
         socket.on('wallet_awarded', refrescar);
         socket.on('resultado_api', refrescar);
+        socket.on('zona_cambiada', refrescar);
+        socket.on('zona_pruebas_reiniciada', refrescar);
         return () => {
             socket.off('wallet_awarded', refrescar);
             socket.off('resultado_api', refrescar);
+            socket.off('zona_cambiada', refrescar);
+            socket.off('zona_pruebas_reiniciada', refrescar);
         };
     }, [socket, currentUser, cargarResumen]);
 
@@ -451,6 +455,13 @@ export default function Referidos() {
                                                         ? `% personalizado (${formatearPorcentaje(item.porcentajeCompartido)}%)`
                                                         : `Según tu % general (${formatearPorcentaje(item.porcentajeCompartido)}%)`}
                                                 </span>
+                                                {(currentUser?.en_zona_pruebas || currentUser?.zona_activa === 'prueba') && (
+                                                    <span className="referidos-item-badge">
+                                                        {item.tipoSuscripcion === 'prueba' || item.tipoSuscripcion === 'admin'
+                                                            ? '🧪 En Zona de Pruebas'
+                                                            : "Zona Normal (free) · Pásalo a 'prueba' en Admin para jugar pruebas"}
+                                                    </span>
+                                                )}
                                             </div>
                                             <span className="referidos-payout-sub">
                                                 Registrado: {formatearFecha(item.creadoEn)}

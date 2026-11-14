@@ -20,11 +20,13 @@ import java.sql.Timestamp;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -80,6 +82,7 @@ public class ConexionDB {
     private String esquemaPruebas;
     private final ConcurrentHashMap<Integer, String> usuariosSincronizadosPruebas = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Integer, EstadoZonaUsuario> cacheZonaUsuario = new ConcurrentHashMap<>();
+    private final Object lockSyncPruebas = new Object();
     private final AtomicBoolean adminsSincronizadosPruebas = new AtomicBoolean(false);
     private final AtomicBoolean restauracionActiva = new AtomicBoolean(false);
     private BloqueoOperacion bloqueoRestauracionActual;
@@ -878,47 +881,171 @@ public class ConexionDB {
         sincronizarUsuarioConPruebas(userId);
     }
 
-    /** Copia o actualiza la identidad y rol de todos los usuarios 'prueba' y 'admin' hacia la BD de pruebas. */
+    /** Copia o actualiza la identidad y relaciones de referidos de usuarios 'prueba' y 'admin' hacia la BD de pruebas. */
     public void sincronizarUsuariosPruebaYAdmin() {
         if (!tieneZonaPruebas()) return;
-        List<Integer> ids = new ArrayList<>();
+        Set<Integer> ids = new LinkedHashSet<>();
+        String sql = "SELECT DISTINCT id FROM (" +
+                "SELECT id FROM users WHERE LOWER(COALESCE(tipo_suscripcion, '')) IN ('prueba', 'admin') " +
+                "UNION " +
+                "SELECT r.referred_user_id AS id FROM referrals r " +
+                "JOIN users u ON u.id = r.referrer_user_id " +
+                "WHERE LOWER(COALESCE(u.tipo_suscripcion, '')) IN ('prueba', 'admin') " +
+                "UNION " +
+                "SELECT r.referrer_user_id AS id FROM referrals r " +
+                "JOIN users u ON u.id = r.referred_user_id " +
+                "WHERE LOWER(COALESCE(u.tipo_suscripcion, '')) IN ('prueba', 'admin') " +
+                "UNION " +
+                "SELECT u.referido_por_id AS id FROM users u " +
+                "WHERE u.referido_por_id IS NOT NULL " +
+                "AND LOWER(COALESCE(u.tipo_suscripcion, '')) IN ('prueba', 'admin') " +
+                "UNION " +
+                "SELECT u.id AS id FROM users u " +
+                "JOIN users ref ON ref.id = u.referido_por_id " +
+                "WHERE LOWER(COALESCE(ref.tipo_suscripcion, '')) IN ('prueba', 'admin')" +
+                ") AS sync_ids ORDER BY id ASC";
         try (Connection conn = getConnectionPrincipal();
-             PreparedStatement ps = conn.prepareStatement(
-                     "SELECT id FROM users WHERE LOWER(COALESCE(tipo_suscripcion, '')) IN ('prueba', 'admin') ORDER BY id ASC");
+             PreparedStatement ps = conn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
-                ids.add(rs.getInt("id"));
+                int id = rs.getInt("id");
+                if (id > 0) ids.add(id);
             }
         } catch (SQLException e) {
             logger.warn("No se pudieron listar los usuarios para sincronizar en pruebas: {}", e.getMessage());
             return;
         }
-        for (int id : ids) {
-            sincronizarUsuarioConPruebas(id);
-        }
+        sincronizarConjuntoConPruebas(ids);
         adminsSincronizadosPruebas.set(true);
     }
 
     /**
-     * Sincroniza la cuenta desde la BD principal hacia la copia temporal de pruebas conservando su mismo {@code id}
-     * y sin sobrescribir el saldo ni las estadísticas que ya tenga acumuladas en la zona de pruebas.
+     * Sincroniza la cuenta desde la BD principal hacia la copia temporal de pruebas conservando su mismo {@code id},
+     * junto con su referidor, sus referidos directos y los vínculos en {@code referrals}, sin sobrescribir el saldo,
+     * la configuración propia de pruebas ni las estadísticas ya acumuladas en la zona de pruebas.
      */
     public void sincronizarUsuarioConPruebas(int userId) {
         if (!tieneZonaPruebas() || userId <= 0) return;
-        try (Connection origen = getConnectionPrincipal();
-             PreparedStatement psLeer = origen.prepareStatement(
-                     "SELECT id, username, email, password, player_tag, telefono, " +
-                     "COALESCE(tipo_suscripcion, 'free') AS tipo_suscripcion, " +
-                     "COALESCE(player_tag_verificado, FALSE) AS player_tag_verificado, " +
-                     "player_tag_verificado_en, player_tag_verificado_por, " +
-                     "player_verification_token_ciphertext, " +
-                     "COALESCE(zona_admin, 'normal') AS zona_admin, " +
-                     "codigo_referido, COALESCE(referido_porcentaje_compartido, 0) AS referido_porcentaje_compartido, " +
-                     "COALESCE(referido_mensaje_corto, '') AS referido_mensaje_corto " +
-                     "FROM users WHERE id = ?")) {
+        Set<Integer> ids = new LinkedHashSet<>();
+        ids.add(userId);
+        try (Connection origen = getConnectionPrincipal()) {
+            try (PreparedStatement ps = origen.prepareStatement(
+                    "SELECT referido_por_id FROM users WHERE id = ? AND referido_por_id IS NOT NULL")) {
+                ps.setInt(1, userId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        int refId = rs.getInt("referido_por_id");
+                        if (refId > 0) ids.add(refId);
+                    }
+                }
+            }
+            try (PreparedStatement ps = origen.prepareStatement(
+                    "SELECT referrer_user_id, referred_user_id FROM referrals " +
+                    "WHERE referrer_user_id = ? OR referred_user_id = ?")) {
+                ps.setInt(1, userId);
+                ps.setInt(2, userId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        int ref = rs.getInt("referrer_user_id");
+                        int inv = rs.getInt("referred_user_id");
+                        if (ref > 0) ids.add(ref);
+                        if (inv > 0) ids.add(inv);
+                    }
+                }
+            }
+            try (PreparedStatement ps = origen.prepareStatement(
+                    "SELECT id FROM users WHERE referido_por_id = ?")) {
+                ps.setInt(1, userId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        int inv = rs.getInt("id");
+                        if (inv > 0) ids.add(inv);
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            logger.warn("No se pudieron consultar los referidos de {} para sincronizar en pruebas: {}",
+                    userId, e.getMessage());
+            return;
+        }
+        sincronizarConjuntoConPruebas(ids);
+    }
+
+    private record RelacionReferidoSync(int referrerUserId, int referredUserId, String codigoUsado,
+                                        BigDecimal porcentajeCompartido, boolean usaPersonalizado, Timestamp creadoEn) {}
+
+    private void sincronizarConjuntoConPruebas(Set<Integer> idsUsuarios) {
+        if (!tieneZonaPruebas() || idsUsuarios == null || idsUsuarios.isEmpty()) return;
+        TreeSet<Integer> ordenados = new TreeSet<>();
+        for (Integer id : idsUsuarios) {
+            if (id != null && id > 0) ordenados.add(id);
+        }
+        if (ordenados.isEmpty()) return;
+
+        synchronized (lockSyncPruebas) {
+            try (Connection origen = getConnectionPrincipal();
+                 Connection destino = getConnectionPruebas()) {
+                boolean auto = destino.getAutoCommit();
+                destino.setAutoCommit(false);
+                Map<Integer, String> sincronizados = new HashMap<>();
+                Map<Integer, Integer> referidoPorMap = new HashMap<>();
+                int maxId = 1;
+                try {
+                    for (int targetId : ordenados) {
+                        Integer refPorId = sincronizarFilaUsuarioEnPruebas(
+                                origen, destino, targetId, sincronizados);
+                        if (refPorId != null && refPorId > 0 && refPorId != targetId) {
+                            referidoPorMap.put(targetId, refPorId);
+                        }
+                        if (targetId > maxId) maxId = targetId;
+                    }
+
+                    if (!sincronizados.isEmpty()) {
+                        try (PreparedStatement psSeq = destino.prepareStatement(
+                                "SELECT setval(pg_get_serial_sequence('users', 'id'), " +
+                                "GREATEST(COALESCE((SELECT MAX(id) FROM users), 1), ?), true)")) {
+                            psSeq.setInt(1, maxId);
+                            try (ResultSet ignored = psSeq.executeQuery()) {
+                            }
+                        }
+
+                        sincronizarReferidoPorEnDestino(destino, referidoPorMap);
+                        sincronizarRelacionesReferidosEnPruebas(origen, destino, sincronizados.keySet());
+                    }
+
+                    destino.commit();
+                    usuariosSincronizadosPruebas.putAll(sincronizados);
+                    for (Integer syncedId : sincronizados.keySet()) {
+                        cacheZonaUsuario.remove(syncedId);
+                    }
+                } catch (SQLException e) {
+                    try { destino.rollback(); } catch (SQLException ignored) {}
+                    throw e;
+                } finally {
+                    try { destino.setAutoCommit(auto); } catch (SQLException ignored) {}
+                }
+            } catch (SQLException e) {
+                logger.warn("No se pudo sincronizar usuarios/referidos en la zona de pruebas: {}", e.getMessage());
+            }
+        }
+    }
+
+    private Integer sincronizarFilaUsuarioEnPruebas(Connection origen, Connection destino, int userId,
+                                                    Map<Integer, String> sincronizados) throws SQLException {
+        try (PreparedStatement psLeer = origen.prepareStatement(
+                "SELECT id, username, email, password, player_tag, telefono, " +
+                "COALESCE(tipo_suscripcion, 'free') AS tipo_suscripcion, " +
+                "COALESCE(player_tag_verificado, FALSE) AS player_tag_verificado, " +
+                "player_tag_verificado_en, player_tag_verificado_por, " +
+                "player_verification_token_ciphertext, " +
+                "COALESCE(zona_admin, 'normal') AS zona_admin, " +
+                "codigo_referido, referido_por_id, " +
+                "COALESCE(referido_porcentaje_compartido, 0) AS referido_porcentaje_compartido, " +
+                "COALESCE(referido_mensaje_corto, '') AS referido_mensaje_corto " +
+                "FROM users WHERE id = ?")) {
             psLeer.setInt(1, userId);
             try (ResultSet rs = psLeer.executeQuery()) {
-                if (!rs.next()) return;
+                if (!rs.next()) return null;
                 int id = rs.getInt("id");
                 String username = rs.getString("username");
                 String email = rs.getString("email");
@@ -933,122 +1060,201 @@ public class ConexionDB {
                 String tokenCipher = rs.getString("player_verification_token_ciphertext");
                 String zonaAdmin = normalizarZona(rs.getString("zona_admin"));
                 String codigoReferido = rs.getString("codigo_referido");
+                Integer referidoPorId = rs.getObject("referido_por_id") != null
+                        ? rs.getInt("referido_por_id") : null;
                 BigDecimal pctReferido = rs.getBigDecimal("referido_porcentaje_compartido");
                 String msgReferido = rs.getString("referido_mensaje_corto");
 
-                try (Connection destino = getConnectionPruebas()) {
-                    boolean auto = destino.getAutoCommit();
-                    destino.setAutoCommit(false);
-                    try {
-                        // Despeja posibles colisiones con datos sintéticos previos de distinto ID en la base de pruebas.
-                        try (PreparedStatement psDespejar = destino.prepareStatement(
-                                "UPDATE users SET username = 'legacy_u_' || id, " +
-                                "email = 'legacy_' || id || '@pruebas.invalid', " +
-                                "player_tag = NULL, telefono = NULL, " +
-                                "codigo_referido = 'LEG' || id::text " +
-                                "WHERE id <> ? AND (" +
-                                "LOWER(BTRIM(username)) = LOWER(BTRIM(?)) " +
-                                "OR LOWER(BTRIM(email)) = LOWER(BTRIM(?)) " +
-                                "OR (? IS NOT NULL AND BTRIM(?) <> '' AND UPPER(BTRIM(codigo_referido)) = UPPER(BTRIM(?))) " +
-                                "OR (? IS NOT NULL AND BTRIM(?) <> '' AND player_tag IS NOT NULL " +
-                                "    AND UPPER(REGEXP_REPLACE(BTRIM(player_tag), '^#+', '')) = UPPER(REGEXP_REPLACE(BTRIM(?), '^#+', ''))) " +
-                                "OR (? IS NOT NULL AND REGEXP_REPLACE(BTRIM(?), '[^0-9]', '', 'g') <> '' AND telefono IS NOT NULL " +
-                                "    AND REGEXP_REPLACE(BTRIM(telefono), '[^0-9]', '', 'g') = REGEXP_REPLACE(BTRIM(?), '[^0-9]', '', 'g'))" +
-                                ")")) {
-                            psDespejar.setInt(1, id);
-                            psDespejar.setString(2, username != null ? username : "");
-                            psDespejar.setString(3, email != null ? email : "");
-                            psDespejar.setString(4, codigoReferido);
-                            psDespejar.setString(5, codigoReferido != null ? codigoReferido : "");
-                            psDespejar.setString(6, codigoReferido != null ? codigoReferido : "");
-                            psDespejar.setString(7, playerTag);
-                            psDespejar.setString(8, playerTag != null ? playerTag : "");
-                            psDespejar.setString(9, playerTag != null ? playerTag : "");
-                            psDespejar.setString(10, telefono);
-                            psDespejar.setString(11, telefono != null ? telefono : "");
-                            psDespejar.setString(12, telefono != null ? telefono : "");
-                            psDespejar.executeUpdate();
-                        }
+                // Despeja posibles colisiones con datos sintéticos previos de distinto ID en la base de pruebas.
+                try (PreparedStatement psDespejar = destino.prepareStatement(
+                        "UPDATE users SET username = 'legacy_u_' || id, " +
+                        "email = 'legacy_' || id || '@pruebas.invalid', " +
+                        "player_tag = NULL, telefono = NULL, " +
+                        "codigo_referido = 'LEG' || id::text " +
+                        "WHERE id <> ? AND (" +
+                        "LOWER(BTRIM(username)) = LOWER(BTRIM(?)) " +
+                        "OR LOWER(BTRIM(email)) = LOWER(BTRIM(?)) " +
+                        "OR (? IS NOT NULL AND BTRIM(?) <> '' AND UPPER(BTRIM(codigo_referido)) = UPPER(BTRIM(?))) " +
+                        "OR (? IS NOT NULL AND BTRIM(?) <> '' AND player_tag IS NOT NULL " +
+                        "    AND UPPER(REGEXP_REPLACE(BTRIM(player_tag), '^#+', '')) = UPPER(REGEXP_REPLACE(BTRIM(?), '^#+', ''))) " +
+                        "OR (? IS NOT NULL AND REGEXP_REPLACE(BTRIM(?), '[^0-9]', '', 'g') <> '' AND telefono IS NOT NULL " +
+                        "    AND REGEXP_REPLACE(BTRIM(telefono), '[^0-9]', '', 'g') = REGEXP_REPLACE(BTRIM(?), '[^0-9]', '', 'g'))" +
+                        ")")) {
+                    psDespejar.setInt(1, id);
+                    psDespejar.setString(2, username != null ? username : "");
+                    psDespejar.setString(3, email != null ? email : "");
+                    psDespejar.setString(4, codigoReferido);
+                    psDespejar.setString(5, codigoReferido != null ? codigoReferido : "");
+                    psDespejar.setString(6, codigoReferido != null ? codigoReferido : "");
+                    psDespejar.setString(7, playerTag);
+                    psDespejar.setString(8, playerTag != null ? playerTag : "");
+                    psDespejar.setString(9, playerTag != null ? playerTag : "");
+                    psDespejar.setString(10, telefono);
+                    psDespejar.setString(11, telefono != null ? telefono : "");
+                    psDespejar.setString(12, telefono != null ? telefono : "");
+                    psDespejar.executeUpdate();
+                }
 
-                        // Si tagVerificadoPor apunta a un usuario que aún no está en la BD de pruebas, se deja NULL.
-                        Integer verificadoPorSeguro = null;
-                        if (tagVerificadoPor != null && tagVerificadoPor > 0) {
-                            if (tagVerificadoPor == id) {
-                                verificadoPorSeguro = id;
-                            } else {
-                                try (PreparedStatement psCheck = destino.prepareStatement(
-                                        "SELECT 1 FROM users WHERE id = ?")) {
-                                    psCheck.setInt(1, tagVerificadoPor);
-                                    try (ResultSet rsCheck = psCheck.executeQuery()) {
-                                        if (rsCheck.next()) verificadoPorSeguro = tagVerificadoPor;
-                                    }
-                                }
-                            }
-                        }
+                // Si tagVerificadoPor apunta a un usuario que aún no está en la BD de pruebas, se deja NULL.
+                Integer verificadoPorSeguro = null;
+                if (tagVerificadoPor != null && tagVerificadoPor > 0) {
+                    if (tagVerificadoPor == id || usuarioExisteEnDestino(destino, tagVerificadoPor)) {
+                        verificadoPorSeguro = tagVerificadoPor;
+                    }
+                }
 
-                        try (PreparedStatement psUpsert = destino.prepareStatement(
-                                "INSERT INTO users (id, username, email, password, player_tag, telefono, saldo, " +
-                                "tipo_suscripcion, estado, player_tag_verificado, player_tag_verificado_en, " +
-                                "player_tag_verificado_por, player_verification_token_ciphertext, zona_admin, " +
-                                "codigo_referido, referido_porcentaje_compartido, referido_mensaje_corto) " +
-                                "VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'normal', ?, ?, ?, ?, ?, ?, ?, ?) " +
-                                "ON CONFLICT (id) DO UPDATE SET " +
-                                "username = EXCLUDED.username, " +
-                                "email = EXCLUDED.email, " +
-                                "password = EXCLUDED.password, " +
-                                "player_tag = EXCLUDED.player_tag, " +
-                                "telefono = EXCLUDED.telefono, " +
-                                "tipo_suscripcion = EXCLUDED.tipo_suscripcion, " +
-                                "player_tag_verificado = EXCLUDED.player_tag_verificado, " +
-                                "player_tag_verificado_en = EXCLUDED.player_tag_verificado_en, " +
-                                "player_tag_verificado_por = EXCLUDED.player_tag_verificado_por, " +
-                                "player_verification_token_ciphertext = EXCLUDED.player_verification_token_ciphertext, " +
-                                "zona_admin = EXCLUDED.zona_admin, " +
-                                "codigo_referido = EXCLUDED.codigo_referido")) {
-                            psUpsert.setInt(1, id);
-                            psUpsert.setString(2, username);
-                            psUpsert.setString(3, email);
-                            psUpsert.setString(4, password);
-                            psUpsert.setString(5, playerTag);
-                            psUpsert.setString(6, telefono);
-                            psUpsert.setString(7, tipoSuscripcion);
-                            psUpsert.setBoolean(8, tagVerificado);
-                            psUpsert.setTimestamp(9, tagVerificadoEn);
-                            if (verificadoPorSeguro != null) {
-                                psUpsert.setInt(10, verificadoPorSeguro);
-                            } else {
-                                psUpsert.setNull(10, Types.INTEGER);
-                            }
-                            psUpsert.setString(11, tokenCipher);
-                            psUpsert.setString(12, zonaAdmin);
-                            psUpsert.setString(13, codigoReferido);
-                            psUpsert.setBigDecimal(14, pctReferido != null ? pctReferido : BigDecimal.ZERO);
-                            psUpsert.setString(15, msgReferido != null ? msgReferido : "");
-                            psUpsert.executeUpdate();
-                        }
+                try (PreparedStatement psUpsert = destino.prepareStatement(
+                        "INSERT INTO users (id, username, email, password, player_tag, telefono, saldo, " +
+                        "tipo_suscripcion, estado, player_tag_verificado, player_tag_verificado_en, " +
+                        "player_tag_verificado_por, player_verification_token_ciphertext, zona_admin, " +
+                        "codigo_referido, referido_porcentaje_compartido, referido_mensaje_corto) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'normal', ?, ?, ?, ?, ?, ?, ?, ?) " +
+                        "ON CONFLICT (id) DO UPDATE SET " +
+                        "username = EXCLUDED.username, " +
+                        "email = EXCLUDED.email, " +
+                        "password = EXCLUDED.password, " +
+                        "player_tag = EXCLUDED.player_tag, " +
+                        "telefono = EXCLUDED.telefono, " +
+                        "tipo_suscripcion = EXCLUDED.tipo_suscripcion, " +
+                        "player_tag_verificado = EXCLUDED.player_tag_verificado, " +
+                        "player_tag_verificado_en = EXCLUDED.player_tag_verificado_en, " +
+                        "player_tag_verificado_por = EXCLUDED.player_tag_verificado_por, " +
+                        "player_verification_token_ciphertext = EXCLUDED.player_verification_token_ciphertext, " +
+                        "zona_admin = EXCLUDED.zona_admin, " +
+                        "codigo_referido = EXCLUDED.codigo_referido")) {
+                    psUpsert.setInt(1, id);
+                    psUpsert.setString(2, username);
+                    psUpsert.setString(3, email);
+                    psUpsert.setString(4, password);
+                    psUpsert.setString(5, playerTag);
+                    psUpsert.setString(6, telefono);
+                    psUpsert.setString(7, tipoSuscripcion);
+                    psUpsert.setBoolean(8, tagVerificado);
+                    psUpsert.setTimestamp(9, tagVerificadoEn);
+                    if (verificadoPorSeguro != null) {
+                        psUpsert.setInt(10, verificadoPorSeguro);
+                    } else {
+                        psUpsert.setNull(10, Types.INTEGER);
+                    }
+                    psUpsert.setString(11, tokenCipher);
+                    psUpsert.setString(12, zonaAdmin);
+                    psUpsert.setString(13, codigoReferido);
+                    psUpsert.setBigDecimal(14, normalizarPorcentajeReferido(pctReferido));
+                    psUpsert.setString(15, msgReferido != null ? msgReferido : "");
+                    psUpsert.executeUpdate();
+                }
 
-                        try (PreparedStatement psSeq = destino.prepareStatement(
-                                "SELECT setval(pg_get_serial_sequence('users', 'id'), " +
-                                "GREATEST(COALESCE((SELECT MAX(id) FROM users), 1), ?), true)")) {
-                            psSeq.setInt(1, id);
-                            try (ResultSet ignored = psSeq.executeQuery()) {
-                            }
-                        }
+                sincronizados.put(id, tipoSuscripcion);
+                return referidoPorId;
+            }
+        }
+    }
 
-                        destino.commit();
-                        usuariosSincronizadosPruebas.put(id, tipoSuscripcion);
-                        cacheZonaUsuario.remove(id);
-                    } catch (SQLException e) {
-                        try { destino.rollback(); } catch (SQLException ignored) {}
-                        throw e;
-                    } finally {
-                        try { destino.setAutoCommit(auto); } catch (SQLException ignored) {}
+    private static void sincronizarReferidoPorEnDestino(Connection destino,
+                                                        Map<Integer, Integer> referidoPorMap) throws SQLException {
+        if (referidoPorMap.isEmpty()) return;
+        try (PreparedStatement psUpd = destino.prepareStatement(
+                "UPDATE users SET referido_por_id = ? WHERE id = ? AND ? <> id AND referido_por_id IS DISTINCT FROM ?")) {
+            for (Map.Entry<Integer, Integer> entry : referidoPorMap.entrySet()) {
+                int userId = entry.getKey();
+                int refPorId = entry.getValue();
+                if (!usuarioExisteEnDestino(destino, refPorId)) continue;
+                psUpd.setInt(1, refPorId);
+                psUpd.setInt(2, userId);
+                psUpd.setInt(3, refPorId);
+                psUpd.setInt(4, refPorId);
+                psUpd.executeUpdate();
+            }
+        }
+    }
+
+    private static void sincronizarRelacionesReferidosEnPruebas(Connection origen, Connection destino,
+                                                                Set<Integer> idsSincronizados) throws SQLException {
+        if (idsSincronizados.isEmpty()) return;
+        Map<Integer, RelacionReferidoSync> relaciones = new HashMap<>();
+        try (PreparedStatement psLeer = origen.prepareStatement(
+                "SELECT referrer_user_id, referred_user_id, codigo_usado, porcentaje_compartido, " +
+                "usa_porcentaje_personalizado, creado_en " +
+                "FROM referrals WHERE referrer_user_id = ? OR referred_user_id = ?")) {
+            for (int uid : idsSincronizados) {
+                psLeer.setInt(1, uid);
+                psLeer.setInt(2, uid);
+                try (ResultSet rs = psLeer.executeQuery()) {
+                    while (rs.next()) {
+                        int referrerId = rs.getInt("referrer_user_id");
+                        int referredId = rs.getInt("referred_user_id");
+                        if (referrerId <= 0 || referredId <= 0 || referrerId == referredId) continue;
+                        relaciones.putIfAbsent(referredId, new RelacionReferidoSync(
+                                referrerId,
+                                referredId,
+                                rs.getString("codigo_usado"),
+                                rs.getBigDecimal("porcentaje_compartido"),
+                                rs.getBoolean("usa_porcentaje_personalizado"),
+                                rs.getTimestamp("creado_en")));
                     }
                 }
             }
-        } catch (SQLException e) {
-            logger.warn("No se pudo sincronizar el usuario {} en la zona de pruebas: {}", userId, e.getMessage());
         }
+        if (relaciones.isEmpty()) return;
+
+        try (PreparedStatement psPctDestino = destino.prepareStatement(
+                     "SELECT COALESCE(referido_porcentaje_compartido, 0) AS pct FROM users WHERE id = ?");
+             PreparedStatement psUpsert = destino.prepareStatement(
+                     "INSERT INTO referrals (referrer_user_id, referred_user_id, codigo_usado, " +
+                     "porcentaje_compartido, usa_porcentaje_personalizado, creado_en) " +
+                     "VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP)) " +
+                     "ON CONFLICT (referred_user_id) DO UPDATE SET " +
+                     "referrer_user_id = EXCLUDED.referrer_user_id, " +
+                     "codigo_usado = EXCLUDED.codigo_usado")) {
+            for (RelacionReferidoSync rel : relaciones.values()) {
+                if (!usuarioExisteEnDestino(destino, rel.referrerUserId())
+                        || !usuarioExisteEnDestino(destino, rel.referredUserId())) {
+                    continue;
+                }
+                BigDecimal pctInicial = normalizarPorcentajeReferido(rel.porcentajeCompartido());
+                if (!rel.usaPersonalizado()) {
+                    psPctDestino.setInt(1, rel.referrerUserId());
+                    try (ResultSet rsPct = psPctDestino.executeQuery()) {
+                        if (rsPct.next()) {
+                            pctInicial = normalizarPorcentajeReferido(rsPct.getBigDecimal("pct"));
+                        }
+                    }
+                }
+                String codigoUsado = rel.codigoUsado() == null ? "" : rel.codigoUsado().trim();
+                if (codigoUsado.length() > 24) codigoUsado = codigoUsado.substring(0, 24);
+                psUpsert.setInt(1, rel.referrerUserId());
+                psUpsert.setInt(2, rel.referredUserId());
+                psUpsert.setString(3, codigoUsado);
+                psUpsert.setBigDecimal(4, pctInicial);
+                psUpsert.setBoolean(5, rel.usaPersonalizado());
+                if (rel.creadoEn() != null) psUpsert.setTimestamp(6, rel.creadoEn());
+                else psUpsert.setNull(6, Types.TIMESTAMP);
+                psUpsert.executeUpdate();
+            }
+        }
+
+        try (PreparedStatement psSeq = destino.prepareStatement(
+                "SELECT setval(pg_get_serial_sequence('referrals', 'id'), " +
+                "GREATEST(COALESCE((SELECT MAX(id) FROM referrals), 1), 1), true)");
+             ResultSet ignored = psSeq.executeQuery()) {
+        }
+    }
+
+    private static boolean usuarioExisteEnDestino(Connection destino, int userId) throws SQLException {
+        if (userId <= 0) return false;
+        try (PreparedStatement ps = destino.prepareStatement("SELECT 1 FROM users WHERE id = ?")) {
+            ps.setInt(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
+    private static BigDecimal normalizarPorcentajeReferido(BigDecimal pct) {
+        if (pct == null) return BigDecimal.ZERO;
+        if (pct.compareTo(BigDecimal.ZERO) < 0) return BigDecimal.ZERO;
+        BigDecimal cien = BigDecimal.valueOf(100);
+        return pct.compareTo(cien) > 0 ? cien : pct;
     }
 
     /**
@@ -1066,6 +1272,8 @@ public class ConexionDB {
             res.addProperty("sorteos", 0);
             res.addProperty("ticketsSoporte", 0);
             res.addProperty("movimientosLedger", 0);
+            res.addProperty("referidos", 0);
+            res.addProperty("pagosReferidos", 0);
             res.addProperty("saldoTotalPruebas", BigDecimal.ZERO);
             return res;
         }
@@ -1078,6 +1286,8 @@ public class ConexionDB {
             res.addProperty("sorteos", contarFilas(conn, "SELECT COUNT(*) FROM raffles"));
             res.addProperty("ticketsSoporte", contarFilas(conn, "SELECT COUNT(*) FROM support_tickets"));
             res.addProperty("movimientosLedger", contarFilas(conn, "SELECT COUNT(*) FROM wallet_ledger"));
+            res.addProperty("referidos", contarFilas(conn, "SELECT COUNT(*) FROM referrals"));
+            res.addProperty("pagosReferidos", contarFilas(conn, "SELECT COUNT(*) FROM referral_payouts"));
             try (PreparedStatement ps = conn.prepareStatement("SELECT COALESCE(SUM(saldo), 0) FROM users");
                  ResultSet rs = ps.executeQuery()) {
                 BigDecimal total = rs.next() && rs.getBigDecimal(1) != null ? rs.getBigDecimal(1) : BigDecimal.ZERO;

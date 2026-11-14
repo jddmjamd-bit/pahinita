@@ -3,6 +3,7 @@ package com.torneosflash.servicio;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
+import com.torneosflash.dao.ConexionDB;
 import com.torneosflash.dao.GenericDAO;
 import com.torneosflash.dao.UsuarioDAO;
 
@@ -68,6 +69,12 @@ public class ReferidosService {
         if (userId <= 0) {
             throw new ServicioException(401, "Debes iniciar sesión");
         }
+        if (ConexionDB.esZonaPrueba()) {
+            ConexionDB connDb = usuarios != null ? usuarios.getConexionDB() : ConexionDB.getInstancia();
+            if (connDb != null && connDb.tieneZonaPruebas()) {
+                connDb.sincronizarUsuarioConPruebas(userId);
+            }
+        }
         JsonObject usuario = db.queryOne(
                 "SELECT id, username, codigo_referido, " +
                 "COALESCE(referido_porcentaje_compartido, 0) AS porcentaje_compartido, " +
@@ -91,7 +98,8 @@ public class ReferidosService {
         String mensajeCorto = mensajeGuardado.isBlank() ? MENSAJE_CORTO_DEFECTO : mensajeGuardado;
 
         List<JsonObject> filasReferidos = db.query(
-                "SELECT r.id, r.referred_user_id, u.username, r.codigo_usado, r.porcentaje_compartido, " +
+                "SELECT r.id, r.referred_user_id, u.username, COALESCE(u.tipo_suscripcion, 'free') AS tipo_suscripcion, " +
+                "r.codigo_usado, r.porcentaje_compartido, " +
                 "r.usa_porcentaje_personalizado, r.partidas_jugadas, r.total_comision_referido, " +
                 "r.total_ganado_referidor, r.total_devuelto_referido, r.creado_en " +
                 "FROM referrals r " +
@@ -123,6 +131,7 @@ public class ReferidosService {
             JsonObject item = new JsonObject();
             item.addProperty("referredUserId", entero(fila, "referred_user_id"));
             item.addProperty("username", str(fila, "username"));
+            item.addProperty("tipoSuscripcion", str(fila, "tipo_suscripcion"));
             item.addProperty("codigoUsado", str(fila, "codigo_usado"));
             item.addProperty("porcentajeCompartido", normalizarPorcentaje(decimal(fila, "porcentaje_compartido")));
             item.addProperty("usaPorcentajePersonalizado",

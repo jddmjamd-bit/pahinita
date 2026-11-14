@@ -537,6 +537,9 @@ public class UsuarioDAO {
     public int registrarConAceptacionLegal(String username, String email, String passwordHash, String playerTag,
                                            String telefono, String versionTerminos, String versionPrivacidad,
                                            String tokenJugadorCifrado, String codigoReferido) {
+        int usuarioCreadoId = -2;
+        int referrerIdParaSync = 0;
+        boolean referidorEsPruebaOAdmin = false;
         try (Connection conn = conexionPrincipal()) {
             conn.setAutoCommit(false);
             try {
@@ -583,6 +586,8 @@ public class UsuarioDAO {
                         psRef.setBigDecimal(4, referidor.porcentajeCompartido());
                         psRef.executeUpdate();
                     }
+                    referrerIdParaSync = referidor.userId();
+                    referidorEsPruebaOAdmin = esCuentaPruebaOAdmin(conn, referrerIdParaSync);
                 }
                 try (PreparedStatement ps = conn.prepareStatement(
                         "INSERT INTO legal_acceptances (user_id, documento, version) VALUES (?, 'terminos', ?), (?, 'privacidad', ?)")) {
@@ -593,7 +598,7 @@ public class UsuarioDAO {
                     ps.executeUpdate();
                 }
                 conn.commit();
-                return newId;
+                usuarioCreadoId = newId;
             } catch (Exception e) {
                 try {
                     conn.rollback();
@@ -614,6 +619,27 @@ public class UsuarioDAO {
         } catch (Exception e) {
             logger.error("Error obteniendo conexión para registrar usuario: {}", e.getMessage());
             return -2;
+        }
+        // Sincronizar fuera de la transacción principal para evitar doble checkout simultáneo en el pool.
+        if (usuarioCreadoId > 0 && referidorEsPruebaOAdmin && db != null && db.tieneZonaPruebas()) {
+            db.invalidarCacheUsuario(referrerIdParaSync);
+            db.sincronizarUsuarioConPruebas(usuarioCreadoId);
+        }
+        return usuarioCreadoId;
+    }
+
+    private boolean esCuentaPruebaOAdmin(Connection conn, int userId) {
+        if (userId <= 0) return false;
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT COALESCE(tipo_suscripcion, 'free') AS tipo_suscripcion FROM users WHERE id = ?")) {
+            ps.setInt(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return false;
+                String tipo = rs.getString("tipo_suscripcion");
+                return "prueba".equalsIgnoreCase(tipo) || "admin".equalsIgnoreCase(tipo);
+            }
+        } catch (Exception e) {
+            return false;
         }
     }
 

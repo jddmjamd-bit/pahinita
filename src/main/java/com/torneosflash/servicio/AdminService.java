@@ -149,6 +149,9 @@ public class AdminService {
         stats.addProperty("zonaActiva", ConexionDB.zonaActual());
         stats.addProperty("enZonaPruebas", ConexionDB.esZonaPrueba());
         stats.addProperty("zonaPruebasDisponible", connDb != null && connDb.tieneZonaPruebas());
+        if (ConexionDB.esZonaPrueba() && connDb != null && connDb.tieneZonaPruebas()) {
+            connDb.sincronizarUsuariosPruebaYAdmin();
+        }
 
         // Dinero en circulación = suma de saldos de todos los usuarios // REVIEW-MONEY
         JsonObject saldoSum = db.queryOne("SELECT COALESCE(SUM(saldo),0) as total FROM users");
@@ -280,8 +283,12 @@ public class AdminService {
         if (connDb != null) {
             try (Connection connPrin = connDb.getConnectionPrincipal();
                  PreparedStatement ps = connPrin.prepareStatement(
-                         "SELECT id, username, email, player_tag, saldo, tipo_suscripcion, zona_admin, estado " +
-                         "FROM users ORDER BY id ASC");
+                         "SELECT u.id, u.username, u.email, u.player_tag, u.saldo, u.tipo_suscripcion, " +
+                         "u.zona_admin, u.estado, u.codigo_referido, u.referido_por_id, " +
+                         "ur.username AS referido_por_username " +
+                         "FROM users u " +
+                         "LEFT JOIN users ur ON ur.id = u.referido_por_id " +
+                         "ORDER BY u.id ASC");
                  ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     int id = rs.getInt("id");
@@ -297,6 +304,11 @@ public class AdminService {
                     u.addProperty("tipo_suscripcion", tipo != null ? tipo : ConexionDB.SUSCRIPCION_FREE);
                     u.addProperty("zona_admin", rs.getString("zona_admin"));
                     u.addProperty("estado", rs.getString("estado"));
+                    u.addProperty("codigo_referido", rs.getString("codigo_referido"));
+                    Object refPorObj = rs.getObject("referido_por_id");
+                    Number refPorNum = refPorObj instanceof Number num ? num.intValue() : null;
+                    u.addProperty("referido_por_id", refPorNum);
+                    u.addProperty("referido_por_username", rs.getString("referido_por_username"));
                     u.addProperty("en_copia_pruebas", saldosPrueba.containsKey(id));
                     usuariosArr.add(u);
                 }

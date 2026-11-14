@@ -1579,6 +1579,66 @@ class RenderAcceptanceCheck {
         JsonObject itemReferido = trasPersonalizar.getAsJsonArray("referidos").get(0).getAsJsonObject();
         assertTrue(itemReferido.get("usaPorcentajePersonalizado").getAsBoolean());
         assertMonto(new BigDecimal("100.00"), itemReferido.get("porcentajeCompartido").getAsBigDecimal());
+
+        // Zona de Pruebas: sincroniza referidos de cuentas 'prueba'/'admin' sin mezclar saldos ni métricas reales.
+        admin.cambiarSuscripcionUsuario(adminId, referidorId, "prueba");
+        ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, () -> {
+            JsonObject resumenPruebaAntes = refSrv.obtenerResumenUsuario(referidorId);
+            JsonObject statsPruebaAntes = resumenPruebaAntes.getAsJsonObject("estadisticas");
+            assertEquals(1, statsPruebaAntes.get("totalReferidos").getAsInt());
+            assertEquals(0, statsPruebaAntes.get("referidosActivos").getAsInt());
+            assertEquals(0, statsPruebaAntes.get("totalPartidasReferidos").getAsInt());
+            assertMonto(BigDecimal.ZERO, statsPruebaAntes.get("totalGanadoReferidor").getAsBigDecimal());
+            JsonObject itemPrueba = resumenPruebaAntes.getAsJsonArray("referidos").get(0).getAsJsonObject();
+            assertEquals(refInvUsername, itemPrueba.get("username").getAsString());
+            assertEquals("free", itemPrueba.get("tipoSuscripcion").getAsString());
+        });
+
+        // Nuevo registro con código de cuenta 'prueba' queda sincronizado de inmediato en Zona de Pruebas.
+        String refInvPruebaUsername = "qa_ref_prb_" + sufijo;
+        String telefonoRefPrueba = "3" + String.format("%09d", 100_000_000
+                + Math.floorMod(CONTADOR_TELEFONOS_TEST.getAndIncrement(), 900_000_000));
+        auth.registrar(refInvPruebaUsername, refInvPruebaUsername + "@example.test", "ClaveSegura!123",
+                tagPruebaUnico(), telefonoRefPrueba, "token-ref-prueba", true, codigoReferidor);
+
+        ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, () -> {
+            JsonObject vinculoDirecto = dao.queryOne(
+                    "SELECT r.referrer_user_id FROM referrals r "
+                            + "JOIN users u ON u.id = r.referred_user_id WHERE u.username = ?",
+                    refInvPruebaUsername);
+            assertNotNull(vinculoDirecto,
+                    "Registrar con código de cuenta 'prueba' debe sincronizar el vínculo de referido al instante en Zona de Pruebas.");
+            assertEquals(referidorId, vinculoDirecto.get("referrer_user_id").getAsInt());
+
+            JsonObject resumenPruebaDespues = refSrv.obtenerResumenUsuario(referidorId);
+            JsonObject statsPruebaDespues = resumenPruebaDespues.getAsJsonObject("estadisticas");
+            assertEquals(2, statsPruebaDespues.get("totalReferidos").getAsInt());
+            assertMonto(BigDecimal.ZERO, statsPruebaDespues.get("totalGanadoReferidor").getAsBigDecimal());
+        });
+
+        JsonObject estadoZona = admin.estadoZonaPruebas(adminId);
+        JsonObject filaNuevoReferido = null;
+        for (var el : estadoZona.getAsJsonArray("usuarios")) {
+            JsonObject u = el.getAsJsonObject();
+            if (refInvPruebaUsername.equals(u.get("username").getAsString())) {
+                filaNuevoReferido = u;
+                break;
+            }
+        }
+        assertNotNull(filaNuevoReferido);
+        assertFalse(filaNuevoReferido.get("codigo_referido").getAsString().isBlank());
+        assertEquals("qa_ref_host_" + sufijo, filaNuevoReferido.get("referido_por_username").getAsString());
+
+        // Reiniciar Zona de Pruebas conserva el vínculo de referidos sincronizado con métricas en cero.
+        admin.reiniciarZonaPruebas(adminId);
+        ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, () -> {
+            JsonObject resumenTrasReset = refSrv.obtenerResumenUsuario(referidorId);
+            JsonObject statsTrasReset = resumenTrasReset.getAsJsonObject("estadisticas");
+            assertEquals(2, statsTrasReset.get("totalReferidos").getAsInt());
+            assertEquals(0, statsTrasReset.get("referidosActivos").getAsInt());
+            assertEquals(0, statsTrasReset.get("totalPartidasReferidos").getAsInt());
+            assertMonto(BigDecimal.ZERO, statsTrasReset.get("totalGanadoReferidor").getAsBigDecimal());
+        });
     }
 
     private static int conteoNotif(JsonObject mapa, String clave) {
