@@ -11,6 +11,19 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-14 — Validación visual headless automatizada (`npm run test:visual`) y revisión visual de Referidos
+- Añadida `playwright-core` en `devDependencies` de `frontend/package.json` (sin descarga de binarios en `postinstall` para mantener rápido y compatible `npm ci` en `Dockerfile` sobre `node:22-alpine`) junto con el script `"test:visual": "node --test scripts/visual.test.js"`.
+- Creada la suite visual headless `frontend/scripts/visual.test.js`:
+  - Detecta automáticamente Chrome/Edge local (`CHROME_BIN` o rutas estándar de Windows/Linux; si no existe en un contenedor Alpine, omite la suite limpiamente), compila `dist/` si falta y levanta/cierra `vite preview` en un puerto efímero sin requerir configuración manual de depuración remota en Chrome.
+  - Valida en **PC (`1280×800`)** y **celular (`390×844`, menú `☰`)**, tanto en modo oscuro como en modo claro, con cero errores JS (`pageerror`) y cero desbordes horizontales (`scrollWidth <= innerWidth` en documento y `.chat-area`):
+    1. `/auth?ref=DEMO2026`: apertura automática de registro, autocompletado de referido, botón **"Quitar código"** y edición manual.
+    2. Modo Vista Previa (`👀 Ver vista previa de la página`) y `/referidos`: 4 tarjetas de estadísticas, caja de `@CamilaArena_Demo`, código `DEMO2026` y link, mensaje corto editable con vista previa en tiempo real, selector de comisión compartida (`50%` -> split `$50` / `$50`), lista de referidos (`@Valquiria_Demo`, `@Montapuercos_Demo`, `@Arqueras_Demo`), historial de pagos y modal `.preview-auth-modal`.
+  - Soporta `VISUAL_SCREENSHOT_DIR` para generar capturas PNG de escritorio, móvil y secciones con scroll e inspeccionarlas visualmente.
+- Actualizada la convención en `agent/rules/project-conventions.md` (secciones 15.12 y 16.1) para exigir `npm run test:visual` de forma automática en cada cambio visual.
+- **Verificación:**
+  - En `frontend/`: `npm.cmd run build` (928ms), `npm.cmd run test:visual` (`3/3` pruebas headless en PC `1280×800` y celular `390×844`, temas oscuro y claro, e inspección visual directa de las 8 capturas PNG generadas en `scratch/`), `npm.cmd run test:acceptance` (`14/14` contratos P2–P15) y `npm.cmd run lint` (`0` errores, `54` advertencias previas en 36 archivos).
+Archivos: `frontend/package.json`, `frontend/package-lock.json`, `frontend/scripts/visual.test.js`, `agent/rules/project-conventions.md`, `CHANGELOG.md`
+
 ## 2026-11-13 — Sistema de referidos con enlace, mensaje corto y comisión compartida opcional (Prioridad 6.5)
 - Migración `V26__sistema_referidos.sql`: añade `codigo_referido`, `referido_por_id`, `referido_porcentaje_compartido` y `referido_mensaje_corto` en `users` (con backfill único para cuentas existentes y trigger `fn_users_asignar_codigo_referido` al insertar usuarios), y crea las tablas `referrals` y `referral_payouts` (`UNIQUE (match_id, jugador_id)` para idempotencia por jugador y partida).
 - Registro y vinculación opcional (`UsuarioDAO.java`, `AuthService.java`, `RutasAuth.java`, `UsuarioVista.java`, `App.jsx`, `Auth.jsx`, `Auth.css`):

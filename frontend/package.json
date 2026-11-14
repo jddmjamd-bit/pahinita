@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "test:acceptance": "node --test scripts/acceptance.test.js",
+    "test:visual": "node --test scripts/visual.test.js",
     "lint": "oxlint",
     "preview": "vite preview"
   },
@@ -29,6 +30,7 @@
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "oxlint": "^1.81.0",
+    "playwright-core": "^1.65.1",
     "vite": "^8.3.0"
   }
 }
