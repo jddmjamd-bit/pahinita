@@ -21,6 +21,7 @@ export default function Finance() {
     const [withdrawName, setWithdrawName] = useState('');
 
     const currentUser = useAppStore(state => state.user);
+    const solicitarAutenticacionVistaPrevia = useAppStore(state => state.solicitarAutenticacionVistaPrevia);
     const setUser = useAppStore(state => state.setUser);
     const sincronizarSesion = useAppStore(state => state.sincronizarSesion);
     const socket = useAppStore(state => state.socket);
@@ -93,8 +94,11 @@ export default function Finance() {
     const autoCalc = calculateTotalAuto(Number(autoAmount));
 
     const handleManualDeposit = async () => {
+        if (!currentUser) {
+            solicitarAutenticacionVistaPrevia('notificar una recarga de saldo');
+            return;
+        }
         if (!manualAmount || !manualRef) return alert("Por favor llena los datos.");
-        if (!currentUser) return alert("Debes iniciar sesión.");
 
         try {
             const res = await fetch(API_BASE_URL + '/api/transaction/create', {
@@ -168,8 +172,12 @@ export default function Finance() {
     };
 
     const handleAutoDeposit = async () => {
+        if (!currentUser) {
+            solicitarAutenticacionVistaPrevia('recargar saldo con tarjeta o PSE');
+            return;
+        }
         const monto = autoAmount;
-        if (!monto || monto < 1000 || !currentUser || isProcessing) return;
+        if (!monto || monto < 1000 || isProcessing) return;
         setIsProcessing(true);
         try {
             const res = await fetch(API_BASE_URL + '/api/wompi/init', {
@@ -197,8 +205,11 @@ export default function Finance() {
     };
 
     const handleWithdraw = async () => {
+        if (!currentUser) {
+            solicitarAutenticacionVistaPrevia('solicitar un retiro de saldo');
+            return;
+        }
         if (!withdrawAmount || !withdrawAccount || !withdrawName) return alert("Por favor completa todos los datos.");
-        if (!currentUser) return alert("Debes iniciar sesión.");
         if (Number(withdrawAmount) > currentUser.saldo) return alert("Saldo insuficiente.");
 
         const datosCuenta = `${withdrawAccount} - ${withdrawName}`;
@@ -306,7 +317,7 @@ export default function Finance() {
                             </div>
                             <button 
                                 className="finance-action-btn" 
-                                disabled={isProcessing || autoAmount < 1000}
+                                disabled={isProcessing || (Boolean(currentUser) && autoAmount < 1000)}
                                 onClick={handleAutoDeposit}
                             >
                                 {isProcessing ? 'Cargando Wompi...' : autoAmount >= 1000 ? `Pagar $${autoCalc.totalPagar.toLocaleString()}` : 'Pagar con Wompi'}

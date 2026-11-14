@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { llamarApi } from '../store/llamarApi';
+import { DEMO_SOPORTE_TICKETS } from '../data/vistaPreviaDemo';
 import './Soporte.css';
 import { CATEGORIAS_SOPORTE, etiquetaCategoria, formatearFecha } from './soporteComun';
 
@@ -9,6 +10,8 @@ const MAX_MENSAJE = 2000;
 const FORM_VACIO = { categoria: 'pregunta', asunto: '', mensaje: '' };
 
 export default function Soporte() {
+    const currentUser = useAppStore(state => state.user);
+    const solicitarAutenticacionVistaPrevia = useAppStore(state => state.solicitarAutenticacionVistaPrevia);
     const socket = useAppStore(state => state.socket);
 
     const [tickets, setTickets] = useState([]);
@@ -21,6 +24,12 @@ export default function Soporte() {
     const [errorForm, setErrorForm] = useState('');
 
     const cargar = useCallback(async () => {
+        if (!currentUser) {
+            setTickets(DEMO_SOPORTE_TICKETS);
+            setError('');
+            setCargando(false);
+            return;
+        }
         const { ok, data } = await llamarApi('/api/soporte/tickets');
         if (!ok || !Array.isArray(data)) {
             setError(data?.error || 'No se pudieron cargar tus consultas');
@@ -29,7 +38,7 @@ export default function Soporte() {
             setError('');
         }
         setCargando(false);
-    }, []);
+    }, [currentUser]);
 
     useEffect(() => { cargar(); }, [cargar]);
 
@@ -45,6 +54,10 @@ export default function Soporte() {
     }, [socket, cargar]);
 
     const abrirForm = () => {
+        if (!currentUser) {
+            solicitarAutenticacionVistaPrevia('enviar una consulta al administrador');
+            return;
+        }
         setForm(FORM_VACIO);
         setErrorForm('');
         setFormAbierto(true);

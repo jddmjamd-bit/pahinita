@@ -83,6 +83,7 @@ function AppContent() {
   const theme = useAppStore(state => state.theme);
   const toggleTheme = useAppStore(state => state.toggleTheme);
   const user = useAppStore(state => state.user);
+  const modoVistaPrevia = useAppStore(state => state.modoVistaPrevia);
   const sessionReady = useAppStore(state => state.sessionReady);
   const sincronizarSesion = useAppStore(state => state.sincronizarSesion);
   const marcarNotificacionLeida = useAppStore(state => state.marcarNotificacionLeida);
@@ -161,7 +162,9 @@ function AppContent() {
     return <div role="status" style={{ padding: 24, textAlign: 'center' }}>Verificando sesión…</div>;
   }
   if (sessionReady && !user && !RUTAS_PUBLICAS.includes(pathname)) {
-    return <Navigate to="/auth" replace />;
+    if (!modoVistaPrevia || pathname.startsWith('/admin')) {
+      return <Navigate to="/auth" replace />;
+    }
   }
 
   return (
@@ -194,7 +197,7 @@ function AppContent() {
           <Route path="/auth" element={<Auth />} />
           <Route path="/terminos" element={<Legal tipo="terminos" />} />
           <Route path="/privacidad" element={<Legal tipo="privacidad" />} />
-          {!user && <Route path="/faq" element={<Faq />} />}
+          {!user && !modoVistaPrevia && <Route path="/faq" element={<Faq />} />}
           <Route path="/" element={<Lobby />}>
             <Route index element={<Navigate to="/chat" replace />} />
             <Route path="chat" element={<Chat />} />

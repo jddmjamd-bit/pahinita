@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { llamarApi } from '../store/llamarApi';
+import { DEMO_LEADERBOARD } from '../data/vistaPreviaDemo';
 import './Leaderboard.css';
 
 function IndicadorCambio({ cambio }) {
@@ -27,6 +28,15 @@ export default function Leaderboard() {
     const socket = useAppStore(state => state.socket);
 
     const cargarDatos = useCallback(async () => {
+        if (!currentUser) {
+            setError(null);
+            setRankingData(DEMO_LEADERBOARD.ranking);
+            setPrizes(DEMO_LEADERBOARD.premios);
+            setMiPosicion(DEMO_LEADERBOARD.miPosicion);
+            setGanadores(DEMO_LEADERBOARD.ganadores);
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         setError(null);
         const [ranking, posicion, historial] = await Promise.all([
@@ -43,7 +53,7 @@ export default function Leaderboard() {
         setMiPosicion(posicion.ok ? posicion.data : null);
         setGanadores(historial.ok && Array.isArray(historial.data) ? historial.data : []);
         setLoading(false);
-    }, [period]);
+    }, [period, currentUser]);
 
     useEffect(() => { void cargarDatos(); }, [cargarDatos]);
 

@@ -538,3 +538,32 @@
     background: transparent;
     color: var(--text-secondary);
 }
+
+.match-preview-switcher {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+    background: var(--bg-surface-elevated);
+    border-bottom: 1px solid var(--border-color);
+}
+.match-preview-tab {
+    flex: 1;
+    min-width: 180px;
+    padding: 8px 12px;
+    font-size: 0.84rem;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    box-shadow: none;
+}
+.match-preview-tab.active {
+    background: var(--accent-primary);
+    color: #ffffff;
+    border-color: var(--accent-primary);
+}
+.match-preview-tab:hover {
+    transform: none;
+}

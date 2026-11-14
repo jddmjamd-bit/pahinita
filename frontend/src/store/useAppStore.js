@@ -51,6 +51,26 @@ export const useAppStore = create((set, get) => ({
     user: null,
     sessionReady: false,
     authRevision: 0,
+    // Modo Vista Previa (solo en memoria): permite explorar la interfaz con datos de ejemplo sin sesión ni socket.
+    modoVistaPrevia: false,
+    avisoAccionVistaPrevia: null,
+    activarVistaPrevia: () => {
+        get().disconnectSocket();
+        set(state => ({
+            modoVistaPrevia: true,
+            avisoAccionVistaPrevia: null,
+            sessionReady: true,
+            authRevision: state.authRevision + 1
+        }));
+    },
+    salirVistaPrevia: () => set({
+        modoVistaPrevia: false,
+        avisoAccionVistaPrevia: null
+    }),
+    solicitarAutenticacionVistaPrevia: (accion = 'interactuar con la plataforma') => set({
+        avisoAccionVistaPrevia: typeof accion === 'string' && accion.trim() ? accion.trim() : 'interactuar con la plataforma'
+    }),
+    cerrarAvisoVistaPrevia: () => set({ avisoAccionVistaPrevia: null }),
     // Token nativo FCM solo en memoria; no se persiste junto con los datos del usuario.
     pushToken: null,
     pushTokenAnterior: null,
@@ -81,6 +101,8 @@ export const useAppStore = create((set, get) => ({
         }
         set(state => ({
             user: userData,
+            modoVistaPrevia: userData ? false : state.modoVistaPrevia,
+            avisoAccionVistaPrevia: userData ? null : state.avisoAccionVistaPrevia,
             sessionReady: true,
             authRevision: state.authRevision + authRevisionDelta
         }));
@@ -94,7 +116,11 @@ export const useAppStore = create((set, get) => ({
         if (ok && data?.user) {
             get().setUser(data.user);
         } else if (status === 401) {
-            get().logout();
+            if (get().modoVistaPrevia && !get().user) {
+                set({ sessionReady: true });
+            } else {
+                get().logout();
+            }
         } else {
             set({ sessionReady: true });
         }
@@ -126,6 +152,8 @@ export const useAppStore = create((set, get) => ({
         void cerrarSesionConPush(tokens);
         set({ 
             user: null,
+            modoVistaPrevia: false,
+            avisoAccionVistaPrevia: null,
             sessionReady: true,
             authRevision: get().authRevision + 1,
             pushToken: null,

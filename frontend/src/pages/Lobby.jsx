@@ -59,7 +59,13 @@ export default function Lobby() {
     const navigate = useNavigate();
     const location = useLocation();
     
-    const currentUser = useAppStore(state => state.user) || { username: 'Usuario', saldo: 0, estado: 'normal' };
+    const user = useAppStore(state => state.user);
+    const modoVistaPrevia = useAppStore(state => state.modoVistaPrevia);
+    const salirVistaPrevia = useAppStore(state => state.salirVistaPrevia);
+    const avisoAccionVistaPrevia = useAppStore(state => state.avisoAccionVistaPrevia);
+    const cerrarAvisoVistaPrevia = useAppStore(state => state.cerrarAvisoVistaPrevia);
+    const esVistaPrevia = !user && modoVistaPrevia;
+    const currentUser = user || { username: esVistaPrevia ? 'Visitante' : 'Usuario', saldo: 0, estado: 'normal' };
     const logout = useAppStore(state => state.logout);
     const connectSocket = useAppStore(state => state.connectSocket);
     const disconnectSocket = useAppStore(state => state.disconnectSocket);
@@ -93,12 +99,12 @@ export default function Lobby() {
     }, [inMatch]);
 
     useEffect(() => {
-        if (currentUser && currentUser.username !== 'Usuario') {
+        if (user && user.id) {
             connectSocket();
         } else {
             disconnectSocket();
         }
-    }, [currentUser, connectSocket, disconnectSocket]);
+    }, [user, connectSocket, disconnectSocket]);
 
     const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [avisosOcultos, setAvisosOcultos] = useState(() => new Set());
@@ -131,6 +137,7 @@ export default function Lobby() {
     }, [currentUser?.id, cargarNotificaciones, cargarEstadoMatchmaking, esNavegadorWeb, setPushToken]);
 
     useEffect(() => {
+        if (!currentUser?.id) return;
         const categoria = location.pathname === '/soporte' ? 'soporte'
             : location.pathname === '/chatbot' ? 'asistente'
                 : location.pathname === '/leaderboard' ? 'ranking'
@@ -171,6 +178,11 @@ export default function Lobby() {
         navigate('/auth');
     };
 
+    const irAAuth = (modo = 'login') => {
+        salirVistaPrevia();
+        navigate('/auth', { state: { modo } });
+    };
+
     const isActive = (path) => location.pathname === path ? 'active' : '';
 
     const handleNavigation = (path) => {
@@ -191,6 +203,11 @@ export default function Lobby() {
             <aside className={`sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
                 <div className="profile-box">
                     <h3>{currentUser.username}</h3>
+                    {esVistaPrevia && (
+                        <div className="zone-badge is-preview">
+                            👀 Vista Previa
+                        </div>
+                    )}
                     {(enZonaPruebas || currentUser.tipo_suscripcion === 'admin') && (
                         <div className={`zone-badge ${enZonaPruebas ? 'is-test' : 'is-normal'}`}>
                             {enZonaPruebas ? '🧪 Zona de Pruebas' : '🟢 Zona Normal'}
@@ -198,13 +215,15 @@ export default function Lobby() {
                     )}
                     <div className="status-indicator">
                         <span className="status-dot"></span>
-                        <span>{matchState.status === 'searching'
-                            ? 'Buscando partida'
-                            : matchState.inMatch && matchState.status === 'playing'
-                                ? 'Jugando'
-                                : matchState.inMatch
-                                    ? 'En sala'
-                                    : currentUser.estado === 'normal' ? 'Libre' : 'Disponible'}</span>
+                        <span>{esVistaPrevia
+                            ? 'Solo lectura · Demo'
+                            : matchState.status === 'searching'
+                                ? 'Buscando partida'
+                                : matchState.inMatch && matchState.status === 'playing'
+                                    ? 'Jugando'
+                                    : matchState.inMatch
+                                        ? 'En sala'
+                                        : currentUser.estado === 'normal' ? 'Libre' : 'Disponible'}</span>
                     </div>
                     <p className="money">${currentUser.saldo.toLocaleString()}</p>
                     
@@ -237,12 +256,36 @@ export default function Lobby() {
                     </div>
                 </div>
 
-                <div className="online-count"><span className="status-dot" /> {usuariosOnline} usuarios en línea</div>
+                <div className="online-count">
+                    <span className="status-dot" />
+                    {esVistaPrevia ? 'Vista previa (datos de ejemplo)' : `${usuariosOnline} usuarios en línea`}
+                </div>
                 
-                <button className="logout-btn" onClick={handleLogout}>Salir</button>
+                {esVistaPrevia ? (
+                    <button className="logout-btn preview-login-btn" onClick={() => irAAuth('login')}>
+                        🔑 Iniciar sesión / Crear cuenta
+                    </button>
+                ) : (
+                    <button className="logout-btn" onClick={handleLogout}>Salir</button>
+                )}
             </aside>
 
             <main className="chat-area">
+                {esVistaPrevia && (
+                    <div className="preview-mode-banner" role="status">
+                        <span>
+                            👀 <strong>Modo Vista Previa (solo lectura)</strong> — Estás viendo datos de demostración. Inicia sesión para ver datos reales e interactuar.
+                        </span>
+                        <div className="preview-mode-banner-actions">
+                            <button type="button" className="preview-banner-btn primary" onClick={() => irAAuth('login')}>
+                                Iniciar sesión
+                            </button>
+                            <button type="button" className="preview-banner-btn" onClick={() => irAAuth('registro')}>
+                                Crear cuenta
+                            </button>
+                        </div>
+                    </div>
+                )}
                 {enZonaPruebas && (
                     <div className="test-zone-banner" role="status">
                         <span>
@@ -257,6 +300,31 @@ export default function Lobby() {
                 )}
                 <Outlet />
             </main>
+
+            {avisoAccionVistaPrevia && (
+                <div className="mm-challenge-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="preview-auth-titulo" onClick={cerrarAvisoVistaPrevia}>
+                    <div className="mm-challenge-modal preview-auth-modal" onClick={e => e.stopPropagation()}>
+                        <h3 id="preview-auth-titulo">🔒 Inicia sesión para interactuar</h3>
+                        <p>
+                            Estás explorando el <strong>modo vista previa</strong> con datos de ejemplo y sin conexión activa.
+                        </p>
+                        <p className="mm-challenge-question">
+                            Para <strong>{avisoAccionVistaPrevia}</strong> y ver los datos reales de la plataforma, inicia sesión o crea tu cuenta.
+                        </p>
+                        <div className="mm-challenge-actions">
+                            <button type="button" className="mm-challenge-accept" onClick={() => irAAuth('login')}>
+                                🔑 Iniciar sesión
+                            </button>
+                            <button type="button" className="mm-challenge-decline" onClick={() => irAAuth('registro')}>
+                                ✨ Crear cuenta
+                            </button>
+                            <button type="button" className="mm-challenge-decline" onClick={cerrarAvisoVistaPrevia}>
+                                Seguir viendo
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {retoRecibido && (
                 <div className="mm-challenge-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="mm-reto-titulo">

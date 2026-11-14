@@ -54,6 +54,8 @@ function VideoPregunta({ video }) {
 export default function Faq() {
     const { hash, state } = useLocation();
     const user = useAppStore(s => s.user);
+    const modoVistaPrevia = useAppStore(s => s.modoVistaPrevia);
+    const enLobby = Boolean(user || modoVistaPrevia);
     const modoAuthRetorno = state?.modo === 'login' ? 'login' : 'registro';
     const [busqueda, setBusqueda] = useState('');
     const [categoria, setCategoria] = useState('todas');
@@ -118,8 +120,8 @@ export default function Faq() {
     };
 
     return (
-        <div className={`faq-container ${!user ? 'faq-publica' : ''}`}>
-            {!user && (
+        <div className={`faq-container ${!enLobby ? 'faq-publica' : ''}`}>
+            {!enLobby && (
                 <nav className="faq-public-nav" aria-label="Navegación pública">
                     <Link to="/auth" state={{ modo: modoAuthRetorno }}>
                         ← {modoAuthRetorno === 'login' ? 'Volver a iniciar sesión' : 'Volver al registro'}
@@ -235,7 +237,7 @@ export default function Faq() {
                                         )}
                                         {p.video && <VideoPregunta video={p.video} />}
                                         {p.enlace && (
-                                            user || RUTAS_SIN_SESION.has(p.enlace.to) ? (
+                                            enLobby || RUTAS_SIN_SESION.has(p.enlace.to) ? (
                                                 <Link to={p.enlace.to} className="faq-btn-link">{p.enlace.texto} →</Link>
                                             ) : (
                                                 <Link to="/auth" state={{ modo: 'login' }} className="faq-btn-link">

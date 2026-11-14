@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { llamarApi } from '../store/llamarApi';
 import { calcularRestanteSegundos, formatearTiempoReloj } from '../utils/tiempoMatchmaking';
+import { DEMO_BUSQUEDAS_MATCHMAKING, DEMO_MATCHMAKING_CONFIG, DEMO_SALA_PRIVADA } from '../data/vistaPreviaDemo';
 import './Match.css';
 import VozDiscord from '../components/VozDiscord';
 
@@ -69,8 +70,12 @@ export default function Match() {
     const [flujoCompletado, setFlujoCompletado] = useState(() => useAppStore.getState().matchState.status === 'finished');
     const [ahoraMs, setAhoraMs] = useState(() => Date.now());
     const [mostrarVariables, setMostrarVariables] = useState(false);
+    const [demoSalaActiva, setDemoSalaActiva] = useState(false);
 
     const currentUser = useAppStore(state => state.user);
+    const modoVistaPrevia = useAppStore(state => state.modoVistaPrevia);
+    const solicitarAutenticacionVistaPrevia = useAppStore(state => state.solicitarAutenticacionVistaPrevia);
+    const esVistaPrevia = !currentUser && modoVistaPrevia;
     const socket = useAppStore(state => state.socket);
     const connectSocket = useAppStore(state => state.connectSocket);
     const matchState = useAppStore(state => state.matchState);
@@ -402,6 +407,7 @@ export default function Match() {
 
     // D4: la comisión la calcula el servidor (ComisionService). El frontend ya no replica la fórmula.
     const actualizarGanancia = async (dinero) => {
+        if (!currentUser) return;
         const id = ++simulacionRef.current;
         const { ok, data } = await llamarApi(`/api/comisiones/simular?monto=${encodeURIComponent(dinero)}`);
         if (id !== simulacionRef.current) return; // llegó una consulta más nueva
@@ -456,7 +462,11 @@ export default function Match() {
     };
 
     const handleStartClick = () => {
-        if (!currentUser || !socket) return;
+        if (!currentUser) {
+            solicitarAutenticacionVistaPrevia('iniciar una partida');
+            return;
+        }
+        if (!socket) return;
         if (btnState.text.includes('ESPERANDO')) {
             socket.emit('cancelar_inicio');
             return;
@@ -468,6 +478,10 @@ export default function Match() {
 
     const handleChatSubmit = (e) => {
         e.preventDefault();
+        if (!currentUser) {
+            solicitarAutenticacionVistaPrevia('enviar mensajes en la sala privada');
+            return;
+        }
         const texto = chatInput.trim();
         if (texto && currentUser && socket && matchState.salaId) {
             // El servidor exige salaId (sala_<número>) y reenvía el mensaje a TODA la sala, remitente incluido:
@@ -491,7 +505,11 @@ export default function Match() {
     };
 
     const handleBuscar = () => {
-        if (!currentUser || !socket) return;
+        if (!currentUser) {
+            solicitarAutenticacionVistaPrevia('buscar partida');
+            return;
+        }
+        if (!socket) return;
         socket.emit('buscar_partida'); // S2: el servidor identifica al jugador por la sesión JWT del socket
         setMatchState({ status: 'searching' });
     };
@@ -502,6 +520,10 @@ export default function Match() {
 
     // Botón ❌ de la sala: el servidor cancela la partida para ambos (match_cancelado) y cuenta como salida
     const handleSalir = () => {
+        if (esVistaPrevia) {
+            setDemoSalaActiva(false);
+            return;
+        }
         if (!socket) return;
         if (!window.confirm('¿Salir de la sala? La partida se cancela para los dos y cuenta como una salida tuya.')) return;
         socket.emit('cancelar_match', { motivo: 'Oprimió X' });
@@ -520,7 +542,11 @@ export default function Match() {
         : duracionBaseTimerMs;
 
     const handleActivarTimer = () => {
-        if (!socket || !currentUser || !matchState.salaId || timerActivo) return;
+        if (!currentUser) {
+            solicitarAutenticacionVistaPrevia('activar el temporizador de negociación');
+            return;
+        }
+        if (!socket || !matchState.salaId || timerActivo) return;
         socket.emit('activar_timer_negociacion');
     };
 
@@ -536,11 +562,36 @@ export default function Match() {
                 return `⚠️ Rival desconectado. Tiene ${segsRest}s para reconectarse.`;
             })();
 
+    const selectorVistaPreviaMatch = esVistaPrevia ? (
+        <div className="match-preview-switcher" role="group" aria-label="Vistas de demostración">
+            <button
+                type="button"
+                className={`match-preview-tab ${!demoSalaActiva ? 'active' : ''}`}
+                onClick={() => setDemoSalaActiva(false)}
+            >
+                🔍 Vista previa: Buscar partida
+            </button>
+            <button
+                type="button"
+                className={`match-preview-tab ${demoSalaActiva ? 'active' : ''}`}
+                onClick={() => setDemoSalaActiva(true)}
+            >
+                🔒 Vista previa: Sala privada
+            </button>
+        </div>
+    ) : null;
+
     // Sin partida en curso: pantalla para buscar rival
-    if (!matchState.inMatch) {
+    if (!matchState.inMatch && (!esVistaPrevia || !demoSalaActiva)) {
         const buscando = matchState.status === 'searching';
-        const variables = matchmakingConfig?.variables || {};
+        const configActual = esVistaPrevia ? DEMO_MATCHMAKING_CONFIG : matchmakingConfig;
+        const variables = configActual?.variables || {};
+        const listaBusquedas = esVistaPrevia ? DEMO_BUSQUEDAS_MATCHMAKING : busquedasVisibles;
         const handleDesafiarBusqueda = (busqueda) => {
+            if (!currentUser) {
+                solicitarAutenticacionVistaPrevia('desafiar a un rival');
+                return;
+            }
             const targetId = busqueda.buscadorId ?? busqueda.userId;
             if (!socket || !targetId || busqueda.habilitada === false) return;
             if (busqueda.esBuscadorMejor) {
@@ -555,6 +606,7 @@ export default function Match() {
 
         return (
             <div className="match-container">
+                {selectorVistaPreviaMatch}
                 <header className="match-header">
                     <h3>⚔️ Buscar partida</h3>
                     <button
@@ -563,7 +615,7 @@ export default function Match() {
                         aria-expanded={mostrarVariables}
                         onClick={() => setMostrarVariables(prev => !prev)}
                     >
-                        Nivel: {matchmakingConfig?.perfilCualitativo || 'Calibrando'}
+                        Nivel: {configActual?.perfilCualitativo || 'Calibrando'}
                     </button>
                 </header>
                 {mostrarVariables && (
@@ -613,19 +665,19 @@ export default function Match() {
                             <div className="pulse-emoji">⚔️</div>
                             <h2>¿Listo para jugar?</h2>
                             <p>Te emparejamos por nivel justo y acuerdan modo y monto en una sala privada.</p>
-                            <button className="search-btn" onClick={handleBuscar} disabled={!socket || !currentUser}>🔍 Buscar partida</button>
+                            <button className="search-btn" onClick={handleBuscar} disabled={!esVistaPrevia && (!socket || !currentUser)}>🔍 Buscar partida</button>
                             <VozDiscord enPartida={false} />
                         </>
                     )}
 
                     <section className="fair-matchmaking-panel" aria-label="Matchmaking justo">
                         <div className="mm-active-searches">
-                            <h5>🎮 Rivales buscando ahora ({busquedasVisibles.length})</h5>
-                            {busquedasVisibles.length === 0 ? (
+                            <h5>🎮 Rivales buscando ahora ({listaBusquedas.length})</h5>
+                            {listaBusquedas.length === 0 ? (
                                 <p className="mm-empty">No hay búsquedas visibles en este momento.</p>
                             ) : (
                                 <ul className="mm-search-list">
-                                    {busquedasVisibles.map(b => {
+                                    {listaBusquedas.map(b => {
                                         const id = b.buscadorId ?? b.userId;
                                         const habilitadaAhora = b.habilitada !== false;
                                         const restanteHabilitar = habilitadaAhora
@@ -659,7 +711,7 @@ export default function Match() {
                                                 <button
                                                     type="button"
                                                     className="mm-challenge-btn"
-                                                    disabled={!socket || bloqueado}
+                                                    disabled={(!esVistaPrevia && !socket) || bloqueado}
                                                     onClick={() => handleDesafiarBusqueda(b)}
                                                 >
                                                     {!habilitadaAhora
@@ -682,8 +734,16 @@ export default function Match() {
         );
     }
 
+    const rivalMostrado = esVistaPrevia ? DEMO_SALA_PRIVADA.rival : rivalData;
+    const topeMostrado = esVistaPrevia ? DEMO_SALA_PRIVADA.maxMonto : maxMontoPermitido;
+    const mensajesMostrados = esVistaPrevia ? DEMO_SALA_PRIVADA.mensajes : chatMessages;
+    const modoMostrado = esVistaPrevia && !gameMode ? DEMO_SALA_PRIVADA.modoEjemplo : gameMode;
+    const montoMostrado = esVistaPrevia && !monto ? DEMO_SALA_PRIVADA.montoEjemplo : monto;
+    const winTextMostrado = esVistaPrevia ? DEMO_SALA_PRIVADA.gananciaEjemplo : winText;
+
     return (
         <div className="match-container">
+            {selectorVistaPreviaMatch}
             {view === 'private' ? (
                 <div className="view-private">
                     <header className="match-header">
@@ -693,19 +753,19 @@ export default function Match() {
 
                     <div className="private-room-content">
                         <div className="match-info">
-                            <h2 style={{ margin: 0 }}>VS {rivalData?.username || 'Rival'}</h2>
+                            <h2 style={{ margin: 0 }}>VS {rivalMostrado?.username || 'Rival'}</h2>
                             <div className="rival-stats-box">
                                 <span title="Porcentaje de victorias" style={{ color: '#43b581' }}>
-                                    🏆 {rivalData?.total_partidas > 0 ? Math.round(((rivalData.total_victorias || 0) / rivalData.total_partidas) * 100) : 0}%
+                                    🏆 {rivalMostrado?.total_partidas > 0 ? Math.round(((rivalMostrado.total_victorias || 0) / rivalMostrado.total_partidas) * 100) : 0}%
                                 </span>
                                 <span title="Culpable en disputas" style={{ color: '#bbb' }}>
-                                    💀 {rivalData?.faltas ?? 0}
+                                    💀 {rivalMostrado?.faltas ?? 0}
                                 </span>
                                 <span title="Salidas de sala">
-                                    🏃 {rivalData?.salidas_chat ?? 0}
+                                    🏃 {rivalMostrado?.salidas_chat ?? 0}
                                 </span>
                             </div>
-                            <span style={{ fontSize: '0.8rem', color: '#faa61a', display: 'block', marginTop: 5 }}>Tope: ${maxMontoPermitido.toLocaleString()}</span>
+                            <span style={{ fontSize: '0.8rem', color: '#faa61a', display: 'block', marginTop: 5 }}>Tope: ${topeMostrado.toLocaleString()}</span>
                             {rivalDesconectadoMsg && (
                                 <span style={{ fontSize: '0.82rem', color: '#ed4245', display: 'block', marginTop: 6, fontWeight: 'bold' }}>
                                     {rivalDesconectadoMsg}
@@ -733,7 +793,7 @@ export default function Match() {
                                         <span className="timer-clock-value">{formatearRelojIndividual(miRestanteMs)}</span>
                                     </div>
                                     <div className={`timer-clock-card rival ${claseUrgenciaReloj(rivalRestanteMs)}`}>
-                                        <span className="timer-clock-label">Tiempo de {rivalData?.username || 'Rival'}</span>
+                                        <span className="timer-clock-label">Tiempo de {rivalMostrado?.username || 'Rival'}</span>
                                         <span className="timer-clock-value">{formatearRelojIndividual(rivalRestanteMs)}</span>
                                     </div>
                                 </div>
@@ -741,13 +801,13 @@ export default function Match() {
                         )}
 
                         <div className="mini-chat">
-                            {chatMessages.length === 0 ? (
+                            {mensajesMostrados.length === 0 ? (
                                 <div className="mini-chat-empty">
                                     Saluda a tu rival y acuerden aquí el modo y el monto.
                                 </div>
                             ) : (
-                                chatMessages.map((m, i) => {
-                                    const esPropio = m.usuario === currentUser?.username;
+                                mensajesMostrados.map((m, i) => {
+                                    const esPropio = m.usuario === (currentUser?.username || 'Visitante');
                                     const hora = formatearHoraPrivada(m.fecha);
                                     return (
                                         <div key={i} className={`msg ${esPropio ? 'own' : 'other'}`}>
@@ -773,20 +833,20 @@ export default function Match() {
                             <div className="inputs-row">
                                 <div className="input-group">
                                     <label>Modo:</label>
-                                    <input type="text" placeholder="Ej: Elección" value={gameMode} onChange={handleModeChange} />
+                                    <input type="text" placeholder="Ej: Elección" value={modoMostrado} onChange={handleModeChange} />
                                 </div>
                                 <div className="input-group">
                                     <label>Monto:</label>
-                                    <input type="number" placeholder="Mín: 1000" value={monto} onChange={handleMontoChange} />
+                                    <input type="number" placeholder="Mín: 1000" value={montoMostrado} onChange={handleMontoChange} />
                                 </div>
                             </div>
-                            <p style={{ fontSize: '0.9rem', fontWeight: 'bold', marginTop: 5, color: winText.includes('$0') ? '#bbb' : '#4ecca3' }}>
-                                {winText}
+                            <p style={{ fontSize: '0.9rem', fontWeight: 'bold', marginTop: 5, color: winTextMostrado.includes('$0') ? '#bbb' : '#4ecca3' }}>
+                                {winTextMostrado}
                             </p>
                             <p className="validation-error">{validationMsg}</p>
                             <button
-                                className={`start-game-btn ${btnState.cssClass}`}
-                                disabled={btnState.disabled}
+                                className={`start-game-btn ${esVistaPrevia ? 'enabled' : btnState.cssClass}`}
+                                disabled={!esVistaPrevia && btnState.disabled}
                                 onClick={handleStartClick}
                             >
                                 {btnState.text}

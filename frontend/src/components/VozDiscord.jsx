@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useAppStore } from '../store/useAppStore';
 import { llamarApi } from '../store/llamarApi';
 import './VozDiscord.css';
 
@@ -23,14 +24,23 @@ const PREFIJO_CANAL = 'https://discord.com/channels/';
  * Todo el texto se pinta con React (nada de innerHTML).
  */
 export default function VozDiscord({ enPartida }) {
+    const user = useAppStore(state => state.user);
+    const modoVistaPrevia = useAppStore(state => state.modoVistaPrevia);
+    const solicitarAutenticacionVistaPrevia = useAppStore(state => state.solicitarAutenticacionVistaPrevia);
+    const esVistaPrevia = !user && modoVistaPrevia;
+
     const [estado, setEstado] = useState(null);   // respuesta de GET /api/voz/estado
     const [aviso, setAviso] = useState(null);     // { tipo: 'ok' | 'info' | 'error', texto, enlace? }
     const [ocupado, setOcupado] = useState(false);
 
     const cargarEstado = useCallback(async () => {
+        if (!user?.id) {
+            setEstado(esVistaPrevia ? { disponible: true, vinculado: false } : null);
+            return;
+        }
         const res = await llamarApi('/api/voz/estado');
         if (res.ok && res.data) setEstado(res.data);
-    }, []);
+    }, [user?.id, esVistaPrevia]);
 
     useEffect(() => {
         cargarEstado();
@@ -46,6 +56,10 @@ export default function VozDiscord({ enPartida }) {
     }, [cargarEstado]);
 
     const vincular = async () => {
+        if (!user?.id) {
+            solicitarAutenticacionVistaPrevia('vincular tu cuenta de Discord');
+            return;
+        }
         setOcupado(true);
         setAviso(null);
         const res = await llamarApi('/api/voz/discord/vincular', { method: 'POST' });

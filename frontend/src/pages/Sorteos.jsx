@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { API_BASE_URL } from '../store/llamarApi';
+import { DEMO_SORTEOS } from '../data/vistaPreviaDemo';
 import './Sorteos.css';
 
 export default function Sorteos() {
@@ -13,6 +14,7 @@ export default function Sorteos() {
     const [loading, setLoading] = useState(true);
 
     const currentUser = useAppStore(state => state.user);
+    const solicitarAutenticacionVistaPrevia = useAppStore(state => state.solicitarAutenticacionVistaPrevia);
     const socket = useAppStore(state => state.socket);
     const connectSocket = useAppStore(state => state.connectSocket);
     const esAdmin = currentUser && currentUser.tipo_suscripcion === 'admin';
@@ -44,11 +46,20 @@ export default function Sorteos() {
     };
 
     const cargarSorteos = async () => {
-        if (!currentUser) return;
+        if (!currentUser) {
+            setPoolAmount(DEMO_SORTEOS.poolAmount);
+            setUserTickets(DEMO_SORTEOS.userTickets);
+            setUserAcumulado(DEMO_SORTEOS.userAcumulado);
+            setSorteos(DEMO_SORTEOS.sorteos);
+            setEncuesta(DEMO_SORTEOS.encuesta);
+            setMiVoto(null);
+            setLoading(false);
+            return;
+        }
         try {
             // Tickets (S2: el servidor identifica al usuario por su cookie JWT)
             const ticketsRes = await fetch(`${API_BASE_URL}/api/raffle/tickets`, { credentials: 'include' });
-            if(ticketsRes.ok) {
+            if (ticketsRes.ok) {
                 const ticketsData = await ticketsRes.json();
                 setUserTickets(ticketsData.tickets || 0);
                 setUserAcumulado(ticketsData.acumulado || 0);
@@ -151,7 +162,7 @@ export default function Sorteos() {
         const fecha = new Date(fechaLimite);
         const diff = fecha - now;
         if (diff <= 0) return <span className="sorteo-countdown urgente">⏰ ¡Expirado!</span>;
-        
+
         const horas = Math.floor(diff / (1000 * 60 * 60));
         const minutos = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
         const segundos = Math.floor((diff % (1000 * 60)) / 1000);
@@ -162,7 +173,10 @@ export default function Sorteos() {
     };
 
     const ajustarTickets = async (raffleId, delta) => {
-        if (!currentUser) return alert("Debes iniciar sesión");
+        if (!currentUser) {
+            solicitarAutenticacionVistaPrevia('participar en un sorteo');
+            return;
+        }
         try {
             const res = await fetch(`${API_BASE_URL}/api/raffle/participate`, {
                 method: 'POST',
@@ -212,7 +226,10 @@ export default function Sorteos() {
     };
 
     const votarSorteo = async (categoria) => {
-        if (!currentUser) return;
+        if (!currentUser) {
+            solicitarAutenticacionVistaPrevia('votar en la encuesta de sorteos');
+            return;
+        }
         try {
             const res = await fetch(`${API_BASE_URL}/api/raffle/vote`, {
                 method: 'POST',
@@ -237,7 +254,7 @@ export default function Sorteos() {
     };
 
     const progresoSiguiente = Math.min(100, (userAcumulado / 1000) * 100);
-    
+
     let totalVotos = 0;
     const votosPorCat = {};
     encuesta.forEach(r => {
@@ -256,7 +273,7 @@ export default function Sorteos() {
                     <span>Mis Tickets 🎟️</span>
                     <h2 id="user-tickets-count">{userTickets}</h2>
                     <div className="next-ticket-progress">
-                        <div className="nt-bar"><div className="nt-fill" style={{width: `${progresoSiguiente}%`}}></div></div>
+                        <div className="nt-bar"><div className="nt-fill" style={{ width: `${progresoSiguiente}%` }}></div></div>
                         <span className="nt-text">${Math.round(userAcumulado)} / $1000</span>
                     </div>
                 </div>
@@ -265,7 +282,7 @@ export default function Sorteos() {
             {esAdmin && (
                 <div className="sorteos-admin-controls">
                     <button onClick={() => setShowCreateModal(true)}>➕ Crear Sorteo</button>
-                    <button onClick={reiniciarEncuesta} style={{background:'#ed4245'}}>🔄 Reiniciar Encuesta</button>
+                    <button onClick={reiniciarEncuesta} style={{ background: '#ed4245' }}>🔄 Reiniciar Encuesta</button>
                 </div>
             )}
 
@@ -273,7 +290,7 @@ export default function Sorteos() {
                 <div className="sorteos-main">
                     <h3>🎁 Sorteos Activos</h3>
                     {loading ? <p>Cargando sorteos...</p> : sorteos.length === 0 ? (
-                        <p className="no-sorteos">No hay sorteos activos en este momento.<br/>¡Juega partidas para ganar tickets!</p>
+                        <p className="no-sorteos">No hay sorteos activos en este momento.<br />¡Juega partidas para ganar tickets!</p>
                     ) : (
                         <div className="sorteos-list">
                             {sorteos.map(sorteo => {
@@ -297,7 +314,7 @@ export default function Sorteos() {
                                             </div>
                                             <div className="ticket-progress">
                                                 <div className="ticket-progress-bar">
-                                                    <div className="ticket-progress-fill" style={{width: '100%'}}></div>
+                                                    <div className="ticket-progress-fill" style={{ width: '100%' }}></div>
                                                     <span className="ticket-progress-text">✅ {sorteo.tickets_necesarios} / {sorteo.tickets_necesarios} tickets</span>
                                                 </div>
                                             </div>
@@ -317,7 +334,7 @@ export default function Sorteos() {
                                         </div>
                                         <div className="ticket-progress">
                                             <div className="ticket-progress-bar">
-                                                <div className="ticket-progress-fill" style={{width: `${progreso}%`}}></div>
+                                                <div className="ticket-progress-fill" style={{ width: `${progreso}%` }}></div>
                                                 <span className="ticket-progress-text">{sorteo.tickets_actuales} / {sorteo.tickets_necesarios} tickets</span>
                                             </div>
                                             <div className="ticket-info">
@@ -348,7 +365,7 @@ export default function Sorteos() {
                             const isVoted = miVoto === cat;
                             return (
                                 <div key={cat} className={`poll-item ${isVoted ? 'voted' : ''}`} onClick={() => votarSorteo(cat)}>
-                                    <div className="poll-fill" style={{width: `${porcentaje}%`}}></div>
+                                    <div className="poll-fill" style={{ width: `${porcentaje}%` }}></div>
                                     <div className="poll-content">
                                         <span className="poll-title">{categoriasEncuesta[cat]}</span>
                                         <span className="poll-stats">{porcentaje}% ({votos})</span>
@@ -370,21 +387,21 @@ export default function Sorteos() {
                         </header>
                         <form id="create-raffle-form" onSubmit={handleCreateSorteo}>
                             <label>Nombre del Premio</label>
-                            <input type="text" value={newNombre} onChange={e => setNewNombre(e.target.value)} required placeholder="Ej: 500 Gemas" style={{width:'100%', padding:'8px', marginBottom:'10px'}}/>
-                            
+                            <input type="text" value={newNombre} onChange={e => setNewNombre(e.target.value)} required placeholder="Ej: 500 Gemas" style={{ width: '100%', padding: '8px', marginBottom: '10px' }} />
+
                             <label>Categoría</label>
-                            <select value={newCategoria} onChange={e => setNewCategoria(e.target.value)} style={{width:'100%', padding:'8px', marginBottom:'10px'}}>
+                            <select value={newCategoria} onChange={e => setNewCategoria(e.target.value)} style={{ width: '100%', padding: '8px', marginBottom: '10px' }}>
                                 {Object.entries(categoriasEmoji).map(([k, v]) => <option key={k} value={k}>{v} {k}</option>)}
                             </select>
-                            
+
                             <label>Precio del Premio (COP)</label>
-                            <input type="number" value={newPrecio} onChange={e => setNewPrecio(e.target.value)} required min="1000" placeholder="Ej: 20000" style={{width:'100%', padding:'8px', marginBottom:'10px'}}/>
-                            <div style={{color:'#7289da', marginBottom:'10px'}}>Tickets necesarios: {Math.ceil(Number(newPrecio)/1000) || 0}</div>
-                            
+                            <input type="number" value={newPrecio} onChange={e => setNewPrecio(e.target.value)} required min="1000" placeholder="Ej: 20000" style={{ width: '100%', padding: '8px', marginBottom: '10px' }} />
+                            <div style={{ color: '#7289da', marginBottom: '10px' }}>Tickets necesarios: {Math.ceil(Number(newPrecio) / 1000) || 0}</div>
+
                             <label>Duración (Minutos)</label>
-                            <input type="number" value={newDuracion} onChange={e => setNewDuracion(e.target.value)} required min="1" placeholder="Ej: 1440 (24h)" style={{width:'100%', padding:'8px', marginBottom:'15px'}}/>
-                            
-                            <button type="submit" style={{width:'100%', padding:'10px', background:'#43b581', color:'white', border:'none', borderRadius:'4px'}}>Crear</button>
+                            <input type="number" value={newDuracion} onChange={e => setNewDuracion(e.target.value)} required min="1" placeholder="Ej: 1440 (24h)" style={{ width: '100%', padding: '8px', marginBottom: '15px' }} />
+
+                            <button type="submit" style={{ width: '100%', padding: '10px', background: '#43b581', color: 'white', border: 'none', borderRadius: '4px' }}>Crear</button>
                         </form>
                     </div>
                 </div>

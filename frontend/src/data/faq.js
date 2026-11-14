@@ -52,6 +52,16 @@ export const PREGUNTAS = [
         video: { titulo: 'Recorrido general por la plataforma', youtube: '', archivo: '' }
     },
     {
+        id: 'vista-previa',
+        categoria: 'inicio',
+        pregunta: '¿Puedo ver cómo es la página antes de registrarme o iniciar sesión?',
+        respuesta: [
+            'Sí. Al entrar a la plataforma siempre llegas primero a la pantalla de inicio de sesión, donde encontrarás el botón «👀 Ver vista previa de la página». Al pulsarlo entras en un modo de solo lectura para recorrer los canales de chat, la búsqueda de partida, la sala privada de demostración, los sorteos, el ranking, el asistente IA, soporte y finanzas.',
+            'En la vista previa todo lo que se muestra son datos de ejemplo: no te conectas en tiempo real, no ves datos privados reales y no puedes enviar mensajes, buscar rival ni mover saldo. Cuando quieras participar o ver información real, pulsa «Iniciar sesión» en la barra superior.'
+        ],
+        enlace: { texto: 'Ir a Iniciar sesión', to: '/auth' }
+    },
+    {
         id: 'registro',
         categoria: 'inicio',
         pregunta: '¿Cómo creo mi cuenta?',

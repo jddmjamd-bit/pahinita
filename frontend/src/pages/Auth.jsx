@@ -15,6 +15,7 @@ export default function Auth() {
     const [recuperando, setRecuperando] = useState(false);
     const [ayudaAbierta, setAyudaAbierta] = useState(null); // null | 'tag' | 'token'
     const setUser = useAppStore(state => state.setUser);
+    const activarVistaPrevia = useAppStore(state => state.activarVistaPrevia);
     // El token va en el fragmento (#), que el navegador no envía en peticiones ni en el Referer.
     // Leer el hash de React Router también actualiza el formulario si se abre otro enlace sin desmontar Auth.
     const tokenRecuperacion = new URLSearchParams(location.hash.slice(1)).get('reset') || '';
@@ -336,14 +337,28 @@ export default function Auth() {
         }
     };
 
+    const abrirVistaPrevia = () => {
+        activarVistaPrevia();
+        navigate('/chat');
+    };
+
     const enlaceFaq = (
-        <Link
-            to="/faq"
-            state={{ modo: isLogin ? 'login' : 'registro' }}
-            className="auth-faq-link"
-        >
-            ❓ Preguntas frecuentes y ayuda (FAQ)
-        </Link>
+        <div className="auth-public-actions">
+            <button
+                type="button"
+                className="auth-preview-btn"
+                onClick={abrirVistaPrevia}
+            >
+                👀 Ver vista previa de la página
+            </button>
+            <Link
+                to="/faq"
+                state={{ modo: isLogin ? 'login' : 'registro' }}
+                className="auth-faq-link"
+            >
+                ❓ Preguntas frecuentes y ayuda (FAQ)
+            </Link>
+        </div>
     );
 
     return (

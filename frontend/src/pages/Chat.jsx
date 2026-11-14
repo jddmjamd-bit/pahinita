@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
 import { API_BASE_URL, llamarApi } from '../store/llamarApi';
+import { DEMO_CHAT_MENSAJES } from '../data/vistaPreviaDemo';
 import './Chat.css';
 
 // S5 (XSS): un src multimedia solo es válido si es un archivo propio (/api/media/ID) o, para imágenes,
@@ -100,6 +101,7 @@ export default function Chat() {
     const marcarCategoriaLeida = useAppStore(state => state.marcarCategoriaLeida);
     const sendChatMessage = useAppStore(state => state.sendChatMessage);
     const setChatHistory = useAppStore(state => state.setChatHistory);
+    const solicitarAutenticacionVistaPrevia = useAppStore(state => state.solicitarAutenticacionVistaPrevia);
     const esAdmin = currentUser?.tipo_suscripcion === 'admin';
 
     useEffect(() => {
@@ -180,6 +182,10 @@ export default function Chat() {
 
     const handleSendMessage = (e, canal) => {
         e.preventDefault();
+        if (!currentUser) {
+            solicitarAutenticacionVistaPrevia('enviar mensajes en el chat');
+            return;
+        }
         const texto = inputValues[canal]?.trim();
         if (texto && currentUser) {
             sendChatMessage({ canal, texto, tipo: 'texto' });
@@ -327,7 +333,7 @@ export default function Chat() {
 
     // En pagos se quita lo repetido por id (puede llegar en vivo y también en el historial recargado)
     const mensajesActuales = useMemo(() => {
-        const lista = chatMessages[canalActivo] || [];
+        const lista = currentUser ? (chatMessages[canalActivo] || []) : (DEMO_CHAT_MENSAJES[canalActivo] || []);
         if (canalActivo !== 'pagos') return lista;
         const vistos = new Set();
         return lista.filter(m => {
@@ -337,7 +343,7 @@ export default function Chat() {
             vistos.add(id);
             return true;
         });
-    }, [chatMessages, canalActivo]);
+    }, [chatMessages, canalActivo, currentUser]);
 
     const puntoCanal = (canalId) => Number(chatSinLeer?.[canalId] || 0) > 0
         ? <span className="notification-dot chat-tab-dot" aria-label={`${chatSinLeer[canalId]} avisos nuevos`} />

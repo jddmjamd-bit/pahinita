@@ -224,7 +224,7 @@ La guía A–Q sigue siendo el inventario completo de aceptación. La tabla sigu
 | N4 | Manual | La IP que Render entrega y el número correcto de saltos confiables solo se confirman desde una instancia detrás de su proxy. |
 | O5 | Docker runtime | La reconciliación de un inicio legado verifica el vínculo sin volver a cobrar. O1–O4 necesitan reiniciar el servidor con sockets, colas y timers vivos. |
 | P1 | Docker build | `npm run build` se ejecuta en la imagen. |
-| P2–P13 | Parcial, Docker build | Pruebas de contrato sobre rutas privadas, persistencia en memoria, credenciales cookie (`llamarApi`), contenido FAQ, media queries, tema, controles/relojes del temporizador 2:30 en `Match.jsx`, gestión de la Zona de Pruebas en `Admin.jsx`/`Lobby.jsx`, sidebar directo sin desplegable de juego único, pestañas de chat desplazables con punto por canal (`Chat.jsx`, `useAppStore.js`) y recuperación/recarga móvil al reconectar socket (`App.jsx`, `index.css`). No reemplazan verificar dispositivos reales. |
+| P2–P14 | Parcial, Docker build | Pruebas de contrato sobre rutas privadas, Modo Vista Previa de solo lectura desde `/auth` (`vistaPreviaDemo.js`, `useAppStore.js`, `Auth.jsx`, `Lobby.jsx`), persistencia en memoria, credenciales cookie (`llamarApi`), contenido FAQ, media queries, tema, controles/relojes del temporizador 2:30 en `Match.jsx`, gestión de la Zona de Pruebas en `Admin.jsx`/`Lobby.jsx`, sidebar directo sin desplegable de juego único, pestañas de chat desplazables con punto por canal (`Chat.jsx`, `useAppStore.js`) y recuperación/recarga móvil al reconectar socket (`App.jsx`, `index.css`). No reemplazan verificar dispositivos reales. |
 | Q1–Q2 | Docker runtime | Se validan las migraciones de la base de prueba y se aplican todas en un esquema vacío aislado. |
 | Q3 | Docker runtime | Se crea un esquema aparte con duplicados de referencia Wompi; la migración debe fallar y conservar ambas filas. |
 
@@ -453,6 +453,7 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | P4 | Verificar que la FAQ tiene las preguntas de: pagos, Discord, sorteos, recuperación | Todas presentes. |
 | P5 | Responsive en móvil | Layout adaptable. |
 | P6 | Dark mode | Toggle funcional, tema persistido en localStorage. |
+| P14 | Modo Vista Previa desde `/auth` | Al entrar sin sesión siempre redirige a `/auth`; al oprimir `👀 Ver vista previa de la página` se recorre el lobby (`/chat`, `/match`, `/sorteos`, `/leaderboard`, `/chatbot`, `/soporte`, `/finance`, `/faq`) con datos de ejemplo sin conectar sockets ni APIs privadas, mostrando el modal de inicio de sesión ante cualquier acción interactiva y bloqueando `/admin`. |
 
 ### 📋 Q — Flyway Migrations
 

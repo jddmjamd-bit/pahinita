@@ -86,6 +86,7 @@ public class ChatbotService {
     /** Temas que la IA puede preguntarle al admin para aprender la plataforma. */
     private static final List<String> TEMAS = List.of(
             "registro de la cuenta, Player Tag y token de API de Clash Royale",
+            "modo vista previa de solo lectura desde la pantalla de inicio de sesión (datos de ejemplo sin conexión ni acciones reales)",
             "recargas (Nequi manual, tarjeta/PSE con Wompi): tiempos, montos mínimos y máximos, costos",
             "retiros: montos, tiempos y requisitos",
             "cómo funciona un torneo 1 contra 1 (montos permitidos, buscar rival, negociar el monto)",
@@ -127,6 +128,7 @@ public class ChatbotService {
             "¿Cómo puedo contactar al administrador si tengo un problema con un pago?",
             "¿Qué canales tiene el chat y para qué sirve cada uno?",
             "¿Qué es la zona de pruebas o suscripción 'prueba' y quién puede activarla o borrar sus datos?",
+            "¿Cómo funciona el botón de vista previa de la página antes de iniciar sesión y qué se puede ver ahí?",
             "¿Es seguro mi saldo y qué hago si creo que alguien entró a mi cuenta?");
 
     private static final String INSTRUCCIONES_BASE = """

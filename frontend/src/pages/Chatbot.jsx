@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { API_BASE_URL } from '../store/llamarApi';
+import { DEMO_CHATBOT_MENSAJES } from '../data/vistaPreviaDemo';
 import './Chat.css';
 import './Chatbot.css';
 
@@ -18,6 +19,8 @@ let contadorLocal = 0;
 const nuevoId = () => `local-${Date.now()}-${contadorLocal++}`;
 
 export default function Chatbot() {
+    const currentUser = useAppStore(state => state.user);
+    const solicitarAutenticacionVistaPrevia = useAppStore(state => state.solicitarAutenticacionVistaPrevia);
     const socket = useAppStore(state => state.socket);
 
     const [mensajes, setMensajes] = useState([]);
@@ -35,6 +38,12 @@ export default function Chatbot() {
 
     // Carga inicial: disponibilidad, tono e historial (la sesión viaja en la cookie httpOnly)
     useEffect(() => {
+        if (!currentUser) {
+            setDisponible(true);
+            setMensajes(DEMO_CHATBOT_MENSAJES);
+            setCargando(false);
+            return undefined;
+        }
         let activo = true;
         (async () => {
             try {
@@ -61,7 +70,7 @@ export default function Chatbot() {
             }
         })();
         return () => { activo = false; };
-    }, []);
+    }, [currentUser]);
 
     // Cuando el admin responde una duda que hice, llega por socket (y ya quedó guardada en el historial)
     useEffect(() => {
@@ -79,6 +88,10 @@ export default function Chatbot() {
 
     const enviar = async (e) => {
         e.preventDefault();
+        if (!currentUser) {
+            solicitarAutenticacionVistaPrevia('conversar con el asistente virtual');
+            return;
+        }
         const pregunta = texto.trim();
         if (!pregunta || enviando) return;
 
@@ -106,6 +119,10 @@ export default function Chatbot() {
     };
 
     const cambiarTono = async (tono) => {
+        if (!currentUser) {
+            solicitarAutenticacionVistaPrevia('cambiar el tono del asistente');
+            return;
+        }
         try {
             const res = await fetch(`${API_BASE_URL}/api/chatbot/tono`, {
                 method: 'PUT',
@@ -122,6 +139,10 @@ export default function Chatbot() {
     };
 
     const borrarHistorial = async () => {
+        if (!currentUser) {
+            solicitarAutenticacionVistaPrevia('borrar el historial del asistente');
+            return;
+        }
         if (!window.confirm('¿Borrar toda tu conversación con el asistente?')) return;
         try {
             const res = await fetch(`${API_BASE_URL}/api/chatbot/historial`, { method: 'DELETE', credentials: 'include' });
@@ -182,7 +203,7 @@ export default function Chatbot() {
                         onChange={e => setTexto(e.target.value)}
                         disabled={enviando}
                     />
-                    <button type="submit" disabled={enviando || !texto.trim()}>Enviar</button>
+                    <button type="submit" disabled={enviando || (Boolean(currentUser) && !texto.trim())}>Enviar</button>
                 </form>
             ) : (
                 <div className="chat-input-area">
