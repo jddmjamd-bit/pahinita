@@ -207,7 +207,7 @@
 ## 17. Contenido de ayuda (FAQ, chatbot, tutorial)
 
 Al agregar o cambiar una funcionalidad visible para el usuario:
-- **FAQ:** agregar/editar preguntas en `frontend/src/data/faq.js` (`id` único y estable, `categoria` existente, texto plano, sin "apuesta"); mantener pasando la prueba P4.
+- **FAQ:** agregar/editar preguntas en `frontend/src/data/faq.js` (`id` único y estable, `categoria` existente, texto plano, sin "apuesta"); mantener pasando la prueba P4. Con agrupacion correcta para encontrar mas facilmente
 - **Chatbot IA:** agregar el tema a `ChatbotService.TEMAS` y una pregunta base a `PREGUNTAS_SEMILLA` para que la IA le pregunte al admin. No escribir respuestas con cifras de dinero fijas en el código.
 - **Tutorial interactivo:** cuando exista, agregar el paso correspondiente.
 - **Zona de Pruebas / Sandbox:** si la funcionalidad tiene reglas, límites o disponibilidad particular en el espacio de pruebas (admin y usuarios `prueba`), actualizar también `zona-pruebas-suscripcion` en `frontend/src/data/faq.js` y las entradas correspondientes en `ChatbotService` (`TEMAS` / `PREGUNTAS_SEMILLA`).
@@ -216,23 +216,24 @@ Al agregar o cambiar una funcionalidad visible para el usuario:
 
 La plataforma cuenta con un sandbox aislado (**Copia Temporal / Zona de Pruebas**, [`ARCHITECTURE.md`](../../ARCHITECTURE.md) sección 24, migración `V23`) respaldado por `TEST_DATABASE_URL` (o el esquema local `tf_zona_pruebas`). Solo acceden cuentas con `tipo_suscripcion = 'prueba'` (asignadas exclusivamente desde `/admin`) y administradores que activan `zona_admin = 'prueba'`.
 
-**Al agregar o modificar cualquier funcionalidad**, es obligatorio actualizar también lo necesario para que funcione y permanezca aislada en el sandbox:
+**Al agregar o modificar cualquier funcionalidad**, es obligatorio que funcione **de punta a punta** dentro de la Zona de Pruebas y permanezca completamente aislada de la Zona Normal (no basta con limpiar tablas al reiniciar):
 
-1. **BD y control de acceso (`ConexionDB`, `AdminService`, `DbAdminService`):**
+1. **BD, sincronización de vínculos y control de acceso (`ConexionDB`, `AdminService`, `DbAdminService`):**
    - Los datos de negocio usan `GenericDAO` / `ConexionDB.getConnection()` (enruta por `ThreadLocal`: `ZONA_NORMAL` vs `ZONA_PRUEBA`); autenticación, sesiones (`user_sessions`), recuperación (`password_reset_tokens`) e identidad/rol/zona usan `getConnectionPrincipal()`.
    - Nunca expongas la asignación de `tipo_suscripcion = 'prueba'` ni la edición de `zona_admin` fuera de `AdminService` (`/api/admin/*`); `DbAdminService` (`/admin-db`) debe seguir bloqueándolo.
    - Agrega toda tabla de negocio nueva (en orden hijo → padre) a `tablasBorrar` y su secuencia a `tablasSecuenciaId` en `ConexionDB.reiniciarDatosZonaPruebas()`, restaurando filas semilla singleton (patrón `leaderboard_pools`, `raffle_pool`, `chatbot_config`) y triggers (patrón `wallet_ledger`) cuando aplique.
-   - Si añades columnas de identidad, verificación o configuración en `users` (nunca saldo ni estadísticas de juego), cópialas en `ConexionDB.sincronizarUsuarioConPruebas()`.
-   - Si la funcionalidad aporta contadores o métricas principales para el admin, considéralos en `ConexionDB.resumenZonaPruebas()` y la pestaña `test-zone` de `Admin.jsx`.
+   - **Sincronización obligatoria de relaciones y columnas de `users`:** además de copiar columnas de identidad, verificación o configuración en `users` (nunca saldo ni estadísticas de juego), **toda relación estructural, vínculo entre cuentas o configuración inicial creada en `ZONA_NORMAL` —en especial desde flujos públicos o sin sesión como `/api/register` que siempre escriben en `getConnectionPrincipal()` (referidos, amistades, membresías de clan, vínculos entre usuarios, etc.)— debe sincronizarse también hacia `ZONA_PRUEBA`** en `ConexionDB.sincronizarUsuarioConPruebas()` y `ConexionDB.sincronizarUsuariosPruebaYAdmin()` (incluyendo las cuentas enlazadas necesarias para cumplir FKs y conservando esos vínculos tras `reiniciarDatosZonaPruebas()` con saldos y contadores temporales en `0`).
+   - **Sincronización inmediata desde flujos principales:** cuando una acción pública o ejecutada sobre la BD principal cree o modifique un vínculo que involucre una cuenta `prueba` o `admin`, invoca `sincronizarUsuarioConPruebas(...)` inmediatamente después de hacer `commit` en la conexión principal (fuera de esa transacción para evitar doble checkout simultáneo en el pool).
+   - **Visibilidad en Admin `test-zone` y estado del vínculo:** agrega las métricas/conteos de la nueva función en `ConexionDB.resumenZonaPruebas()`, expón los datos o vínculos útiles en `AdminService.estadoZonaPruebas()` y muéstralos/hazlos buscables en la pestaña `test-zone` de `Admin.jsx`. Si la función enlaza dos usuarios, indica claramente en la UI cuando el usuario enlazado sigue en `free` para que el admin sepa pasarlo a `prueba` si quiere probar interacciones o partidas con él dentro del sandbox.
 2. **Hilos, tiempo real y tareas programadas (`Ejecutores`, `SocketHandler`, `Main`):**
    - Todo trabajo asíncrono o temporizador debe ejecutarse con `Ejecutores` para heredar `ConexionDB.zonaActual()`. Nunca uses `new Thread` o `Executors.*` sueltos.
    - Separa cualquier estado en memoria, cola, caché o temporizador entre `normal` y `prueba` (`ConexionDB.esZonaPrueba()`, patrón `SocketHandler.EstadoZonaSocket` y `TemporizadorSalaService`), límpialo en `SocketHandler.limpiarEstadoZonaPrueba()` y retira al usuario de la zona previa en `SocketHandler.notificarCambioZonaUsuario(...)`.
    - Toda recuperación al arranque y tarea periódica en `Main` (`scheduler.scheduleAtFixedRate(...)`) debe ejecutarse también para `ZONA_PRUEBA` dentro de `if (conexion.tieneZonaPruebas()) ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, ...)`.
    - Ninguna acción ejecutada desde `ZONA_PRUEBA` (dinero, webhooks, correos, push, voz o APIs externas) puede acreditar saldo real ni alterar datos o salas de usuarios en `ZONA_NORMAL`.
 3. **Frontend (`useAppStore.js`, `Admin.jsx`, páginas nuevas):**
-   - Todo estado global en `useAppStore.js` o vista/pestaña de `Admin.jsx` y páginas de usuario que dependa de datos de la zona debe limpiarse o recargarse ante `zona_cambiada`, `zona_pruebas_reiniciada` (`recargarZonaActiva()`) y cambios de `zonaActivaAdmin`.
+   - Todo estado global en `useAppStore.js`, vista/pestaña de `Admin.jsx` y **toda página o componente nuevo de usuario/admin** debe limpiarse o recargarse automáticamente ante los eventos de socket `zona_cambiada` y `zona_pruebas_reiniciada` (`recargarZonaActiva()`), así como ante cambios de `zonaActivaAdmin`.
 4. **Pruebas y documentación del sandbox:**
-   - Verifica en `RenderAcceptanceCheck` (o amplía `zonaDePruebasAislaOperacionesRestringeSuscripcionAlAdminYPermiteBorradoManual`) que lo nuevo en `ZONA_PRUEBA` no contamine `ZONA_NORMAL` y que `admin.reiniciarZonaPruebas(...)` limpie sus tablas sin errores de FK ni triggers.
+   - **Prueba funcional obligatoria en `ZONA_PRUEBA`:** cada funcionalidad nueva debe incluir dentro de `RenderAcceptanceCheck` una verificación explícita dentro de `ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, () -> { ... })` que pruebe el flujo real de punta a punta en el sandbox (no solo que las tablas se limpian al reiniciar), compruebe el aislamiento frente a `ZONA_NORMAL` (saldos y métricas separados) y valide el estado correcto tras `admin.reiniciarZonaPruebas(...)`.
    - Si cambia el comportamiento o flujo del sandbox, actualiza `ARCHITECTURE.md` (sección 24), `GUIA_PRUEBAS_Y_VARIABLES.md`, la ayuda (sección 17) y la prueba `P11` en `frontend/scripts/acceptance.test.js`.
 
 ---
@@ -283,7 +284,7 @@ El matchmaking justo (`MatchmakingPuntaje` y `MatchmakingService`) ya reserva la
 6. Actualizar `GUIA_PRUEBAS_Y_VARIABLES.md` si hay variables nuevas o casos de prueba manual nuevos; **si la prueba manual nueva se puede simular o verificar por JUnit (`*Test.java` o `RenderAcceptanceCheck`), automatizarla ahí mismo sin dejarla solo manual**.
 7. Si completaste un ítem del roadmap, marcarlo como hecho en `analisis_y_roadmap.md`.
 8. Agregar el contenido de ayuda correspondiente (sección 17).
-9. Adaptar e integrar el cambio en la **Zona de Pruebas / Sandbox** (sección 18: `ConexionDB`, estado en memoria, tareas en `Main`, UI/store y verificación de aislamiento/reinicio).
+9. Adaptar e integrar el cambio **de punta a punta** en la **Zona de Pruebas / Sandbox** (sección 18: sincronización de vínculos/relaciones y flujos públicos hacia `ZONA_PRUEBA` en `ConexionDB.sincronizarUsuarioConPruebas()` / `sincronizarUsuariosPruebaYAdmin()`, visibilidad en `AdminService.estadoZonaPruebas()` y `Admin.jsx` `test-zone`, estado en memoria, tareas en `Main`, recarga en frontend ante `zona_cambiada` / `zona_pruebas_reiniciada`, y prueba funcional obligatoria dentro de `ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, ...)` en `RenderAcceptanceCheck`).
 10. Ejecutar el archivo `actualizar-txt.bat`.
 11. Ejecutar `git diff --stat` y confirmar que solo se tocaron los archivos esperados (sin `.env`, secretos, `target/`, `contexto-txt/` ni builds).
 12. Notificar al usuario las verificaciones manuales que debe hacer.
@@ -304,6 +305,6 @@ El matchmaking justo (`MatchmakingPuntaje` y `MatchmakingService`) ya reserva la
 - [ ] Configuración en `AppConfig` y documentada.
 - [ ] Sin `innerHTML`, sin datos de usuario en `localStorage`, sin "apuesta".
 - [ ] Si hubo cambios visuales: actualizado `vistaPreviaDemo.js` (si aplica) y **revisada visualmente la interfaz en versión PC y celular** usando el Modo Vista Previa (sección 15.11 y 15.12).
-- [ ] Contenido de ayuda (sección 17) y **Zona de Pruebas / Sandbox** (sección 18) al día e integrados.
+- [ ] Contenido de ayuda (sección 17) y **Zona de Pruebas / Sandbox** (sección 18: funcionamiento real en `ZONA_PRUEBA`, sincronización de relaciones desde flujos principales, recarga ante `zona_cambiada` / `zona_pruebas_reiniciada`, visibilidad en `Admin` `test-zone` y prueba dentro de `ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, ...)`) al día e integrados.
 - [ ] Simulaciones de JUnit (`RenderAcceptanceCheck` y `*Test.java`) revisadas contra restricciones reales de `V*.sql`, toda prueba manual automatizable cubierta en JUnit, y `clean verify` / `build` ejecutados.
 - [ ] `CHANGELOG.md` (y `ARCHITECTURE.md`/guía si aplica) actualizados.
