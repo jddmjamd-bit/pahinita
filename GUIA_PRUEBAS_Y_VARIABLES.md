@@ -453,12 +453,24 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | P4 | Verificar que la FAQ tiene las preguntas de: pagos, Discord, sorteos, recuperación | Todas presentes. |
 | P5 | Responsive en móvil | Layout adaptable. |
 | P6 | Dark mode | Toggle funcional, tema persistido en localStorage. |
-| P14 | Modo Vista Previa desde `/auth` | Al entrar sin sesión siempre redirige a `/auth`; al oprimir `👀 Ver vista previa de la página` se recorre el lobby (`/chat`, `/match`, `/sorteos`, `/leaderboard`, `/chatbot`, `/soporte`, `/finance`, `/faq`) con datos de ejemplo sin conectar sockets ni APIs privadas, mostrando el modal de inicio de sesión ante cualquier acción interactiva y bloqueando `/admin`. |
+| P14 | Modo Vista Previa desde `/auth` | Al entrar sin sesión siempre redirige a `/auth`; al oprimir `👀 Ver vista previa de la página` se recorre el lobby (`/chat`, `/match`, `/sorteos`, `/leaderboard`, `/chatbot`, `/soporte`, `/finance`, `/referidos`, `/faq`) con datos de ejemplo sin conectar sockets ni APIs privadas, mostrando el modal de inicio de sesión ante cualquier acción interactiva y bloqueando `/admin`. |
+| P15 | Sistema de referidos en frontend (`/auth?ref=` y `/referidos`) | Entrar por `/auth?ref=CODIGO` abre automáticamente el formulario de registro con el código prellenado y opcional; `/referidos` permite copiar link solo o con mensaje corto editable, configurar comisión compartida (`0%`–`100%`) general o por referido y ver estadísticas/pagos usando `llamarApi` y `DEMO_REFERIDOS` en vista previa. |
+
+### 🔗 R — Sistema de Referidos (Prioridad 6.5)
+
+| # | Prueba | Resultado esperado |
+|---|--------|-------------------|
+| R1 | Abrir link `/auth?ref=CODIGO` | Abre automáticamente la pestaña de registro y prellena el campo opcional `Código de referido`. |
+| R2 | Registro manual sin código / con código inválido / con código válido | Sin código registra normalmente (`referido_por_id = NULL`); código inexistente devuelve 400; código válido vincula `referido_por_id` y crea fila en `referrals`. |
+| R3 | Configurar porcentaje compartido (`0%` a `100%`) y mensaje corto en `/referidos` | Sin mínimos ni máximos adicionales; `GET /api/referidos/validar/{codigo}` refleja el nuevo porcentaje público para nuevos invitados. |
+| R4 | Liquidar partida de jugador referido (`REFERIDOS` 10% ÷ 2 por jugador) | Se acredita `(base - floor(base * % / 100))` al referidor y el resto al jugador referido, registrando `wallet_ledger` y `referral_payouts` de forma idempotente. |
+| R5 | Liquidar partida de jugador **sin referidor** | La mitad de `REFERIDOS` de ese jugador se acredita automáticamente a cuentas `admin` (`wallet_ledger` + `referral_payouts.monto_admin`), reflejándose en `gananciaAdminReferidos` de `/admin`. |
+| R6 | `ReferidosServiceTest` (3 pruebas) y `RenderAcceptanceCheck.sistemaReferidos...` | `ReferidosServiceTest` valida reparto exacto con `BigDecimal` y centavos impares; `RenderAcceptanceCheck` cubre registro, reparto y admin sin referidor contra BD de pruebas. |
 
 ### 📋 Q — Flyway Migrations
 
 | # | Prueba | Resultado esperado |
 |---|--------|-------------------|
-| Q1 | Verificar `SELECT version, success FROM flyway_schema_history ORDER BY installed_rank` | V1 a V25, todas con `success = true`. |
-| Q2 | Arrancar con BD vacía | Flyway aplica las migraciones actuales (V1–V25) automáticamente. |
+| Q1 | Verificar `SELECT version, success FROM flyway_schema_history ORDER BY installed_rank` | V1 a V26, todas con `success = true`. |
+| Q2 | Arrancar con BD vacía | Flyway aplica las migraciones actuales (V1–V26) automáticamente. |
 | Q3 | V17 con duplicados existentes | Migración aborta con mensaje explicativo (no borra datos). |

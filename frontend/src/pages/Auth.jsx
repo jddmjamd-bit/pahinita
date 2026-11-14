@@ -7,11 +7,29 @@ import AceptacionLegal from '../components/AceptacionLegal';
 import './Auth.css';
 
 const excedeLimiteBcrypt = value => new TextEncoder().encode(value).length > 72;
+const REF_STORAGE_KEY = 'tf_ref_code';
+
+const extraerRefDeLocation = (loc) => {
+    const q = new URLSearchParams(loc?.search || '').get('ref');
+    const h = new URLSearchParams((loc?.hash || '').replace(/^#/, '')).get('ref');
+    const raw = (q || h || '').trim().toUpperCase();
+    return /^[A-Z0-9_-]{3,24}$/.test(raw) ? raw : '';
+};
+
+const leerRefGuardado = () => {
+    try {
+        const val = (sessionStorage.getItem(REF_STORAGE_KEY) || '').trim().toUpperCase();
+        return /^[A-Z0-9_-]{3,24}$/.test(val) ? val : '';
+    } catch {
+        return '';
+    }
+};
 
 export default function Auth() {
     const navigate = useNavigate();
     const location = useLocation();
-    const [isLogin, setIsLogin] = useState(() => location.state?.modo === 'login');
+    const refEnUrl = extraerRefDeLocation(location);
+    const [isLogin, setIsLogin] = useState(() => !refEnUrl && location.state?.modo === 'login');
     const [recuperando, setRecuperando] = useState(false);
     const [ayudaAbierta, setAyudaAbierta] = useState(null); // null | 'tag' | 'token'
     const setUser = useAppStore(state => state.setUser);
@@ -26,9 +44,20 @@ export default function Auth() {
         : tokenRecuperacion ? 'validando' : 'inactivo';
 
     useEffect(() => {
+        if (refEnUrl) {
+            setIsLogin(false);
+            setRecuperando(false);
+            setCodigoReferido(refEnUrl);
+            try {
+                sessionStorage.setItem(REF_STORAGE_KEY, refEnUrl);
+            } catch {
+                // sessionStorage puede estar deshabilitado en navegación privada
+            }
+            return;
+        }
         if (location.state?.modo === 'login') setIsLogin(true);
         else if (location.state?.modo === 'registro') setIsLogin(false);
-    }, [location.state]);
+    }, [location.state, refEnUrl]);
 
     useEffect(() => {
         if (!ayudaAbierta) return undefined;
@@ -76,6 +105,7 @@ export default function Auth() {
     const [playerTag, setPlayerTag] = useState('');
     const [playerApiToken, setPlayerApiToken] = useState('');
     const [telefono, setTelefono] = useState('');
+    const [codigoReferido, setCodigoReferido] = useState(() => refEnUrl || leerRefGuardado());
     const [acepta, setAcepta] = useState(false);
     const [passwordNueva, setPasswordNueva] = useState('');
     const [confirmarPassword, setConfirmarPassword] = useState('');
@@ -84,10 +114,12 @@ export default function Auth() {
     const [usernameStatus, setUsernameStatus] = useState({ text: '', className: 'tag-status' });
     const [emailStatus, setEmailStatus] = useState({ text: '', className: 'tag-status' });
     const [playerTagStatus, setPlayerTagStatus] = useState({ text: '', className: 'tag-status' });
+    const [referidoStatus, setReferidoStatus] = useState({ text: '', className: 'tag-status' });
 
     const [usernameValid, setUsernameValid] = useState(false);
     const [emailValid, setEmailValid] = useState(false);
     const [playerTagValid, setPlayerTagValid] = useState(false);
+    const [referidoInvalido, setReferidoInvalido] = useState(false);
 
     const alternarAyuda = (clave) => {
         setAyudaAbierta(actual => (actual === clave ? null : clave));
@@ -216,6 +248,71 @@ export default function Auth() {
         return () => clearTimeout(delayDebounceFn);
     }, [playerTag, isLogin]);
 
+    useEffect(() => {
+        if (isLogin) return undefined;
+        const limpio = codigoReferido.trim().toUpperCase();
+        if (!limpio) {
+            setReferidoStatus({ text: '', className: 'tag-status' });
+            setReferidoInvalido(false);
+            return undefined;
+        }
+        if (!/^[A-Z0-9_-]{3,24}$/.test(limpio)) {
+            setReferidoStatus({
+                text: '⚠️ Usa entre 3 y 24 letras, números, guion o guion bajo (o déjalo vacío).',
+                className: 'tag-status visible error'
+            });
+            setReferidoInvalido(true);
+            return undefined;
+        }
+        setReferidoStatus({ text: '🔍 Verificando código de referido...', className: 'tag-status visible searching' });
+        setReferidoInvalido(false);
+        let cancelado = false;
+        const delayDebounceFn = setTimeout(async () => {
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/referidos/validar/${encodeURIComponent(limpio)}`);
+                if (cancelado) return;
+                if (res.status === 429) {
+                    setReferidoStatus({
+                        text: '⏳ Espera unos segundos para validar el código.',
+                        className: 'tag-status visible error'
+                    });
+                    return;
+                }
+                const data = await res.json();
+                if (cancelado) return;
+                if (data.valido) {
+                    const pct = Number(data.porcentajeCompartido || 0);
+                    const extra = pct > 0
+                        ? ` · Te devuelve el ${pct.toLocaleString('es-CO', { maximumFractionDigits: 2 })}% de su comisión`
+                        : '';
+                    setReferidoStatus({
+                        text: `✅ Código válido de ${data.usernameReferidor}${extra}`,
+                        className: 'tag-status visible found'
+                    });
+                    setReferidoInvalido(false);
+                } else {
+                    setReferidoStatus({
+                        text: '⚠️ Ese código de referido no existe. Puedes corregirlo o dejarlo vacío.',
+                        className: 'tag-status visible not-found'
+                    });
+                    setReferidoInvalido(true);
+                }
+            } catch {
+                if (cancelado) return;
+                setReferidoStatus({
+                    text: 'ℹ️ No se pudo verificar ahora; se validará al registrarte (puedes dejarlo vacío).',
+                    className: 'tag-status visible auth-ref-hint'
+                });
+                setReferidoInvalido(false);
+            }
+        }, 300);
+
+        return () => {
+            cancelado = true;
+            clearTimeout(delayDebounceFn);
+        };
+    }, [codigoReferido, isLogin]);
+
     const handleRegister = async (e) => {
         e.preventDefault();
         if (!usernameValid) return alert('❌ Revisa el nombre de usuario.');
@@ -224,6 +321,10 @@ export default function Auth() {
         if (!playerApiToken.trim()) return alert('❌ Ingresa el token de API de Clash Royale (pulsa ? para ver dónde está).');
         if (!acepta) return alert('❌ Debes aceptar los Términos de Servicio y la Política de Privacidad.');
         if (excedeLimiteBcrypt(password)) return alert('La contraseña es demasiado larga. Usa una más corta.');
+        const codigoRefLimpio = codigoReferido.trim().toUpperCase();
+        if (codigoRefLimpio && referidoInvalido) {
+            return alert('❌ El código de referido no es válido. Corrígelo o déjalo vacío.');
+        }
 
         try {
             await esperarSolicitudesPush();
@@ -238,12 +339,19 @@ export default function Auth() {
                     playerTag: playerTag.trim().toUpperCase(),
                     playerApiToken,
                     telefono,
-                    aceptaTerminos: true
+                    aceptaTerminos: true,
+                    codigoReferido: codigoRefLimpio
                 })
             });
             const data = await res.json();
             setPlayerApiToken('');
             if (res.ok) {
+                try {
+                    sessionStorage.removeItem(REF_STORAGE_KEY);
+                } catch {
+                    // noop
+                }
+                setCodigoReferido('');
                 alert(data.message || 'Solicitud recibida. Ya puedes iniciar sesión; los retiros se habilitan tras verificar tu cuenta.');
                 setAyudaAbierta(null);
                 setIsLogin(true);
@@ -514,6 +622,38 @@ export default function Auth() {
                             <input id="auth-reg-phone" type="tel" placeholder="Ej: 300 123 4567" required minLength="7" maxLength="30"
                                 title="Lo usamos para contactarte por WhatsApp si ganas un sorteo"
                                 autoComplete="tel" value={telefono} onChange={e => setTelefono(e.target.value)} />
+                        </div>
+
+                        <div className="auth-field">
+                            <div className="auth-label-row">
+                                <label htmlFor="auth-reg-ref">Código de referido (opcional)</label>
+                                {codigoReferido.trim() && (
+                                    <button
+                                        type="button"
+                                        className="auth-clear-ref-btn"
+                                        onClick={() => {
+                                            setCodigoReferido('');
+                                            try {
+                                                sessionStorage.removeItem(REF_STORAGE_KEY);
+                                            } catch {
+                                                // noop
+                                            }
+                                        }}
+                                    >
+                                        Quitar código
+                                    </button>
+                                )}
+                            </div>
+                            <input
+                                id="auth-reg-ref"
+                                type="text"
+                                placeholder="Se llena solo con un link de invitación o escríbelo manual"
+                                maxLength="24"
+                                autoComplete="off"
+                                value={codigoReferido}
+                                onChange={e => setCodigoReferido(e.target.value.toUpperCase())}
+                            />
+                            <div className={referidoStatus.className}>{referidoStatus.text}</div>
                         </div>
 
                         <AceptacionLegal acepta={acepta} onChange={setAcepta} />

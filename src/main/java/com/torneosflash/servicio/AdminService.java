@@ -183,6 +183,28 @@ public class AdminService {
         stats.addProperty("gananciaComisionesAdmin", gananciaComisionesAdmin);
         stats.addProperty("gananciaTotalCombinadaAdmin", gananciaTotalCombinadaAdmin);
 
+        // Comisión de referidos acreditada al admin por partidas de jugadores sin referidor // REVIEW-MONEY
+        JsonObject refAdminSum = db.queryOne(
+                "SELECT COALESCE(SUM(monto_admin), 0) AS total_admin, " +
+                "COALESCE(SUM(monto_referidor), 0) AS total_referidores, " +
+                "COALESCE(SUM(monto_devuelto_referido), 0) AS total_devuelto, " +
+                "COALESCE(SUM(monto_base), 0) AS total_base " +
+                "FROM referral_payouts");
+        JsonObject refConteo = db.queryOne("SELECT COUNT(*) AS total FROM referrals");
+        BigDecimal gananciaAdminReferidos = obtenerMontoJson(refAdminSum, "total_admin");
+        stats.addProperty("gananciaAdminReferidos", gananciaAdminReferidos);
+        stats.addProperty("gananciaTotalConReferidosAdmin",
+                gananciaTotalCombinadaAdmin.add(gananciaAdminReferidos));
+
+        JsonObject resumenReferidos = new JsonObject();
+        resumenReferidos.addProperty("totalRelaciones",
+                refConteo != null && refConteo.has("total") ? refConteo.get("total").getAsLong() : 0L);
+        resumenReferidos.addProperty("totalComisionBase", obtenerMontoJson(refAdminSum, "total_base"));
+        resumenReferidos.addProperty("totalPagadoReferidores", obtenerMontoJson(refAdminSum, "total_referidores"));
+        resumenReferidos.addProperty("totalDevueltoReferidos", obtenerMontoJson(refAdminSum, "total_devuelto"));
+        resumenReferidos.addProperty("totalAdminSinReferidor", gananciaAdminReferidos);
+        stats.add("resumenReferidos", resumenReferidos);
+
         // Lista de todos los usuarios con sus detalles
         ArrayList<JsonObject> usuarios = db.query(
                 "SELECT id, username, email, saldo, tipo_suscripcion, " +

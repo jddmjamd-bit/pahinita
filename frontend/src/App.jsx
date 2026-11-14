@@ -12,6 +12,7 @@ const Match = lazy(() => import('./pages/Match'))
 const Chat = lazy(() => import('./pages/Chat'))
 const Finance = lazy(() => import('./pages/Finance'))
 const Leaderboard = lazy(() => import('./pages/Leaderboard'))
+const Referidos = lazy(() => import('./pages/Referidos'))
 const Sorteos = lazy(() => import('./pages/Sorteos'))
 const Chatbot = lazy(() => import('./pages/Chatbot'))
 const Soporte = lazy(() => import('./pages/Soporte'))
@@ -19,6 +20,14 @@ const Legal = lazy(() => import('./pages/Legal'))
 const Faq = lazy(() => import('./pages/Faq'))
 
 const RUTAS_PUBLICAS = ['/auth', '/terminos', '/privacidad', '/faq'];
+const REF_STORAGE_KEY = 'tf_ref_code';
+
+const extraerRefDeUrl = (search, hash) => {
+  const q = new URLSearchParams(search || '').get('ref');
+  const h = new URLSearchParams((hash || '').replace(/^#/, '')).get('ref');
+  const limpio = (q || h || '').trim().toUpperCase();
+  return /^[A-Z0-9_-]{3,24}$/.test(limpio) ? limpio : '';
+};
 
 // Evita pantallas vacías en celular si una vista diferida falla al reanudarse o queda un chunk viejo tras desplegar.
 class AppErrorBoundary extends Component {
@@ -90,6 +99,16 @@ function AppContent() {
   const location = useLocation();
   const navigate = useNavigate();
   const { pathname, search, hash } = location;
+  const refDeUrl = extraerRefDeUrl(search, hash);
+
+  useEffect(() => {
+    if (!refDeUrl) return;
+    try {
+      sessionStorage.setItem(REF_STORAGE_KEY, refDeUrl);
+    } catch {
+      // sessionStorage puede estar deshabilitado en navegación privada estricta
+    }
+  }, [refDeUrl]);
 
   useCapacitor();
 
@@ -163,6 +182,9 @@ function AppContent() {
   }
   if (sessionReady && !user && !RUTAS_PUBLICAS.includes(pathname)) {
     if (!modoVistaPrevia || pathname.startsWith('/admin')) {
+      if (refDeUrl) {
+        return <Navigate to={`/auth?ref=${encodeURIComponent(refDeUrl)}`} replace />;
+      }
       return <Navigate to="/auth" replace />;
     }
   }
@@ -204,6 +226,7 @@ function AppContent() {
             <Route path="match" element={<Match />} />
             <Route path="finance" element={<Finance />} />
             <Route path="leaderboard" element={<Leaderboard />} />
+            <Route path="referidos" element={<Referidos />} />
             <Route path="sorteos" element={<Sorteos />} />
             <Route path="chatbot" element={<Chatbot />} />
             <Route path="soporte" element={<Soporte />} />

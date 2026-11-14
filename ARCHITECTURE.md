@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — UltimateClash (TorneosFlash)
 
 > Documento de referencia para que cualquier modelo o desarrollador entienda el sistema.
-> Última actualización: 2026-11-10
+> Última actualización: 2026-11-13
 
 ---
 
@@ -84,7 +84,8 @@ TorneosFlash/
 │   │   ├── SoporteService.java      # "Hablar con el admin" (24.5): crear ticket, mis tickets, bandeja admin y responder. Ver sección 19
 │   │   ├── SoporteListener.java     # Listeners de `soporte.*`: correo al admin al crear un ticket; aviso + correo al usuario al responderlo
 │   │   ├── EvidenciaPagoService.java # Evidencias de pago (7): el admin publica el comprobante de un retiro pagado; historial del canal «pagos». Ver sección 20
-│   │   └── EvidenciaPagoListener.java # Listener de `pagos.evidencia_publicada`: mensaje en vivo al canal «pagos» + push a quien recibió el pago
+│   │   ├── EvidenciaPagoListener.java # Listener de `pagos.evidencia_publicada`: mensaje en vivo al canal «pagos» + push a quien recibió el pago
+│   │   └── ReferidosService.java      # Sistema de referidos (6.5): código único, enlace, mensaje corto, estadísticas y comisión compartida (0%-100%). Ver sección 25
 │   ├── servidor/                    # Capa HTTP (A3): parsea el request, llama a un servicio y responde. Sin lógica de negocio ni SQL
 │   │   ├── RateLimitMiddleware.java # Rate limiting por IP (S8): clasifica cada request y responde 429. Ver sección 10
 │   │   ├── AuthMiddleware.java      # Sesión JWT (S1): valida el JTI persistido, inyecta identidad y revoca/renueva la sesión. Ver sección 16
@@ -102,12 +103,13 @@ TorneosFlash/
 │   │   ├── RutasChatbot.java        # `/api/chatbot/*` (usuario) y `/api/admin/chatbot/*` (admin). Ver sección 17
 │   │   ├── RutasSoporte.java        # `/api/soporte/tickets` (usuario) y `/api/admin/soporte/tickets*` (admin). Ver sección 19
 │   │   ├── RutasEvidenciaPago.java  # `/api/pagos/evidencias` (usuario) y `/api/admin/pagos/*` (admin). Ver sección 20
+│   │   ├── RutasReferidos.java      # `/api/referidos/*`: validación pública, panel propio y porcentaje compartido (6.5). Ver sección 25
 │   │   └── RutasSorteos.java        # CRUD sorteos y participaciones
 │   └── socketio/                    # Adaptador custom Socket.IO
 │       ├── SocketIOServer.java      # Parseo de paquetes Engine.IO/Socket.IO
 │       └── SocketIOClient.java      # Wrapper del cliente WS
 ├── src/main/resources/
-│   └── db/migration/                # Migraciones Flyway V1–V23; V23 añade zona_admin para la Copia Temporal de Pruebas
+│   └── db/migration/                # Migraciones Flyway V1–V26; V26 añade el sistema de referidos y comisión compartida
 ├── agent/rules/                     # Reglas para modelos IA
 │   ├── auto-push.md
 │   └── project-conventions.md       # ← NUEVO
@@ -155,6 +157,8 @@ TorneosFlash/
 | `matchmaking_search_notified` | Deduplicación de avisos por oleada de búsqueda (V24) | `id`, `buscador_id`, `receptor_id`, `grupo_rango`, `es_receptor_mejor`, `etiqueta_nivel`, `notificado_en` |
 | `matchmaking_challenges` | Confirmaciones pendientes/resueltas cuando un rival superior solicita o se empareja automáticamente con el buscador (V24–V25) | `id`, `buscador_id`, `retador_id`, `grupo_rango`, `diferencia_puntaje`, `etiqueta_para_buscador`, `etiqueta_para_retador`, `es_automatico`, `estado`, `expira_en`, `respondido_en` |
 | `active_matches` | Salas en negociación y partidas en curso persistidas en BD (A2, V21) | `id`, `sala_id` (UNIQUE), `player1_id`, `player2_id`, `iniciado`, `inicio_revision`, `monto`, `match_db_id`, `player_tag1`, `player_tag2`, `match_start_time`, `last_modo`, `last_dinero`, `votos_json`, `confirmaciones_json`, `poll_count`, `discord_exencion_p1`, `discord_exencion_p2`, `timer_activo`, `timer_activado_por`, `timer_p1_vence_en`, `timer_p2_vence_en` |
+| `referrals` | Relación referidor ↔ invitado y acumulados (6.5, V26) | `referrer_user_id`, `referred_user_id` (UNIQUE), `codigo_usado`, `porcentaje_compartido`, `usa_porcentaje_personalizado`, `partidas_jugadas`, `total_comision_referido`, `total_ganado_referidor`, `total_devuelto_referido` |
+| `referral_payouts` | Reparto idempotente por jugador/partida de la categoría `referidos` (V26) | `match_id`, `jugador_id` (`UNIQUE (match_id, jugador_id)`), `referrer_user_id`, `monto_base`, `porcentaje_compartido`, `monto_referidor`, `monto_devuelto_referido`, `monto_admin` |
 
 **Tokens FCM en Capacitor:** `useCapacitor` escucha el evento nativo `registration`, conserva el token solo en memoria y lo registra en `POST /api/register-token` cuando existe una sesión; una renovación envía el token anterior para reemplazarlo en la misma transacción. Al cerrar sesión, el cliente incluye los tokens de este dispositivo en `POST /api/logout`, que los elimina por usuario antes de borrar la cookie. Los tokens que FCM invalide se eliminan al recibir el error correspondiente del proveedor.
 
@@ -317,7 +321,7 @@ Una sola clase decide cuánto se cobra y cómo se reparte. Es lógica pura (no t
 | `logros` | 5% |
 | `leaderboard` | 15% (se reparte en 4 pozos: día/semana/mes/año) |
 | `devolucion` | 15% |
-| `referidos` | 10% |
+| `referidos` | 10% (repartido por jugador al liquidar: al referidor + cashback opcional `0%`–`100%`, o a cuentas `admin` si no tiene referidor) |
 | `ganancia` | residuo (= 25%): lo que sobra, así la suma siempre cuadra al peso |
 
 Cada jugador se atribuye la mitad de cada categoría (`Desglose.porJugador()`, columnas `users.gen_*` y `ganancia_generada`); de ahí salen también los tickets de sorteo (`SorteoService.acumularTicketsPorPartida`).
@@ -531,6 +535,7 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | `V23__zona_pruebas_y_suscripcion_prueba.sql` | Añade campos de zona activa y suscripción `prueba` para aislar la Zona de Pruebas administrativa |
 | `V24__matchmaking_justo.sql` | Crea `matchmaking_profiles`, `matchmaking_search_notified` y `matchmaking_challenges`, además de columnas de oleada y puntaje oculto en `match_queue` |
 | `V25__matchmaking_emparejamiento_y_tiempos.sql` | Añade `es_automatico` en `matchmaking_challenges` para emparejamiento automático progresivo con confirmación previa al jugador de menor rango |
+| `V26__sistema_referidos.sql` | Añade `codigo_referido` (con backfill único y trigger `fn_users_asignar_codigo_referido`), `referido_por_id`, `referido_porcentaje_compartido` y `referido_mensaje_corto` en `users`; crea `referrals` y `referral_payouts` (`UNIQUE (match_id, jugador_id)`) |
 
 **Cómo se comporta según el estado de la BD** (`baselineOnMigrate=true`, `baselineVersion=0`):
 
@@ -541,7 +546,7 @@ El esquema de PostgreSQL ya no lo crea el código Java: lo versionan scripts SQL
 | Ya migrada | Aplica solo los scripts nuevos; si no hay, no hace nada |
 
 **Reglas**
-- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente número disponible es V25). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
+- **Toda tabla o columna nueva es un archivo nuevo** `V<n>__descripcion.sql` (el siguiente número disponible es V27). **Nunca renumerar ni renombrar un `V*` que ya pudo aplicarse en alguna BD** (aunque sea solo en la de Render o en la local): Flyway falla con «Detected applied migration not resolved locally» y el servidor no arranca. Nunca se agregan tablas en Java.
 - **Nunca editar un `V*` ya aplicado:** Flyway guarda el checksum y `validateOnMigrate` hace fallar el arranque. Para corregir algo, una migración nueva.
 - **Fail-fast:** si una migración falla, `Main` loguea el error y sale con código 1 (no se sirve tráfico con el esquema a medias). Cada script corre en su propia transacción en PostgreSQL: si falla se revierte entero.
 - `cleanDisabled=true`: la app nunca puede ejecutar `flyway clean`.
@@ -580,6 +585,7 @@ RutasX (servidor/)                        XService (servicio/)
 | `RutasNotificaciones` | `NotificacionesService` | Configuración pública del push web y operaciones autenticadas del centro (listar, leer, descartar) |
 | `RutasMedia` | `MediaService` | Headers de la respuesta (`Content-Range`, `nosniff`, caché) |
 | `RutasDbAdmin` | `DbAdminService` | Acceso al panel: clave `X-DB-Admin-Key`, bloqueo por IP, cabeceras de seguridad (S10) |
+| `RutasReferidos` | `ReferidosService` | Validación pública de códigos (`/api/referidos/validar/{codigo}`) y lectura/configuración autenticada de referidos y comisión compartida (`/api/referidos/*`). Ver sección 25 |
 | `RutasComisiones` | `ComisionService` + `ValidadorMonto` | Ya era delgada (D4); no se tocó |
 
 **Reglas**
@@ -896,3 +902,20 @@ Permite operar una copia temporal completamente aislada que reutiliza la base de
   - `ConexionDB` enruta `getConnection()` según el `ThreadLocal` de zona (`ZONA_NORMAL` vs `ZONA_PRUEBA`) y sincroniza la fila del usuario (`sincronizarUsuarioConPruebas`, conservando el mismo `id` y arrancando con saldo `$0` en pruebas sin tocar su saldo real).
   - `AuthMiddleware` resuelve y activa la zona del usuario autenticado en cada petición `/api/*`; `Ejecutores` propaga la zona activa a los pools `io`, `push`, `cpu` y `timers`; `SocketIOClient` y `SocketIOServer` aíslan los eventos y emisiones por zona; `SocketHandler` y `TemporizadorSalaService` mantienen colas de búsqueda, salas privadas, partidas activas y conteo de usuarios conectados separados por zona.
 - **Persistencia hasta borrado manual del admin:** los datos de la zona de pruebas (mensajes, partidas, transacciones, `wallet_ledger`, sorteos, tickets, rankings, notificaciones, soporte y evidencias) permanecen guardados hasta que el administrador pulsa el botón de reinicio en `/admin` (`POST /api/admin/test-zone/reset`), que vacía las tablas de negocio de la base de pruebas y restablece los saldos/estadísticas de prueba a `$0` sin afectar `flyway_schema_history` ni la base de producción.
+
+---
+
+## 25. Sistema de Referidos y Comisión Compartida (Prioridad 6.5 · `V26`)
+
+Permite a cada jugador invitar a otros usuarios mediante enlace propio o código opcional, recibir la parte de referidos de la comisión de cada partida de sus invitados y decidir opcionalmente qué porcentaje compartir de vuelta con ellos:
+
+- **Código único y enlace de invitación:** Cada cuenta posee `users.codigo_referido` único (insensible a mayúsculas con índice `uq_users_codigo_referido_upper`, asignado en `UsuarioDAO.registrarConAceptacionLegal` y respaldado por trigger `fn_users_asignar_codigo_referido` para inserciones directas en pruebas). Al entrar por `/auth?ref=CODIGO` (o `#ref=`), `App.jsx` persiste el código en `sessionStorage` (`tf_ref_code`) y `Auth.jsx` abre el registro prellenado con validación en vivo contra `GET /api/referidos/validar/{codigo}`; escribirlo manualmente o dejarlo vacío es completamente opcional.
+- **Panel `/referidos` (`Referidos.jsx` + `ReferidosService` / `RutasReferidos`):**
+  - Endpoints autenticados: `GET /api/referidos/mio`, `POST /api/referidos/configurar` (`porcentajeCompartido`, `mensajeCorto`, `aplicarATodos`) y `POST /api/referidos/referido-porcentaje` (`referredUserId`, `porcentajeCompartido`).
+  - Muestra estadísticas (referidos totales/activos, partidas jugadas, total ganado, total devuelto y comisión generada), quién refirió al usuario (`miReferidor`), botones **"Copiar solo link"** y **"Copiar link con mensaje"** con mensajito corto editable, selector de porcentaje compartido (`0%` a `100%`, sin mínimos ni máximos adicionales, general y por referido individual) y lista de movimientos recientes (`referral_payouts`).
+- **Distribución atómica en `WalletService.liquidar()`:**
+  - La fuente monetaria única es la mitad por jugador de la categoría `REFERIDOS` (10% de la comisión ÷ 2, `ComisionService`).
+  - Para cada jugador **con referidor** en `referrals`, `WalletService.calcularRepartoReferido` calcula `montoDevuelto = floor_2dec(base * pct / 100)` y `montoReferidor = base - montoDevuelto` con `BigDecimal`, acredita en `users.saldo` y `wallet_ledger` y emite `Eventos.WALLET_AWARDED` post-commit (`ResultadoPartidaListener` actualiza el saldo por socket).
+  - Para cada jugador **sin referidor**, su mitad de `REFERIDOS` se acredita automáticamente a cuentas con `tipo_suscripcion = 'admin'` y se contabiliza en `referral_payouts.monto_admin`, expuesto en `/admin` (`AdminService.estadisticas`: `gananciaAdminReferidos`, `resumenReferidos`, `gananciaTotalConReferidosAdmin`).
+- **Aislamiento, seguridad e integridad:** `referral_payouts` tiene `UNIQUE (match_id, jugador_id)` para garantizar idempotencia; `DbAdminService` protege `referral_payouts` y los acumulados financieros de `referrals`; `ConexionDB` sincroniza códigos/configuración básica y limpia `referrals`/`referral_payouts` en los reinicios de la Zona de Pruebas.
+

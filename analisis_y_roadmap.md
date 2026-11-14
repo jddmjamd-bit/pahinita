@@ -108,7 +108,7 @@
 | Prio | Feature | Modelo | Notas |
 |------|---------|--------|-------|
 | **4.5** | Configuraci�n de notificaciones | **S5.5M** | Toggle por tipo: partidas, dinero, sorteos, leaderboard, amigos. Tabla `user_notification_settings`. |
-| **6.5** | Sistema de referidos | **S5.5H / A4H** | C�digo �nico por usuario. Al registrarse con c�digo: ambos reciben beneficio. Tabla `referrals`. Integrar con VIP. |
+| **6.5** | ~~Sistema de referidos~~ **[IMPLEMENTADO]** | **S5.5H / A4H** | Código único por usuario (`users.codigo_referido`), enlace `/auth?ref=`, campo opcional en registro (auto o manual), vista `/referidos` con estadísticas, mensajito corto editable para copiar y comisión compartida opcional (`0%`–`100%` general y por referido sin mínimos/máximos adicionales). Al liquidar partidas, la parte `REFERIDOS` de la comisión se envía al referidor + devolución al invitado, o al `admin` si no tiene referidor (`V26`, `referrals`, `referral_payouts`). Integrar multiplicador cuando exista VIP (16.7). |
 | **7** | Misiones | **S5.5H / A4H** | Misiones diarias/semanales. Motor de misiones gen�rico: `missions`, `user_missions`. Recompensa en tickets/puntos VIP. |
 | **7** | Chat evidencias de pago | **S5.5M** | Adjuntar imagen al confirmar pago manual (Nequi). Admin ve la evidencia antes de aprobar. Usar `media_files`. |
 | **7** | Sistema de amigos | **S5.5H** | Enviar solicitud, aceptar/rechazar, lista de amigos, ver estado online. Tablas: `friendships`, `friend_requests`. |

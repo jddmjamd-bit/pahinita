@@ -19,6 +19,7 @@ import com.torneosflash.servidor.RutasAdmin;
 import com.torneosflash.servidor.RutasAuth;
 import org.slf4j.LoggerFactory;
 import com.torneosflash.servidor.RutasFinanzas;
+import com.torneosflash.servidor.RutasReferidos;
 import com.torneosflash.servidor.RutasVoz;
 import com.torneosflash.servidor.RutasDbAdmin;
 import com.torneosflash.servidor.RateLimitMiddleware;
@@ -272,6 +273,7 @@ class RenderAcceptanceCheck {
         RutasFinanzas.register(servidor, finanzas);
         RutasVoz.register(servidor, new VozDiscordService(dao, new DiscordApiCliente(config), config));
         RutasDbAdmin.register(servidor, new DbAdminService(dao, conexion, config), config);
+        RutasReferidos.register(servidor, new ReferidosService(dao, usuarios));
         servidor.get("/api/admin/probe", ctx -> ctx.result("ok"));
         servidor.start("127.0.0.1", port);
         HttpClient cliente = HttpClient.newHttpClient();
@@ -330,6 +332,19 @@ class RenderAcceptanceCheck {
                     "Sin las variables Discord, el chat de voz debe permanecer desactivado.");
             assertEquals(404, enviar(cliente, base, "GET", "/api/db-admin/tables", null, null).statusCode(),
                     "El panel de base de datos debe estar apagado sin DB_ADMIN_SECRET.");
+
+            assertEquals(401, enviar(cliente, base, "GET", "/api/referidos/mio", null, null).statusCode());
+            var mioHttp = enviar(cliente, base, "GET", "/api/referidos/mio", "session=" + tokenDos, null);
+            assertEquals(200, mioHttp.statusCode());
+            JsonObject mioJson = JsonParser.parseString(mioHttp.body()).getAsJsonObject();
+            String codigoHttp = mioJson.get("codigoReferido").getAsString();
+            assertFalse(codigoHttp.isBlank());
+            var validarOkHttp = enviar(cliente, base, "GET", "/api/referidos/validar/" + codigoHttp, null, null);
+            assertEquals(200, validarOkHttp.statusCode());
+            assertTrue(JsonParser.parseString(validarOkHttp.body()).getAsJsonObject().get("valido").getAsBoolean());
+            var validarMalHttp = enviar(cliente, base, "GET", "/api/referidos/validar/NO_EXISTE_999", null, null);
+            assertEquals(200, validarMalHttp.statusCode());
+            assertFalse(JsonParser.parseString(validarMalHttp.body()).getAsJsonObject().get("valido").getAsBoolean());
 
             var recarga = enviar(cliente, base, "POST", "/api/wompi/init", "session=" + tokenDos,
                     "{\"userId\":" + adminId + ",\"monto\":1000}");
@@ -1467,6 +1482,103 @@ class RenderAcceptanceCheck {
         assertEquals(0, conteoNotif(trasTodoChat.getAsJsonObject("sinLeer"), "chat"));
         assertEquals(1, conteoNotif(trasTodoChat.getAsJsonObject("sinLeer"), "finanzas"));
         assertEquals(0, conteoNotif(trasTodoChat.getAsJsonObject("chatSinLeer"), "clash"));
+    }
+
+    @Test
+    void sistemaReferidosVinculaEnRegistroReparteComisionesYAcreditaAdminSinReferidor() {
+        String sufijo = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        ReferidosService refSrv = new ReferidosService(dao, usuarios);
+
+        int referidorId = crearUsuario("qa_ref_host_" + sufijo, "user", new BigDecimal("500.00"));
+        String codigoReferidor = dao.queryOne("SELECT codigo_referido FROM users WHERE id = ?", referidorId)
+                .get("codigo_referido").getAsString();
+        assertFalse(codigoReferidor.isBlank(), "El trigger debe asignar un codigo_referido único al crear usuario.");
+
+        JsonObject validacionAntes = refSrv.validarCodigoPublico(codigoReferidor);
+        assertTrue(validacionAntes.get("valido").getAsBoolean());
+        assertMonto(BigDecimal.ZERO, validacionAntes.get("porcentajeCompartido").getAsBigDecimal());
+
+        JsonObject configGuardada = refSrv.actualizarConfiguracion(
+                referidorId, new BigDecimal("25"), "¡Únete a mi torneo!", false);
+        assertMonto(new BigDecimal("25.00"), configGuardada.get("porcentajeCompartidoGeneral").getAsBigDecimal());
+        assertEquals("¡Únete a mi torneo!", configGuardada.get("mensajeCorto").getAsString());
+
+        JsonObject validacionDespues = refSrv.validarCodigoPublico(codigoReferidor);
+        assertMonto(new BigDecimal("25.00"), validacionDespues.get("porcentajeCompartido").getAsBigDecimal());
+
+        String refInvUsername = "qa_ref_inv_" + sufijo;
+        String telefonoRef = "3" + String.format("%09d", 100_000_000
+                + Math.floorMod(CONTADOR_TELEFONOS_TEST.getAndIncrement(), 900_000_000));
+        auth.registrar(refInvUsername, refInvUsername + "@example.test", "ClaveSegura!123",
+                tagPruebaUnico(), telefonoRef, "token-ref", true, codigoReferidor);
+
+        assertEquals(400, assertThrows(ServicioException.class, () ->
+                auth.registrar("qa_ref_mal_" + sufijo, "mal-" + sufijo + "@example.test",
+                        "ClaveSegura!123", tagPruebaUnico(), telefonoRef, "token-ref", true, "NOEXISTE999"))
+                .getStatus());
+
+        JsonObject referidoDb = dao.queryOne(
+                "SELECT id, referido_por_id, codigo_referido FROM users WHERE username = ?", refInvUsername);
+        assertNotNull(referidoDb);
+        int referidoId = referidoDb.get("id").getAsInt();
+        assertEquals(referidorId, referidoDb.get("referido_por_id").getAsInt());
+        assertNotEquals(codigoReferidor, referidoDb.get("codigo_referido").getAsString());
+
+        int sinReferidorId = usuarioConSaldo(new BigDecimal("10000.00"));
+        String nombreSinRef = dao.queryOne("SELECT username FROM users WHERE id = ?", sinReferidorId)
+                .get("username").getAsString();
+        dao.update("UPDATE users SET saldo = ? WHERE id = ?", new BigDecimal("10000.00"), referidoId);
+
+        BigDecimal adminSaldoAntes = dao.queryOne(
+                        "SELECT COALESCE(SUM(saldo), 0) AS total FROM users WHERE tipo_suscripcion = 'admin'")
+                .get("total").getAsBigDecimal();
+        BigDecimal adminRefStatsAntes = admin.estadisticas(adminId).get("gananciaAdminReferidos").getAsBigDecimal();
+
+        String sala = "qa-ref-" + UUID.randomUUID();
+        dao.update("INSERT INTO active_matches (sala_id, player1_id, player1_username, player2_id, player2_username, "
+                        + "last_modo, last_dinero) VALUES (?, ?, ?, ?, ?, 'friendly', '10000')",
+                sala, sinReferidorId, nombreSinRef, referidoId, refInvUsername);
+        var inicio = wallet.iniciarPartidaTorneo(sinReferidorId, nombreSinRef, referidoId, refInvUsername,
+                sala, "friendly", new BigDecimal("10000"), "#PQL201", "#PQL202", "2026-10-22T00:00:00Z");
+        assertTrue(inicio.success);
+        var liq = wallet.liquidar(sinReferidorId, referidoId, new BigDecimal("10000"), inicio.matchId,
+                "comision_match", "en_curso", nombreSinRef, null);
+        assertTrue(liq.success);
+
+        // Pozo = 20000 -> comisión 10% = 2000 -> REFERIDOS 10% = 200 -> porJugador = 100.00.
+        // referidoId (25% compartido): 75.00 referidor + 25.00 devolución referido.
+        // sinReferidorId: 100.00 directo a cuentas admin.
+        assertMonto(new BigDecimal("575.00"),
+                dao.queryOne("SELECT saldo FROM users WHERE id = ?", referidorId).get("saldo").getAsBigDecimal());
+        assertMonto(new BigDecimal("25.00"),
+                dao.queryOne("SELECT saldo FROM users WHERE id = ?", referidoId).get("saldo").getAsBigDecimal());
+        BigDecimal adminSaldoDespues = dao.queryOne(
+                        "SELECT COALESCE(SUM(saldo), 0) AS total FROM users WHERE tipo_suscripcion = 'admin'")
+                .get("total").getAsBigDecimal();
+        assertMonto(adminSaldoAntes.add(new BigDecimal("100.00")), adminSaldoDespues);
+
+        BigDecimal adminRefStatsDespues = admin.estadisticas(adminId).get("gananciaAdminReferidos").getAsBigDecimal();
+        assertMonto(adminRefStatsAntes.add(new BigDecimal("100.00")), adminRefStatsDespues);
+
+        JsonObject resumenReferidor = refSrv.obtenerResumenUsuario(referidorId);
+        JsonObject statsRef = resumenReferidor.getAsJsonObject("estadisticas");
+        assertEquals(1, statsRef.get("totalReferidos").getAsInt());
+        assertEquals(1, statsRef.get("referidosActivos").getAsInt());
+        assertEquals(1, statsRef.get("totalPartidasReferidos").getAsInt());
+        assertMonto(new BigDecimal("100.00"), statsRef.get("totalComisionGenerada").getAsBigDecimal());
+        assertMonto(new BigDecimal("75.00"), statsRef.get("totalGanadoReferidor").getAsBigDecimal());
+        assertMonto(new BigDecimal("25.00"), statsRef.get("totalDevueltoReferidos").getAsBigDecimal());
+
+        JsonObject resumenReferido = refSrv.obtenerResumenUsuario(referidoId);
+        assertFalse(resumenReferido.get("miReferidor").isJsonNull());
+        assertMonto(new BigDecimal("25.00"),
+                resumenReferido.getAsJsonObject("miReferidor").get("totalRecibidoDevolucion").getAsBigDecimal());
+
+        JsonObject trasPersonalizar = refSrv.actualizarPorcentajeReferidoIndividual(
+                referidorId, referidoId, new BigDecimal("100"));
+        JsonObject itemReferido = trasPersonalizar.getAsJsonArray("referidos").get(0).getAsJsonObject();
+        assertTrue(itemReferido.get("usaPorcentajePersonalizado").getAsBoolean());
+        assertMonto(new BigDecimal("100.00"), itemReferido.get("porcentajeCompartido").getAsBigDecimal());
     }
 
     private static int conteoNotif(JsonObject mapa, String clave) {

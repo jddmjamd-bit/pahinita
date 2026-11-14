@@ -562,6 +562,45 @@ export default function Admin() {
                                 </div>
                             </section>
 
+                            <section className="admin-earnings-zone" aria-label="Resumen del sistema de referidos">
+                                <div className="admin-earnings-header">
+                                    <div>
+                                        <h4>👥 Sistema de Referidos (Categoría Referidos)</h4>
+                                        <p className="admin-earnings-subtitle">
+                                            Jugadores sin referidor acreditan esta parte al admin; los referidos reparten entre referidor y cashback configurado.
+                                        </p>
+                                    </div>
+                                    <span className="admin-earnings-badge">
+                                        {stats.resumenReferidos?.totalRelaciones ?? 0} referidos vinculados
+                                    </span>
+                                </div>
+                                <div className="admin-earnings-grid">
+                                    <div className="admin-earning-card">
+                                        <span className="admin-earning-label">🏦 Admin (Sin referidor)</span>
+                                        <strong className="admin-earning-value val-green">
+                                            ${formatearMonto(stats.gananciaAdminReferidos)}
+                                        </strong>
+                                        <small className="admin-earning-note">Acreditado directo al saldo del admin</small>
+                                    </div>
+                                    <div className="admin-earning-card">
+                                        <span className="admin-earning-label">🤝 Pagado a Referidores</span>
+                                        <strong className="admin-earning-value val-primary">
+                                            ${formatearMonto(stats.resumenReferidos?.totalPagadoReferidores)}
+                                        </strong>
+                                        <small className="admin-earning-note">
+                                            Devuelto a referidos: ${formatearMonto(stats.resumenReferidos?.totalDevueltoReferidos)}
+                                        </small>
+                                    </div>
+                                    <div className="admin-earning-card is-total">
+                                        <span className="admin-earning-label">💎 Total Admin con Referidos</span>
+                                        <strong className="admin-earning-value val-gold">
+                                            ${formatearMonto(stats.gananciaTotalConReferidosAdmin ?? stats.gananciaTotalCombinadaAdmin)}
+                                        </strong>
+                                        <small className="admin-earning-note">Comisiones + Rankings + Referidos sin referidor</small>
+                                    </div>
+                                </div>
+                            </section>
+
                             <h4 className="admin-subsection-title">Desglose de Comisiones</h4>
                             <div className="admin-category-breakdown">
                                 {Object.entries(stats.desglose || {}).map(([cat, monto]) => {

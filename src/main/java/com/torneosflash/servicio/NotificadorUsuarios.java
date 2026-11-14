@@ -102,9 +102,24 @@ public class NotificadorUsuarios {
 
     /** Emite un evento a todos los sockets abiertos de un usuario. */
     public void emitirA(int userId, String evento, JsonElement datos) {
+        if (io == null) return;
         for (SocketIOClient client : io.getSockets().values()) {
             if (esUsuario(client, userId)) {
                 client.emit(evento, datos);
+            }
+        }
+    }
+
+    /** Actualiza el saldo en memoria y emite {@code actualizar_saldo} a los sockets activos del usuario. */
+    public void actualizarSaldoSocket(int userId, BigDecimal saldo) {
+        if (io == null || userId <= 0) return;
+        BigDecimal saldoSeguro = saldo != null ? saldo : BigDecimal.ZERO;
+        for (SocketIOClient client : io.getSockets().values()) {
+            if (esUsuario(client, userId)) {
+                if (client.getUserData() != null) {
+                    client.getUserData().addProperty("saldo", saldoSeguro);
+                }
+                client.emit("actualizar_saldo", new JsonPrimitive(saldoSeguro));
             }
         }
     }

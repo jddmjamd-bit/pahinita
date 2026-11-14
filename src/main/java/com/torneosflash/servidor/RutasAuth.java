@@ -36,7 +36,8 @@ public class RutasAuth {
                     Peticion.textoOpcional(body, "playerTag", ""),
                     Peticion.textoOpcional(body, "telefono", ""),
                     Peticion.textoOpcional(body, "playerApiToken", ""),
-                    Peticion.booleanoOpcional(body, "aceptaTerminos", false));
+                    Peticion.booleanoOpcional(body, "aceptaTerminos", false),
+                    Peticion.textoOpcional(body, "codigoReferido", ""));
 
             // La respuesta es idéntica si se creó la cuenta o si algún dato ya está en uso.
             // El registro no inicia sesión; el usuario debe usar el formulario de login.

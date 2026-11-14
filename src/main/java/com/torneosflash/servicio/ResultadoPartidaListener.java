@@ -29,6 +29,18 @@ public class ResultadoPartidaListener {
     /** Se suscribe al bus. Llamar una sola vez al arrancar (el bus ignora un segundo registro con el mismo id). */
     public void registrar(EventBus bus) {
         bus.on(Eventos.MATCH_FINISHED, "notificacion-resultado", this::alTerminarPartida);
+        bus.on(Eventos.WALLET_AWARDED, "notificacion-saldo-premio-wallet", this::alAcreditarPremio);
+    }
+
+    private void alAcreditarPremio(EventBus.Evento evento) {
+        Eventos.MovimientoWallet mov = evento.datos(Eventos.MovimientoWallet.class);
+        if (mov == null || mov.userId() <= 0 || mov.nuevoSaldo() == null) return;
+        try {
+            notificador.actualizarSaldoSocket(mov.userId(), mov.nuevoSaldo());
+        } catch (Exception e) {
+            logger.error("Error enviando actualización de saldo de premio a usuario {}: {}",
+                    mov.userId(), e.getMessage());
+        }
     }
 
     private void alTerminarPartida(EventBus.Evento evento) {

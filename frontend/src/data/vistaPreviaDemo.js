@@ -248,3 +248,92 @@ export const DEMO_SOPORTE_TICKETS = [
     }
 ];
 
+export const DEMO_REFERIDOS = {
+    success: true,
+    codigoReferido: 'DEMO2026',
+    porcentajeCompartidoGeneral: 25,
+    mensajeCorto: '¡Juega conmigo en UltimateClash y participa en torneos de Clash Royale con premios reales! Regístrate con mi código:',
+    mensajeCortoDefecto: '¡Juega conmigo en UltimateClash y participa en torneos de Clash Royale con premios reales! Regístrate con mi código:',
+    estadisticas: {
+        totalReferidos: 3,
+        referidosActivos: 2,
+        totalPartidasReferidos: 19,
+        totalComisionGenerada: 4800,
+        totalGanadoReferidor: 3100,
+        totalDevueltoReferidos: 1700
+    },
+    miReferidor: {
+        username: 'CamilaArena_Demo',
+        codigoUsado: 'CAMILA10',
+        porcentajeCompartido: 20,
+        partidasJugadas: 12,
+        totalRecibidoDevolucion: 450,
+        creadoEn: HACE_2_HORAS_ISO
+    },
+    referidos: [
+        {
+            referredUserId: 9101,
+            username: 'Valquiria_Demo',
+            codigoUsado: 'DEMO2026',
+            porcentajeCompartido: 25,
+            usaPorcentajePersonalizado: false,
+            partidasJugadas: 11,
+            totalComisionReferido: 2800,
+            totalGanadoReferidor: 2100,
+            totalDevueltoReferido: 700,
+            creadoEn: HACE_2_HORAS_ISO
+        },
+        {
+            referredUserId: 9102,
+            username: 'Montapuercos_Demo',
+            codigoUsado: 'DEMO2026',
+            porcentajeCompartido: 50,
+            usaPorcentajePersonalizado: true,
+            partidasJugadas: 8,
+            totalComisionReferido: 2000,
+            totalGanadoReferidor: 1000,
+            totalDevueltoReferido: 1000,
+            creadoEn: HACE_5_MIN_ISO
+        },
+        {
+            referredUserId: 9103,
+            username: 'Arqueras_Demo',
+            codigoUsado: 'DEMO2026',
+            porcentajeCompartido: 25,
+            usaPorcentajePersonalizado: false,
+            partidasJugadas: 0,
+            totalComisionReferido: 0,
+            totalGanadoReferidor: 0,
+            totalDevueltoReferido: 0,
+            creadoEn: AHORA_ISO
+        }
+    ],
+    historialPagos: [
+        {
+            id: 9901,
+            matchId: 412,
+            rolUsuario: 'referidor',
+            contraparte: 'Valquiria_Demo',
+            montoBase: 300,
+            porcentajeCompartido: 25,
+            montoReferidor: 225,
+            montoDevuelto: 75,
+            montoParaUsuario: 225,
+            creadoEn: HACE_5_MIN_ISO
+        },
+        {
+            id: 9902,
+            matchId: 408,
+            rolUsuario: 'referido',
+            contraparte: 'CamilaArena_Demo',
+            montoBase: 300,
+            porcentajeCompartido: 20,
+            montoReferidor: 240,
+            montoDevuelto: 60,
+            montoParaUsuario: 60,
+            creadoEn: AHORA_ISO
+        }
+    ]
+};
+
+

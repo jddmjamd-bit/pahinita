@@ -591,6 +591,31 @@ export const PREGUNTAS = [
         ]
     },
     {
+        id: 'sistema-referidos',
+        categoria: 'cuenta',
+        pregunta: '¿Cómo funciona el sistema de referidos y cómo invito a mis amigos?',
+        respuesta: [
+            'Cada jugador tiene un código único y un enlace de referidos en la sección Referidos. Al entrar por ese enlace, tu código aparece prellenado automáticamente en el formulario de registro (también se puede escribir manualmente y es completamente opcional).',
+            'Cada vez que una persona que invitaste realiza un torneo, la parte de referidos de la comisión cobrada se envía directamente a tu cuenta. Si un jugador no fue referido por nadie, esa parte de la comisión va a la cuenta del administrador.'
+        ],
+        pasos: [
+            'Entra a «👥 Referidos» en el menú lateral para ver tu código, tus estadísticas y tus invitados.',
+            'Usa «Copiar solo link» o edita tu mensajito corto y pulsa «Copiar link con mensaje».',
+            'Cuando tus referidos jueguen partidas, verás los pagos acreditados a tu saldo en tiempo real.'
+        ],
+        enlace: { texto: 'Ir a Referidos', to: '/referidos' }
+    },
+    {
+        id: 'compartir-comision-referidos',
+        categoria: 'cuenta',
+        pregunta: '¿Qué es compartir la comisión con mis referidos?',
+        respuesta: [
+            'Es una opción 100% voluntaria que te permite devolverle a las personas que invitaste un porcentaje (del 0% al 100%, sin mínimos ni máximos adicionales) de la comisión de referido que generan sus partidas.',
+            'Tú recibes un poco menos y esa diferencia se acredita directo al saldo del jugador referido cuando termina cada partida. Puedes configurar un porcentaje general y ajustarlo por persona en tu lista de referidos.'
+        ],
+        enlace: { texto: 'Configurar porcentaje compartido', to: '/referidos' }
+    },
+    {
         id: 'problema-no-listado',
         categoria: 'cuenta',
         pregunta: 'Mi problema no está en esta lista, ¿a quién le escribo?',

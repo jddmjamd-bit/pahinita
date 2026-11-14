@@ -148,6 +148,26 @@
 .tag-status.searching { color: var(--accent-warning); }
 .tag-status.found { color: var(--accent-success); }
 .tag-status.not-found { color: var(--accent-danger); }
+.tag-status.auth-ref-hint { color: var(--text-secondary); }
+
+#auth-flow .auth-clear-ref-btn {
+    padding: 3px 9px;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--border-color);
+    background: var(--bg-surface-elevated);
+    color: var(--text-secondary);
+    font-size: 0.74rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: none;
+    transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+
+#auth-flow .auth-clear-ref-btn:hover {
+    border-color: var(--accent-danger);
+    color: var(--accent-danger);
+    transform: none;
+}
 
 /* Pie del formulario y acceso público al FAQ */
 .auth-footer {

@@ -6,9 +6,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
+import java.security.SecureRandom;
 import java.sql.*;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Locale;
 
 /**
  * CONCEPTO POO: Collection - usa ArrayList para retornar listas de usuarios
@@ -20,11 +22,17 @@ import java.util.ArrayList;
  */
 public class UsuarioDAO {
     private static final Logger logger = LoggerFactory.getLogger(UsuarioDAO.class);
+    private static final String ALFABETO_REFERIDO = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+    private static final SecureRandom RANDOM_REFERIDO = new SecureRandom();
 
     private final ConexionDB db;
 
     /** Datos mínimos que necesita el correo de recuperación; nunca incluye el hash de contraseña. */
     public record CuentaRecuperacion(int userId, String email, String username) {}
+
+    /** Referidor localizado por su código de referido público. */
+    public record ReferidorEncontrado(int userId, String username, String codigoReferido,
+                                      BigDecimal porcentajeCompartido) {}
 
     public UsuarioDAO(ConexionDB db) {
         this.db = db;
@@ -448,6 +456,63 @@ public class UsuarioDAO {
         return -1;
     }
 
+    /** Busca un usuario referidor por su código de referido (sin exponer datos sensibles). */
+    public ReferidorEncontrado buscarReferidorPorCodigo(String codigo) {
+        String limpio = codigo == null ? "" : codigo.trim().toUpperCase(Locale.ROOT);
+        if (limpio.isEmpty() || limpio.length() > 24) return null;
+        try (Connection conn = conexionPrincipal()) {
+            return buscarReferidorPorCodigo(conn, limpio);
+        } catch (Exception e) {
+            logger.error("Error buscando referidor por código: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private ReferidorEncontrado buscarReferidorPorCodigo(Connection conn, String codigo) throws SQLException {
+        String limpio = codigo == null ? "" : codigo.trim().toUpperCase(Locale.ROOT);
+        if (limpio.isEmpty() || limpio.length() > 24) return null;
+        String sql = "SELECT id, username, codigo_referido, COALESCE(referido_porcentaje_compartido, 0) AS porcentaje "
+                + "FROM users WHERE UPPER(BTRIM(codigo_referido)) = ? LIMIT 1";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, limpio);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    BigDecimal pct = rs.getBigDecimal("porcentaje");
+                    return new ReferidorEncontrado(
+                            rs.getInt("id"),
+                            rs.getString("username"),
+                            rs.getString("codigo_referido"),
+                            pct != null ? pct : BigDecimal.ZERO);
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Genera un código de referido único basado en el username y un sufijo aleatorio legible. */
+    public String generarCodigoReferidoUnico(Connection conn, String username) throws SQLException {
+        String base = (username == null ? "TF" : username.toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]", ""));
+        if (base.length() > 6) base = base.substring(0, 6);
+        if (base.length() < 2) base = "TF";
+        for (int intento = 0; intento < 25; intento++) {
+            StringBuilder sufijo = new StringBuilder(4);
+            for (int i = 0; i < 4; i++) {
+                sufijo.append(ALFABETO_REFERIDO.charAt(RANDOM_REFERIDO.nextInt(ALFABETO_REFERIDO.length())));
+            }
+            String candidato = base + sufijo;
+            if (candidato.length() > 24) candidato = candidato.substring(0, 24);
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT 1 FROM users WHERE UPPER(BTRIM(codigo_referido)) = ? LIMIT 1")) {
+                ps.setString(1, candidato);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) return candidato;
+                }
+            }
+        }
+        String respaldo = "TF" + Long.toString(Math.abs(RANDOM_REFERIDO.nextLong()), 36).toUpperCase(Locale.ROOT);
+        return respaldo.length() > 24 ? respaldo.substring(0, 24) : respaldo;
+    }
+
     /**
      * Roadmap 1.6: crea el usuario y deja constancia de que aceptó los Términos de Servicio y la Política de
      * Privacidad (tabla legal_acceptances) en UNA sola transacción: o quedan las dos cosas o ninguna.
@@ -457,20 +522,39 @@ public class UsuarioDAO {
     public int registrarConAceptacionLegal(String username, String email, String passwordHash, String playerTag,
                                            String telefono, String versionTerminos, String versionPrivacidad) {
         return registrarConAceptacionLegal(username, email, passwordHash, playerTag, telefono,
-                versionTerminos, versionPrivacidad, null);
+                versionTerminos, versionPrivacidad, null, null);
     }
 
     /** Crea el usuario y registra el token cifrado pendiente junto con las aceptaciones legales. */
     public int registrarConAceptacionLegal(String username, String email, String passwordHash, String playerTag,
                                            String telefono, String versionTerminos, String versionPrivacidad,
                                            String tokenJugadorCifrado) {
+        return registrarConAceptacionLegal(username, email, passwordHash, playerTag, telefono,
+                versionTerminos, versionPrivacidad, tokenJugadorCifrado, null);
+    }
+
+    /** Crea el usuario, su código de referido, la relación de referido si aplica y sus aceptaciones legales. */
+    public int registrarConAceptacionLegal(String username, String email, String passwordHash, String playerTag,
+                                           String telefono, String versionTerminos, String versionPrivacidad,
+                                           String tokenJugadorCifrado, String codigoReferido) {
         try (Connection conn = conexionPrincipal()) {
             conn.setAutoCommit(false);
             try {
+                ReferidorEncontrado referidor = null;
+                String codigoLimpio = codigoReferido == null ? "" : codigoReferido.trim().toUpperCase(Locale.ROOT);
+                if (!codigoLimpio.isEmpty()) {
+                    referidor = buscarReferidorPorCodigo(conn, codigoLimpio);
+                    if (referidor == null) {
+                        conn.rollback();
+                        return -3;
+                    }
+                }
+                String codigoPropio = generarCodigoReferidoUnico(conn, username);
                 int newId;
                 try (PreparedStatement ps = conn.prepareStatement(
                         "INSERT INTO users (username, email, password, player_tag, telefono, player_tag_verificado, " +
-                                "player_verification_token_ciphertext) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id")) {
+                                "player_verification_token_ciphertext, codigo_referido, referido_por_id) " +
+                                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id")) {
                     ps.setString(1, username);
                     ps.setString(2, email);
                     ps.setString(3, passwordHash);
@@ -478,12 +562,26 @@ public class UsuarioDAO {
                     ps.setString(5, telefono);
                     ps.setBoolean(6, tokenJugadorCifrado == null);
                     ps.setString(7, tokenJugadorCifrado);
+                    ps.setString(8, codigoPropio);
+                    if (referidor != null) ps.setInt(9, referidor.userId());
+                    else ps.setNull(9, Types.INTEGER);
                     try (ResultSet rs = ps.executeQuery()) {
                         if (!rs.next()) {
                             conn.rollback();
                             return -2;
                         }
                         newId = rs.getInt("id");
+                    }
+                }
+                if (referidor != null && referidor.userId() != newId) {
+                    try (PreparedStatement psRef = conn.prepareStatement(
+                            "INSERT INTO referrals (referrer_user_id, referred_user_id, codigo_usado, porcentaje_compartido) " +
+                                    "VALUES (?, ?, ?, ?)")) {
+                        psRef.setInt(1, referidor.userId());
+                        psRef.setInt(2, newId);
+                        psRef.setString(3, referidor.codigoReferido());
+                        psRef.setBigDecimal(4, referidor.porcentajeCompartido());
+                        psRef.executeUpdate();
                     }
                 }
                 try (PreparedStatement ps = conn.prepareStatement(

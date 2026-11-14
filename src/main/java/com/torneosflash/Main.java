@@ -31,6 +31,7 @@ import com.torneosflash.servicio.MatchmakingService;
 import com.torneosflash.servicio.NotificadorUsuarios;
 import com.torneosflash.servicio.NotificacionesListener;
 import com.torneosflash.servicio.NotificacionesService;
+import com.torneosflash.servicio.ReferidosService;
 import com.torneosflash.servicio.SorteoService;
 import com.torneosflash.servidor.*;
 import com.torneosflash.socketio.SocketIOServer;
@@ -355,6 +356,7 @@ public class Main {
         adminService.setLeaderboardService(leaderboardService);
         MediaService mediaService = new MediaService(db);
         DbAdminService dbAdminService = new DbAdminService(db, conexion, config);
+        ReferidosService referidosService = new ReferidosService(db, usuarioDAO);
 
         // La guardia global del panel de DB se registra antes de AdminMiddleware para cubrir también
         // las peticiones administrativas de otras instancias durante el mantenimiento.
@@ -376,6 +378,7 @@ public class Main {
         RutasSoporte.register(app, soporteService);
         RutasEvidenciaPago.register(app, evidenciaPagoService);
         RutasVoz.register(app, vozService);
+        RutasReferidos.register(app, referidosService);
 
         // ============================================
         // 8. REGISTRAR SOCKET HANDLERS

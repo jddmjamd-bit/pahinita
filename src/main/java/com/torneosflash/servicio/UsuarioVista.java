@@ -29,7 +29,8 @@ public final class UsuarioVista {
             "total_victorias", "victorias_normales", "victorias_disputa",
             "total_derrotas", "derrotas_normales", "derrotas_disputa",
             "total_partidas", "salidas_chat", "salidas_desconexion", "salidas_x", "salidas_canal",
-            "total_monto_torneos", "total_ganado");
+            "total_monto_torneos", "total_ganado",
+            "codigo_referido", "referido_por_id", "referido_porcentaje_compartido", "referido_mensaje_corto");
 
     /** Columnas que puede ver el rival en una partida. */
     public static final List<String> CAMPOS_RIVAL = List.of(

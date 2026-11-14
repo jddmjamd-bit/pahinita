@@ -66,9 +66,12 @@ public class DbAdminService {
      * panel DB.
      */
     private static final String TABLA_LEDGER = "wallet_ledger";
+    private static final String TABLA_REFERRAL_PAYOUTS = "referral_payouts";
+    private static final Set<String> COLUMNAS_PROTEGIDAS_REFERRALS = Set.of(
+            "partidas_jugadas", "total_comision_referido", "total_ganado_referidor", "total_devuelto_referido");
     private static final String MASCARA_PASSWORD = "[HASH_PROTEGIDO]";
     private static final Set<String> TABLAS_NO_IMPORTABLES = Set.of("users", "transactions", "admin_wallet",
-            "wallet_ledger", "user_tokens");
+            "wallet_ledger", "user_tokens", "referral_payouts");
 
     public DbAdminService(GenericDAO db, ConexionDB conexion, AppConfig config) {
         this.db = db;
@@ -174,6 +177,13 @@ public class DbAdminService {
             if (TABLA_LEDGER.equalsIgnoreCase(tableName)) {
                 throw ServicioException.prohibido("La tabla wallet_ledger es inmutable y no se puede editar");
             }
+            if (TABLA_REFERRAL_PAYOUTS.equalsIgnoreCase(tableName)) {
+                throw ServicioException.prohibido("La tabla referral_payouts es de auditoría financiera y no se puede editar");
+            }
+            if ("referrals".equalsIgnoreCase(tableName) && column != null
+                    && COLUMNAS_PROTEGIDAS_REFERRALS.contains(column.toLowerCase())) {
+                throw ServicioException.prohibido("Los acumulados financieros de referidos no pueden editarse manualmente");
+            }
             if ("users".equalsIgnoreCase(tableName) && "saldo".equalsIgnoreCase(column)) {
                 throw ServicioException.prohibido(
                         "El saldo no se puede editar directamente en la BD (rompe wallet_ledger). Usa /api/deposit");
@@ -220,6 +230,9 @@ public class DbAdminService {
             if (TABLA_LEDGER.equalsIgnoreCase(tableName)) {
                 throw ServicioException.prohibido("La tabla wallet_ledger es inmutable y no permite borrar registros");
             }
+            if (TABLA_REFERRAL_PAYOUTS.equalsIgnoreCase(tableName)) {
+                throw ServicioException.prohibido("La tabla referral_payouts es de auditoría financiera y no permite borrar registros");
+            }
             try (Connection conn = db.getConnection()) {
                 exigirTablaValida(conn, tableName);
                 String tablaCitada = citarIdentificador(tableName);
@@ -236,6 +249,10 @@ public class DbAdminService {
         if (TABLA_LEDGER.equalsIgnoreCase(tableName)) {
             throw ServicioException
                     .prohibido("La tabla wallet_ledger solo admite registros generados por WalletService");
+        }
+        if (TABLA_REFERRAL_PAYOUTS.equalsIgnoreCase(tableName)) {
+            throw ServicioException
+                    .prohibido("La tabla referral_payouts solo admite registros generados por WalletService");
         }
         if ("users".equalsIgnoreCase(tableName) && body != null && body.has("saldo")
                 && !body.get("saldo").isJsonNull()) {

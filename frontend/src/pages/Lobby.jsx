@@ -247,6 +247,9 @@ export default function Lobby() {
                     <div className={`channel ${isActive('/leaderboard')}`} onClick={() => handleNavigation('/leaderboard')}>
                         <span>🏆 Rankings</span>{punto('ranking')}
                     </div>
+                    <div className={`channel ${isActive('/referidos')}`} onClick={() => handleNavigation('/referidos')}>
+                        <span>👥 Referidos</span>
+                    </div>
                     <div className={`channel ${isActive('/chatbot')}`} onClick={() => handleNavigation('/chatbot')}>
                         <span>🤖 Asistente</span>{punto('asistente')}
                     </div>

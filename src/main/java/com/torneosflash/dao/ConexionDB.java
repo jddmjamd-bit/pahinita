@@ -912,7 +912,9 @@ public class ConexionDB {
                      "COALESCE(player_tag_verificado, FALSE) AS player_tag_verificado, " +
                      "player_tag_verificado_en, player_tag_verificado_por, " +
                      "player_verification_token_ciphertext, " +
-                     "COALESCE(zona_admin, 'normal') AS zona_admin " +
+                     "COALESCE(zona_admin, 'normal') AS zona_admin, " +
+                     "codigo_referido, COALESCE(referido_porcentaje_compartido, 0) AS referido_porcentaje_compartido, " +
+                     "COALESCE(referido_mensaje_corto, '') AS referido_mensaje_corto " +
                      "FROM users WHERE id = ?")) {
             psLeer.setInt(1, userId);
             try (ResultSet rs = psLeer.executeQuery()) {
@@ -930,6 +932,9 @@ public class ConexionDB {
                         ? rs.getInt("player_tag_verificado_por") : null;
                 String tokenCipher = rs.getString("player_verification_token_ciphertext");
                 String zonaAdmin = normalizarZona(rs.getString("zona_admin"));
+                String codigoReferido = rs.getString("codigo_referido");
+                BigDecimal pctReferido = rs.getBigDecimal("referido_porcentaje_compartido");
+                String msgReferido = rs.getString("referido_mensaje_corto");
 
                 try (Connection destino = getConnectionPruebas()) {
                     boolean auto = destino.getAutoCommit();
@@ -939,10 +944,12 @@ public class ConexionDB {
                         try (PreparedStatement psDespejar = destino.prepareStatement(
                                 "UPDATE users SET username = 'legacy_u_' || id, " +
                                 "email = 'legacy_' || id || '@pruebas.invalid', " +
-                                "player_tag = NULL, telefono = NULL " +
+                                "player_tag = NULL, telefono = NULL, " +
+                                "codigo_referido = 'LEG' || id::text " +
                                 "WHERE id <> ? AND (" +
                                 "LOWER(BTRIM(username)) = LOWER(BTRIM(?)) " +
                                 "OR LOWER(BTRIM(email)) = LOWER(BTRIM(?)) " +
+                                "OR (? IS NOT NULL AND BTRIM(?) <> '' AND UPPER(BTRIM(codigo_referido)) = UPPER(BTRIM(?))) " +
                                 "OR (? IS NOT NULL AND BTRIM(?) <> '' AND player_tag IS NOT NULL " +
                                 "    AND UPPER(REGEXP_REPLACE(BTRIM(player_tag), '^#+', '')) = UPPER(REGEXP_REPLACE(BTRIM(?), '^#+', ''))) " +
                                 "OR (? IS NOT NULL AND REGEXP_REPLACE(BTRIM(?), '[^0-9]', '', 'g') <> '' AND telefono IS NOT NULL " +
@@ -951,12 +958,15 @@ public class ConexionDB {
                             psDespejar.setInt(1, id);
                             psDespejar.setString(2, username != null ? username : "");
                             psDespejar.setString(3, email != null ? email : "");
-                            psDespejar.setString(4, playerTag);
-                            psDespejar.setString(5, playerTag != null ? playerTag : "");
-                            psDespejar.setString(6, playerTag != null ? playerTag : "");
-                            psDespejar.setString(7, telefono);
-                            psDespejar.setString(8, telefono != null ? telefono : "");
-                            psDespejar.setString(9, telefono != null ? telefono : "");
+                            psDespejar.setString(4, codigoReferido);
+                            psDespejar.setString(5, codigoReferido != null ? codigoReferido : "");
+                            psDespejar.setString(6, codigoReferido != null ? codigoReferido : "");
+                            psDespejar.setString(7, playerTag);
+                            psDespejar.setString(8, playerTag != null ? playerTag : "");
+                            psDespejar.setString(9, playerTag != null ? playerTag : "");
+                            psDespejar.setString(10, telefono);
+                            psDespejar.setString(11, telefono != null ? telefono : "");
+                            psDespejar.setString(12, telefono != null ? telefono : "");
                             psDespejar.executeUpdate();
                         }
 
@@ -979,8 +989,9 @@ public class ConexionDB {
                         try (PreparedStatement psUpsert = destino.prepareStatement(
                                 "INSERT INTO users (id, username, email, password, player_tag, telefono, saldo, " +
                                 "tipo_suscripcion, estado, player_tag_verificado, player_tag_verificado_en, " +
-                                "player_tag_verificado_por, player_verification_token_ciphertext, zona_admin) " +
-                                "VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'normal', ?, ?, ?, ?, ?) " +
+                                "player_tag_verificado_por, player_verification_token_ciphertext, zona_admin, " +
+                                "codigo_referido, referido_porcentaje_compartido, referido_mensaje_corto) " +
+                                "VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'normal', ?, ?, ?, ?, ?, ?, ?, ?) " +
                                 "ON CONFLICT (id) DO UPDATE SET " +
                                 "username = EXCLUDED.username, " +
                                 "email = EXCLUDED.email, " +
@@ -992,7 +1003,8 @@ public class ConexionDB {
                                 "player_tag_verificado_en = EXCLUDED.player_tag_verificado_en, " +
                                 "player_tag_verificado_por = EXCLUDED.player_tag_verificado_por, " +
                                 "player_verification_token_ciphertext = EXCLUDED.player_verification_token_ciphertext, " +
-                                "zona_admin = EXCLUDED.zona_admin")) {
+                                "zona_admin = EXCLUDED.zona_admin, " +
+                                "codigo_referido = EXCLUDED.codigo_referido")) {
                             psUpsert.setInt(1, id);
                             psUpsert.setString(2, username);
                             psUpsert.setString(3, email);
@@ -1009,6 +1021,9 @@ public class ConexionDB {
                             }
                             psUpsert.setString(11, tokenCipher);
                             psUpsert.setString(12, zonaAdmin);
+                            psUpsert.setString(13, codigoReferido);
+                            psUpsert.setBigDecimal(14, pctReferido != null ? pctReferido : BigDecimal.ZERO);
+                            psUpsert.setString(15, msgReferido != null ? msgReferido : "");
                             psUpsert.executeUpdate();
                         }
 
@@ -1094,6 +1109,8 @@ public class ConexionDB {
         }
 
         String[] tablasBorrar = {
+                "referral_payouts",
+                "referrals",
                 "leaderboard_cut_payments",
                 "leaderboard_cut_snapshots",
                 "leaderboard_cuts",
@@ -1138,7 +1155,7 @@ public class ConexionDB {
                 "media_files", "chatbot_conocimiento", "chatbot_mensajes",
                 "legal_acceptances", "wallet_ledger", "support_tickets",
                 "payment_evidences", "voice_channels", "match_queue", "active_matches",
-                "matchmaking_challenges", "user_notifications"
+                "matchmaking_challenges", "user_notifications", "referrals", "referral_payouts"
         };
 
         try (Connection conn = getConnectionPruebas()) {

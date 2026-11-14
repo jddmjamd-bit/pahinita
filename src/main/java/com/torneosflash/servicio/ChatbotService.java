@@ -103,6 +103,7 @@ public class ChatbotService {
             "notificaciones en vivo, puntos de mensajes nuevos y push del navegador",
             "seguridad de la cuenta y de los pagos",
             "zona de pruebas (copia temporal con suscripción 'prueba' asignada solo por el administrador)",
+            "sistema de referidos (enlace propio, código opcional en registro, compartir comisión entre 0% y 100%, ganancias del referidor y destino al admin si no fue referido)",
             "soporte: cómo contactar al administrador");
 
     /** Preguntas base: se usan cuando la IA no está disponible o falla al generar una pregunta de entrenamiento. */
@@ -129,6 +130,7 @@ public class ChatbotService {
             "¿Qué canales tiene el chat y para qué sirve cada uno?",
             "¿Qué es la zona de pruebas o suscripción 'prueba' y quién puede activarla o borrar sus datos?",
             "¿Cómo funciona el botón de vista previa de la página antes de iniciar sesión y qué se puede ver ahí?",
+            "¿Cómo funciona el sistema de referidos, cómo se usa el enlace o código opcional y cómo se comparte la comisión?",
             "¿Es seguro mi saldo y qué hago si creo que alguien entró a mi cuenta?");
 
     private static final String INSTRUCCIONES_BASE = """

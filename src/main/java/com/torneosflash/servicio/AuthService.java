@@ -35,6 +35,7 @@ public class AuthService {
 
     private static final Pattern PLAYER_TAG_VALIDO = Pattern.compile("^#[0289PYLQGRJCUV]{3,15}$");
     private static final Pattern TELEFONO_FORMATO = Pattern.compile("^\\+?[0-9() .-]{7,30}$");
+    private static final Pattern CODIGO_REFERIDO_VALIDO = Pattern.compile("^[A-Z0-9_-]{3,24}$");
     private static final Pattern TOKEN_RECUPERACION_VALIDO = Pattern.compile("^[A-Za-z0-9_-]{43}$");
     private static final int PASSWORD_MAX_CARACTERES = 128;
     private static final int PASSWORD_MAX_BYTES_BCRYPT = 72;
@@ -99,6 +100,12 @@ public class AuthService {
     public void registrar(String username, String email, String password, String playerTag, String telefono,
             String playerApiToken,
             boolean aceptaTerminos) {
+        registrar(username, email, password, playerTag, telefono, playerApiToken, aceptaTerminos, null);
+    }
+
+    /** Registra una cuenta vinculando opcionalmente un código de referido. */
+    public void registrar(String username, String email, String password, String playerTag, String telefono,
+            String playerApiToken, boolean aceptaTerminos, String codigoReferidoCrudo) {
         // ↓↓↓ NUEVO (roadmap 1.6) ↓↓↓
         if (!aceptaTerminos) {
             throw ServicioException.solicitudInvalida(
@@ -112,6 +119,8 @@ public class AuthService {
             playerTag = "#" + playerTag;
         }
         telefono = normalizarTelefono(telefono);
+        String codigoReferido = codigoReferidoCrudo == null ? ""
+                : codigoReferidoCrudo.trim().toUpperCase(Locale.ROOT);
 
         if (username.isEmpty() || email.isEmpty() || password == null || password.isEmpty()
                 || playerTag.isEmpty() || telefono.isEmpty()) {
@@ -122,6 +131,15 @@ public class AuthService {
         }
         if (!PLAYER_TAG_VALIDO.matcher(playerTag).matches()) {
             throw ServicioException.solicitudInvalida("El Player Tag no tiene un formato válido de Clash Royale (#XXXXXXX)");
+        }
+        if (!codigoReferido.isEmpty()) {
+            if (!CODIGO_REFERIDO_VALIDO.matcher(codigoReferido).matches()) {
+                throw ServicioException.solicitudInvalida("El formato del código de referido no es válido");
+            }
+            if (usuarioDAO.buscarReferidorPorCodigo(codigoReferido) == null) {
+                throw ServicioException.solicitudInvalida(
+                        "El código de referido ingresado no existe. Verifica el código o déjalo vacío.");
+            }
         }
         String tokenJugador = playerApiToken == null ? "" : playerApiToken.trim();
         if (tokenJugador.isEmpty() || tokenJugador.length() > 256 || tokenJugador.chars().anyMatch(Character::isISOControl)) {
@@ -160,11 +178,19 @@ public class AuthService {
             return;
         }
         String tokenCifrado = cifradoTokenJugador.cifrar(tokenJugador);
-        int newId = usuarioDAO.registrarConAceptacionLegal(username, email, hash, playerTag, telefono,
-                DocumentosLegales.TERMINOS_VERSION, DocumentosLegales.PRIVACIDAD_VERSION, tokenCifrado);
+        int newId = codigoReferido.isEmpty()
+                ? usuarioDAO.registrarConAceptacionLegal(username, email, hash, playerTag, telefono,
+                        DocumentosLegales.TERMINOS_VERSION, DocumentosLegales.PRIVACIDAD_VERSION, tokenCifrado)
+                : usuarioDAO.registrarConAceptacionLegal(username, email, hash, playerTag, telefono,
+                        DocumentosLegales.TERMINOS_VERSION, DocumentosLegales.PRIVACIDAD_VERSION, tokenCifrado,
+                        codigoReferido);
         if (newId == -1) {
             // Conflicto de unicidad concurrente: se presenta igual que un registro aceptado.
             return;
+        }
+        if (newId == -3) {
+            throw ServicioException.solicitudInvalida(
+                    "El código de referido ingresado no existe. Verifica el código o déjalo vacío.");
         }
         if (newId <= 0) {
             throw ServicioException.interno("No se pudo completar el registro", null);
