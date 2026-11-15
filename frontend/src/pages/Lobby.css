@@ -82,6 +82,10 @@
     width: 100%;
     padding: 10px;
     margin-top: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
     background: var(--bg-surface);
     color: var(--text-primary);
     border: 1px solid var(--border-color);
@@ -95,6 +99,11 @@
     background: var(--bg-surface-elevated);
     border-color: var(--text-tertiary);
     transform: none;
+}
+.mini-btn.finance-btn.active {
+    background: linear-gradient(90deg, rgba(124, 58, 237, 0.16), var(--bg-surface));
+    color: var(--accent-primary);
+    border-color: var(--accent-primary);
 }
 .admin-btn {
     background: linear-gradient(45deg, #f59e0b, #d97706);

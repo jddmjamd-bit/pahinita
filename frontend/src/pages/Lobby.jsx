@@ -245,9 +245,14 @@ export default function Lobby() {
                                         : currentUser.estado === 'normal' ? 'Libre' : 'Disponible'}</span>
                     </div>
                     <p className="money">${currentUser.saldo.toLocaleString()}</p>
-                    
-                    <button className="mini-btn" onClick={() => handleNavigation('/finance')}>+ Recargar</button>
-                    <button className="mini-btn" style={{background: '#ed4245', marginTop: 5}} onClick={() => handleNavigation('/finance')}>- Retirar</button>
+
+                    <button
+                        type="button"
+                        className={`mini-btn finance-btn ${isActive('/finance')}`}
+                        onClick={() => handleNavigation('/finance')}
+                    >
+                        <span>💰 Finanzas / Movimientos</span>{punto('finanzas')}
+                    </button>
                     {currentUser.tipo_suscripcion === 'admin' && (
                         <button className="mini-btn admin-btn" onClick={() => handleNavigation('/admin')} style={{marginTop: 5}}>
                             <span>👑 Admin</span>{punto('finanzas')}
@@ -261,9 +266,6 @@ export default function Lobby() {
                     </div>
                     <div className={`channel ${isActive('/match')}`} onClick={() => handleNavigation('/match')}>
                         <span>⚔️ Jugar / Privada</span>{punto('partida')}
-                    </div>
-                    <div className={`channel ${isActive('/finance')}`} onClick={() => handleNavigation('/finance')}>
-                        <span>💳 Finanzas / Movimientos</span>{punto('finanzas')}
                     </div>
                     <div className={`channel ${isActive('/sorteos')}`} onClick={() => handleNavigation('/sorteos')}>
                         <span>🎁 Sorteos</span>{punto('sorteos')}

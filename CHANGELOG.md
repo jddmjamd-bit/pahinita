@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-14 — Unificación del botón de Finanzas / Movimientos debajo del saldo
+- Simplificada la barra lateral de `Lobby.jsx` y `Lobby.css`:
+  - Reemplazados los tres accesos redundantes (`+ Recargar`, `- Retirar` y el canal `💳 Finanzas / Movimientos`) por un único botón **`💰 Finanzas / Movimientos`** (`.mini-btn.finance-btn` con su estado `.active` y el indicador de notificaciones `{punto('finanzas')}`) justo debajo del saldo del usuario.
+- **Verificación:** en `frontend/`, `npm run lint` (`0` errores, `57` advertencias), `npm run build` (`855ms`), `npm run test:acceptance` (`15/15`) y `npm run test:visual` (`3/3`).
+Archivos: `frontend/src/pages/Lobby.jsx`, `frontend/src/pages/Lobby.css`, `CHANGELOG.md`
+
+---
 ## 2026-11-14 — Prioridad 1: Notificaciones en tiempo real e historial unificado de movimientos (Usuario y Admin)
 - Eventos y tiempo real en backend:
   - `Eventos.java`: incorporados `TRANSACCION_PENDIENTE_CREADA` (`TransaccionPendiente`) y `TRANSACCION_PROCESADA` (`TransaccionProcesada`).
