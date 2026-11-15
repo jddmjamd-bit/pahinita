@@ -213,6 +213,7 @@
 }
 
 .mov-resumen-valor.is-positivo { color: var(--accent-success); }
+.mov-resumen-valor.is-negativo { color: var(--accent-danger); }
 .mov-resumen-valor.is-pendiente { color: #94a3b8; }
 
 .movimientos-filtros {

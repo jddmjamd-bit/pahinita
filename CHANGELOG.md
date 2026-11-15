@@ -11,6 +11,17 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-14 — Desglose de entrada y premio en partidas ganadas en Movimientos
+- Evitada la confusión visual entre recargas y premios al ganar una partida (`FinanzasService.obtenerMovimientos`):
+  - Al ganar una partida (`username == ganador`), ahora se listan dos movimientos separados para esa partida: la **entrada descontada** (`match-entry-<id>`, `estadoVisual: "negativo"`, `estadoTexto: "Entrada"`, signo `-`) y el **premio recibido** (`match-<id>`, `estadoVisual: "positivo"`, `estadoTexto: "Victoria"`, signo `+`), ordenados con la victoria arriba de su entrada y sumando `montoEntrada` a `totalEgresos`.
+  - Para partidas canceladas (`ganador = 'Cancelada'`), se retiró el signo `+` en el elemento gris para que no aparente ser un abono adicional sobre la recarga previa.
+- Actualizado el resumen en `Finance.jsx` / `Finance.css` añadiendo la tarjeta `Salidas / Entradas` (`is-negativo`), el escenario demo `DEMO_MOVIMIENTOS_FINANZAS` en `vistaPreviaDemo.js`, la explicación en `faq.js` y la cobertura en `MovimientosFinanzasAdminTest.java` (`15` movimientos esperados con validación de `match-entry-102`).
+- **Verificación:**
+  - `.\mvnw.cmd clean verify`: `BUILD SUCCESS` (`80/80` pruebas Surefire aprobadas, incluyendo `3/3` en `MovimientosFinanzasAdminTest`).
+  - En `frontend/`: `npm run lint` (`0` errores, `57` advertencias), `npm run build` exitoso, `npm run test:acceptance` (`15/15`) y `npm run test:visual` (`3/3`).
+Archivos: `src/main/java/com/torneosflash/servicio/FinanzasService.java`, `src/test/java/com/torneosflash/servicio/MovimientosFinanzasAdminTest.java`, `frontend/src/data/vistaPreviaDemo.js`, `frontend/src/pages/Finance.jsx`, `frontend/src/pages/Finance.css`, `frontend/src/data/faq.js`, `CHANGELOG.md`
+
+---
 ## 2026-11-14 — Corrección de diseño vertical y lista desplazable en Movimientos (Usuario y Admin)
 - Corregida la disposición de `/finance` en `Finance.jsx` y `Finance.css`:
   - Se retiró `.center-screen` de `.finance-container` (que al usar `display: flex` en fila centraba y colocaba en paralelo título, pestañas y tarjetas, recortando la lista cuando crecía) y se fijó `flex-direction: column` con ancho `max-width: 920px`.

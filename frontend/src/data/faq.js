@@ -249,8 +249,8 @@ export const PREGUNTAS = [
         respuesta: [
             'En Finanzas → pestaña «Movimientos» y en las notificaciones en vivo ves cada operación con su fecha, hora exacta y origen del dinero (Nequi Manual, Wompi, Partida con rival, Referidos o Rankings).',
             'Color gris: recargas o retiros en estado Pendiente y partidas En curso o En disputa.',
-            'Color verde: recargas aprobadas, victorias en partidas, devoluciones de retiros rechazados y comisiones o devoluciones de referidos.',
-            'Color rojo: retiros enviados, recargas rechazadas y derrotas en partidas.'
+            'Color verde: recargas aprobadas, victorias en partidas (+premio recibido), devoluciones de retiros rechazados y comisiones o devoluciones de referidos.',
+            'Color rojo: retiros enviados, recargas rechazadas y entradas o derrotas en partidas (-entrada descontada). Al ganar una partida ves ambos movimientos (tu entrada en rojo y el premio recibido en verde) para que la suma coincida exactamente con tu saldo.'
         ],
         enlace: { texto: 'Ver movimientos en Finanzas', to: '/finance' }
     },

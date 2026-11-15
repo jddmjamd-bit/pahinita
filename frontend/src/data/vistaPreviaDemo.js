@@ -342,10 +342,10 @@ export const DEMO_MOVIMIENTOS_FINANZAS = {
         pendientesCount: 1,
         enCursoCount: 1,
         totalIngresos: 58325,
-        totalEgresos: 25000,
+        totalEgresos: 35000,
         totalReferidos: 325,
         totalPremios: 18000,
-        totalMovimientos: 8
+        totalMovimientos: 9
     },
     movimientos: [
         {
@@ -413,7 +413,21 @@ export const DEMO_MOVIMIENTOS_FINANZAS = {
             monto: 18000,
             titulo: 'Victoria en Partida #412 vs @Valquiria_Demo',
             origen: 'Partida #412 vs @Valquiria_Demo (Elección)',
-            detalle: 'Premio total $18.000 (ganancia neta +$8.000 sobre entrada $10.000)',
+            detalle: 'Premio acreditado $18.000 (entrada $10.000 + ganancia neta $8.000)',
+            fecha: HACE_2_HORAS_ISO
+        },
+        {
+            id: 'demo-match-entry-412',
+            categoriaMovimiento: 'partida',
+            tipo: 'partida_entrada',
+            estado: 'finalizada',
+            estadoVisual: 'negativo',
+            estadoTexto: 'Entrada',
+            signo: '-',
+            monto: 10000,
+            titulo: 'Entrada a Partida #412 vs @Valquiria_Demo',
+            origen: 'Partida #412 vs @Valquiria_Demo (Elección)',
+            detalle: 'Entrada descontada al iniciar la partida',
             fecha: HACE_2_HORAS_ISO
         },
         {

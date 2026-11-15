@@ -106,7 +106,7 @@ class MovimientosFinanzasAdminTest {
 
         assertTrue(resp.get("success").getAsBoolean());
         JsonArray movs = resp.getAsJsonArray("movimientos");
-        assertEquals(14, movs.size());
+        assertEquals(15, movs.size());
 
         // Orden descendente: el más reciente es match-101 (20:15:00Z)
         JsonObject primero = movs.get(0).getAsJsonObject();
@@ -135,6 +135,13 @@ class MovimientosFinanzasAdminTest {
         assertEquals("positivo", victoria.get("estadoVisual").getAsString());
         assertEquals("Victoria", victoria.get("estadoTexto").getAsString());
         assertEquals("+", victoria.get("signo").getAsString());
+
+        JsonObject entradaVictoria = buscarPorId(movs, "match-entry-102");
+        assertNotNull(entradaVictoria);
+        assertEquals("negativo", entradaVictoria.get("estadoVisual").getAsString());
+        assertEquals("Entrada", entradaVictoria.get("estadoTexto").getAsString());
+        assertEquals("-", entradaVictoria.get("signo").getAsString());
+        assertEquals(0, new BigDecimal("10000").compareTo(entradaVictoria.get("monto").getAsBigDecimal()));
 
         JsonObject derrota = buscarPorId(movs, "match-103");
         assertEquals("negativo", derrota.get("estadoVisual").getAsString());

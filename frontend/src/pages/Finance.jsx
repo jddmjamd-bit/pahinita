@@ -473,6 +473,10 @@ export default function Finance() {
                             <strong className="mov-resumen-valor is-positivo">{formatearCop(resumenMovimientos.totalIngresos)}</strong>
                         </div>
                         <div className="mov-resumen-card">
+                            <span className="mov-resumen-label">Salidas / Entradas</span>
+                            <strong className="mov-resumen-valor is-negativo">-{formatearCop(resumenMovimientos.totalEgresos)}</strong>
+                        </div>
+                        <div className="mov-resumen-card">
                             <span className="mov-resumen-label">Por referidos</span>
                             <strong className="mov-resumen-valor is-positivo">{formatearCop(resumenMovimientos.totalReferidos)}</strong>
                         </div>

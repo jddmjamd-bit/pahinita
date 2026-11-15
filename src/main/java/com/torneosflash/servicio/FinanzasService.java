@@ -755,6 +755,8 @@ public class FinanzasService {
             BigDecimal montoEntrada = montoJson(m, "monto");
             String rival = username.equalsIgnoreCase(j1) ? j2 : j1;
 
+            String origenPartida = "Partida #" + matchId + " vs @" + rival + (!modo.isBlank() ? " (" + modo + ")" : "");
+            long tieIdMatch = matchId * 2L;
             JsonObject item = new JsonObject();
             item.addProperty("id", "match-" + matchId);
             item.addProperty("matchId", matchId);
@@ -764,7 +766,7 @@ public class FinanzasService {
             item.addProperty("rival", rival);
             item.addProperty("modo", modo);
             item.addProperty("fecha", fecha);
-            item.addProperty("origen", "Partida #" + matchId + " vs @" + rival + (!modo.isBlank() ? " (" + modo + ")" : ""));
+            item.addProperty("origen", origenPartida);
 
             if ("en_curso".equalsIgnoreCase(estado)) {
                 item.addProperty("estadoVisual", "pendiente");
@@ -774,6 +776,7 @@ public class FinanzasService {
                 item.addProperty("titulo", "Partida #" + matchId + " vs @" + rival);
                 item.addProperty("detalle", "Entrada de $" + formatoCop(montoEntrada) + " en juego");
                 enCursoCount++;
+                lista.add(new MovimientoOrdenado(parsearFecha(fecha), tieIdMatch, item));
             } else if ("disputa".equalsIgnoreCase(estado)) {
                 item.addProperty("estadoVisual", "pendiente");
                 item.addProperty("estadoTexto", "En disputa");
@@ -782,13 +785,15 @@ public class FinanzasService {
                 item.addProperty("titulo", "Partida #" + matchId + " vs @" + rival + " (En disputa)");
                 item.addProperty("detalle", "Pendiente de resolución administrativa");
                 enCursoCount++;
+                lista.add(new MovimientoOrdenado(parsearFecha(fecha), tieIdMatch, item));
             } else if ("Cancelada".equalsIgnoreCase(ganador)) {
                 item.addProperty("estadoVisual", "pendiente");
                 item.addProperty("estadoTexto", "Cancelada (reembolso)");
-                item.addProperty("signo", "+");
+                item.addProperty("signo", "");
                 item.addProperty("monto", montoEntrada);
                 item.addProperty("titulo", "Partida #" + matchId + " cancelada");
                 item.addProperty("detalle", "Entrada de $" + formatoCop(montoEntrada) + " devuelta a tu billetera");
+                lista.add(new MovimientoOrdenado(parsearFecha(fecha), tieIdMatch, item));
             } else if (username.equalsIgnoreCase(ganador)) {
                 ComisionService.Desglose d = comisionService.calcular(montoEntrada);
                 BigDecimal premio = d.getPremio();
@@ -799,10 +804,30 @@ public class FinanzasService {
                 item.addProperty("monto", premio);
                 item.addProperty("montoSecundario", neto);
                 item.addProperty("titulo", "Victoria en Partida #" + matchId + " vs @" + rival);
-                item.addProperty("detalle", "Premio total $" + formatoCop(premio) + " (neto +$"
-                        + formatoCop(neto) + " sobre entrada $" + formatoCop(montoEntrada) + ")");
+                item.addProperty("detalle", "Premio acreditado $" + formatoCop(premio)
+                        + " (entrada $" + formatoCop(montoEntrada) + " + ganancia neta $" + formatoCop(neto) + ")");
                 totalIngresos = totalIngresos.add(premio);
                 totalPremios = totalPremios.add(premio);
+                lista.add(new MovimientoOrdenado(parsearFecha(fecha), tieIdMatch + 1L, item));
+
+                JsonObject entradaItem = new JsonObject();
+                entradaItem.addProperty("id", "match-entry-" + matchId);
+                entradaItem.addProperty("matchId", matchId);
+                entradaItem.addProperty("categoriaMovimiento", "partida");
+                entradaItem.addProperty("tipo", "partida_entrada");
+                entradaItem.addProperty("estado", estado);
+                entradaItem.addProperty("rival", rival);
+                entradaItem.addProperty("modo", modo);
+                entradaItem.addProperty("fecha", fecha);
+                entradaItem.addProperty("origen", origenPartida);
+                entradaItem.addProperty("estadoVisual", "negativo");
+                entradaItem.addProperty("estadoTexto", "Entrada");
+                entradaItem.addProperty("signo", "-");
+                entradaItem.addProperty("monto", montoEntrada);
+                entradaItem.addProperty("titulo", "Entrada a Partida #" + matchId + " vs @" + rival);
+                entradaItem.addProperty("detalle", "Entrada descontada al iniciar la partida");
+                totalEgresos = totalEgresos.add(montoEntrada);
+                lista.add(new MovimientoOrdenado(parsearFecha(fecha), tieIdMatch, entradaItem));
             } else {
                 item.addProperty("estadoVisual", "negativo");
                 item.addProperty("estadoTexto", "Derrota");
@@ -811,8 +836,8 @@ public class FinanzasService {
                 item.addProperty("titulo", "Derrota en Partida #" + matchId + " vs @" + rival);
                 item.addProperty("detalle", !ganador.isBlank() ? "Ganador: @" + ganador : "Partida finalizada");
                 totalEgresos = totalEgresos.add(montoEntrada);
+                lista.add(new MovimientoOrdenado(parsearFecha(fecha), tieIdMatch, item));
             }
-            lista.add(new MovimientoOrdenado(parsearFecha(fecha), matchId, item));
         }
 
         // C1. Comisiones ganadas como referidor
