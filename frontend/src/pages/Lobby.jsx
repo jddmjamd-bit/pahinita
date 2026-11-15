@@ -9,12 +9,25 @@ import {
 } from '../utils/tiempoMatchmaking';
 import './Lobby.css';
 
+const formatearHoraAviso = (valor) => {
+    if (!valor) return '';
+    const fecha = typeof valor === 'number' ? new Date(valor) : new Date(valor);
+    if (Number.isNaN(fecha.getTime())) return '';
+    return fecha.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+};
+
 // Solo la notificación que está encima (activa) muestra y corre el temporizador de 5 s.
 // Las demás esperan sin contador; al quedar encima retoman con los segundos que les quedaban.
 function NotificacionEnVivo({ aviso, activa, onExpire, onOpen, onDismiss }) {
     const [restantes, setRestantes] = useState(5);
     const [ahoraMs, setAhoraMs] = useState(() => Date.now());
     const datosAviso = parsearDatosAviso(aviso?.datos);
+    const estadoVisual = typeof datosAviso.estadoVisual === 'string' ? datosAviso.estadoVisual : '';
+    const claseVisual = estadoVisual === 'pendiente' || estadoVisual === 'positivo' || estadoVisual === 'negativo'
+        ? `is-mov-${estadoVisual}`
+        : '';
+    const origenMovimiento = typeof datosAviso.origen === 'string' ? datosAviso.origen : '';
+    const horaAviso = formatearHoraAviso(aviso?.creada_en || aviso?.recibidoEn);
     const segAceptarTotal = Number(datosAviso.segundosRestantesAceptar ?? datosAviso.expiraEnSegundos ?? 0);
     const tiempoAceptar = aviso?.categoria === 'partida' && (segAceptarTotal > 0 || Number(datosAviso.expiraEnEpochMs) > 0)
         ? calcularRestanteSegundos(segAceptarTotal, aviso?.recibidoEn, ahoraMs, datosAviso.expiraEnEpochMs)
@@ -34,10 +47,16 @@ function NotificacionEnVivo({ aviso, activa, onExpire, onOpen, onDismiss }) {
     }, [activa, restantes, aviso.id, onExpire]);
 
     return (
-        <article className="live-notification" key={aviso.id}>
+        <article className={`live-notification ${claseVisual}`.trim()} key={aviso.id}>
             <button className="live-notification-open" onClick={() => onOpen(aviso)}>
-                <strong>{aviso.titulo}</strong>
+                <div className="live-notification-head">
+                    <strong>{aviso.titulo}</strong>
+                    {horaAviso && <small className="live-notification-time">{horaAviso}</small>}
+                </div>
                 <span>{aviso.mensaje}</span>
+                {origenMovimiento && (
+                    <small className="live-notification-origin">Origen: {origenMovimiento}</small>
+                )}
                 {tiempoAceptar > 0 && (
                     <small className="live-notification-accept-left">
                         ⏱ Te quedan {formatearTiempoReloj(tiempoAceptar)} para aceptar
@@ -143,7 +162,7 @@ export default function Lobby() {
                 : location.pathname === '/leaderboard' ? 'ranking'
                     : location.pathname === '/sorteos' ? 'sorteos'
                         : location.pathname === '/match' ? 'partida'
-                            : location.pathname === '/finance' ? 'finanzas' : '';
+                            : (location.pathname === '/finance' || location.pathname === '/admin') ? 'finanzas' : '';
         if (categoria) void marcarCategoriaLeida(categoria);
     }, [location.pathname, currentUser?.id, marcarCategoriaLeida]);
 
@@ -230,7 +249,9 @@ export default function Lobby() {
                     <button className="mini-btn" onClick={() => handleNavigation('/finance')}>+ Recargar</button>
                     <button className="mini-btn" style={{background: '#ed4245', marginTop: 5}} onClick={() => handleNavigation('/finance')}>- Retirar</button>
                     {currentUser.tipo_suscripcion === 'admin' && (
-                        <button className="mini-btn admin-btn" onClick={() => handleNavigation('/admin')} style={{marginTop: 5}}>👑 Admin</button>
+                        <button className="mini-btn admin-btn" onClick={() => handleNavigation('/admin')} style={{marginTop: 5}}>
+                            <span>👑 Admin</span>{punto('finanzas')}
+                        </button>
                     )}
                 </div>
                 
@@ -240,6 +261,9 @@ export default function Lobby() {
                     </div>
                     <div className={`channel ${isActive('/match')}`} onClick={() => handleNavigation('/match')}>
                         <span>⚔️ Jugar / Privada</span>{punto('partida')}
+                    </div>
+                    <div className={`channel ${isActive('/finance')}`} onClick={() => handleNavigation('/finance')}>
+                        <span>💳 Finanzas / Movimientos</span>{punto('finanzas')}
                     </div>
                     <div className={`channel ${isActive('/sorteos')}`} onClick={() => handleNavigation('/sorteos')}>
                         <span>🎁 Sorteos</span>{punto('sorteos')}

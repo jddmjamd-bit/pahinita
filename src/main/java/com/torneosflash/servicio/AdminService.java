@@ -18,7 +18,10 @@ import java.net.URI;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.text.NumberFormat;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -701,6 +704,416 @@ public class AdminService {
     public void resetearEstado(String targetUser) {
         usuarioDAO.resetearEstado(targetUser);
     }
+
+    /**
+     * Historial unificado de movimientos administrativos y de plataforma: recargas/retiros pendientes y resueltos,
+     * partidas en curso/disputa/finalizadas con su comisión admin, referidos, premios/sobrantes de ranking,
+     * movimientos del pozo de sorteos y depósitos manuales.
+     */
+    public JsonObject obtenerMovimientosAdmin(int adminUserId) {
+        ConexionDB connDb = obtenerConexion();
+        if (ConexionDB.esZonaPrueba() && connDb != null && connDb.tieneZonaPruebas()) {
+            connDb.sincronizarUsuariosPruebaYAdmin();
+        }
+
+        List<MovimientoAdminOrdenado> lista = new ArrayList<>();
+        ComisionService comisionService = new ComisionService();
+
+        int pendientesAccionCount = 0;
+        int partidasEnCursoCount = 0;
+        BigDecimal comisionesPartidasTotal = BigDecimal.ZERO;
+        BigDecimal gananciaNetaAdminPartidas = BigDecimal.ZERO;
+        BigDecimal referidosSinReferidorTotal = BigDecimal.ZERO;
+        BigDecimal recargasAprobadasTotal = BigDecimal.ZERO;
+        BigDecimal retirosEnviadosTotal = BigDecimal.ZERO;
+
+        // 1. Transacciones de usuarios (recargas y retiros)
+        List<JsonObject> txs = db.query(
+                "SELECT id, usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado, fecha " +
+                "FROM transactions ORDER BY fecha DESC, id DESC LIMIT 150");
+        for (JsonObject tx : txs) {
+            int txId = enteroAdmin(tx, "id");
+            int usuarioId = enteroAdmin(tx, "usuario_id");
+            String usuario = textoAdmin(tx, "usuario_nombre");
+            String tipo = textoAdmin(tx, "tipo");
+            String metodo = textoAdmin(tx, "metodo");
+            String referencia = textoAdmin(tx, "referencia");
+            String estado = textoAdmin(tx, "estado");
+            String fecha = textoAdmin(tx, "fecha");
+            BigDecimal monto = obtenerMontoJson(tx, "monto");
+            String tagUsuario = !usuario.isBlank() ? "@" + usuario : "usuario#" + usuarioId;
+            String metodoLegible = metodoLegibleAdmin(metodo, tipo);
+
+            JsonObject item = new JsonObject();
+            item.addProperty("id", "tx-" + txId);
+            item.addProperty("transaccionId", txId);
+            item.addProperty("usuarioId", usuarioId);
+            item.addProperty("usuario", usuario);
+            item.addProperty("tipoTransaccion", tipo);
+            item.addProperty("metodo", metodo);
+            item.addProperty("referencia", referencia);
+            item.addProperty("estado", estado);
+            item.addProperty("fecha", fecha);
+            item.addProperty("monto", monto);
+            item.addProperty("puedeProcesar", "pendiente".equalsIgnoreCase(estado) && !"wompi".equalsIgnoreCase(metodo));
+
+            if ("deposito".equalsIgnoreCase(tipo)) {
+                item.addProperty("categoriaMovimiento", "recarga");
+                item.addProperty("tipo", "recarga");
+                item.addProperty("origen", metodoLegible + " · " + tagUsuario);
+                if ("pendiente".equalsIgnoreCase(estado)) {
+                    item.addProperty("estadoVisual", "pendiente");
+                    item.addProperty("estadoTexto", "wompi".equalsIgnoreCase(metodo) ? "Pendiente Wompi" : "Pendiente");
+                    item.addProperty("signo", "+");
+                    item.addProperty("titulo", "Recarga pendiente de " + tagUsuario);
+                    pendientesAccionCount++;
+                } else if ("completado".equalsIgnoreCase(estado)) {
+                    item.addProperty("estadoVisual", "positivo");
+                    item.addProperty("estadoTexto", "Aprobado");
+                    item.addProperty("signo", "+");
+                    item.addProperty("titulo", "Recarga aprobada de " + tagUsuario);
+                    recargasAprobadasTotal = recargasAprobadasTotal.add(monto);
+                } else {
+                    item.addProperty("estadoVisual", "negativo");
+                    item.addProperty("estadoTexto", "Rechazado");
+                    item.addProperty("signo", "");
+                    item.addProperty("titulo", "Recarga rechazada de " + tagUsuario);
+                }
+            } else {
+                item.addProperty("categoriaMovimiento", "retiro");
+                item.addProperty("tipo", "retiro");
+                if ("pendiente".equalsIgnoreCase(estado)) {
+                    item.addProperty("estadoVisual", "pendiente");
+                    item.addProperty("estadoTexto", "Pendiente");
+                    item.addProperty("signo", "-");
+                    item.addProperty("titulo", "Retiro pendiente de " + tagUsuario);
+                    item.addProperty("origen", metodoLegible + " · " + tagUsuario);
+                    pendientesAccionCount++;
+                } else if ("completado".equalsIgnoreCase(estado)) {
+                    item.addProperty("estadoVisual", "negativo");
+                    item.addProperty("estadoTexto", "Enviado");
+                    item.addProperty("signo", "-");
+                    item.addProperty("titulo", "Retiro enviado a " + tagUsuario);
+                    item.addProperty("origen", metodoLegible + " · " + tagUsuario);
+                    retirosEnviadosTotal = retirosEnviadosTotal.add(monto);
+                } else {
+                    item.addProperty("estadoVisual", "positivo");
+                    item.addProperty("estadoTexto", "Rechazado (devuelto)");
+                    item.addProperty("signo", "+");
+                    item.addProperty("titulo", "Retiro rechazado a " + tagUsuario);
+                    item.addProperty("origen", "Reembolso de retiro · " + tagUsuario);
+                }
+            }
+            item.addProperty("detalle", !referencia.isBlank() ? "Ref: " + referencia : "");
+            lista.add(new MovimientoAdminOrdenado(parsearFechaAdmin(fecha), txId, item));
+        }
+
+        // 2. Partidas (en curso, disputa y finalizadas con utilidad admin)
+        List<JsonObject> matches = db.query(
+                "SELECT id, sala_id, jugador1, jugador2, modo, monto, ganador, estado, fecha " +
+                "FROM matches ORDER BY fecha DESC, id DESC LIMIT 150");
+        for (JsonObject m : matches) {
+            int matchId = enteroAdmin(m, "id");
+            String j1 = textoAdmin(m, "jugador1");
+            String j2 = textoAdmin(m, "jugador2");
+            String modo = textoAdmin(m, "modo");
+            String ganador = textoAdmin(m, "ganador");
+            String estado = textoAdmin(m, "estado");
+            String fecha = textoAdmin(m, "fecha");
+            BigDecimal montoEntrada = obtenerMontoJson(m, "monto");
+            BigDecimal pozo = montoEntrada.multiply(BigDecimal.valueOf(2));
+
+            JsonObject item = new JsonObject();
+            item.addProperty("id", "match-" + matchId);
+            item.addProperty("matchId", matchId);
+            item.addProperty("categoriaMovimiento", "partida");
+            item.addProperty("tipo", "partida");
+            item.addProperty("estado", estado);
+            item.addProperty("fecha", fecha);
+            item.addProperty("origen", "Partida #" + matchId + " (@" + j1 + " vs @" + j2
+                    + (!modo.isBlank() ? " · " + modo : "") + ")");
+
+            if ("en_curso".equalsIgnoreCase(estado)) {
+                item.addProperty("estadoVisual", "pendiente");
+                item.addProperty("estadoTexto", "En curso");
+                item.addProperty("signo", "");
+                item.addProperty("monto", pozo);
+                item.addProperty("titulo", "Partida #" + matchId + " en curso");
+                item.addProperty("detalle", "Pozo en juego $" + formatoCopAdmin(pozo)
+                        + " ($" + formatoCopAdmin(montoEntrada) + " por jugador)");
+                partidasEnCursoCount++;
+            } else if ("disputa".equalsIgnoreCase(estado)) {
+                item.addProperty("estadoVisual", "pendiente");
+                item.addProperty("estadoTexto", "En disputa");
+                item.addProperty("signo", "");
+                item.addProperty("monto", pozo);
+                item.addProperty("titulo", "Partida #" + matchId + " en disputa");
+                item.addProperty("detalle", "Requiere resolución del administrador · Pozo $" + formatoCopAdmin(pozo));
+                partidasEnCursoCount++;
+            } else if ("Cancelada".equalsIgnoreCase(ganador)) {
+                item.addProperty("estadoVisual", "pendiente");
+                item.addProperty("estadoTexto", "Cancelada");
+                item.addProperty("signo", "");
+                item.addProperty("monto", montoEntrada);
+                item.addProperty("titulo", "Partida #" + matchId + " cancelada");
+                item.addProperty("detalle", "Entradas reembolsadas a @" + j1 + " y @" + j2 + " (sin comisión)");
+            } else {
+                ComisionService.Desglose d = comisionService.calcular(montoEntrada);
+                BigDecimal gananciaAdmin = d.getMonto(ComisionService.Categoria.GANANCIA);
+                BigDecimal comisionTotal = d.getComisionTotal();
+                item.addProperty("estadoVisual", "positivo");
+                item.addProperty("estadoTexto", "Finalizada");
+                item.addProperty("signo", "+");
+                item.addProperty("monto", gananciaAdmin);
+                item.addProperty("montoSecundario", comisionTotal);
+                item.addProperty("titulo", "Comisión Partida #" + matchId + " (Ganó @" + ganador + ")");
+                item.addProperty("detalle", "Ganancia admin $" + formatoCopAdmin(gananciaAdmin)
+                        + " · Comisión total $" + formatoCopAdmin(comisionTotal)
+                        + " (Sorteos $" + formatoCopAdmin(d.getMonto(ComisionService.Categoria.SORTEOS))
+                        + ", Ranking $" + formatoCopAdmin(d.getMonto(ComisionService.Categoria.LEADERBOARD))
+                        + ", Referidos $" + formatoCopAdmin(d.getMonto(ComisionService.Categoria.REFERIDOS))
+                        + ", Misiones $" + formatoCopAdmin(d.getMonto(ComisionService.Categoria.MISIONES))
+                        + ", Logros $" + formatoCopAdmin(d.getMonto(ComisionService.Categoria.LOGROS))
+                        + ", Devolución $" + formatoCopAdmin(d.getMonto(ComisionService.Categoria.DEVOLUCION))
+                        + ") · Premio jugador $" + formatoCopAdmin(d.getPremio()));
+                comisionesPartidasTotal = comisionesPartidasTotal.add(comisionTotal);
+                gananciaNetaAdminPartidas = gananciaNetaAdminPartidas.add(gananciaAdmin);
+            }
+            lista.add(new MovimientoAdminOrdenado(parsearFechaAdmin(fecha), matchId, item));
+        }
+
+        // 3. Reparto de comisiones de referidos (referidores y cuentas admin cuando no hay referidor)
+        List<JsonObject> refs = db.query(
+                "SELECT rp.id, rp.match_id, rp.destino_tipo, rp.monto_referidor, rp.monto_devuelto_referido, " +
+                "rp.monto_admin, rp.porcentaje_compartido, rp.creado_en, " +
+                "uj.username AS jugador_username, ur.username AS referidor_username " +
+                "FROM referral_payouts rp " +
+                "LEFT JOIN users uj ON uj.id = rp.jugador_id " +
+                "LEFT JOIN users ur ON ur.id = rp.referrer_user_id " +
+                "ORDER BY rp.creado_en DESC, rp.id DESC LIMIT 120");
+        for (JsonObject rp : refs) {
+            int rpId = enteroAdmin(rp, "id");
+            int matchId = enteroAdmin(rp, "match_id");
+            String destino = textoAdmin(rp, "destino_tipo");
+            BigDecimal montoRef = obtenerMontoJson(rp, "monto_referidor");
+            BigDecimal montoDev = obtenerMontoJson(rp, "monto_devuelto_referido");
+            BigDecimal montoAdmin = obtenerMontoJson(rp, "monto_admin");
+            BigDecimal pct = obtenerMontoJson(rp, "porcentaje_compartido");
+            String jugUsername = textoAdmin(rp, "jugador_username");
+            String refUsername = textoAdmin(rp, "referidor_username");
+            String fecha = textoAdmin(rp, "creado_en");
+            String tagJug = !jugUsername.isBlank() ? "@" + jugUsername : "jugador";
+            String tagRef = !refUsername.isBlank() ? "@" + refUsername : "referidor";
+
+            JsonObject item = new JsonObject();
+            item.addProperty("id", "ref-" + rpId);
+            item.addProperty("categoriaMovimiento", "referido");
+            item.addProperty("fecha", fecha);
+
+            if ("admin".equalsIgnoreCase(destino)) {
+                item.addProperty("tipo", "referido_admin");
+                item.addProperty("estadoVisual", "positivo");
+                item.addProperty("estadoTexto", "Ingreso admin");
+                item.addProperty("signo", "+");
+                item.addProperty("monto", montoAdmin);
+                item.addProperty("titulo", "Referido sin invitador (acreditado a admin)");
+                item.addProperty("origen", "Referidos · " + tagJug
+                        + (matchId > 0 ? " (Partida #" + matchId + ")" : ""));
+                item.addProperty("detalle", "La cuota de referidos de " + tagJug
+                        + " pasó a cuentas administrador por no tener referidor");
+                referidosSinReferidorTotal = referidosSinReferidorTotal.add(montoAdmin);
+                lista.add(new MovimientoAdminOrdenado(parsearFechaAdmin(fecha), rpId, item));
+            } else {
+                BigDecimal totalRepartido = montoRef.add(montoDev);
+                if (totalRepartido.compareTo(BigDecimal.ZERO) > 0) {
+                    item.addProperty("tipo", "referido_reparto");
+                    item.addProperty("estadoVisual", "negativo");
+                    item.addProperty("estadoTexto", "Comisión repartida");
+                    item.addProperty("signo", "-");
+                    item.addProperty("monto", totalRepartido);
+                    item.addProperty("titulo", "Comisión de referido · " + tagRef);
+                    item.addProperty("origen", "Referidos · Invitado " + tagJug + " -> " + tagRef
+                            + (matchId > 0 ? " (Partida #" + matchId + ")" : ""));
+                    item.addProperty("detalle", "Referidor $" + formatoCopAdmin(montoRef)
+                            + (montoDev.compareTo(BigDecimal.ZERO) > 0
+                                    ? " · Devolución a " + tagJug + " $" + formatoCopAdmin(montoDev)
+                                      + " (" + pct.stripTrailingZeros().toPlainString() + "%)"
+                                    : ""));
+                    lista.add(new MovimientoAdminOrdenado(parsearFechaAdmin(fecha), rpId, item));
+                }
+            }
+        }
+
+        // 4. Pagos y sobrantes de ranking
+        List<JsonObject> lbPagos = db.query(
+                "SELECT lcp.id, lcp.tipo_pago, lcp.username, lcp.posicion, lcp.monto, lcp.estado, lcp.creado_en, lcp.pagado_en, " +
+                "lc.periodo, lc.clave_corte " +
+                "FROM leaderboard_cut_payments lcp " +
+                "JOIN leaderboard_cuts lc ON lc.id = lcp.corte_id " +
+                "ORDER BY COALESCE(lcp.pagado_en, lcp.creado_en) DESC, lcp.id DESC LIMIT 100");
+        for (JsonObject lb : lbPagos) {
+            int lbId = enteroAdmin(lb, "id");
+            String tipoPago = textoAdmin(lb, "tipo_pago");
+            String username = textoAdmin(lb, "username");
+            int posicion = enteroAdmin(lb, "posicion");
+            BigDecimal monto = obtenerMontoJson(lb, "monto");
+            String estado = textoAdmin(lb, "estado");
+            String periodo = textoAdmin(lb, "periodo");
+            String claveCorte = textoAdmin(lb, "clave_corte");
+            String pagadoEn = textoAdmin(lb, "pagado_en");
+            String creadoEn = textoAdmin(lb, "creado_en");
+            String fecha = !pagadoEn.isBlank() ? pagadoEn : creadoEn;
+            boolean esAdminPago = "admin".equalsIgnoreCase(tipoPago);
+            boolean pagado = "pagado".equalsIgnoreCase(estado);
+
+            JsonObject item = new JsonObject();
+            item.addProperty("id", "lb-" + lbId);
+            item.addProperty("categoriaMovimiento", "ranking");
+            item.addProperty("tipo", "ranking");
+            item.addProperty("estadoVisual", !pagado ? "pendiente" : (esAdminPago ? "positivo" : "negativo"));
+            item.addProperty("estadoTexto", !pagado ? "Pendiente" : (esAdminPago ? "Sobrante admin" : "Premio pagado"));
+            item.addProperty("signo", esAdminPago ? "+" : "-");
+            item.addProperty("monto", monto);
+            item.addProperty("titulo", esAdminPago
+                    ? "Sobrante de Ranking (" + periodo + ") -> @" + username
+                    : "Premio Ranking #" + posicion + " (" + periodo + ") -> @" + username);
+            item.addProperty("origen", "Ranking " + periodo + (!claveCorte.isBlank() ? " · " + claveCorte : ""));
+            item.addProperty("detalle", esAdminPago
+                    ? "Sobrante de pozo de ranking acreditado a admin"
+                    : "Pago a jugador por posición #" + posicion + " en corte " + claveCorte);
+            item.addProperty("fecha", fecha);
+            lista.add(new MovimientoAdminOrdenado(parsearFechaAdmin(fecha), lbId, item));
+        }
+
+        // 5. Movimientos del pozo de sorteos
+        List<JsonObject> pozoSorteos = db.query(
+                "SELECT id, tipo, variacion, referencia, fecha FROM raffle_pool_movements " +
+                "ORDER BY fecha DESC, id DESC LIMIT 100");
+        for (JsonObject ps : pozoSorteos) {
+            int psId = enteroAdmin(ps, "id");
+            String tipo = textoAdmin(ps, "tipo");
+            BigDecimal variacion = obtenerMontoJson(ps, "variacion");
+            String ref = textoAdmin(ps, "referencia");
+            String fecha = textoAdmin(ps, "fecha");
+            boolean positivo = variacion.compareTo(BigDecimal.ZERO) >= 0;
+
+            JsonObject item = new JsonObject();
+            item.addProperty("id", "raffle-pool-" + psId);
+            item.addProperty("categoriaMovimiento", "sorteos");
+            item.addProperty("tipo", "sorteo_pozo");
+            item.addProperty("estadoVisual", positivo ? "positivo" : "negativo");
+            item.addProperty("estadoTexto", positivo ? "Ingreso pozo" : "Uso pozo");
+            item.addProperty("signo", positivo ? "+" : "-");
+            item.addProperty("monto", variacion.abs());
+            item.addProperty("titulo", tituloPozoSorteo(tipo));
+            item.addProperty("origen", "Pozo de Sorteos · " + tipo);
+            item.addProperty("detalle", ref);
+            item.addProperty("fecha", fecha);
+            lista.add(new MovimientoAdminOrdenado(parsearFechaAdmin(fecha), psId, item));
+        }
+
+        // 6. Depósitos manuales directos del admin desde ledger
+        List<JsonObject> manuales = db.query(
+                "SELECT wl.id, wl.monto, wl.referencia, wl.fecha, u.username " +
+                "FROM wallet_ledger wl JOIN users u ON u.id = wl.user_id " +
+                "WHERE wl.tipo = 'deposito' AND wl.referencia = 'Depósito manual admin' " +
+                "ORDER BY wl.fecha DESC, wl.id DESC LIMIT 80");
+        for (JsonObject man : manuales) {
+            int wlId = enteroAdmin(man, "id");
+            BigDecimal monto = obtenerMontoJson(man, "monto");
+            String username = textoAdmin(man, "username");
+            String fecha = textoAdmin(man, "fecha");
+
+            JsonObject item = new JsonObject();
+            item.addProperty("id", "manual-" + wlId);
+            item.addProperty("categoriaMovimiento", "recarga");
+            item.addProperty("tipo", "deposito_manual");
+            item.addProperty("estadoVisual", "positivo");
+            item.addProperty("estadoTexto", "Acreditado");
+            item.addProperty("signo", "+");
+            item.addProperty("monto", monto);
+            item.addProperty("titulo", "Depósito manual admin a @" + username);
+            item.addProperty("origen", "Admin manual · @" + username);
+            item.addProperty("detalle", "Acreditación directa desde panel admin");
+            item.addProperty("fecha", fecha);
+            recargasAprobadasTotal = recargasAprobadasTotal.add(monto);
+            lista.add(new MovimientoAdminOrdenado(parsearFechaAdmin(fecha), wlId, item));
+        }
+
+        lista.sort(Comparator.comparing(MovimientoAdminOrdenado::instante).reversed()
+                .thenComparing(Comparator.comparingLong(MovimientoAdminOrdenado::tieId).reversed()));
+
+        JsonArray arr = new JsonArray();
+        for (MovimientoAdminOrdenado m : lista) {
+            arr.add(m.datos());
+        }
+
+        JsonObject resumen = new JsonObject();
+        resumen.addProperty("pendientesAccionCount", pendientesAccionCount);
+        resumen.addProperty("partidasEnCursoCount", partidasEnCursoCount);
+        resumen.addProperty("comisionesPartidasTotal", comisionesPartidasTotal);
+        resumen.addProperty("gananciaNetaAdminPartidas", gananciaNetaAdminPartidas);
+        resumen.addProperty("referidosSinReferidorTotal", referidosSinReferidorTotal);
+        resumen.addProperty("recargasAprobadasTotal", recargasAprobadasTotal);
+        resumen.addProperty("retirosEnviadosTotal", retirosEnviadosTotal);
+        resumen.addProperty("totalMovimientos", arr.size());
+
+        JsonObject resp = new JsonObject();
+        resp.addProperty("success", true);
+        resp.addProperty("zonaActiva", ConexionDB.zonaActual());
+        resp.addProperty("enZonaPruebas", ConexionDB.esZonaPrueba());
+        resp.add("movimientos", arr);
+        resp.add("resumen", resumen);
+        return resp;
+    }
+
+    private static String tituloPozoSorteo(String tipo) {
+        return switch (tipo == null ? "" : tipo) {
+            case "acumulacion" -> "Acumulación pozo de sorteos";
+            case "reserva" -> "Reserva de premio para sorteo";
+            case "devolucion_cancelacion" -> "Devolución al pozo por sorteo cancelado";
+            case "devolucion_admin" -> "Sobrante de sorteo devuelto";
+            case "ajuste_inicial" -> "Ajuste inicial pozo de sorteos";
+            default -> "Movimiento pozo de sorteos";
+        };
+    }
+
+    private static String metodoLegibleAdmin(String metodo, String tipo) {
+        if ("wompi".equalsIgnoreCase(metodo)) return "Wompi";
+        if ("nequi_retiro".equalsIgnoreCase(metodo)) return "Retiro Nequi";
+        if ("nequi".equalsIgnoreCase(metodo)) return "Nequi Manual";
+        if (!metodo.isBlank()) return metodo;
+        return "retiro".equalsIgnoreCase(tipo) ? "Retiro manual" : "Recarga manual";
+    }
+
+    private static String textoAdmin(JsonObject obj, String key) {
+        if (obj == null || !obj.has(key) || obj.get(key).isJsonNull()) return "";
+        try { return obj.get(key).getAsString().trim(); } catch (Exception e) { return ""; }
+    }
+
+    private static int enteroAdmin(JsonObject obj, String key) {
+        if (obj == null || !obj.has(key) || obj.get(key).isJsonNull()) return 0;
+        try { return obj.get(key).getAsInt(); } catch (Exception e) { return 0; }
+    }
+
+    private static Instant parsearFechaAdmin(String fecha) {
+        if (fecha == null || fecha.isBlank()) return Instant.EPOCH;
+        try {
+            return Instant.parse(fecha.trim());
+        } catch (Exception e) {
+            return Instant.EPOCH;
+        }
+    }
+
+    private static String formatoCopAdmin(BigDecimal monto) {
+        if (monto == null) return "0";
+        NumberFormat nf = NumberFormat.getNumberInstance(Locale.forLanguageTag("es-CO"));
+        nf.setMaximumFractionDigits(2);
+        nf.setMinimumFractionDigits(0);
+        return nf.format(monto);
+    }
+
+    private record MovimientoAdminOrdenado(Instant instante, long tieId, JsonObject datos) {}
 
     /** IP pública de salida del servidor (la que hay que autorizar en servicios externos). Con timeout de 5 s (A8). */
     public String ipPublicaServidor() {

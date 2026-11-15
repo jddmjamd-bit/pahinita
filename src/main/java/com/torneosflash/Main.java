@@ -321,7 +321,7 @@ public class Main {
         new RecuperacionPasswordListener(correo, socketServer).registrar(eventBus);
         new CuentaRegistradaListener(correo, db, cifradoTokenJugador, config).registrar(eventBus);
         FinanzasService finanzasService = new FinanzasService(db, config, wallet, validadorMonto, notificador,
-                correo);
+                correo, eventBus);
         SorteoService sorteoService = new SorteoService(db, socketServer, correo, pushService, validadorMonto,
                 eventBus);
 

@@ -95,7 +95,7 @@
 
 | Prio | Feature | Modelo | Notas |
 |------|---------|--------|-------|
-| **1** | Notificaciones de todos los movimientos de dinero del usuario | **S5.5H / A4H** | Depende de `WalletService` (D2). Cada operaci�n del ledger emite evento  notificaci�n push/in-app. |
+| **1** | ~~Notificaciones de todos los movimientos de dinero del usuario~~ **[IMPLEMENTADO]** | **S5.5H / A4H** | Eventos `TRANSACCION_PENDIENTE_CREADA`, `TRANSACCION_PROCESADA`, `WALLET_DEPOSITED`, `WALLET_AWARDED`, `MATCH_STARTED` y `MATCH_FINISHED` en `NotificacionesListener` + socket `movimiento_actualizado`; notificaciones e historial unificado `📋 Movimientos` en `/finance` (`GET /api/finance/movements`) y `/admin` (`GET /api/admin/movements`) con color gris (`pendiente` / `en_curso`), verde (`positivo`) o rojo (`negativo`), fecha/hora exacta y origen detallado (Nequi Manual, Wompi, Partida, Referidos `@invitado`/`@referidor`, Rankings, Sorteos y Abonos). |
 | **1** | Verificaci�n de email + primeros puntos VIP | **S5.5H** | Link de verificaci�n v�a Brevo (`CorreoServicio`). Al verificar: otorgar puntos VIP base. |
 | **1.6** | T�rminos de servicio + pol�tica de privacidad | **S5.5L** | P�ginas est�ticas en React. Checkbox obligatorio al registrarse. **( se puede hacer en cualquier momento)** |
 | **2** | 2FA opcional | **O5.5M / A4H** | TOTP (Google Authenticator). Generar QR con secret, verificar c�digo de 6 d�gitos al login. Tabla `user_2fa`. |

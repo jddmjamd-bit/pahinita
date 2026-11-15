@@ -20,13 +20,43 @@ const formatearMonto = (valor) => Number(valor ?? 0).toLocaleString('es-CO', {
     maximumFractionDigits: 2
 });
 
+const formatearFechaHoraAdmin = (fechaIso) => {
+    if (!fechaIso) return '—';
+    const d = new Date(fechaIso);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString('es-CO', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+};
+
+const FILTROS_ADMIN_MOVIMIENTOS = [
+    { id: 'todos', label: 'Todos' },
+    { id: 'pendiente', label: '⏳ Pendientes / En curso' },
+    { id: 'positivo', label: '🟢 Ingresos / Comisiones' },
+    { id: 'negativo', label: '🔴 Salidas / Premios' },
+    { id: 'partida', label: '⚔️ Partidas' },
+    { id: 'referido', label: '🤝 Referidos' },
+    { id: 'recargas_retiros', label: '💳 Recargas y Retiros' },
+    { id: 'ranking_sorteos', label: '🏆 Ranking y Sorteos' }
+];
+
 export default function Admin() {
-    const [view, setView] = useState('transactions'); // 'transactions', 'stats', 'chatbot', 'soporte' o 'clash-verifications'
+    const [view, setView] = useState('transactions'); // 'transactions', 'movements', 'stats', 'chatbot', 'soporte' o 'clash-verifications'
     
     // Transactions & Disputes
     const [transactions, setTransactions] = useState([]);
     const [disputes, setDisputes] = useState([]);
     const [loadingTx, setLoadingTx] = useState(false);
+
+    // Movimientos unificados de plataforma
+    const [adminMovementsData, setAdminMovementsData] = useState({ movimientos: [], resumen: null });
+    const [loadingAdminMovements, setLoadingAdminMovements] = useState(false);
+    const [filtroAdminMov, setFiltroAdminMov] = useState('todos');
     
     // Stats
     const [stats, setStats] = useState(null);
@@ -50,16 +80,40 @@ export default function Admin() {
     const [filtroUsuariosPrueba, setFiltroUsuariosPrueba] = useState('');
 
     const currentUser = useAppStore(state => state.user);
+    const movimientoRevision = useAppStore(state => state.movimientoRevision);
+    const socket = useAppStore(state => state.socket);
     const recargarZonaActiva = useAppStore(state => state.recargarZonaActiva);
     const zonaActivaAdmin = currentUser?.zona_activa
         || (currentUser?.en_zona_pruebas ? 'prueba' : (currentUser?.zona_admin || 'normal'));
     const enZonaPruebasAdmin = zonaActivaAdmin === 'prueba';
+
+    const cargarMovimientosAdmin = async () => {
+        setLoadingAdminMovements(true);
+        try {
+            const { ok, data } = await llamarApi('/api/admin/movements');
+            if (!ok || !data?.success) {
+                console.error(data?.error || 'No se pudieron cargar los movimientos');
+                return;
+            }
+            setAdminMovementsData({
+                movimientos: Array.isArray(data.movimientos) ? data.movimientos : [],
+                resumen: data.resumen || null
+            });
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoadingAdminMovements(false);
+        }
+    };
 
     useEffect(() => {
         if (currentUser?.tipo_suscripcion === 'admin') {
             if (view === 'transactions') {
                 cargarTransaccionesAdmin();
                 cargarDisputasAdmin();
+                cargarMovimientosAdmin();
+            } else if (view === 'movements') {
+                cargarMovimientosAdmin();
             } else if (view === 'stats') {
                 cargarEstadisticasAdmin();
             } else if (view === 'clash-verifications') {
@@ -71,6 +125,36 @@ export default function Admin() {
             }
         }
     }, [view, zonaActivaAdmin]);
+
+    useEffect(() => {
+        if (currentUser?.tipo_suscripcion !== 'admin' || movimientoRevision === 0) return;
+        cargarMovimientosAdmin();
+        if (view === 'transactions') {
+            cargarTransaccionesAdmin();
+            cargarDisputasAdmin();
+        } else if (view === 'stats') {
+            cargarEstadisticasAdmin();
+        }
+    }, [movimientoRevision]);
+
+    useEffect(() => {
+        if (!socket || currentUser?.tipo_suscripcion !== 'admin') return undefined;
+        const refrescarZona = () => {
+            cargarMovimientosAdmin();
+            if (view === 'transactions') {
+                cargarTransaccionesAdmin();
+                cargarDisputasAdmin();
+            } else if (view === 'stats') {
+                cargarEstadisticasAdmin();
+            }
+        };
+        socket.on('zona_cambiada', refrescarZona);
+        socket.on('zona_pruebas_reiniciada', refrescarZona);
+        return () => {
+            socket.off('zona_cambiada', refrescarZona);
+            socket.off('zona_pruebas_reiniciada', refrescarZona);
+        };
+    }, [socket, currentUser?.tipo_suscripcion, view]);
 
     if (!currentUser || currentUser.tipo_suscripcion !== 'admin') {
         return <div style={{padding: 20, color: 'white', textAlign: 'center'}}>Acceso denegado.</div>;
@@ -126,6 +210,7 @@ export default function Admin() {
             if (!ok || !d || d.error) return alert('Error: ' + (d?.error || 'No se pudo procesar'));
             
             setTransactions(prev => prev.filter(t => t.id !== id));
+            void cargarMovimientosAdmin();
         } catch (e) {
             alert('Error de conexión');
         }
@@ -355,12 +440,42 @@ export default function Admin() {
             || (u.referido_por_username || '').toLowerCase().includes(q);
     });
 
+    const adminMovimientos = Array.isArray(adminMovementsData?.movimientos) ? adminMovementsData.movimientos : [];
+    const resumenAdminMov = adminMovementsData?.resumen || {
+        pendientesAccionCount: 0,
+        partidasEnCursoCount: 0,
+        comisionesPartidasTotal: 0,
+        gananciaNetaAdminPartidas: 0,
+        referidosSinReferidorTotal: 0,
+        recargasAprobadasTotal: 0,
+        retirosEnviadosTotal: 0
+    };
+    const badgeMovimientosAdmin = Number(resumenAdminMov.pendientesAccionCount || 0)
+        + Number(resumenAdminMov.partidasEnCursoCount || 0);
+
+    const adminMovsFiltrados = adminMovimientos.filter(m => {
+        if (filtroAdminMov === 'todos') return true;
+        if (filtroAdminMov === 'pendiente' || filtroAdminMov === 'positivo' || filtroAdminMov === 'negativo') {
+            return m.estadoVisual === filtroAdminMov;
+        }
+        if (filtroAdminMov === 'recargas_retiros') {
+            return m.categoriaMovimiento === 'recarga' || m.categoriaMovimiento === 'retiro';
+        }
+        if (filtroAdminMov === 'ranking_sorteos') {
+            return m.categoriaMovimiento === 'ranking' || m.categoriaMovimiento === 'sorteos';
+        }
+        return m.categoriaMovimiento === filtroAdminMov;
+    });
+
     return (
         <div className="admin-container">
             <header className="admin-header">
                 <h2>👑 Panel Admin</h2>
                 <div className="admin-tabs">
                     <button className={`admin-tab ${view === 'transactions' ? 'active' : ''}`} onClick={() => setView('transactions')}>💸 Pagos / Disputas</button>
+                    <button className={`admin-tab ${view === 'movements' ? 'active' : ''}`} onClick={() => setView('movements')}>
+                        📋 Movimientos{badgeMovimientosAdmin > 0 ? ` (${badgeMovimientosAdmin})` : ''}
+                    </button>
                     <button className={`admin-tab ${view === 'stats' ? 'active' : ''}`} onClick={() => setView('stats')}>📊 Finanzas</button>
                     <button className={`admin-tab ${view === 'test-zone' ? 'active' : ''}`} onClick={() => setView('test-zone')}>🧪 Zona de Pruebas</button>
                     <button className={`admin-tab ${view === 'chatbot' ? 'active' : ''}`} onClick={() => setView('chatbot')}>🤖 Chatbot</button>
@@ -399,6 +514,108 @@ export default function Admin() {
                     </button>
                 </div>
             </section>
+
+            {view === 'movements' && (
+                <div className="admin-view">
+                    <div className="admin-section">
+                        <div className="section-header">
+                            <h3>📋 Todos los movimientos de la plataforma</h3>
+                            <button className="refresh-btn" onClick={cargarMovimientosAdmin} disabled={loadingAdminMovements}>
+                                {loadingAdminMovements ? 'Actualizando…' : '🔄 Actualizar'}
+                            </button>
+                        </div>
+
+                        <div className="admin-mov-resumen-grid">
+                            <div className="admin-mov-stat">
+                                <span>Pendientes por aprobar</span>
+                                <strong className="is-pendiente">{resumenAdminMov.pendientesAccionCount || 0}</strong>
+                            </div>
+                            <div className="admin-mov-stat">
+                                <span>Partidas en curso / disputa</span>
+                                <strong className="is-pendiente">{resumenAdminMov.partidasEnCursoCount || 0}</strong>
+                            </div>
+                            <div className="admin-mov-stat">
+                                <span>Utilidad admin partidas (25%)</span>
+                                <strong className="is-positivo">${formatearMonto(resumenAdminMov.gananciaNetaAdminPartidas)}</strong>
+                            </div>
+                            <div className="admin-mov-stat">
+                                <span>Referidos sin invitador (admin)</span>
+                                <strong className="is-positivo">${formatearMonto(resumenAdminMov.referidosSinReferidorTotal)}</strong>
+                            </div>
+                            <div className="admin-mov-stat">
+                                <span>Recargas aprobadas</span>
+                                <strong className="is-positivo">${formatearMonto(resumenAdminMov.recargasAprobadasTotal)}</strong>
+                            </div>
+                            <div className="admin-mov-stat">
+                                <span>Retiros enviados</span>
+                                <strong className="is-negativo">${formatearMonto(resumenAdminMov.retirosEnviadosTotal)}</strong>
+                            </div>
+                        </div>
+
+                        <div className="admin-mov-filtros" role="tablist" aria-label="Filtrar movimientos admin">
+                            {FILTROS_ADMIN_MOVIMIENTOS.map(f => (
+                                <button
+                                    key={f.id}
+                                    type="button"
+                                    className={`admin-mov-filtro-btn ${filtroAdminMov === f.id ? 'active' : ''}`}
+                                    onClick={() => setFiltroAdminMov(f.id)}
+                                >
+                                    {f.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="admin-movimientos-list">
+                            {loadingAdminMovements && adminMovimientos.length === 0 ? (
+                                <p>Cargando movimientos…</p>
+                            ) : adminMovsFiltrados.length === 0 ? (
+                                <p className="empty">No hay movimientos registrados para este filtro.</p>
+                            ) : adminMovsFiltrados.map(m => {
+                                const estadoVisual = m.estadoVisual || 'pendiente';
+                                const signo = m.signo || '';
+                                return (
+                                    <article key={m.id} className={`admin-mov-card is-${estadoVisual}`}>
+                                        <div className="admin-mov-top">
+                                            <div className="admin-mov-title-wrap">
+                                                <span className="admin-mov-title">{m.titulo}</span>
+                                                <span className={`admin-mov-badge is-${estadoVisual}`}>
+                                                    {m.estadoTexto || 'Pendiente'}
+                                                </span>
+                                            </div>
+                                            <span className={`admin-mov-monto is-${estadoVisual}`}>
+                                                {signo}${formatearMonto(m.monto)}
+                                            </span>
+                                        </div>
+                                        <div className="admin-mov-meta">
+                                            <span className="admin-mov-origen">📌 Origen: {m.origen || 'Plataforma'}</span>
+                                            <span className="admin-mov-fecha">🕒 {formatearFechaHoraAdmin(m.fecha)}</span>
+                                        </div>
+                                        {m.detalle && <p className="admin-mov-detalle">{m.detalle}</p>}
+                                        {m.puedeProcesar && m.transaccionId > 0 && (
+                                            <div className="admin-mov-actions">
+                                                <button
+                                                    type="button"
+                                                    className="btn-approve"
+                                                    onClick={() => procesarTransaccionAdmin(m.transaccionId, 'approve')}
+                                                >
+                                                    ✅ Aprobar
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="btn-reject"
+                                                    onClick={() => procesarTransaccionAdmin(m.transaccionId, 'reject')}
+                                                >
+                                                    ❌ Rechazar
+                                                </button>
+                                            </div>
+                                        )}
+                                    </article>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {view === 'transactions' && (
                 <div className="admin-view">

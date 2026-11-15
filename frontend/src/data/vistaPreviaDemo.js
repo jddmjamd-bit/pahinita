@@ -336,4 +336,129 @@ export const DEMO_REFERIDOS = {
     ]
 };
 
+export const DEMO_MOVIMIENTOS_FINANZAS = {
+    success: true,
+    resumen: {
+        pendientesCount: 1,
+        enCursoCount: 1,
+        totalIngresos: 58325,
+        totalEgresos: 25000,
+        totalReferidos: 325,
+        totalPremios: 18000,
+        totalMovimientos: 8
+    },
+    movimientos: [
+        {
+            id: 'demo-tx-1',
+            categoriaMovimiento: 'recarga',
+            tipo: 'recarga',
+            estado: 'pendiente',
+            estadoVisual: 'pendiente',
+            estadoTexto: 'Pendiente',
+            signo: '',
+            monto: 20000,
+            titulo: 'Recarga en revisión',
+            origen: 'Nequi Manual',
+            detalle: 'Ref: NEQ-904821',
+            fecha: HACE_5_MIN_ISO
+        },
+        {
+            id: 'demo-match-415',
+            categoriaMovimiento: 'partida',
+            tipo: 'partida',
+            estado: 'en_curso',
+            estadoVisual: 'pendiente',
+            estadoTexto: 'En curso',
+            signo: '-',
+            monto: 5000,
+            titulo: 'Partida #415 vs @CamilaArena_Demo',
+            origen: 'Partida #415 vs @CamilaArena_Demo (Mega Draft)',
+            detalle: 'Entrada de $5.000 en juego',
+            fecha: AHORA_ISO
+        },
+        {
+            id: 'demo-ref-9901',
+            categoriaMovimiento: 'referido',
+            tipo: 'referido_comision',
+            estadoVisual: 'positivo',
+            estadoTexto: 'Acreditado',
+            signo: '+',
+            monto: 225,
+            titulo: 'Comisión de referido',
+            origen: 'Referidos · Invitado @Valquiria_Demo (Partida #412)',
+            detalle: 'Compartiendo 25% con @Valquiria_Demo',
+            fecha: HACE_5_MIN_ISO
+        },
+        {
+            id: 'demo-ref-9902',
+            categoriaMovimiento: 'referido',
+            tipo: 'referido_devolucion',
+            estadoVisual: 'positivo',
+            estadoTexto: 'Acreditado',
+            signo: '+',
+            monto: 100,
+            titulo: 'Devolución por comisión compartida',
+            origen: 'Referidos · Compartido por @CamilaArena_Demo (Partida #408)',
+            detalle: 'Reembolso automático de 20% compartido por tu referidor',
+            fecha: AHORA_ISO
+        },
+        {
+            id: 'demo-match-412',
+            categoriaMovimiento: 'partida',
+            tipo: 'partida',
+            estado: 'finalizada',
+            estadoVisual: 'positivo',
+            estadoTexto: 'Victoria',
+            signo: '+',
+            monto: 18000,
+            titulo: 'Victoria en Partida #412 vs @Valquiria_Demo',
+            origen: 'Partida #412 vs @Valquiria_Demo (Elección)',
+            detalle: 'Premio total $18.000 (ganancia neta +$8.000 sobre entrada $10.000)',
+            fecha: HACE_2_HORAS_ISO
+        },
+        {
+            id: 'demo-match-409',
+            categoriaMovimiento: 'partida',
+            tipo: 'partida',
+            estado: 'finalizada',
+            estadoVisual: 'negativo',
+            estadoTexto: 'Derrota',
+            signo: '-',
+            monto: 5000,
+            titulo: 'Derrota en Partida #409 vs @ReyAzul_Demo',
+            origen: 'Partida #409 vs @ReyAzul_Demo (Clásico)',
+            detalle: 'Ganador: @ReyAzul_Demo',
+            fecha: HACE_2_HORAS_ISO
+        },
+        {
+            id: 'demo-tx-2',
+            categoriaMovimiento: 'retiro',
+            tipo: 'retiro',
+            estado: 'completado',
+            estadoVisual: 'negativo',
+            estadoTexto: 'Enviado',
+            signo: '-',
+            monto: 20000,
+            titulo: 'Retiro enviado',
+            origen: 'Retiro Nequi',
+            detalle: 'Ref: 3001234567 - Visitante Demo',
+            fecha: HACE_2_HORAS_ISO
+        },
+        {
+            id: 'demo-tx-3',
+            categoriaMovimiento: 'recarga',
+            tipo: 'recarga',
+            estado: 'completado',
+            estadoVisual: 'positivo',
+            estadoTexto: 'Aprobado',
+            signo: '+',
+            monto: 40000,
+            titulo: 'Recarga aprobada',
+            origen: 'Wompi (Pasarela)',
+            detalle: 'Ref: TF-demo-40000',
+            fecha: HACE_2_HORAS_ISO
+        }
+    ]
+};
+
 

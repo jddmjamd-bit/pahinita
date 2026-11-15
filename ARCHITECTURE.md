@@ -919,3 +919,19 @@ Permite a cada jugador invitar a otros usuarios mediante enlace propio o código
   - Para cada jugador **sin referidor**, su mitad de `REFERIDOS` se acredita automáticamente a cuentas con `tipo_suscripcion = 'admin'` y se contabiliza en `referral_payouts.monto_admin`, expuesto en `/admin` (`AdminService.estadisticas`: `gananciaAdminReferidos`, `resumenReferidos`, `gananciaTotalConReferidosAdmin`).
 - **Aislamiento, seguridad e integridad:** `referral_payouts` tiene `UNIQUE (match_id, jugador_id)` para garantizar idempotencia; `DbAdminService` protege `referral_payouts` y los acumulados financieros de `referrals`; `ConexionDB` sincroniza códigos/configuración básica y limpia `referrals`/`referral_payouts` en los reinicios de la Zona de Pruebas.
 
+---
+
+## 26. Notificaciones y Centro Unificado de Movimientos Financieros (Prioridad 1)
+
+Centraliza el ciclo completo de vida, color visual, hora exacta y trazabilidad de origen de cada movimiento de dinero tanto para jugadores (`/finance`) como para administradores (`/admin`) y avisos en tiempo real (`Lobby.jsx`):
+
+- **Estados visuales uniformes (`estadoVisual`):**
+  - `pendiente` (**gris**): recargas y retiros en espera de confirmación, y partidas en estado `en_curso` o `disputa`.
+  - `positivo` (**verde**): recargas aprobadas (Nequi Manual / Wompi), victorias en partidas, devoluciones de retiros rechazados, premios de ranking/sorteos, abonos manuales y comisiones/devoluciones de referidos (`referral_payouts`).
+  - `negativo` (**rojo**): retiros enviados, recargas rechazadas y derrotas en partidas.
+- **Origen detallado y hora exacta:** Tanto los eventos en vivo (`NotificacionesListener` + `ResultadoPartidaListener`) como las consultas consolidadas incluyen el origen específico (`Nequi Manual`, `Wompi`, `Partida #id vs @rival`, `Comisión de referido por @jugador`, `Devolución de referido (@referidor)`, `Sobrante de ranking`, `Pozo de sorteos` o `Abono manual administrativo`) y marca temporal ISO (`fecha` / `creada_en`) formateada con fecha y hora en frontend.
+- **Eventos e invalidación en tiempo real:** `Eventos.java` incorpora `TRANSACCION_PENDIENTE_CREADA` (emitido desde `FinanzasService` al crear solicitudes manuales o Wompi y desde `WalletService` al solicitar retiros) y `TRANSACCION_PROCESADA` (al aprobar/rechazar en `WalletService` o webhook/sincronización Wompi). `NotificacionesListener` limpia avisos previos `tx-pendiente:*`, `admin-tx-pendiente:*`, `match-curso:*` y `admin-match-curso:*` mediante `NotificacionesService.eliminarPorEvento` y emite el evento Socket.IO `movimiento_actualizado` (`useAppStore.movimientoRevision`) para refrescar automáticamente `/finance` y `/admin`.
+- **APIs de historial unificado:**
+  - `GET /api/finance/movements` (`RutasFinanzas` -> `FinanzasService.obtenerMovimientos`): agrega transacciones, partidas, `referral_payouts` (referidor e invitado) y movimientos de `wallet_ledger` sin duplicados, con contadores de resumen y filtros.
+  - `GET /api/admin/movements` (`RutasAdmin` -> `AdminService.obtenerMovimientosAdmin`): consolida transacciones de usuarios (con botones inline de aprobar/rechazar), partidas con utilidad neta del 25% (`GANANCIA`) y desglose de comisión, `referral_payouts` (incluyendo créditos al admin cuando el jugador no tiene referidor), `leaderboard_cut_payments`, `raffle_pool_movements` y créditos manuales.
+

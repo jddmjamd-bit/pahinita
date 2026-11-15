@@ -205,17 +205,23 @@ public final class NotificacionesService {
         return filas > 0;
     }
 
-    /** Elimina el aviso efímero de una búsqueda cuando se empareja, se cancela o vence. */
+    /** Elimina el aviso efímero de una búsqueda o movimiento pendiente cuando se resuelve, cancela o vence. */
     public void eliminarPorEvento(String eventoClave) {
         if (eventoClave == null || eventoClave.isBlank()) return;
+        String patron = escaparLike(eventoClave) + ":%";
         ArrayList<JsonObject> usuarios = db.query(
-                "SELECT DISTINCT user_id FROM user_notifications WHERE evento_clave LIKE ? " +
-                        "AND descartada_en IS NULL", escaparLike(eventoClave) + ":%");
-        db.update("DELETE FROM user_notifications WHERE evento_clave LIKE ?", escaparLike(eventoClave) + ":%");
+                "SELECT DISTINCT user_id, evento_clave FROM user_notifications " +
+                        "WHERE (evento_clave = ? OR evento_clave LIKE ?) AND descartada_en IS NULL",
+                eventoClave, patron);
+        db.update("DELETE FROM user_notifications WHERE evento_clave = ? OR evento_clave LIKE ?",
+                eventoClave, patron);
         for (JsonObject fila : usuarios) {
             int userId = fila.get("user_id").getAsInt();
+            String claveExacta = fila.has("evento_clave") && !fila.get("evento_clave").isJsonNull()
+                    ? fila.get("evento_clave").getAsString()
+                    : eventoClave + ":" + userId;
             JsonObject datos = new JsonObject();
-            datos.addProperty("eventoClave", eventoClave + ":" + userId);
+            datos.addProperty("eventoClave", claveExacta);
             emitirAUsuario(userId, "notificacion_eliminada", datos);
             if (!estaEnLinea(userId) && push != null) {
                 push.enviarControlPush(db, userId, etiquetaPush(eventoClave));

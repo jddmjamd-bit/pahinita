@@ -1,12 +1,42 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
 import { API_BASE_URL } from '../store/llamarApi';
+import { DEMO_MOVIMIENTOS_FINANZAS } from '../data/vistaPreviaDemo';
 import './Finance.css';
 
+const FILTROS_MOVIMIENTOS = [
+    { id: 'todos', label: 'Todos' },
+    { id: 'pendiente', label: '⏳ Pendientes / En curso' },
+    { id: 'positivo', label: '🟢 Ingresos' },
+    { id: 'negativo', label: '🔴 Salidas' },
+    { id: 'referido', label: '🤝 Referidos' },
+    { id: 'partida', label: '⚔️ Partidas' },
+    { id: 'recargas_retiros', label: '💳 Recargas y Retiros' }
+];
+
+const formatearCop = (monto) => `$${Number(monto || 0).toLocaleString('es-CO')}`;
+
+const formatearFechaHora = (fechaIso) => {
+    if (!fechaIso) return '—';
+    const d = new Date(fechaIso);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString('es-CO', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+};
+
 export default function Finance() {
-    const [activeTab, setActiveTab] = useState('deposit'); // 'deposit' or 'withdraw'
+    const [activeTab, setActiveTab] = useState('deposit'); // 'deposit' | 'withdraw' | 'movements'
     const [depositMethod, setDepositMethod] = useState('manual'); // 'manual' or 'auto'
+    const [filtroMovimiento, setFiltroMovimiento] = useState('todos');
+    const [movimientosData, setMovimientosData] = useState({ movimientos: [], resumen: null });
+    const [cargandoMovimientos, setCargandoMovimientos] = useState(false);
     
     // Deposit states
     const [manualAmount, setManualAmount] = useState('');
@@ -21,12 +51,35 @@ export default function Finance() {
     const [withdrawName, setWithdrawName] = useState('');
 
     const currentUser = useAppStore(state => state.user);
+    const movimientoRevision = useAppStore(state => state.movimientoRevision);
     const solicitarAutenticacionVistaPrevia = useAppStore(state => state.solicitarAutenticacionVistaPrevia);
     const setUser = useAppStore(state => state.setUser);
     const sincronizarSesion = useAppStore(state => state.sincronizarSesion);
     const socket = useAppStore(state => state.socket);
     const location = useLocation();
     const navigate = useNavigate();
+
+    const cargarMovimientos = useCallback(async () => {
+        if (!currentUser) {
+            setMovimientosData(DEMO_MOVIMIENTOS_FINANZAS);
+            return;
+        }
+        setCargandoMovimientos(true);
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/finance/movements`, { credentials: 'include' });
+            if (res.ok) {
+                const data = await res.json();
+                setMovimientosData({
+                    movimientos: Array.isArray(data?.movimientos) ? data.movimientos : [],
+                    resumen: data?.resumen || null
+                });
+            }
+        } catch (error) {
+            console.error('No se pudieron cargar los movimientos financieros', error);
+        } finally {
+            setCargandoMovimientos(false);
+        }
+    }, [currentUser]);
 
     const cargarWompiPendientes = async () => {
         if (!currentUser) return setWompiPendientes([]);
@@ -46,11 +99,24 @@ export default function Finance() {
     }, [currentUser?.id]);
 
     useEffect(() => {
+        void cargarMovimientos();
+    }, [cargarMovimientos, movimientoRevision, currentUser?.saldo]);
+
+    useEffect(() => {
         if (!socket) return undefined;
-        const actualizarPago = () => cargarWompiPendientes();
-        socket.on('wompi_pago_actualizado', actualizarPago);
-        return () => socket.off('wompi_pago_actualizado', actualizarPago);
-    }, [socket, currentUser?.id]);
+        const actualizarTodo = () => {
+            void cargarWompiPendientes();
+            void cargarMovimientos();
+        };
+        socket.on('wompi_pago_actualizado', actualizarTodo);
+        socket.on('zona_cambiada', actualizarTodo);
+        socket.on('zona_pruebas_reiniciada', actualizarTodo);
+        return () => {
+            socket.off('wompi_pago_actualizado', actualizarTodo);
+            socket.off('zona_cambiada', actualizarTodo);
+            socket.off('zona_pruebas_reiniciada', actualizarTodo);
+        };
+    }, [socket, currentUser?.id, cargarMovimientos]);
 
     const actualizarEstadoVerificacion = async () => {
         const resultado = await sincronizarSesion();
@@ -121,6 +187,7 @@ export default function Finance() {
             alert(d.message);
             setManualAmount('');
             setManualRef('');
+            void cargarMovimientos();
         } catch (e) {
             console.error(e);
             alert("Error procesando solicitud.");
@@ -242,19 +309,54 @@ export default function Finance() {
         }
     };
 
+    const movimientos = useMemo(
+        () => (Array.isArray(movimientosData?.movimientos) ? movimientosData.movimientos : []),
+        [movimientosData]
+    );
+    const resumenMovimientos = movimientosData?.resumen || {
+        pendientesCount: 0,
+        enCursoCount: 0,
+        totalIngresos: 0,
+        totalEgresos: 0,
+        totalReferidos: 0,
+        totalPremios: 0
+    };
+    const pendientesActivosCount = Number(resumenMovimientos.pendientesCount || 0)
+        + Number(resumenMovimientos.enCursoCount || 0);
+
+    const movimientosFiltrados = useMemo(() => {
+        if (filtroMovimiento === 'todos') return movimientos;
+        if (filtroMovimiento === 'pendiente' || filtroMovimiento === 'positivo' || filtroMovimiento === 'negativo') {
+            return movimientos.filter(m => m.estadoVisual === filtroMovimiento);
+        }
+        if (filtroMovimiento === 'recargas_retiros') {
+            return movimientos.filter(m => m.categoriaMovimiento === 'recarga' || m.categoriaMovimiento === 'retiro');
+        }
+        return movimientos.filter(m => m.categoriaMovimiento === filtroMovimiento);
+    }, [movimientos, filtroMovimiento]);
+
     return (
         <div className="finance-container center-screen">
             <h2>💰 Finanzas</h2>
 
             <div className="finance-main-tabs">
-                <button 
+                <button
                     className={`tab-btn ${activeTab === 'deposit' ? 'active' : ''}`}
                     onClick={() => setActiveTab('deposit')}
                 >Recargar</button>
-                <button 
+                <button
                     className={`tab-btn ${activeTab === 'withdraw' ? 'active' : ''}`}
                     onClick={() => setActiveTab('withdraw')}
                 >Retirar</button>
+                <button
+                    className={`tab-btn ${activeTab === 'movements' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('movements')}
+                >
+                    📋 Movimientos
+                    {pendientesActivosCount > 0 && (
+                        <span className="finance-tab-badge">{pendientesActivosCount}</span>
+                    )}
+                </button>
             </div>
 
             {activeTab === 'deposit' && (
@@ -348,6 +450,84 @@ export default function Finance() {
                                 value={withdrawName} onChange={e => setWithdrawName(e.target.value)} />
                             <button className="finance-action-btn withdraw-btn" onClick={handleWithdraw}>Solicitar Retiro</button>
                         </>
+                    )}
+                </div>
+            )}
+
+            {activeTab === 'movements' && (
+                <div className="movimientos-section">
+                    <div className="movimientos-header-bar">
+                        <h3>📋 Historial y movimientos en vivo</h3>
+                        <button type="button" className="movimientos-refresh-btn" onClick={cargarMovimientos} disabled={cargandoMovimientos}>
+                            {cargandoMovimientos ? 'Actualizando…' : '🔄 Actualizar'}
+                        </button>
+                    </div>
+
+                    <div className="movimientos-resumen-grid">
+                        <div className="mov-resumen-card">
+                            <span className="mov-resumen-label">Pendientes / En curso</span>
+                            <strong className="mov-resumen-valor is-pendiente">{pendientesActivosCount}</strong>
+                        </div>
+                        <div className="mov-resumen-card">
+                            <span className="mov-resumen-label">Ingresos acreditados</span>
+                            <strong className="mov-resumen-valor is-positivo">{formatearCop(resumenMovimientos.totalIngresos)}</strong>
+                        </div>
+                        <div className="mov-resumen-card">
+                            <span className="mov-resumen-label">Por referidos</span>
+                            <strong className="mov-resumen-valor is-positivo">{formatearCop(resumenMovimientos.totalReferidos)}</strong>
+                        </div>
+                        <div className="mov-resumen-card">
+                            <span className="mov-resumen-label">Premios ganados</span>
+                            <strong className="mov-resumen-valor is-positivo">{formatearCop(resumenMovimientos.totalPremios)}</strong>
+                        </div>
+                    </div>
+
+                    <div className="movimientos-filtros" role="tablist" aria-label="Filtrar movimientos">
+                        {FILTROS_MOVIMIENTOS.map(f => (
+                            <button
+                                key={f.id}
+                                type="button"
+                                className={`mov-filtro-btn ${filtroMovimiento === f.id ? 'active' : ''}`}
+                                onClick={() => setFiltroMovimiento(f.id)}
+                            >
+                                {f.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {cargandoMovimientos && movimientos.length === 0 ? (
+                        <div className="movimientos-empty">Cargando movimientos…</div>
+                    ) : movimientosFiltrados.length === 0 ? (
+                        <div className="movimientos-empty">
+                            No hay movimientos en esta categoría todavía.
+                        </div>
+                    ) : (
+                        <div className="movimientos-list">
+                            {movimientosFiltrados.map(m => {
+                                const estadoVisual = m.estadoVisual || 'pendiente';
+                                const signo = m.signo || '';
+                                return (
+                                    <article key={m.id} className={`movimiento-card is-${estadoVisual}`}>
+                                        <div className="movimiento-top">
+                                            <div className="movimiento-title-wrap">
+                                                <span className="movimiento-title">{m.titulo}</span>
+                                                <span className={`movimiento-estado is-${estadoVisual}`}>
+                                                    {m.estadoTexto || 'Pendiente'}
+                                                </span>
+                                            </div>
+                                            <span className={`movimiento-monto is-${estadoVisual}`}>
+                                                {signo}{formatearCop(m.monto)}
+                                            </span>
+                                        </div>
+                                        <div className="movimiento-meta">
+                                            <span className="movimiento-origen">📌 Origen: {m.origen || 'Sistema'}</span>
+                                            <span className="movimiento-fecha">🕒 {formatearFechaHora(m.fecha)}</span>
+                                        </div>
+                                        {m.detalle && <p className="movimiento-detalle">{m.detalle}</p>}
+                                    </article>
+                                );
+                            })}
+                        </div>
                     )}
                 </div>
             )}

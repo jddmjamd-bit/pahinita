@@ -519,3 +519,192 @@
         grid-template-columns: 1fr;
     }
 }
+
+.admin-mov-resumen-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.admin-mov-stat {
+    background: var(--bg-base);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.admin-mov-stat span {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.admin-mov-stat strong {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: var(--text-primary);
+}
+
+.admin-mov-stat strong.is-pendiente { color: #94a3b8; }
+.admin-mov-stat strong.is-positivo { color: var(--accent-success); }
+.admin-mov-stat strong.is-negativo { color: var(--accent-danger); }
+
+.admin-mov-filtros {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.admin-mov-filtro-btn {
+    width: auto;
+    margin: 0;
+    padding: 7px 12px;
+    border-radius: var(--radius-full);
+    background: var(--bg-base);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    font-weight: 600;
+    box-shadow: none;
+}
+
+.admin-mov-filtro-btn.active {
+    background: rgba(124, 58, 237, 0.16);
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
+}
+
+.admin-movimientos-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.admin-mov-card {
+    background: var(--bg-base);
+    border: 1px solid var(--border-color);
+    border-left: 4px solid #94a3b8;
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.admin-mov-card.is-pendiente {
+    border-left-color: #94a3b8;
+    background: linear-gradient(135deg, rgba(148, 163, 184, 0.09), var(--bg-base));
+}
+
+.admin-mov-card.is-positivo {
+    border-left-color: var(--accent-success);
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.09), var(--bg-base));
+}
+
+.admin-mov-card.is-negativo {
+    border-left-color: var(--accent-danger);
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.09), var(--bg-base));
+}
+
+.admin-mov-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.admin-mov-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.admin-mov-title {
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.admin-mov-badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: var(--radius-full);
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.admin-mov-badge.is-pendiente {
+    background: rgba(148, 163, 184, 0.22);
+    color: #cbd5e1;
+}
+
+.admin-mov-badge.is-positivo {
+    background: rgba(16, 185, 129, 0.2);
+    color: #34d399;
+}
+
+.admin-mov-badge.is-negativo {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+}
+
+.admin-mov-monto {
+    font-size: 1.08rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.admin-mov-monto.is-pendiente { color: #94a3b8; }
+.admin-mov-monto.is-positivo { color: var(--accent-success); }
+.admin-mov-monto.is-negativo { color: var(--accent-danger); }
+
+.admin-mov-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+
+.admin-mov-origen {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.admin-mov-fecha {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.admin-mov-detalle {
+    margin: 0;
+    font-size: 0.83rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.admin-mov-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.admin-mov-actions button {
+    width: auto;
+    padding: 6px 14px;
+    font-size: 0.82rem;
+}

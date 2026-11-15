@@ -455,6 +455,7 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | P6 | Dark mode | Toggle funcional, tema persistido en localStorage. |
 | P14 | Modo Vista Previa desde `/auth` | Al entrar sin sesión siempre redirige a `/auth`; al oprimir `👀 Ver vista previa de la página` se recorre el lobby (`/chat`, `/match`, `/sorteos`, `/leaderboard`, `/chatbot`, `/soporte`, `/finance`, `/referidos`, `/faq`) con datos de ejemplo sin conectar sockets ni APIs privadas, mostrando el modal de inicio de sesión ante cualquier acción interactiva y bloqueando `/admin`. |
 | P15 | Sistema de referidos en frontend (`/auth?ref=` y `/referidos`) | Entrar por `/auth?ref=CODIGO` abre automáticamente el formulario de registro con el código prellenado y opcional; `/referidos` permite copiar link solo o con mensaje corto editable, configurar comisión compartida (`0%`–`100%`) general o por referido y ver estadísticas/pagos usando `llamarApi` y `DEMO_REFERIDOS` en vista previa. |
+| P16 | Notificaciones en vivo e historial de movimientos (`/finance` y `/admin`) | Cada notificación de movimiento y tarjeta de `📋 Movimientos` muestra estado **gris** (`Pendiente` / `En curso`), **verde** (`+$` ingreso) o **rojo** (`-$` salida/rechazo), hora exacta y origen detallado (Nequi Manual, Wompi, Partida vs rival, Referidos, Rankings o Abonos), actualizándose en vivo con `movimiento_actualizado`. |
 
 ### 🔗 R — Sistema de Referidos (Prioridad 6.5)
 
@@ -466,6 +467,17 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | R4 | Liquidar partida de jugador referido (`REFERIDOS` 10% ÷ 2 por jugador) | Se acredita `(base - floor(base * % / 100))` al referidor y el resto al jugador referido, registrando `wallet_ledger` y `referral_payouts` de forma idempotente. |
 | R5 | Liquidar partida de jugador **sin referidor** | La mitad de `REFERIDOS` de ese jugador se acredita automáticamente a cuentas `admin` (`wallet_ledger` + `referral_payouts.monto_admin`), reflejándose en `gananciaAdminReferidos` de `/admin`. |
 | R6 | `ReferidosServiceTest` (3 pruebas) y `RenderAcceptanceCheck.sistemaReferidos...` | `ReferidosServiceTest` valida reparto exacto con `BigDecimal` y centavos impares; `RenderAcceptanceCheck` cubre registro, reparto y admin sin referidor contra BD de pruebas. |
+
+### 💸 S — Notificaciones y Movimientos de Dinero (Prioridad 1)
+
+| # | Prueba | Resultado esperado |
+|---|--------|-------------------|
+| S1 | Crear recarga (Nequi Manual o Wompi) o solicitar retiro | Emite `TRANSACCION_PENDIENTE_CREADA`, muestra notificación **gris** al usuario y al admin, y aparece en `📋 Movimientos` como `Pendiente` con hora y método de origen. |
+| S2 | Aprobar recarga o retiro desde `/admin` (o webhook Wompi) | Se elimina la notificación gris pendiente, llega notificación **verde** (recarga) o **roja** (retiro enviado), se emite `movimiento_actualizado` y el historial se actualiza automáticamente. |
+| S3 | Rechazar recarga o retiro desde `/admin` | Recarga rechazada pasa a **rojo** (`Rechazada`); retiro rechazado pasa a **verde** (`Rechazado · Devuelto`) indicando la devolución al saldo disponible. |
+| S4 | Iniciar y finalizar partida | Al iniciar aparece en **gris** (`En curso`, con `@rival` para jugador y `@j1 vs @j2` para admin); al terminar pasa a **verde** para ganador y admin (utilidad 25% `GANANCIA`) o **rojo** para perdedor. |
+| S5 | Liquidar partida con referido y sin referidor | En `📋 Movimientos` del usuario aparece el ingreso en **verde** indicando `Comisión de referido por @invitado` o `Devolución de referido (@referidor)`; en `/admin` aparece además el ingreso sin referidor acreditado al admin. |
+| S6 | `MovimientosFinanzasAdminTest` (3 pruebas) | Verifica `FinanzasService.obtenerMovimientos` (14 escenarios sin duplicados), `AdminService.obtenerMovimientosAdmin` (8 fuentes y métricas) y `NotificacionesListener` (gris→verde/rojo, limpieza de pendientes, referidos y `movimiento_actualizado`). |
 
 ### 📋 Q — Flyway Migrations
 

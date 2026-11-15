@@ -51,6 +51,7 @@ export const useAppStore = create((set, get) => ({
     user: null,
     sessionReady: false,
     authRevision: 0,
+    movimientoRevision: 0,
     // Modo Vista Previa (solo en memoria): permite explorar la interfaz con datos de ejemplo sin sesión ni socket.
     modoVistaPrevia: false,
     avisoAccionVistaPrevia: null,
@@ -530,6 +531,10 @@ export const useAppStore = create((set, get) => ({
                 const nuevoSaldo = data.nuevoSaldo !== undefined ? data.nuevoSaldo : data;
                 get().setUser({ ...currentUser, saldo: nuevoSaldo });
             }
+        });
+
+        newSocket.on('movimiento_actualizado', () => {
+            set(state => ({ movimientoRevision: state.movimientoRevision + 1 }));
         });
 
         newSocket.on('actualizar_saldo', (nuevoSaldo) => {

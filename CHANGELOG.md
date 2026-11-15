@@ -11,6 +11,27 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-14 — Prioridad 1: Notificaciones en tiempo real e historial unificado de movimientos (Usuario y Admin)
+- Eventos y tiempo real en backend:
+  - `Eventos.java`: incorporados `TRANSACCION_PENDIENTE_CREADA` (`TransaccionPendiente`) y `TRANSACCION_PROCESADA` (`TransaccionProcesada`).
+  - `FinanzasService.java` y `WalletService.java`: emiten `TRANSACCION_PENDIENTE_CREADA` al crear recargas manuales/Wompi y solicitar retiros, y `TRANSACCION_PROCESADA` al aprobar/rechazar en admin o confirmar/rechazar pagos Wompi (retirando avisos duplicados), además de enriquecer los motivos de comisiones de referidos con `@jugador` y `@referidor`.
+  - `NotificacionesService.java`, `NotificacionesListener.java`, `NotificadorUsuarios.java` y `ResultadoPartidaListener.java`: cada notificación de movimiento incluye `estadoVisual` (`pendiente` gris, `positivo` verde, `negativo` rojo), signo/monto y `origen` detallado, elimina automáticamente avisos pendientes al resolverse (`tx-pendiente:*`, `admin-tx-pendiente:*`, `match-curso:*`, `admin-match-curso:*`), evita tarjetas duplicadas de saldo genéricas y emite `movimiento_actualizado` por Socket.IO a usuarios afectados y administradores.
+- Endpoints consolidados de historial:
+  - `GET /api/finance/movements` (`RutasFinanzas.java` -> `FinanzasService.obtenerMovimientos`): reúne recargas, retiros, partidas (`en_curso`/`disputa`/`finalizada`/`cancelada`), comisiones/devoluciones de referidos (`referral_payouts`), premios de ranking, sorteos y abonos manuales sin duplicados, con fecha/hora exacta, origen y resumen.
+  - `GET /api/admin/movements` (`RutasAdmin.java` -> `AdminService.obtenerMovimientosAdmin`): consolida transacciones de usuarios (con aprobación/rechazo inline), partidas (mostrando utilidad neta 25% `GANANCIA` y desglose completo), pagos de referidos (incluyendo abonos al admin sin referidor), `leaderboard_cut_payments`, `raffle_pool_movements` y créditos manuales.
+- Frontend (`useAppStore.js`, `Lobby.jsx`/`.css`, `Finance.jsx`/`.css`, `Admin.jsx`/`.css`, `vistaPreviaDemo.js`, `faq.js`) y `ChatbotService.java`:
+  - `useAppStore.js`: suscrito a `movimiento_actualizado` (`movimientoRevision`).
+  - `Lobby.jsx` / `Lobby.css`: estiliza notificaciones en vivo en gris (`is-mov-pendiente`), verde (`is-mov-positivo`) o rojo (`is-mov-negativo`), mostrando hora exacta y línea de origen (`Origen: ...`), e integra puntos de aviso para finanzas y admin.
+  - `Finance.jsx` y `Admin.jsx`: incorporan la pestaña `📋 Movimientos` con tarjetas de resumen, filtros por estado/origen, fecha+hora exactas, trazabilidad del origen, actualización en tiempo real y soporte en Modo Vista Previa (`DEMO_MOVIMIENTOS_FINANZAS`), además de respuesta informativa en FAQ y Chatbot.
+- Documentación y pruebas:
+  - `MovimientosFinanzasAdminTest.java`: 3 pruebas unitarias cubriendo `FinanzasService.obtenerMovimientos`, `AdminService.obtenerMovimientosAdmin` y `NotificacionesListener`.
+  - Actualizados `analisis_y_roadmap.md` (Prioridad 1 `[IMPLEMENTADO]`), `ARCHITECTURE.md` (sección 26) y `GUIA_PRUEBAS_Y_VARIABLES.md` (`P16` y sección `S`).
+  - **Verificación:**
+    - `.\mvnw.cmd clean verify`: compilación de 76 fuentes principales y 20 de prueba (`BUILD SUCCESS`, `80/80` pruebas Surefire aprobadas).
+    - En `frontend/`: `npm run lint` (`0` errores, `57` advertencias), `npm run build` exitoso, `npm run test:acceptance` (`15/15` contratos P2–P16) y `npm run test:visual` (`3/3` pruebas headless en PC `1280×800` y celular `390×844` con `waitForServer` a 30s).
+Archivos: `src/main/java/com/torneosflash/Main.java`, `src/main/java/com/torneosflash/eventos/Eventos.java`, `src/main/java/com/torneosflash/servicio/AdminService.java`, `src/main/java/com/torneosflash/servicio/ChatbotService.java`, `src/main/java/com/torneosflash/servicio/FinanzasService.java`, `src/main/java/com/torneosflash/servicio/NotificacionesListener.java`, `src/main/java/com/torneosflash/servicio/NotificacionesService.java`, `src/main/java/com/torneosflash/servicio/NotificadorUsuarios.java`, `src/main/java/com/torneosflash/servicio/ResultadoPartidaListener.java`, `src/main/java/com/torneosflash/servicio/WalletService.java`, `src/main/java/com/torneosflash/servidor/RutasAdmin.java`, `src/main/java/com/torneosflash/servidor/RutasFinanzas.java`, `src/test/java/com/torneosflash/servicio/MovimientosFinanzasAdminTest.java`, `frontend/src/store/useAppStore.js`, `frontend/src/pages/Lobby.jsx`, `frontend/src/pages/Lobby.css`, `frontend/src/pages/Finance.jsx`, `frontend/src/pages/Finance.css`, `frontend/src/pages/Admin.jsx`, `frontend/src/pages/Admin.css`, `frontend/src/data/vistaPreviaDemo.js`, `frontend/src/data/faq.js`, `frontend/scripts/acceptance.test.js`, `frontend/scripts/visual.test.js`, `analisis_y_roadmap.md`, `ARCHITECTURE.md`, `GUIA_PRUEBAS_Y_VARIABLES.md`, `CHANGELOG.md`
+
+---
 ## 2026-11-14 — Sincronización y pruebas del sistema de referidos en Zona de Pruebas (`🧪`)
 - Sincronización bidireccional de vínculos de referidos en `ConexionDB.java`:
   - `sincronizarUsuariosPruebaYAdmin()` y `sincronizarUsuarioConPruebas(int userId)` ahora también replican a la base aislada (`TEST_DATABASE_URL`) la cadena de referidores (`users.referido_por_id`) y las filas de la tabla `referrals` asociadas a cuentas `prueba`/`admin` (conservando intactos en la copia temporal sus saldos de prueba, configuración de `%` compartido y métricas acumuladas propias de la Zona de Pruebas).

@@ -242,6 +242,18 @@ export const PREGUNTAS = [
             'Siempre deben ser pesos enteros, sin decimales.'
         ]
     },
+    {
+        id: 'historial-movimientos-colores',
+        categoria: 'dinero',
+        pregunta: '¿Dónde veo todos mis movimientos de saldo, partidas y comisiones de referidos?',
+        respuesta: [
+            'En Finanzas → pestaña «Movimientos» y en las notificaciones en vivo ves cada operación con su fecha, hora exacta y origen del dinero (Nequi Manual, Wompi, Partida con rival, Referidos o Rankings).',
+            'Color gris: recargas o retiros en estado Pendiente y partidas En curso o En disputa.',
+            'Color verde: recargas aprobadas, victorias en partidas, devoluciones de retiros rechazados y comisiones o devoluciones de referidos.',
+            'Color rojo: retiros enviados, recargas rechazadas y derrotas en partidas.'
+        ],
+        enlace: { texto: 'Ver movimientos en Finanzas', to: '/finance' }
+    },
 
     // ───────────────────────── Partidas ─────────────────────────
     {

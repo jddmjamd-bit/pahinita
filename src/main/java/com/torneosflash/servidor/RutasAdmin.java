@@ -30,6 +30,9 @@ public class RutasAdmin {
         // GET /api/admin/stats
         app.get("/api/admin/stats", ctx -> ctx.json(admin.estadisticas(Peticion.userIdDeSesion(ctx))));
 
+        // GET /api/admin/movements
+        app.get("/api/admin/movements", ctx -> ctx.json(admin.obtenerMovimientosAdmin(Peticion.userIdDeSesion(ctx))));
+
         // GET /api/admin/test-zone (estado de la zona de pruebas, resumen de tablas y lista de suscripciones)
         app.get("/api/admin/test-zone", ctx -> ctx.json(admin.estadoZonaPruebas(Peticion.userIdDeSesion(ctx))));
 

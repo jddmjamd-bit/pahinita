@@ -88,6 +88,12 @@ public class RutasFinanzas {
             ctx.json(finanzas.sincronizarPagoWompi(userId, Peticion.texto(body, "transactionId")));
         });
 
+        app.get("/api/finance/movements", ctx -> {
+            int userId = Peticion.userIdDeSesion(ctx);
+            if (userId <= 0) throw ServicioException.noAutenticado("Inicia sesi\u00f3n");
+            ctx.json(finanzas.obtenerMovimientos(userId));
+        });
+
         // POST /api/wompi/webhook (lo llama Wompi: verifica firma SHA-256 S7; respuesta en texto plano)
         app.post("/api/wompi/webhook", ctx -> {
             try {

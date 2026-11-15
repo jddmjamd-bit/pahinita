@@ -892,17 +892,21 @@ public class WalletService {
             String motivo = "Retiro " + (metodo != null ? metodo : "nequi_retiro");
             insertarLedger(conn, userId, TIPO_RETIRO, monto, saldoAnterior, nuevoSaldo, motivo);
 
+            int transId;
             try (PreparedStatement ps = conn.prepareStatement(
                     "INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado) " +
-                    "VALUES (?, ?, 'retiro', ?, ?, ?, 'pendiente')")) {
+                    "VALUES (?, ?, 'retiro', ?, ?, ?, 'pendiente') RETURNING id")) {
                 ps.setInt(1, userId);
                 ps.setString(2, username);
                 ps.setString(3, metodo);
                 ps.setBigDecimal(4, monto);
                 ps.setString(5, referencia);
-                if (ps.executeUpdate() == 0) {
-                    conn.rollback();
-                    return WalletResult.fail("No se pudo registrar la solicitud de retiro");
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        return WalletResult.fail("No se pudo registrar la solicitud de retiro");
+                    }
+                    transId = rs.getInt(1);
                 }
             }
 
@@ -911,6 +915,9 @@ public class WalletService {
                     userId, monto, metodo, nuevoSaldo);
             emitirEvento(Eventos.WALLET_WITHDRAWN, new Eventos.MovimientoWallet(
                     Eventos.TipoMovimiento.RETIRO, userId, monto, nuevoSaldo, motivo));
+            emitirEvento(Eventos.TRANSACCION_PENDIENTE_CREADA, new Eventos.TransaccionPendiente(
+                    transId, userId, username, "retiro",
+                    metodo != null ? metodo : "nequi_retiro", monto, referencia));
             return WalletResult.ok(nuevoSaldo);
 
         } catch (SQLException e) {
@@ -938,13 +945,15 @@ public class WalletService {
             conn.setAutoCommit(false);
 
             int userId;
+            String usuarioNombre;
             String tipo;
             String metodo;
             BigDecimal monto;
+            String referencia;
             String estadoActual;
 
             try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT usuario_id, tipo, metodo, monto, estado FROM transactions WHERE id = ? FOR UPDATE")) {
+                    "SELECT usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado FROM transactions WHERE id = ? FOR UPDATE")) {
                 ps.setInt(1, transId);
                 try (ResultSet rs = ps.executeQuery()) {
                     if (!rs.next()) {
@@ -952,9 +961,11 @@ public class WalletService {
                         throw ServicioException.respuestaConError("No existe");
                     }
                     userId = rs.getInt("usuario_id");
+                    usuarioNombre = rs.getString("usuario_nombre");
                     tipo = rs.getString("tipo");
                     metodo = rs.getString("metodo");
                     monto = rs.getBigDecimal("monto");
+                    referencia = rs.getString("referencia");
                     estadoActual = rs.getString("estado");
                 }
             }
@@ -1035,6 +1046,8 @@ public class WalletService {
                 emitirEvento(Eventos.WALLET_DEPOSITED, new Eventos.MovimientoWallet(
                         tipoEvento, userId, monto, nuevoSaldo, motivoLedger));
             }
+            emitirEvento(Eventos.TRANSACCION_PROCESADA, new Eventos.TransaccionProcesada(
+                    transId, userId, usuarioNombre, tipo, metodo, monto, nuevoEstado, referencia));
             return new ResultadoTransaccionAdmin(userId, tipo, aprobar, monto, nuevoSaldo);
 
         } catch (ServicioException e) {
@@ -1067,12 +1080,13 @@ public class WalletService {
 
             int transaccionId;
             int userId;
+            String usuarioNombre;
             BigDecimal monto;
             String estado;
             String externalIdExistente;
 
             try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT id, usuario_id, monto, estado, external_id FROM transactions " +
+                    "SELECT id, usuario_id, usuario_nombre, monto, estado, external_id FROM transactions " +
                     "WHERE referencia = ? AND tipo = 'deposito' AND metodo = 'wompi' FOR UPDATE")) {
                 ps.setString(1, reference);
                 try (ResultSet rs = ps.executeQuery()) {
@@ -1082,6 +1096,7 @@ public class WalletService {
                     }
                     transaccionId = rs.getInt("id");
                     userId = rs.getInt("usuario_id");
+                    usuarioNombre = rs.getString("usuario_nombre");
                     monto = rs.getBigDecimal("monto");
                     estado = rs.getString("estado");
                     externalIdExistente = rs.getString("external_id");
@@ -1174,6 +1189,8 @@ public class WalletService {
                     userId, monto, reference, nuevoSaldo);
             emitirEvento(Eventos.WALLET_DEPOSITED, new Eventos.MovimientoWallet(
                     Eventos.TipoMovimiento.DEPOSITO, userId, monto, nuevoSaldo, motivo));
+            emitirEvento(Eventos.TRANSACCION_PROCESADA, new Eventos.TransaccionProcesada(
+                    transaccionId, userId, usuarioNombre, "deposito", "wompi", monto, "completado", reference));
             return WalletResult.ok(nuevoSaldo);
 
         } catch (ServicioException e) {
@@ -1279,10 +1296,12 @@ public class WalletService {
             conn.setAutoCommit(false);
             int transaccionId;
             int userId;
+            String usuarioNombre;
+            BigDecimal monto;
             String estado;
             String externalId;
             try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT id, usuario_id, estado, external_id FROM transactions " +
+                    "SELECT id, usuario_id, usuario_nombre, monto, estado, external_id FROM transactions " +
                             "WHERE referencia = ? AND tipo = 'deposito' AND metodo = 'wompi' FOR UPDATE")) {
                 ps.setString(1, reference);
                 try (ResultSet rs = ps.executeQuery()) {
@@ -1292,6 +1311,8 @@ public class WalletService {
                     }
                     transaccionId = rs.getInt("id");
                     userId = rs.getInt("usuario_id");
+                    usuarioNombre = rs.getString("usuario_nombre");
+                    monto = rs.getBigDecimal("monto");
                     estado = rs.getString("estado");
                     externalId = rs.getString("external_id");
                     if (rs.next()) {
@@ -1333,6 +1354,8 @@ public class WalletService {
                 }
             }
             conn.commit();
+            emitirEvento(Eventos.TRANSACCION_PROCESADA, new Eventos.TransaccionProcesada(
+                    transaccionId, userId, usuarioNombre, "deposito", "wompi", monto, "rechazado", reference));
             return userId;
         } catch (ServicioException e) {
             rollbackSilencioso(conn);
@@ -1657,11 +1680,25 @@ public class WalletService {
                 continue;
             }
 
+            String jugadorUsername = null;
+            try (PreparedStatement ps = conn.prepareStatement("SELECT username FROM users WHERE id = ?")) {
+                ps.setInt(1, jugadorId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        jugadorUsername = rs.getString("username");
+                    }
+                }
+            }
+            String tagJugador = (jugadorUsername != null && !jugadorUsername.isBlank())
+                    ? "@" + jugadorUsername
+                    : "usuario#" + jugadorId;
+
             Integer referralId = null;
             Integer referrerUserId = null;
+            String referrerUsername = null;
             BigDecimal porcentajeCompartido = BigDecimal.ZERO;
             try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT r.id, r.referrer_user_id, r.porcentaje_compartido " +
+                    "SELECT r.id, r.referrer_user_id, r.porcentaje_compartido, u.username AS referrer_username " +
                     "FROM referrals r " +
                     "JOIN users u ON u.id = r.referrer_user_id " +
                     "WHERE r.referred_user_id = ? FOR UPDATE OF r")) {
@@ -1672,6 +1709,7 @@ public class WalletService {
                         if (refId > 0 && refId != jugadorId) {
                             referralId = rs.getInt("id");
                             referrerUserId = refId;
+                            referrerUsername = rs.getString("referrer_username");
                             BigDecimal pct = rs.getBigDecimal("porcentaje_compartido");
                             porcentajeCompartido = pct != null ? pct : BigDecimal.ZERO;
                         }
@@ -1681,8 +1719,11 @@ public class WalletService {
 
             if (referralId != null && referrerUserId != null) {
                 RepartoReferido reparto = calcularRepartoReferido(partePorJugador, porcentajeCompartido);
+                String tagReferidor = (referrerUsername != null && !referrerUsername.isBlank())
+                        ? "@" + referrerUsername
+                        : "usuario#" + referrerUserId;
                 if (reparto.montoReferidor().compareTo(BigDecimal.ZERO) > 0) {
-                    String motivoRef = "Comisión de referido " + detalleMatch;
+                    String motivoRef = "Comisión de referido por " + tagJugador + " " + detalleMatch;
                     BigDecimal nuevoSaldoRef = acreditarSaldoEnTransaccion(conn, referrerUserId,
                             reparto.montoReferidor(), motivoRef);
                     if (nuevoSaldoRef != null) {
@@ -1691,7 +1732,7 @@ public class WalletService {
                     }
                 }
                 if (reparto.montoDevueltoReferido().compareTo(BigDecimal.ZERO) > 0) {
-                    String motivoDev = "Devolución comisión referido " + detalleMatch;
+                    String motivoDev = "Devolución comisión referida de " + tagReferidor + " " + detalleMatch;
                     BigDecimal nuevoSaldoJug = acreditarSaldoEnTransaccion(conn, jugadorId,
                             reparto.montoDevueltoReferido(), motivoDev);
                     if (nuevoSaldoJug != null) {
@@ -1729,7 +1770,7 @@ public class WalletService {
                     int nAdmins = adminIds.size();
                     BigDecimal porAdmin = partePorJugador.divide(BigDecimal.valueOf(nAdmins), 2, RoundingMode.FLOOR);
                     BigDecimal residuo = partePorJugador.subtract(porAdmin.multiply(BigDecimal.valueOf(nAdmins)));
-                    String motivoAdmin = "Comisión referidos (sin referidor) " + detalleMatch;
+                    String motivoAdmin = "Comisión referidos (sin referidor: " + tagJugador + ") " + detalleMatch;
                     for (int i = 0; i < nAdmins; i++) {
                         int adminUserId = adminIds.get(i);
                         BigDecimal cuota = (i == 0) ? porAdmin.add(residuo) : porAdmin;

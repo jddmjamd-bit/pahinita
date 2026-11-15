@@ -49,7 +49,7 @@ function getFreePort() {
     });
 }
 
-async function waitForServer(url, timeoutMs = 15000) {
+async function waitForServer(url, timeoutMs = 30000) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
         try {

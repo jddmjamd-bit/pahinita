@@ -72,6 +72,10 @@ public class ResultadoPartidaListener {
                 resultData.addProperty("esGanador", esGanador);
                 resultData.addProperty("mensaje", mensaje);
                 // Mantiene la vista de resultado en vivo; el centro persiste el aviso y envía push solo offline.
+                resultData.addProperty("estadoVisual", esGanador ? "positivo" : "negativo");
+                resultData.addProperty("signo", esGanador ? "+" : "-");
+                resultData.addProperty("monto", esGanador ? premio : partida.monto());
+                resultData.addProperty("origen", "Partida #" + partida.matchId() + (esGanador ? " (Victoria)" : " · Ganó @" + partida.ganadorNombre()));
                 notificador.emitirA(jugadorId, "resultado_api", resultData);
                 notificador.notificar(jugadorId, "partida",
                         esGanador ? "Ganaste la partida" : "Resultado de la partida",

@@ -58,10 +58,9 @@ public class NotificadorUsuarios {
             logger.debug("Usuario {} sin socket conectado; solo se envía push", userId);
         }
 
-        if (notificaciones != null) {
-            notificar(userId, "finanzas", "Movimiento de saldo", mensaje, "/finance", null,
-                    notifData, true);
-        } else if (push != null) {
+        // Cuando el centro persistente está activo, NotificacionesListener genera la notificación rica
+        // con estadoVisual (gris/verde/rojo) y origen exacto para evitar duplicados sin origen.
+        if (notificaciones == null && push != null) {
             // Compatibilidad con llamadas antiguas y pruebas que crean el notificador sin el centro nuevo.
             push.enviarPush(db, userId, "Torneos Flash", mensaje);
         }

@@ -5,6 +5,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.torneosflash.config.AppConfig;
 import com.torneosflash.dao.GenericDAO;
+import com.torneosflash.eventos.EventBus;
+import com.torneosflash.eventos.Eventos;
 import com.torneosflash.servicio.WalletService.WalletResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,9 +23,15 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.text.NumberFormat;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
@@ -52,21 +60,30 @@ public class FinanzasService {
     private final ValidadorMonto validador;
     private final NotificadorUsuarios notificador;
     private final CorreoServicio correo;
+    private final EventBus eventos;
+    private final ComisionService comisionService = new ComisionService();
 
     public FinanzasService(GenericDAO db, AppConfig config, WalletService wallet,
                            ValidadorMonto validador, NotificadorUsuarios notificador) {
-        this(db, config, wallet, validador, notificador, null);
+        this(db, config, wallet, validador, notificador, null, null);
     }
 
     public FinanzasService(GenericDAO db, AppConfig config, WalletService wallet,
                            ValidadorMonto validador, NotificadorUsuarios notificador,
                            CorreoServicio correo) {
+        this(db, config, wallet, validador, notificador, correo, null);
+    }
+
+    public FinanzasService(GenericDAO db, AppConfig config, WalletService wallet,
+                           ValidadorMonto validador, NotificadorUsuarios notificador,
+                           CorreoServicio correo, EventBus eventos) {
         this.db = db;
         this.config = config;
         this.wallet = wallet;
         this.validador = validador;
         this.notificador = notificador;
         this.correo = correo;
+        this.eventos = eventos;
     }
 
     /** Depósito manual (acredita saldo de inmediato). */
@@ -108,10 +125,16 @@ public class FinanzasService {
         }
         String username = usernameDeUsuario(userId);
 
-        int rows = db.update("INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia) " +
-                "VALUES (?, ?, 'deposito', ?, ?, ?)", userId, username, metodoLimpio, monto, refLimpia);
-        if (rows == 0) {
+        int txId = db.insertReturningId(
+                "INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia) " +
+                "VALUES (?, ?, 'deposito', ?, ?, ?) RETURNING id",
+                userId, username, metodoLimpio, monto, refLimpia);
+        if (txId <= 0) {
             throw ServicioException.interno("No se pudo registrar la solicitud de recarga", null);
+        }
+        if (eventos != null) {
+            eventos.emit(Eventos.TRANSACCION_PENDIENTE_CREADA, new Eventos.TransaccionPendiente(
+                    txId, userId, username, "deposito", metodoLimpio, monto, refLimpia));
         }
         if (correo != null) {
             correo.notificarAdmin("Nueva solicitud de depósito",
@@ -220,7 +243,8 @@ public class FinanzasService {
         String sql = "INSERT INTO transactions (usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado) " +
                 "VALUES (?, ?, 'deposito', 'wompi', ?, ?, 'pendiente') " +
                 "ON CONFLICT (referencia) " +
-                "WHERE tipo = 'deposito' AND metodo = 'wompi' AND referencia IS NOT NULL DO NOTHING";
+                "WHERE tipo = 'deposito' AND metodo = 'wompi' AND referencia IS NOT NULL DO NOTHING " +
+                "RETURNING id";
 
         try (Connection conn = db.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
             for (int intento = 1; intento <= INTENTOS_REFERENCIA_WOMPI; intento++) {
@@ -231,8 +255,15 @@ public class FinanzasService {
                 ps.setBigDecimal(3, monto);
                 ps.setString(4, reference);
 
-                if (ps.executeUpdate() == 1) {
-                    return reference;
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        int txId = rs.getInt(1);
+                        if (eventos != null) {
+                            eventos.emit(Eventos.TRANSACCION_PENDIENTE_CREADA, new Eventos.TransaccionPendiente(
+                                    txId, userId, username, "deposito", "wompi", monto, reference));
+                        }
+                        return reference;
+                    }
                 }
                 logger.warn("Colisión de referencia Wompi; se reintentará (intento {}/{})",
                         intento, INTENTOS_REFERENCIA_WOMPI);
@@ -334,12 +365,7 @@ public class FinanzasService {
         // Los pagos rechazados o anulados dejan de ser solicitudes pendientes y nunca pasan por el flujo admin.
         int usuarioId = wallet.rechazarDepositoWompi(reference, transactionId);
         if (usuarioId > 0) {
-            JsonObject evento = eventoWompi(reference, status);
-            notificador.emitirA(usuarioId, "wompi_pago_actualizado", evento);
-            notificador.notificar(usuarioId, "finanzas", "Pago Wompi no aprobado",
-                    "El pago fue " + status.toLowerCase(Locale.ROOT) +
-                            ". Puedes iniciar otro pago desde Finanzas.", "/finance",
-                    "wompi-rechazado:" + reference, evento, true);
+            notificador.emitirA(usuarioId, "wompi_pago_actualizado", eventoWompi(reference, status));
         }
     }
 
@@ -399,12 +425,7 @@ public class FinanzasService {
             } else if ("DECLINED".equals(status) || "ERROR".equals(status) || "VOIDED".equals(status)) {
                 int afectado = wallet.rechazarDepositoWompi(reference, id);
                 if (afectado > 0) {
-                    JsonObject evento = eventoWompi(reference, status);
-                    notificador.emitirA(userId, "wompi_pago_actualizado", evento);
-                    notificador.notificar(userId, "finanzas", "Pago Wompi no aprobado",
-                            "El pago fue " + status.toLowerCase(Locale.ROOT) +
-                                    ". Puedes iniciar otro pago desde Finanzas.", "/finance",
-                            "wompi-rechazado:" + reference, evento, true);
+                    notificador.emitirA(userId, "wompi_pago_actualizado", eventoWompi(reference, status));
                 }
             }
         }
@@ -625,6 +646,421 @@ public class FinanzasService {
         }
         return r.getMonto();
     }
+
+    /**
+     * Historial unificado de movimientos financieros del usuario: recargas, retiros, partidas,
+     * comisiones de referidos, devoluciones, premios de ranking y abonos manuales,
+     * con estado visual (gris/verde/rojo), fecha+hora y origen exacto.
+     */
+    public JsonObject obtenerMovimientos(int userId) {
+        String username = usernameDeUsuario(userId);
+        List<MovimientoOrdenado> lista = new ArrayList<>();
+
+        int pendientesCount = 0;
+        int enCursoCount = 0;
+        BigDecimal totalIngresos = BigDecimal.ZERO;
+        BigDecimal totalEgresos = BigDecimal.ZERO;
+        BigDecimal totalReferidos = BigDecimal.ZERO;
+        BigDecimal totalPremios = BigDecimal.ZERO;
+
+        // A. Transacciones (recargas y retiros)
+        List<JsonObject> txs = db.query(
+                "SELECT id, tipo, metodo, monto, referencia, estado, fecha " +
+                "FROM transactions WHERE usuario_id = ? ORDER BY fecha DESC, id DESC LIMIT 120",
+                userId);
+        for (JsonObject tx : txs) {
+            int id = enteroJson(tx, "id");
+            String tipo = texto(tx, "tipo");
+            String metodo = texto(tx, "metodo");
+            String referencia = texto(tx, "referencia");
+            String estado = texto(tx, "estado");
+            String fecha = texto(tx, "fecha");
+            BigDecimal monto = montoJson(tx, "monto");
+
+            JsonObject item = new JsonObject();
+            item.addProperty("id", "tx-" + id);
+            item.addProperty("transaccionId", id);
+            item.addProperty("tipoTransaccion", tipo);
+            item.addProperty("metodo", metodo);
+            item.addProperty("referencia", referencia);
+            item.addProperty("estado", estado);
+            item.addProperty("fecha", fecha);
+            item.addProperty("monto", monto);
+
+            String metodoLegible = metodoLegible(metodo, tipo);
+            if ("deposito".equalsIgnoreCase(tipo)) {
+                item.addProperty("categoriaMovimiento", "recarga");
+                item.addProperty("tipo", "recarga");
+                item.addProperty("origen", metodoLegible);
+                if ("pendiente".equalsIgnoreCase(estado)) {
+                    item.addProperty("estadoVisual", "pendiente");
+                    item.addProperty("estadoTexto", "Pendiente");
+                    item.addProperty("signo", "");
+                    item.addProperty("titulo", "Recarga en revisión");
+                    pendientesCount++;
+                } else if ("completado".equalsIgnoreCase(estado)) {
+                    item.addProperty("estadoVisual", "positivo");
+                    item.addProperty("estadoTexto", "Aprobado");
+                    item.addProperty("signo", "+");
+                    item.addProperty("titulo", "Recarga aprobada");
+                    totalIngresos = totalIngresos.add(monto);
+                } else {
+                    item.addProperty("estadoVisual", "negativo");
+                    item.addProperty("estadoTexto", "Rechazado");
+                    item.addProperty("signo", "");
+                    item.addProperty("titulo", "Recarga rechazada");
+                }
+            } else {
+                item.addProperty("categoriaMovimiento", "retiro");
+                item.addProperty("tipo", "retiro");
+                if ("pendiente".equalsIgnoreCase(estado)) {
+                    item.addProperty("estadoVisual", "pendiente");
+                    item.addProperty("estadoTexto", "Pendiente");
+                    item.addProperty("signo", "-");
+                    item.addProperty("titulo", "Retiro en revisión");
+                    item.addProperty("origen", metodoLegible);
+                    pendientesCount++;
+                } else if ("completado".equalsIgnoreCase(estado)) {
+                    item.addProperty("estadoVisual", "negativo");
+                    item.addProperty("estadoTexto", "Enviado");
+                    item.addProperty("signo", "-");
+                    item.addProperty("titulo", "Retiro enviado");
+                    item.addProperty("origen", metodoLegible);
+                    totalEgresos = totalEgresos.add(monto);
+                } else {
+                    item.addProperty("estadoVisual", "positivo");
+                    item.addProperty("estadoTexto", "Rechazado (saldo devuelto)");
+                    item.addProperty("signo", "+");
+                    item.addProperty("titulo", "Retiro rechazado (reembolso)");
+                    item.addProperty("origen", "Devolución de retiro (" + metodoLegible + ")");
+                }
+            }
+            item.addProperty("detalle", !referencia.isBlank() ? "Ref: " + referencia : "");
+            lista.add(new MovimientoOrdenado(parsearFecha(fecha), id, item));
+        }
+
+        // B. Partidas (en curso, disputa y finalizadas)
+        List<JsonObject> matches = db.query(
+                "SELECT id, sala_id, jugador1, jugador2, modo, monto, ganador, estado, fecha " +
+                "FROM matches WHERE jugador1 = ? OR jugador2 = ? ORDER BY fecha DESC, id DESC LIMIT 120",
+                username, username);
+        for (JsonObject m : matches) {
+            int matchId = enteroJson(m, "id");
+            String j1 = texto(m, "jugador1");
+            String j2 = texto(m, "jugador2");
+            String modo = texto(m, "modo");
+            String ganador = texto(m, "ganador");
+            String estado = texto(m, "estado");
+            String fecha = texto(m, "fecha");
+            BigDecimal montoEntrada = montoJson(m, "monto");
+            String rival = username.equalsIgnoreCase(j1) ? j2 : j1;
+
+            JsonObject item = new JsonObject();
+            item.addProperty("id", "match-" + matchId);
+            item.addProperty("matchId", matchId);
+            item.addProperty("categoriaMovimiento", "partida");
+            item.addProperty("tipo", "partida");
+            item.addProperty("estado", estado);
+            item.addProperty("rival", rival);
+            item.addProperty("modo", modo);
+            item.addProperty("fecha", fecha);
+            item.addProperty("origen", "Partida #" + matchId + " vs @" + rival + (!modo.isBlank() ? " (" + modo + ")" : ""));
+
+            if ("en_curso".equalsIgnoreCase(estado)) {
+                item.addProperty("estadoVisual", "pendiente");
+                item.addProperty("estadoTexto", "En curso");
+                item.addProperty("signo", "-");
+                item.addProperty("monto", montoEntrada);
+                item.addProperty("titulo", "Partida #" + matchId + " vs @" + rival);
+                item.addProperty("detalle", "Entrada de $" + formatoCop(montoEntrada) + " en juego");
+                enCursoCount++;
+            } else if ("disputa".equalsIgnoreCase(estado)) {
+                item.addProperty("estadoVisual", "pendiente");
+                item.addProperty("estadoTexto", "En disputa");
+                item.addProperty("signo", "-");
+                item.addProperty("monto", montoEntrada);
+                item.addProperty("titulo", "Partida #" + matchId + " vs @" + rival + " (En disputa)");
+                item.addProperty("detalle", "Pendiente de resolución administrativa");
+                enCursoCount++;
+            } else if ("Cancelada".equalsIgnoreCase(ganador)) {
+                item.addProperty("estadoVisual", "pendiente");
+                item.addProperty("estadoTexto", "Cancelada (reembolso)");
+                item.addProperty("signo", "+");
+                item.addProperty("monto", montoEntrada);
+                item.addProperty("titulo", "Partida #" + matchId + " cancelada");
+                item.addProperty("detalle", "Entrada de $" + formatoCop(montoEntrada) + " devuelta a tu billetera");
+            } else if (username.equalsIgnoreCase(ganador)) {
+                ComisionService.Desglose d = comisionService.calcular(montoEntrada);
+                BigDecimal premio = d.getPremio();
+                BigDecimal neto = premio.subtract(montoEntrada);
+                item.addProperty("estadoVisual", "positivo");
+                item.addProperty("estadoTexto", "Victoria");
+                item.addProperty("signo", "+");
+                item.addProperty("monto", premio);
+                item.addProperty("montoSecundario", neto);
+                item.addProperty("titulo", "Victoria en Partida #" + matchId + " vs @" + rival);
+                item.addProperty("detalle", "Premio total $" + formatoCop(premio) + " (neto +$"
+                        + formatoCop(neto) + " sobre entrada $" + formatoCop(montoEntrada) + ")");
+                totalIngresos = totalIngresos.add(premio);
+                totalPremios = totalPremios.add(premio);
+            } else {
+                item.addProperty("estadoVisual", "negativo");
+                item.addProperty("estadoTexto", "Derrota");
+                item.addProperty("signo", "-");
+                item.addProperty("monto", montoEntrada);
+                item.addProperty("titulo", "Derrota en Partida #" + matchId + " vs @" + rival);
+                item.addProperty("detalle", !ganador.isBlank() ? "Ganador: @" + ganador : "Partida finalizada");
+                totalEgresos = totalEgresos.add(montoEntrada);
+            }
+            lista.add(new MovimientoOrdenado(parsearFecha(fecha), matchId, item));
+        }
+
+        // C1. Comisiones ganadas como referidor
+        List<JsonObject> pagosReferidor = db.query(
+                "SELECT rp.id, rp.match_id, rp.monto_referidor, rp.porcentaje_compartido, rp.creado_en, " +
+                "u.username AS invitado_username " +
+                "FROM referral_payouts rp " +
+                "JOIN users u ON u.id = rp.jugador_id " +
+                "WHERE rp.referrer_user_id = ? AND rp.monto_referidor > 0 " +
+                "ORDER BY rp.creado_en DESC, rp.id DESC LIMIT 120",
+                userId);
+        for (JsonObject rp : pagosReferidor) {
+            int rpId = enteroJson(rp, "id");
+            int matchId = enteroJson(rp, "match_id");
+            BigDecimal monto = montoJson(rp, "monto_referidor");
+            BigDecimal pct = montoJson(rp, "porcentaje_compartido");
+            String invitado = texto(rp, "invitado_username");
+            String fecha = texto(rp, "creado_en");
+            String tagInvitado = !invitado.isBlank() ? "@" + invitado : "invitado";
+
+            JsonObject item = new JsonObject();
+            item.addProperty("id", "ref-gan-" + rpId);
+            item.addProperty("categoriaMovimiento", "referido");
+            item.addProperty("tipo", "referido_comision");
+            item.addProperty("estadoVisual", "positivo");
+            item.addProperty("estadoTexto", "Acreditado");
+            item.addProperty("signo", "+");
+            item.addProperty("monto", monto);
+            item.addProperty("titulo", "Comisión de referido");
+            item.addProperty("origen", "Referidos · Invitado " + tagInvitado
+                    + (matchId > 0 ? " (Partida #" + matchId + ")" : ""));
+            item.addProperty("detalle", pct.compareTo(BigDecimal.ZERO) > 0
+                    ? "Compartiendo " + pct.stripTrailingZeros().toPlainString() + "% con " + tagInvitado
+                    : "Comisión completa de referido (100%)");
+            item.addProperty("fecha", fecha);
+            totalIngresos = totalIngresos.add(monto);
+            totalReferidos = totalReferidos.add(monto);
+            lista.add(new MovimientoOrdenado(parsearFecha(fecha), rpId, item));
+        }
+
+        // C2. Devoluciones por comisión compartida como referido
+        List<JsonObject> pagosDevueltos = db.query(
+                "SELECT rp.id, rp.match_id, rp.monto_devuelto_referido, rp.porcentaje_compartido, rp.creado_en, " +
+                "u.username AS referidor_username " +
+                "FROM referral_payouts rp " +
+                "LEFT JOIN users u ON u.id = rp.referrer_user_id " +
+                "WHERE rp.jugador_id = ? AND rp.monto_devuelto_referido > 0 " +
+                "ORDER BY rp.creado_en DESC, rp.id DESC LIMIT 120",
+                userId);
+        for (JsonObject rp : pagosDevueltos) {
+            int rpId = enteroJson(rp, "id");
+            int matchId = enteroJson(rp, "match_id");
+            BigDecimal monto = montoJson(rp, "monto_devuelto_referido");
+            BigDecimal pct = montoJson(rp, "porcentaje_compartido");
+            String referidor = texto(rp, "referidor_username");
+            String fecha = texto(rp, "creado_en");
+            String tagRef = !referidor.isBlank() ? "@" + referidor : "tu referidor";
+
+            JsonObject item = new JsonObject();
+            item.addProperty("id", "ref-dev-" + rpId);
+            item.addProperty("categoriaMovimiento", "referido");
+            item.addProperty("tipo", "referido_devolucion");
+            item.addProperty("estadoVisual", "positivo");
+            item.addProperty("estadoTexto", "Acreditado");
+            item.addProperty("signo", "+");
+            item.addProperty("monto", monto);
+            item.addProperty("titulo", "Devolución por comisión compartida");
+            item.addProperty("origen", "Referidos · Compartido por " + tagRef
+                    + (matchId > 0 ? " (Partida #" + matchId + ")" : ""));
+            item.addProperty("detalle", "Reembolso automático de "
+                    + pct.stripTrailingZeros().toPlainString() + "% compartido por tu referidor");
+            item.addProperty("fecha", fecha);
+            totalIngresos = totalIngresos.add(monto);
+            totalReferidos = totalReferidos.add(monto);
+            lista.add(new MovimientoOrdenado(parsearFecha(fecha), rpId, item));
+        }
+
+        // D. Premios y sobrantes de leaderboard
+        List<JsonObject> lbPagos = db.query(
+                "SELECT lcp.id, lcp.tipo_pago, lcp.posicion, lcp.monto, lcp.estado, lcp.creado_en, lcp.pagado_en, " +
+                "lc.periodo, lc.clave_corte " +
+                "FROM leaderboard_cut_payments lcp " +
+                "JOIN leaderboard_cuts lc ON lc.id = lcp.corte_id " +
+                "WHERE lcp.user_id = ? " +
+                "ORDER BY COALESCE(lcp.pagado_en, lcp.creado_en) DESC, lcp.id DESC LIMIT 100",
+                userId);
+        for (JsonObject lb : lbPagos) {
+            int lbId = enteroJson(lb, "id");
+            String tipoPago = texto(lb, "tipo_pago");
+            int posicion = enteroJson(lb, "posicion");
+            BigDecimal monto = montoJson(lb, "monto");
+            String estado = texto(lb, "estado");
+            String periodo = texto(lb, "periodo");
+            String claveCorte = texto(lb, "clave_corte");
+            String pagadoEn = texto(lb, "pagado_en");
+            String creadoEn = texto(lb, "creado_en");
+            String fecha = !pagadoEn.isBlank() ? pagadoEn : creadoEn;
+            boolean pagado = "pagado".equalsIgnoreCase(estado);
+
+            JsonObject item = new JsonObject();
+            item.addProperty("id", "lb-" + lbId);
+            item.addProperty("categoriaMovimiento", "ranking");
+            item.addProperty("tipo", "ranking");
+            item.addProperty("estadoVisual", pagado ? "positivo" : "pendiente");
+            item.addProperty("estadoTexto", pagado ? "Acreditado" : "Pendiente");
+            item.addProperty("signo", "+");
+            item.addProperty("monto", monto);
+            item.addProperty("titulo", "admin".equalsIgnoreCase(tipoPago)
+                    ? "Sobrante de Ranking (" + periodo + ")"
+                    : "Premio de Ranking #" + posicion + " (" + periodo + ")");
+            item.addProperty("origen", "Ranking " + periodo + (!claveCorte.isBlank() ? " · " + claveCorte : ""));
+            item.addProperty("detalle", "admin".equalsIgnoreCase(tipoPago)
+                    ? "Sobrante acreditado desde corte " + claveCorte
+                    : "Premio por puesto #" + posicion + " en corte " + claveCorte);
+            item.addProperty("fecha", fecha);
+            if (pagado) {
+                totalIngresos = totalIngresos.add(monto);
+                totalPremios = totalPremios.add(monto);
+            } else {
+                pendientesCount++;
+            }
+            lista.add(new MovimientoOrdenado(parsearFecha(fecha), lbId, item));
+        }
+
+        // E. Movimientos adicionales del ledger no duplicados en A-D (abonos manuales admin, referidos sin referidor, premios extra)
+        List<JsonObject> ledger = db.query(
+                "SELECT id, tipo, monto, referencia, fecha FROM wallet_ledger " +
+                "WHERE user_id = ? ORDER BY fecha DESC, id DESC LIMIT 120",
+                userId);
+        for (JsonObject lg : ledger) {
+            int lgId = enteroJson(lg, "id");
+            String tipo = texto(lg, "tipo");
+            BigDecimal monto = montoJson(lg, "monto");
+            String ref = texto(lg, "referencia");
+            String fecha = texto(lg, "fecha");
+            if (yaCubiertoEnFuentesPrincipales(tipo, ref)) {
+                continue;
+            }
+            boolean esRefAdmin = ref.startsWith("Comisión referidos (sin referidor");
+            boolean esManual = "deposito".equalsIgnoreCase(tipo);
+
+            JsonObject item = new JsonObject();
+            item.addProperty("id", "ledger-" + lgId);
+            item.addProperty("categoriaMovimiento", esRefAdmin ? "referido" : (esManual ? "recarga" : "sistema"));
+            item.addProperty("tipo", esRefAdmin ? "referido_admin" : tipo);
+            item.addProperty("estadoVisual", "positivo");
+            item.addProperty("estadoTexto", "Acreditado");
+            item.addProperty("signo", "+");
+            item.addProperty("monto", monto);
+            item.addProperty("titulo", esRefAdmin ? "Comisión referidos (sin referidor)"
+                    : (esManual ? "Recarga manual administrativa" : "Crédito en billetera"));
+            item.addProperty("origen", esRefAdmin ? ref
+                    : (esManual ? "Abono manual admin" : (!ref.isBlank() ? ref : "Sistema TorneosFlash")));
+            item.addProperty("detalle", ref);
+            item.addProperty("fecha", fecha);
+            totalIngresos = totalIngresos.add(monto);
+            if (esRefAdmin) {
+                totalReferidos = totalReferidos.add(monto);
+            }
+            lista.add(new MovimientoOrdenado(parsearFecha(fecha), lgId, item));
+        }
+
+        lista.sort(Comparator.comparing(MovimientoOrdenado::instante).reversed()
+                .thenComparing(Comparator.comparingLong(MovimientoOrdenado::tieId).reversed()));
+
+        JsonArray arr = new JsonArray();
+        for (MovimientoOrdenado m : lista) {
+            arr.add(m.datos());
+        }
+
+        JsonObject resumen = new JsonObject();
+        resumen.addProperty("pendientesCount", pendientesCount);
+        resumen.addProperty("enCursoCount", enCursoCount);
+        resumen.addProperty("totalIngresos", totalIngresos);
+        resumen.addProperty("totalEgresos", totalEgresos);
+        resumen.addProperty("totalReferidos", totalReferidos);
+        resumen.addProperty("totalPremios", totalPremios);
+        resumen.addProperty("totalMovimientos", arr.size());
+
+        JsonObject resp = new JsonObject();
+        resp.addProperty("success", true);
+        resp.add("movimientos", arr);
+        resp.add("resumen", resumen);
+        return resp;
+    }
+
+    private static boolean yaCubiertoEnFuentesPrincipales(String tipo, String ref) {
+        if ("retiro".equalsIgnoreCase(tipo)
+                || "torneo".equalsIgnoreCase(tipo)
+                || "liquidacion".equalsIgnoreCase(tipo)
+                || "comision".equalsIgnoreCase(tipo)) {
+            return true;
+        }
+        if ("reembolso".equalsIgnoreCase(tipo)) {
+            return ref.startsWith("Retiro rechazado")
+                    || ref.contains("Match #")
+                    || ref.toLowerCase(Locale.ROOT).contains("partida")
+                    || ref.toLowerCase(Locale.ROOT).contains("cancel");
+        }
+        if ("deposito".equalsIgnoreCase(tipo)) {
+            return ref.startsWith("Depósito aprobado por admin #")
+                    || ref.startsWith("Pago Wompi ref:");
+        }
+        if ("premio".equalsIgnoreCase(tipo)) {
+            return ref.startsWith("Comisión de referido")
+                    || ref.startsWith("Devolución comisión referid")
+                    || ref.startsWith("Premio leaderboard")
+                    || ref.startsWith("Leaderboard sobrantes");
+        }
+        return false;
+    }
+
+    private static String metodoLegible(String metodo, String tipo) {
+        if ("wompi".equalsIgnoreCase(metodo)) return "Wompi (Pasarela)";
+        if ("nequi_retiro".equalsIgnoreCase(metodo)) return "Retiro Nequi";
+        if ("nequi".equalsIgnoreCase(metodo)) return "Nequi Manual";
+        if (!metodo.isBlank()) return metodo;
+        return "retiro".equalsIgnoreCase(tipo) ? "Retiro manual" : "Recarga manual";
+    }
+
+    private static int enteroJson(JsonObject o, String k) {
+        if (o == null || !o.has(k) || o.get(k).isJsonNull()) return 0;
+        try { return o.get(k).getAsInt(); } catch (Exception e) { return 0; }
+    }
+
+    private static BigDecimal montoJson(JsonObject o, String k) {
+        if (o == null || !o.has(k) || o.get(k).isJsonNull()) return BigDecimal.ZERO;
+        try { return o.get(k).getAsBigDecimal(); } catch (Exception e) { return BigDecimal.ZERO; }
+    }
+
+    private static Instant parsearFecha(String fecha) {
+        if (fecha == null || fecha.isBlank()) return Instant.EPOCH;
+        try {
+            return Instant.parse(fecha.trim());
+        } catch (Exception e) {
+            return Instant.EPOCH;
+        }
+    }
+
+    private static String formatoCop(BigDecimal monto) {
+        if (monto == null) return "0";
+        NumberFormat nf = NumberFormat.getNumberInstance(Locale.forLanguageTag("es-CO"));
+        nf.setMaximumFractionDigits(2);
+        nf.setMinimumFractionDigits(0);
+        return nf.format(monto);
+    }
+
+    private record MovimientoOrdenado(Instant instante, long tieId, JsonObject datos) {}
 
     private static String sha256(String input) {
         try {

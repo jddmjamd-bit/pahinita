@@ -366,4 +366,37 @@ public final class Eventos {
     public static final String VOICE_DISCORD_OPENED = "voice.discord_opened";
 
     public record AperturaDiscordSala(int userId, String salaId) {}
+
+    /**
+     * Se registró una solicitud de recarga o retiro pendiente de aprobación o pago.
+     * Datos: {@link TransaccionPendiente}.
+     */
+    public static final String TRANSACCION_PENDIENTE_CREADA = "finance.transaction_pending";
+
+    public record TransaccionPendiente(
+            int transactionId,
+            int userId,
+            String username,
+            String tipo,
+            String metodo,
+            BigDecimal monto,
+            String referencia
+    ) {}
+
+    /**
+     * Una transacción financiera (recarga o retiro) fue aprobada, completada o rechazada.
+     * Datos: {@link TransaccionProcesada}.
+     */
+    public static final String TRANSACCION_PROCESADA = "finance.transaction_processed";
+
+    public record TransaccionProcesada(
+            int transactionId,
+            int userId,
+            String username,
+            String tipo,
+            String metodo,
+            BigDecimal monto,
+            String accion,
+            String referencia
+    ) {}
 }

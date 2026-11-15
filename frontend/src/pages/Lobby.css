@@ -172,6 +172,21 @@
     pointer-events: auto;
     animation: slideInUp var(--transition-normal);
 }
+.live-notification.is-mov-pendiente {
+    border-color: rgba(148, 163, 184, 0.45);
+    border-left: 4px solid #94a3b8;
+    background: linear-gradient(135deg, rgba(148, 163, 184, 0.14), var(--bg-surface-elevated));
+}
+.live-notification.is-mov-positivo {
+    border-color: rgba(16, 185, 129, 0.45);
+    border-left: 4px solid var(--accent-success);
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), var(--bg-surface-elevated));
+}
+.live-notification.is-mov-negativo {
+    border-color: rgba(239, 68, 68, 0.45);
+    border-left: 4px solid var(--accent-danger);
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), var(--bg-surface-elevated));
+}
 .live-notification-open {
     display: flex;
     flex-direction: column;
@@ -183,6 +198,26 @@
     background: transparent;
     border: 0;
     box-shadow: none;
+}
+.live-notification-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+}
+.live-notification-time {
+    color: var(--text-tertiary, var(--text-secondary));
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.live-notification-origin {
+    display: inline-block;
+    margin-top: 2px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    opacity: 0.92;
 }
 .live-notification-open:hover { transform: none; background: transparent; }
 .live-notification-open span { color: var(--text-secondary); font-size: 0.9rem; line-height: 1.35; }
