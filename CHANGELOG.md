@@ -11,6 +11,14 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-14 — Corrección de diseño vertical y lista desplazable en Movimientos (Usuario y Admin)
+- Corregida la disposición de `/finance` en `Finance.jsx` y `Finance.css`:
+  - Se retiró `.center-screen` de `.finance-container` (que al usar `display: flex` en fila centraba y colocaba en paralelo título, pestañas y tarjetas, recortando la lista cuando crecía) y se fijó `flex-direction: column` con ancho `max-width: 920px`.
+  - Estilizadas `.movimientos-list` (`Finance.css`) y `.admin-movimientos-list` (`Admin.css`) igual que `.admin-list.users-list` en Admin Finanzas (`background: var(--bg-surface)`, `border-radius: var(--radius-lg)`, `padding: 20px`, `border: 1px solid var(--border-color)` y `overflow-y: auto` con `max-height: 640px` / `680px`) y tarjetas internas con base `var(--bg-base)`.
+- **Verificación:** en `frontend/`, `npm run lint` (`0` errores, `57` advertencias), `npm run build`, `npm run test:acceptance` (`15/15`) y `npm run test:visual` (`3/3`).
+Archivos: `frontend/src/pages/Finance.jsx`, `frontend/src/pages/Finance.css`, `frontend/src/pages/Admin.css`, `CHANGELOG.md`
+
+---
 ## 2026-11-14 — Unificación del botón de Finanzas / Movimientos debajo del saldo
 - Simplificada la barra lateral de `Lobby.jsx` y `Lobby.css`:
   - Reemplazados los tres accesos redundantes (`+ Recargar`, `- Retirar` y el canal `💳 Finanzas / Movimientos`) por un único botón **`💰 Finanzas / Movimientos`** (`.mini-btn.finance-btn` con su estado `.active` y el indicador de notificaciones `{punto('finanzas')}`) justo debajo del saldo del usuario.

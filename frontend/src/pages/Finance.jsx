@@ -336,7 +336,7 @@ export default function Finance() {
     }, [movimientos, filtroMovimiento]);
 
     return (
-        <div className="finance-container center-screen">
+        <div className="finance-container">
             <h2>💰 Finanzas</h2>
 
             <div className="finance-main-tabs">

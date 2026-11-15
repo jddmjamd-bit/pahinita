@@ -1,8 +1,11 @@
 .finance-container {
-    padding: 40px 20px;
-    max-width: 780px;
+    display: flex;
+    flex-direction: column;
+    padding: 32px 20px 48px;
+    max-width: 920px;
     width: 100%;
     margin: 0 auto;
+    box-sizing: border-box;
     animation: fadeIn var(--transition-normal);
 }
 .finance-main-tabs {
@@ -238,13 +241,19 @@
 }
 
 .movimientos-list {
+    background: var(--bg-surface);
+    padding: 20px;
+    border-radius: var(--radius-lg);
+    max-height: 640px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
 }
 
 .movimiento-card {
-    background: var(--bg-surface);
+    background: var(--bg-base);
     border: 1px solid var(--border-color);
     border-left: 4px solid #94a3b8;
     border-radius: var(--radius-md);
@@ -256,17 +265,17 @@
 
 .movimiento-card.is-pendiente {
     border-left-color: #94a3b8;
-    background: linear-gradient(135deg, rgba(148, 163, 184, 0.08), var(--bg-surface));
+    background: linear-gradient(135deg, rgba(148, 163, 184, 0.08), var(--bg-base));
 }
 
 .movimiento-card.is-positivo {
     border-left-color: var(--accent-success);
-    background: linear-gradient(135deg, rgba(16, 185, 129, 0.09), var(--bg-surface));
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.09), var(--bg-base));
 }
 
 .movimiento-card.is-negativo {
     border-left-color: var(--accent-danger);
-    background: linear-gradient(135deg, rgba(239, 68, 68, 0.09), var(--bg-surface));
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.09), var(--bg-base));
 }
 
 .movimiento-top {
@@ -338,7 +347,7 @@
     gap: 5px;
     padding: 3px 10px;
     border-radius: var(--radius-sm);
-    background: var(--bg-base);
+    background: var(--bg-surface);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
     font-weight: 600;

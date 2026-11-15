@@ -579,9 +579,15 @@
 }
 
 .admin-movimientos-list {
+    background: var(--bg-surface);
+    padding: 20px;
+    border-radius: var(--radius-lg);
+    max-height: 680px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
 }
 
 .admin-mov-card {
