@@ -257,7 +257,7 @@ public class AdminService {
 
         // Lista de todos los usuarios con sus detalles
         ArrayList<JsonObject> usuarios = db.query(
-                "SELECT id, username, email, saldo, tipo_suscripcion, " +
+                "SELECT id, username, email, saldo, tipo_suscripcion, COALESCE(zona_admin, 'normal') AS zona_admin, " +
                 "COALESCE(ganancia_generada, 0) AS ganancia_generada, " +
                 "COALESCE(gen_sorteos, 0) AS gen_sorteos, COALESCE(gen_misiones, 0) AS gen_misiones, " +
                 "COALESCE(gen_logros, 0) AS gen_logros, COALESCE(gen_leaderboard, 0) AS gen_leaderboard, " +
@@ -307,11 +307,16 @@ public class AdminService {
      * (sin rankings, sorteos ni categorías inactivas del dueño). // REVIEW-MONEY
      */
     private JsonObject estadisticasModerador(int moderatorId) {
+        ConexionDB connDb = obtenerConexion();
+        boolean disponiblePruebas = connDb != null && connDb.tieneZonaPruebas();
+        if (ConexionDB.esZonaPrueba() && disponiblePruebas) {
+            connDb.sincronizarUsuariosPruebaYAdmin();
+        }
         JsonObject stats = new JsonObject();
         stats.addProperty("esModerador", true);
-        stats.addProperty("zonaActiva", ConexionDB.ZONA_NORMAL);
-        stats.addProperty("enZonaPruebas", false);
-        stats.addProperty("zonaPruebasDisponible", false);
+        stats.addProperty("zonaActiva", ConexionDB.zonaActual());
+        stats.addProperty("enZonaPruebas", ConexionDB.esZonaPrueba());
+        stats.addProperty("zonaPruebasDisponible", disponiblePruebas);
 
         JsonObject modInfo = db.queryOne(
                 "SELECT id, username, codigo_referido, COALESCE(referido_porcentaje_compartido, 0) AS pct " +
@@ -520,9 +525,10 @@ public class AdminService {
         if (connDb != null) {
             String tipoActual;
             String username;
+            boolean objetivoEsModerador;
             try (Connection connPrin = connDb.getConnectionPrincipal()) {
                 try (PreparedStatement sel = connPrin.prepareStatement(
-                        "SELECT username, tipo_suscripcion, sala_actual FROM users WHERE id = ?")) {
+                        "SELECT username, tipo_suscripcion, COALESCE(zona_admin, 'normal') AS zona_admin, sala_actual FROM users WHERE id = ?")) {
                     sel.setInt(1, targetUserId);
                     try (ResultSet rs = sel.executeQuery()) {
                         if (!rs.next()) {
@@ -530,20 +536,23 @@ public class AdminService {
                         }
                         username = rs.getString("username");
                         tipoActual = rs.getString("tipo_suscripcion");
+                        String zonaAdminActual = ConexionDB.normalizarZona(rs.getString("zona_admin"));
                         String salaPrincipal = rs.getString("sala_actual");
-                        if (ConexionDB.SUSCRIPCION_ADMIN.equalsIgnoreCase(tipoActual)
-                                || ConexionDB.SUSCRIPCION_MODERADOR.equalsIgnoreCase(tipoActual)) {
+                        if (ConexionDB.SUSCRIPCION_ADMIN.equalsIgnoreCase(tipoActual)) {
                             throw ServicioException.prohibido("No se puede modificar la suscripción de esta cuenta");
                         }
-                        if (salaPrincipal != null && !salaPrincipal.isBlank()
-                                && !ConexionDB.SUSCRIPCION_PRUEBA.equalsIgnoreCase(tipoActual)) {
+                        objetivoEsModerador = ConexionDB.SUSCRIPCION_MODERADOR.equalsIgnoreCase(tipoActual);
+                        boolean estabaEnPruebas = ConexionDB.SUSCRIPCION_PRUEBA.equalsIgnoreCase(tipoActual)
+                                || (objetivoEsModerador && ConexionDB.ZONA_PRUEBA.equalsIgnoreCase(zonaAdminActual));
+                        if (salaPrincipal != null && !salaPrincipal.isBlank() && !estabaEnPruebas) {
                             throw ServicioException.solicitudInvalida(
                                     "El usuario tiene una sala o partida activa en la zona normal; espera a que termine antes de pasarlo a prueba");
                         }
                     }
                 }
 
-                if (ConexionDB.SUSCRIPCION_PRUEBA.equalsIgnoreCase(tipoActual) && connDb.tieneZonaPruebas()) {
+                if (connDb.tieneZonaPruebas() && (ConexionDB.SUSCRIPCION_PRUEBA.equalsIgnoreCase(tipoActual)
+                        || objetivoEsModerador)) {
                     try (Connection connPrueba = connDb.getConnectionPruebas();
                          PreparedStatement psPrueba = connPrueba.prepareStatement(
                                  "SELECT sala_actual FROM users WHERE id = ?")) {
@@ -561,12 +570,25 @@ public class AdminService {
                     }
                 }
 
-                try (PreparedStatement upd = connPrin.prepareStatement(
-                        "UPDATE users SET tipo_suscripcion = ? WHERE id = ? AND tipo_suscripcion NOT IN ('admin', 'moderador')")) {
-                    upd.setString(1, nuevoTipo);
-                    upd.setInt(2, targetUserId);
-                    if (upd.executeUpdate() != 1) {
-                        throw ServicioException.solicitudInvalida("No se pudo actualizar la suscripción del usuario");
+                if (objetivoEsModerador) {
+                    String zonaDestinoMod = ConexionDB.SUSCRIPCION_PRUEBA.equals(nuevoTipo)
+                            ? ConexionDB.ZONA_PRUEBA : ConexionDB.ZONA_NORMAL;
+                    try (PreparedStatement upd = connPrin.prepareStatement(
+                            "UPDATE users SET zona_admin = ? WHERE id = ? AND LOWER(COALESCE(tipo_suscripcion, '')) = 'moderador'")) {
+                        upd.setString(1, zonaDestinoMod);
+                        upd.setInt(2, targetUserId);
+                        if (upd.executeUpdate() != 1) {
+                            throw ServicioException.solicitudInvalida("No se pudo actualizar la zona del usuario");
+                        }
+                    }
+                } else {
+                    try (PreparedStatement upd = connPrin.prepareStatement(
+                            "UPDATE users SET tipo_suscripcion = ? WHERE id = ? AND tipo_suscripcion NOT IN ('admin', 'moderador')")) {
+                        upd.setString(1, nuevoTipo);
+                        upd.setInt(2, targetUserId);
+                        if (upd.executeUpdate() != 1) {
+                            throw ServicioException.solicitudInvalida("No se pudo actualizar la suscripción del usuario");
+                        }
                     }
                 }
             } catch (ServicioException e) {
@@ -583,15 +605,17 @@ public class AdminService {
                 socketHandler.notificarCambioZonaUsuario(targetUserId, nuevaZona);
             }
 
+            String tipoResultado = objetivoEsModerador ? ConexionDB.SUSCRIPCION_MODERADOR : nuevoTipo;
             JsonObject res = new JsonObject();
             res.addProperty("success", true);
             res.addProperty("userId", targetUserId);
             res.addProperty("username", username);
-            res.addProperty("tipoSuscripcion", nuevoTipo);
+            res.addProperty("tipoSuscripcion", tipoResultado);
+            res.addProperty("zona_admin", nuevaZona);
             res.addProperty("zonaAsignada", nuevaZona);
             res.addProperty("message", ConexionDB.SUSCRIPCION_PRUEBA.equals(nuevoTipo)
-                    ? "Usuario " + username + " asignado a suscripción 'prueba' (entrará a la copia temporal)"
-                    : "Usuario " + username + " devuelto a suscripción 'free' (zona normal)");
+                    ? "Usuario " + username + " asignado a la copia temporal de pruebas"
+                    : "Usuario " + username + " devuelto a la zona normal");
             return res;
         }
 
@@ -602,21 +626,26 @@ public class AdminService {
         }
         String tipoActual = actual.has("tipo_suscripcion") && !actual.get("tipo_suscripcion").isJsonNull()
                 ? actual.get("tipo_suscripcion").getAsString() : "";
-        if (ConexionDB.SUSCRIPCION_ADMIN.equalsIgnoreCase(tipoActual)
-                || ConexionDB.SUSCRIPCION_MODERADOR.equalsIgnoreCase(tipoActual)) {
+        if (ConexionDB.SUSCRIPCION_ADMIN.equalsIgnoreCase(tipoActual)) {
             throw ServicioException.prohibido("No se puede modificar la suscripción de esta cuenta");
         }
-        int filas = db.update("UPDATE users SET tipo_suscripcion = ? WHERE id = ?", nuevoTipo, targetUserId);
+        boolean objetivoEsModerador = ConexionDB.SUSCRIPCION_MODERADOR.equalsIgnoreCase(tipoActual);
+        String nuevaZona = ConexionDB.SUSCRIPCION_PRUEBA.equals(nuevoTipo)
+                ? ConexionDB.ZONA_PRUEBA : ConexionDB.ZONA_NORMAL;
+        int filas = objetivoEsModerador
+                ? db.update("UPDATE users SET zona_admin = ? WHERE id = ?", nuevaZona, targetUserId)
+                : db.update("UPDATE users SET tipo_suscripcion = ? WHERE id = ?", nuevoTipo, targetUserId);
         if (filas != 1) {
             throw ServicioException.solicitudInvalida("No se pudo actualizar la suscripción del usuario");
         }
+        String tipoResultado = objetivoEsModerador ? ConexionDB.SUSCRIPCION_MODERADOR : nuevoTipo;
         JsonObject res = new JsonObject();
         res.addProperty("success", true);
         res.addProperty("userId", targetUserId);
-        res.addProperty("tipoSuscripcion", nuevoTipo);
-        res.addProperty("zonaAsignada", ConexionDB.SUSCRIPCION_PRUEBA.equals(nuevoTipo)
-                ? ConexionDB.ZONA_PRUEBA : ConexionDB.ZONA_NORMAL);
-        res.addProperty("message", "Suscripción actualizada a '" + nuevoTipo + "'");
+        res.addProperty("tipoSuscripcion", tipoResultado);
+        res.addProperty("zona_admin", nuevaZona);
+        res.addProperty("zonaAsignada", nuevaZona);
+        res.addProperty("message", "Suscripción actualizada a '" + tipoResultado + "'");
         return res;
     }
 
@@ -1278,6 +1307,10 @@ public class AdminService {
      * y comisiones de referidos acreditadas a su billetera. Sin ranking, sorteos ni inactivas.
      */
     private JsonObject obtenerMovimientosModerador(int moderatorId) {
+        ConexionDB connDb = obtenerConexion();
+        if (ConexionDB.esZonaPrueba() && connDb != null && connDb.tieneZonaPruebas()) {
+            connDb.sincronizarUsuariosPruebaYAdmin();
+        }
         List<MovimientoAdminOrdenado> lista = new ArrayList<>();
         AcumuladorTxMovimientos acumTx = new AcumuladorTxMovimientos();
         int partidasEnCursoCount = 0;
@@ -1434,6 +1467,8 @@ public class AdminService {
         JsonObject resp = new JsonObject();
         resp.addProperty("success", true);
         resp.addProperty("esModerador", true);
+        resp.addProperty("zonaActiva", ConexionDB.zonaActual());
+        resp.addProperty("enZonaPruebas", ConexionDB.esZonaPrueba());
         resp.add("movimientos", arr);
         resp.add("resumen", resumen);
         return resp;
@@ -1566,6 +1601,10 @@ public class AdminService {
         db.update(
                 "INSERT INTO moderator_nequis (moderator_id, numero, titular) VALUES (?, ?, ?)",
                 actorUserId, soloDigitos, titular);
+        ConexionDB connDb = obtenerConexion();
+        if (!ConexionDB.esZonaPrueba() && connDb != null && connDb.tieneZonaPruebas()) {
+            connDb.sincronizarNequisModeradorConPruebas(actorUserId);
+        }
         return listarNequisModerador(actorUserId);
     }
 
@@ -1582,6 +1621,10 @@ public class AdminService {
                 nequiId, actorUserId);
         if (borrados != 1) {
             throw ServicioException.noEncontrado("No se encontró ese número Nequi en tu cuenta");
+        }
+        ConexionDB connDb = obtenerConexion();
+        if (!ConexionDB.esZonaPrueba() && connDb != null && connDb.tieneZonaPruebas()) {
+            connDb.sincronizarNequisModeradorConPruebas(actorUserId);
         }
         return listarNequisModerador(actorUserId);
     }

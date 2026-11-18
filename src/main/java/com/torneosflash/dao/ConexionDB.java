@@ -856,7 +856,8 @@ public class ConexionDB {
         if (tieneZonaPruebas()) {
             if (SUSCRIPCION_PRUEBA.equalsIgnoreCase(tipo)) {
                 zonaActiva = ZONA_PRUEBA;
-            } else if (SUSCRIPCION_ADMIN.equalsIgnoreCase(tipo) && ZONA_PRUEBA.equalsIgnoreCase(zonaAdmin)) {
+            } else if ((SUSCRIPCION_ADMIN.equalsIgnoreCase(tipo) || SUSCRIPCION_MODERADOR.equalsIgnoreCase(tipo))
+                    && ZONA_PRUEBA.equalsIgnoreCase(zonaAdmin)) {
                 zonaActiva = ZONA_PRUEBA;
             }
         }
@@ -1364,7 +1365,9 @@ public class ConexionDB {
             return res;
         }
         try (Connection conn = getConnectionPruebas()) {
-            res.addProperty("usuarios", contarFilas(conn, "SELECT COUNT(*) FROM users WHERE tipo_suscripcion = 'prueba'"));
+            res.addProperty("usuarios", contarFilas(conn,
+                    "SELECT COUNT(*) FROM users WHERE LOWER(COALESCE(tipo_suscripcion, '')) = 'prueba' " +
+                    "OR (LOWER(COALESCE(tipo_suscripcion, '')) = 'moderador' AND LOWER(COALESCE(zona_admin, '')) = 'prueba')"));
             res.addProperty("usuariosTotalesCopia", contarFilas(conn, "SELECT COUNT(*) FROM users"));
             res.addProperty("partidas", contarFilas(conn, "SELECT COUNT(*) FROM matches"));
             res.addProperty("transacciones", contarFilas(conn, "SELECT COUNT(*) FROM transactions"));

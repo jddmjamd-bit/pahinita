@@ -1910,5 +1910,20 @@ class RenderAcceptanceCheck {
                 .get("success").getAsBoolean());
         assertEquals(1, evidencias.historial(modAId).size());
         assertEquals(0, evidencias.historial(modBId).size());
+
+        // El admin puede enviar un moderador a Zona de Pruebas y regresarlo a Normal conservando su rol
+        JsonObject modEnPrueba = admin.cambiarSuscripcionUsuario(adminId, modAId, "prueba");
+        assertEquals("moderador", modEnPrueba.get("tipoSuscripcion").getAsString());
+        assertEquals("prueba", modEnPrueba.get("zonaAsignada").getAsString());
+        assertEquals(ConexionDB.ZONA_PRUEBA, conexion.resolverZonaUsuario(modAId));
+        assertTrue(admin.esModerador(modAId));
+        assertEquals(403, assertThrows(ServicioException.class,
+                () -> admin.cambiarZonaAdmin(modAId, "normal")).getStatus());
+
+        JsonObject modEnNormal = admin.cambiarSuscripcionUsuario(adminId, modAId, "free");
+        assertEquals("moderador", modEnNormal.get("tipoSuscripcion").getAsString());
+        assertEquals("normal", modEnNormal.get("zonaAsignada").getAsString());
+        assertEquals(ConexionDB.ZONA_NORMAL, conexion.resolverZonaUsuario(modAId));
+        assertTrue(admin.esModerador(modAId));
     }
 }

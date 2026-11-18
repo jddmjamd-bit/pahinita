@@ -192,6 +192,8 @@ export default function Admin() {
                 if (esAdminReal) cargarDisputasAdmin();
             } else if (view === 'stats') {
                 cargarEstadisticasAdmin();
+            } else if (view === 'nequis' && esModerador) {
+                cargarNequisModerador();
             }
         };
         socket.on('zona_cambiada', refrescarZona);
@@ -480,11 +482,14 @@ export default function Admin() {
                 alert('Error: ' + (data?.error || 'No se pudo actualizar la suscripción'));
                 return;
             }
+            const tipoRes = data.tipoSuscripcion
+                || (usuario.tipo_suscripcion === 'moderador' ? 'moderador' : nuevaSuscripcion);
+            const zonaRes = data.zonaAsignada || (nuevaSuscripcion === 'prueba' ? 'prueba' : 'normal');
             setTestZoneData(prev => prev ? {
                 ...prev,
                 usuarios: Array.isArray(prev.usuarios)
                     ? prev.usuarios.map(u => Number(u.id) === Number(usuario.id)
-                        ? { ...u, tipo_suscripcion: nuevaSuscripcion }
+                        ? { ...u, tipo_suscripcion: tipoRes, zona_admin: zonaRes }
                         : u)
                     : []
             } : prev);
@@ -492,7 +497,7 @@ export default function Admin() {
                 ...prev,
                 listaUsuarios: Array.isArray(prev.listaUsuarios)
                     ? prev.listaUsuarios.map(u => Number(u.id) === Number(usuario.id)
-                        ? { ...u, tipo_suscripcion: nuevaSuscripcion }
+                        ? { ...u, tipo_suscripcion: tipoRes, zona_admin: zonaRes }
                         : u)
                     : []
             } : prev);
@@ -547,6 +552,7 @@ export default function Admin() {
         return (u.username || '').toLowerCase().includes(q)
             || (u.email || '').toLowerCase().includes(q)
             || (u.tipo_suscripcion || '').toLowerCase().includes(q)
+            || (u.zona_admin || '').toLowerCase().includes(q)
             || (u.codigo_referido || '').toLowerCase().includes(q)
             || (u.referido_por_username || '').toLowerCase().includes(q);
     });
@@ -1118,19 +1124,28 @@ export default function Admin() {
 
                             <h4>Usuarios Registrados</h4>
                             <div className="admin-list users-list">
-                                {stats.listaUsuarios?.map(u => (
+                                {stats.listaUsuarios?.map(u => {
+                                    const esModCuenta = u.tipo_suscripcion === 'moderador';
+                                    const enPrueba = u.tipo_suscripcion === 'prueba'
+                                        || (esModCuenta && u.zona_admin === 'prueba');
+                                    return (
                                     <div key={u.id} className="user-card">
                                         <div className="user-header-row">
                                             <div className="user-basic">
                                                 <span className="user-title-line">
-                                                    {u.tipo_suscripcion === 'admin' ? '👑' : u.tipo_suscripcion === 'prueba' ? '🧪' : '👤'}{' '}
+                                                    {u.tipo_suscripcion === 'admin' ? '👑' : enPrueba ? '🧪' : '👤'}{' '}
                                                     <strong>{u.username}</strong>{' '}
                                                     <span className={`sub-badge sub-${u.tipo_suscripcion || 'free'}`}>
                                                         {u.tipo_suscripcion || 'free'}
                                                     </span>
+                                                    {esModCuenta && enPrueba && (
+                                                        <span className="sub-badge sub-prueba" style={{ marginLeft: 6 }}>
+                                                            🧪 prueba
+                                                        </span>
+                                                    )}
                                                 </span>
                                                 <span className="user-email">{u.email}</span>
-                                                {u.tipo_suscripcion !== 'admin' && u.tipo_suscripcion !== 'moderador' && (
+                                                {u.tipo_suscripcion !== 'admin' && (
                                                     <div className="user-sub-actions">
                                                         <button
                                                             type="button"
@@ -1138,10 +1153,10 @@ export default function Admin() {
                                                             disabled={updatingSubUserId === u.id}
                                                             onClick={() => cambiarSuscripcionUsuario(
                                                                 u,
-                                                                u.tipo_suscripcion === 'prueba' ? 'free' : 'prueba'
+                                                                enPrueba ? 'free' : 'prueba'
                                                             )}
                                                         >
-                                                            {u.tipo_suscripcion === 'prueba'
+                                                            {enPrueba
                                                                 ? '🟢 Pasar a Normal (free)'
                                                                 : '🧪 Pasar a Copia de Pruebas (prueba)'}
                                                         </button>
@@ -1186,7 +1201,8 @@ export default function Admin() {
                                             <div className="stat-item"><span className="stat-label">HUIDAS TOTALES</span><span className="stat-val val-gold">{u.salidas_chat || 0}</span></div>
                                         </div>
                                     </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         </>
                     )}
@@ -1328,8 +1344,9 @@ export default function Admin() {
                                     <p className="empty">No se encontraron usuarios.</p>
                                 ) : usuariosFiltradosPrueba.map(u => {
                                     const esCuentaAdmin = u.tipo_suscripcion === 'admin';
-                                    const esCuentaProtegida = esCuentaAdmin || u.tipo_suscripcion === 'moderador';
-                                    const esPrueba = u.tipo_suscripcion === 'prueba';
+                                    const esModCuenta = u.tipo_suscripcion === 'moderador';
+                                    const esPrueba = u.tipo_suscripcion === 'prueba'
+                                        || (esModCuenta && u.zona_admin === 'prueba');
                                     return (
                                         <div key={u.id} className="test-zone-user-row">
                                             <div className="user-basic">
@@ -1339,6 +1356,11 @@ export default function Admin() {
                                                     <span className={`sub-badge sub-${u.tipo_suscripcion || 'free'}`}>
                                                         {u.tipo_suscripcion || 'free'}
                                                     </span>
+                                                    {esModCuenta && esPrueba && (
+                                                        <span className="sub-badge sub-prueba" style={{ marginLeft: 6 }}>
+                                                            🧪 prueba
+                                                        </span>
+                                                    )}
                                                 </span>
                                                 <span className="user-email">
                                                     {u.email} · Saldo principal: ${formatearMonto(u.saldo)}
@@ -1347,11 +1369,9 @@ export default function Admin() {
                                                 </span>
                                             </div>
                                             <div className="test-zone-user-actions">
-                                                {esCuentaProtegida ? (
+                                                {esCuentaAdmin ? (
                                                     <span className="admin-zone-note">
-                                                        {esCuentaAdmin
-                                                            ? <>Admin (zona actual: <strong>{u.zona_admin || 'normal'}</strong>)</>
-                                                            : 'Cuenta con rol especial'}
+                                                        Admin (zona actual: <strong>{u.zona_admin || 'normal'}</strong>)
                                                     </span>
                                                 ) : (
                                                     <>

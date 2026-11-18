@@ -11,6 +11,19 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-17 — Acceso de cuentas moderador a Zona de Pruebas asignado desde Admin (Antigravity)
+- **`ConexionDB.java` y `AdminService.java`:**
+  - `ConexionDB.obtenerEstadoZonaUsuario` ahora resuelve `ZONA_PRUEBA` cuando una cuenta `tipo_suscripcion = 'moderador'` tiene `zona_admin = 'prueba'` en la base principal, manteniendo su rol `moderador`, y `resumenZonaPruebas` los contabiliza en pruebas.
+  - `AdminService.cambiarSuscripcionUsuario` permite al administrador principal mover cuentas `moderador` entre `normal` (`free`) y `prueba` actualizando `users.zona_admin` sin alterar `tipo_suscripcion` (manteniendo bloqueado con `403` que el moderador cambie su zona o edite suscripciones).
+  - `AdminService.estadisticas`, `estadisticasModerador`, `obtenerMovimientosModerador`, `agregarNequiModerador` y `eliminarNequiModerador` propagan `zonaActiva`/`enZonaPruebas`, sincronizan en pruebas y replican Nequis desde normal hacia pruebas al modificarse en zona normal.
+- **Frontend (`Admin.jsx`):** en `📊 Finanzas` y `🧪 Zona de Pruebas` del dueño, las cuentas `moderador` ahora muestran los botones de cambio entre `Normal (free)` y `Prueba (copia)` junto con su badge de estado en pruebas; además refresca la pestaña `nequis` ante eventos de cambio/reinicio de zona.
+- **Pruebas y documentación:** añadidas verificaciones en `AdminServiceTest.java` y `RenderAcceptanceCheck.java`; actualizados `ARCHITECTURE.md` y `GUIA_PRUEBAS_Y_VARIABLES.md`.
+- **Verificación:**
+  - `.\mvnw.cmd clean verify`: `BUILD SUCCESS` (`Tests run: 83, Failures: 0, Errors: 0, Skipped: 0`; `RenderAcceptanceCheck` compiló sin errores y requiere `TEST_DATABASE_URL` en Render para ejecutarse contra PostgreSQL real).
+  - En `frontend/`: `npm.cmd run build` (`377ms`), `npm.cmd run test:acceptance` (`16/16`) y `npm.cmd run lint` (`60 warnings and 0 errors`).
+Archivos: `src/main/java/com/torneosflash/dao/ConexionDB.java`, `src/main/java/com/torneosflash/servicio/AdminService.java`, `frontend/src/pages/Admin.jsx`, `src/test/java/com/torneosflash/servicio/AdminServiceTest.java`, `src/test/java/com/torneosflash/dao/RenderAcceptanceCheck.java`, `ARCHITECTURE.md`, `GUIA_PRUEBAS_Y_VARIABLES.md`, `CHANGELOG.md`
+
+---
 ## 2026-11-17 — Rol moderador independiente con billetera propia, panel aislado y múltiples Nequis (Antigravity)
 - **Migración `V27__moderadores_billetera_y_nequis.sql`:**
   - Ampliado `CHECK` de `referral_payouts.destino_tipo` a `('referidor', 'admin', 'moderador')`.

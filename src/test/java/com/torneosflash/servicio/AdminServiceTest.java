@@ -160,7 +160,8 @@ class AdminServiceTest {
                 JsonObject fila = new JsonObject();
                 fila.addProperty("id", id);
                 fila.addProperty("username", "user_" + id);
-                fila.addProperty("tipo_suscripcion", (id == 1 || id == 2) ? "admin" : "free");
+                fila.addProperty("tipo_suscripcion",
+                        (id == 1 || id == 2) ? "admin" : (id == 50 ? "moderador" : "free"));
                 return fila;
             }
 
@@ -188,6 +189,20 @@ class AdminServiceTest {
                 () -> servicio.cambiarSuscripcionUsuario(1, 2, "prueba")).getStatus());
         assertEquals(400, assertThrows(ServicioException.class,
                 () -> servicio.cambiarSuscripcionUsuario(1, 25, "admin")).getStatus());
+
+        // El admin también puede ingresar y sacar a un moderador de la zona de pruebas conservando su rol
+        JsonObject modAPrueba = servicio.cambiarSuscripcionUsuario(1, 50, "prueba");
+        assertTrue(modAPrueba.get("success").getAsBoolean());
+        assertEquals("moderador", modAPrueba.get("tipoSuscripcion").getAsString());
+        assertEquals("prueba", modAPrueba.get("zonaAsignada").getAsString());
+
+        JsonObject modAFree = servicio.cambiarSuscripcionUsuario(1, 50, "free");
+        assertTrue(modAFree.get("success").getAsBoolean());
+        assertEquals("moderador", modAFree.get("tipoSuscripcion").getAsString());
+        assertEquals("normal", modAFree.get("zonaAsignada").getAsString());
+
+        assertEquals(403, assertThrows(ServicioException.class,
+                () -> servicio.cambiarSuscripcionUsuario(50, 25, "prueba")).getStatus());
 
         JsonObject zonaPrueba = servicio.cambiarZonaAdmin(1, "prueba");
         assertTrue(zonaPrueba.get("success").getAsBoolean());

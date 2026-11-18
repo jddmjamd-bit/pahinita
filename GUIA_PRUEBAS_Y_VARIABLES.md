@@ -489,6 +489,7 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | T3 | Registrar jugadores con `?ref=` de Mod A, Mod B y sin referido | `Mod A` solo ve/aprueba recargas, retiros y evidencias de sus jugadores (`Mod B` y `admin` reciben `403` sobre usuarios de `Mod A`). |
 | T4 | Liquidar partida entre jugador de `Mod A` y jugador sin moderador | La mitad de `GANANCIA` (25%) del jugador de `Mod A` y su comisión `REFERIDOS` (10%, descontando cashback) van a `moderator_wallet` de `Mod A` sin alterar `users.saldo` ni mezclarse con `/finance`; el admin recibe su mitad base más inactivas y sobrantes. |
 | T5 | Configurar múltiples Nequis en `/admin` (`📱 Nequi`) | Los usuarios de `Mod A` ven esos Nequis en `GET /api/finance/nequi-info` / `/finance` (Nequi Manual); usuarios sin moderador ven `3126655995`. |
+| T6 | Pasar cuenta `moderador` a Zona de Pruebas desde `/admin` (como Admin) | El Admin puede alternar cuentas `moderador` entre `normal` (`free`) y `prueba` conservando `tipo_suscripcion = 'moderador'`; al iniciar sesión entra a `TEST_DATABASE_URL` como un usuario en pruebas y mantiene bloqueado el selector propio de zona (`403`). |
 
 ### 📋 Q — Flyway Migrations
 
