@@ -1854,24 +1854,20 @@ class RenderAcceptanceCheck {
         assertMonto(new BigDecimal("18020.00"), wallet.obtenerSaldo(userAId));
 
         // Admin solo recibe la mitad base de userLibre (250) + todas las categorías inactivas (600) + sobrantes (700)
-        assertMonto(new BigDecimal("250.00"), dao.queryOne(
-                "SELECT COALESCE(SUM(monto), 0) AS total FROM admin_wallet WHERE match_id = ? AND categoria = 'ganancia'",
-                inicio.matchId).get("total").getAsBigDecimal());
-        assertMonto(new BigDecimal("200.00"), dao.queryOne(
-                "SELECT COALESCE(SUM(monto), 0) AS total FROM admin_wallet WHERE match_id = ? AND categoria = 'misiones'",
-                inicio.matchId).get("total").getAsBigDecimal());
-        assertMonto(new BigDecimal("100.00"), dao.queryOne(
-                "SELECT COALESCE(SUM(monto), 0) AS total FROM admin_wallet WHERE match_id = ? AND categoria = 'logros'",
-                inicio.matchId).get("total").getAsBigDecimal());
-        assertMonto(new BigDecimal("300.00"), dao.queryOne(
-                "SELECT COALESCE(SUM(monto), 0) AS total FROM admin_wallet WHERE match_id = ? AND categoria = 'devolucion'",
-                inicio.matchId).get("total").getAsBigDecimal());
-        assertMonto(new BigDecimal("300.00"), dao.queryOne(
-                "SELECT COALESCE(SUM(monto), 0) AS total FROM admin_wallet WHERE match_id = ? AND categoria = 'leaderboard'",
-                inicio.matchId).get("total").getAsBigDecimal());
-        assertMonto(new BigDecimal("400.00"), dao.queryOne(
-                "SELECT COALESCE(SUM(monto), 0) AS total FROM admin_wallet WHERE match_id = ? AND categoria = 'sorteos'",
-                inicio.matchId).get("total").getAsBigDecimal());
+        String detalleMatch = "Match #" + inicio.matchId;
+        Map<String, String> esperadoAdmin = Map.of(
+                "ganancia", "250.00",
+                "misiones", "200.00",
+                "logros", "100.00",
+                "devolucion", "300.00",
+                "leaderboard", "300.00",
+                "sorteos", "400.00"
+        );
+        for (Map.Entry<String, String> entry : esperadoAdmin.entrySet()) {
+            assertMonto(new BigDecimal(entry.getValue()), dao.queryOne(
+                    "SELECT COALESCE(SUM(monto), 0) AS total FROM admin_wallet WHERE detalle = ? AND categoria = ?",
+                    detalleMatch, entry.getKey()).get("total").getAsBigDecimal());
+        }
         assertEquals("moderador", dao.queryOne(
                 "SELECT destino_tipo FROM referral_payouts WHERE match_id = ? AND jugador_id = ?",
                 inicio.matchId, userAId).get("destino_tipo").getAsString());

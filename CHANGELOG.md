@@ -22,7 +22,7 @@ Archivos: `archivo1.java`, `archivo2.js`
   - `ConexionDB.java`, `UsuarioDAO.java` y `DbAdminService.java`: integran sincronización/reinicio en `ZONA_PRUEBA`, propagación de referidos de moderadores y protección de `moderator_wallet` en `/admin-db`.
 - **Frontend (`Lobby.jsx`, `Chat.jsx`, `Finance.jsx`, `Finance.css`, `Admin.jsx`, `Admin.css`):**
   - Botón lateral y encabezado `👑 Admin` / `👑 Panel Admin` compartidos sin exponer el nombre "Moderador"; vistas exclusivas del moderador con 4 pestañas (`Pagos`, `Movimientos`, `Finanzas` con enlace de referido y tabla filtrada a sus usuarios, y `Nequi` múltiple) usando `llamarApi` y carga dinámica de Nequis en Recarga Manual.
-- **Pruebas y documentación:** añadidos casos en `AdminServiceTest.java`, `MovimientosFinanzasAdminTest.java`, `RenderAcceptanceCheck.java` y `frontend/scripts/acceptance.test.js` (`P17`); actualizados `ARCHITECTURE.md` (sección 27) y `GUIA_PRUEBAS_Y_VARIABLES.md`.
+- **Pruebas y documentación:** añadidos casos en `AdminServiceTest.java`, `MovimientosFinanzasAdminTest.java`, `RenderAcceptanceCheck.java` (consultando `admin_wallet` por `detalle` `'Match #<id>'`) y `frontend/scripts/acceptance.test.js` (`P17`); actualizados `ARCHITECTURE.md` (sección 27) y `GUIA_PRUEBAS_Y_VARIABLES.md`.
 - **Verificación:**
   - `.\mvnw.cmd clean verify`: `BUILD SUCCESS` (`Tests run: 83, Failures: 0, Errors: 0, Skipped: 0`, incluyendo `AdminServiceTest` `4/4` y `MovimientosFinanzasAdminTest` `4/4`; `RenderAcceptanceCheck` compiló sin errores y requiere `TEST_DATABASE_URL` para correr contra PostgreSQL real).
   - En `frontend/`: `npm.cmd run build` (`vite build` en `446ms`), `npm.cmd run test:acceptance` (`16/16`), `npm.cmd run lint` (`60 warnings and 0 errors`) y `npm.cmd run test:visual` (`3/3`).
