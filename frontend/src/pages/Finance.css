@@ -374,3 +374,67 @@
     border-radius: var(--radius-md);
     border: 1px dashed var(--border-color);
 }
+
+.nequi-targets-box {
+    margin-bottom: 14px;
+}
+
+.nequi-targets-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.nequi-target-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+}
+
+.nequi-target-data {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.nequi-target-data strong {
+    color: var(--text-primary);
+    font-size: 1.05rem;
+    letter-spacing: 0.4px;
+}
+
+.nequi-target-holder {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+
+.nequi-copy-btn {
+    width: auto;
+    margin: 0;
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    background: var(--bg-surface-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    box-shadow: none;
+}
+
+.nequi-copy-btn:hover {
+    border-color: var(--accent-primary);
+}
+
+.nequi-empty-notice {
+    padding: 14px;
+    border-radius: var(--radius-md);
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    color: #fbbf24;
+    font-size: 0.9rem;
+    line-height: 1.45;
+    margin-bottom: 16px;
+}

@@ -73,19 +73,30 @@ public class UsuarioDAO {
      * Comprueba si el usuario tiene {@code tipo_suscripcion = 'admin'} en la BD principal.
      */
     public boolean esAdminEnPrincipal(int userId) {
-        if (db == null || userId <= 0) return false;
+        return tieneSuscripcionEnPrincipal(userId, ConexionDB.SUSCRIPCION_ADMIN);
+    }
+
+    /**
+     * Comprueba si el usuario tiene {@code tipo_suscripcion = 'moderador'} en la BD principal.
+     */
+    public boolean esModeradorEnPrincipal(int userId) {
+        return tieneSuscripcionEnPrincipal(userId, ConexionDB.SUSCRIPCION_MODERADOR);
+    }
+
+    private boolean tieneSuscripcionEnPrincipal(int userId, String tipoEsperado) {
+        if (db == null || userId <= 0 || tipoEsperado == null) return false;
         ConexionDB.EstadoZonaUsuario estado = db.obtenerEstadoZonaUsuario(userId);
         if (estado != null) {
-            return ConexionDB.SUSCRIPCION_ADMIN.equalsIgnoreCase(estado.tipoSuscripcion());
+            return tipoEsperado.equalsIgnoreCase(estado.tipoSuscripcion());
         }
         try (Connection conn = conexionPrincipal();
              PreparedStatement ps = conn.prepareStatement("SELECT tipo_suscripcion FROM users WHERE id = ?")) {
             ps.setInt(1, userId);
             try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() && ConexionDB.SUSCRIPCION_ADMIN.equalsIgnoreCase(rs.getString("tipo_suscripcion"));
+                return rs.next() && tipoEsperado.equalsIgnoreCase(rs.getString("tipo_suscripcion"));
             }
         } catch (Exception e) {
-            logger.error("Error verificando rol admin en BD principal para id={}: {}", userId, e.getMessage());
+            logger.error("Error verificando rol '{}' en BD principal para id={}: {}", tipoEsperado, userId, e.getMessage());
             return false;
         }
     }
@@ -636,7 +647,9 @@ public class UsuarioDAO {
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return false;
                 String tipo = rs.getString("tipo_suscripcion");
-                return "prueba".equalsIgnoreCase(tipo) || "admin".equalsIgnoreCase(tipo);
+                return "prueba".equalsIgnoreCase(tipo)
+                        || "admin".equalsIgnoreCase(tipo)
+                        || "moderador".equalsIgnoreCase(tipo);
             }
         } catch (Exception e) {
             return false;

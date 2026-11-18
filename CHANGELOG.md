@@ -11,6 +11,24 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-17 — Rol moderador independiente con billetera propia, panel aislado y múltiples Nequis (Antigravity)
+- **Migración `V27__moderadores_billetera_y_nequis.sql`:**
+  - Ampliado `CHECK` de `referral_payouts.destino_tipo` a `('referidor', 'admin', 'moderador')`.
+  - Creadas las tablas `moderator_wallet` (`ganancia` y `referidos`, `UNIQUE (match_id, jugador_id, categoria)`) y `moderator_nequis` (`UNIQUE (moderator_id, numero)`).
+- **Lógica financiera, aislamiento y permisos en backend:**
+  - `WalletService.java`: acredita en `moderator_wallet` la mitad de `GANANCIA` (25%) y la comisión de `REFERIDOS` (10%, tras cashback opcional) generada por usuarios vinculados a un moderador sin acreditar su `users.saldo` ni desviar los sobrantes de ranking/sorteos/divisiones inactivas del dueño.
+  - `AdminMiddleware.java`, `AdminService.java` y `RutasAdmin.java`: habilitan acceso de cuentas `tipo_suscripcion = 'moderador'` únicamente a transacciones pendientes, movimientos, estadísticas de sus usuarios y CRUD de Nequis (`/api/admin/nequis`, `/api/admin/nequis/{id}`); bloquean con `403` disputas, verificación Clash, zona de pruebas, soporte, chatbot y cambios de suscripción.
+  - `EvidenciaPagoService.java`, `FinanzasService.java`, `RutasFinanzas.java` y `NotificacionesListener.java`: aíslan evidencias de retiro en canal `pagos` por propietario (anuncios sigue exclusivo de `admin`), excluyen `destino_tipo = 'moderador'` de `/finance` personal, omiten correos al admin para usuarios de moderadores, exponen `GET /api/finance/nequi-info` para mostrar los Nequis propios de cada moderador a sus referidos y dirigen notificaciones en tiempo real al moderador correspondiente.
+  - `ConexionDB.java`, `UsuarioDAO.java` y `DbAdminService.java`: integran sincronización/reinicio en `ZONA_PRUEBA`, propagación de referidos de moderadores y protección de `moderator_wallet` en `/admin-db`.
+- **Frontend (`Lobby.jsx`, `Chat.jsx`, `Finance.jsx`, `Finance.css`, `Admin.jsx`, `Admin.css`):**
+  - Botón lateral y encabezado `👑 Admin` / `👑 Panel Admin` compartidos sin exponer el nombre "Moderador"; vistas exclusivas del moderador con 4 pestañas (`Pagos`, `Movimientos`, `Finanzas` con enlace de referido y tabla filtrada a sus usuarios, y `Nequi` múltiple) usando `llamarApi` y carga dinámica de Nequis en Recarga Manual.
+- **Pruebas y documentación:** añadidos casos en `AdminServiceTest.java`, `MovimientosFinanzasAdminTest.java`, `RenderAcceptanceCheck.java` y `frontend/scripts/acceptance.test.js` (`P17`); actualizados `ARCHITECTURE.md` (sección 27) y `GUIA_PRUEBAS_Y_VARIABLES.md`.
+- **Verificación:**
+  - `.\mvnw.cmd clean verify`: `BUILD SUCCESS` (`Tests run: 83, Failures: 0, Errors: 0, Skipped: 0`, incluyendo `AdminServiceTest` `4/4` y `MovimientosFinanzasAdminTest` `4/4`; `RenderAcceptanceCheck` compiló sin errores y requiere `TEST_DATABASE_URL` para correr contra PostgreSQL real).
+  - En `frontend/`: `npm.cmd run build` (`vite build` en `446ms`), `npm.cmd run test:acceptance` (`16/16`), `npm.cmd run lint` (`60 warnings and 0 errors`) y `npm.cmd run test:visual` (`3/3`).
+Archivos: `src/main/resources/db/migration/V27__moderadores_billetera_y_nequis.sql`, `src/main/java/com/torneosflash/dao/ConexionDB.java`, `src/main/java/com/torneosflash/dao/UsuarioDAO.java`, `src/main/java/com/torneosflash/servicio/DbAdminService.java`, `src/main/java/com/torneosflash/servicio/WalletService.java`, `src/main/java/com/torneosflash/servidor/AdminMiddleware.java`, `src/main/java/com/torneosflash/servicio/AdminService.java`, `src/main/java/com/torneosflash/servidor/RutasAdmin.java`, `src/main/java/com/torneosflash/servicio/EvidenciaPagoService.java`, `src/main/java/com/torneosflash/servicio/FinanzasService.java`, `src/main/java/com/torneosflash/servidor/RutasFinanzas.java`, `src/main/java/com/torneosflash/servicio/NotificacionesListener.java`, `frontend/src/pages/Lobby.jsx`, `frontend/src/pages/Chat.jsx`, `frontend/src/pages/Finance.jsx`, `frontend/src/pages/Finance.css`, `frontend/src/pages/Admin.jsx`, `frontend/src/pages/Admin.css`, `src/test/java/com/torneosflash/servicio/AdminServiceTest.java`, `src/test/java/com/torneosflash/servicio/MovimientosFinanzasAdminTest.java`, `src/test/java/com/torneosflash/dao/RenderAcceptanceCheck.java`, `frontend/scripts/acceptance.test.js`, `ARCHITECTURE.md`, `GUIA_PRUEBAS_Y_VARIABLES.md`, `CHANGELOG.md`
+
+---
 ## 2026-11-17 — Redirección de divisiones de comisión inactivas (Misiones, Logros, Devolución) a Ganancia del Admin (Antigravity)
 - **`ComisionService.java` y `RutasComisiones.java`:**
   - Añadido estado `activa` a `ComisionService.Categoria`: siguen activas `SORTEOS` (20%), `LEADERBOARD` (15%), `REFERIDOS` (10%) y `GANANCIA` (25% residuo base), y quedan marcadas como inactivas (`activa = false`) `MISIONES` (10%), `LOGROS` (5%) y `DEVOLUCION` (15%).

@@ -53,6 +53,7 @@ public class ConexionDB {
     public static final String SUSCRIPCION_FREE = "free";
     public static final String SUSCRIPCION_PRUEBA = "prueba";
     public static final String SUSCRIPCION_ADMIN = "admin";
+    public static final String SUSCRIPCION_MODERADOR = "moderador";
     private static final String ESQUEMA_FALLBACK_PRUEBAS = "tf_zona_pruebas";
     private static final long CACHE_ZONA_USUARIO_MS = 2_000L;
 
@@ -881,28 +882,28 @@ public class ConexionDB {
         sincronizarUsuarioConPruebas(userId);
     }
 
-    /** Copia o actualiza la identidad y relaciones de referidos de usuarios 'prueba' y 'admin' hacia la BD de pruebas. */
+    /** Copia o actualiza la identidad y relaciones de referidos de usuarios 'prueba', 'admin' y 'moderador' hacia la BD de pruebas. */
     public void sincronizarUsuariosPruebaYAdmin() {
         if (!tieneZonaPruebas()) return;
         Set<Integer> ids = new LinkedHashSet<>();
         String sql = "SELECT DISTINCT id FROM (" +
-                "SELECT id FROM users WHERE LOWER(COALESCE(tipo_suscripcion, '')) IN ('prueba', 'admin') " +
+                "SELECT id FROM users WHERE LOWER(COALESCE(tipo_suscripcion, '')) IN ('prueba', 'admin', 'moderador') " +
                 "UNION " +
                 "SELECT r.referred_user_id AS id FROM referrals r " +
                 "JOIN users u ON u.id = r.referrer_user_id " +
-                "WHERE LOWER(COALESCE(u.tipo_suscripcion, '')) IN ('prueba', 'admin') " +
+                "WHERE LOWER(COALESCE(u.tipo_suscripcion, '')) IN ('prueba', 'admin', 'moderador') " +
                 "UNION " +
                 "SELECT r.referrer_user_id AS id FROM referrals r " +
                 "JOIN users u ON u.id = r.referred_user_id " +
-                "WHERE LOWER(COALESCE(u.tipo_suscripcion, '')) IN ('prueba', 'admin') " +
+                "WHERE LOWER(COALESCE(u.tipo_suscripcion, '')) IN ('prueba', 'admin', 'moderador') " +
                 "UNION " +
                 "SELECT u.referido_por_id AS id FROM users u " +
                 "WHERE u.referido_por_id IS NOT NULL " +
-                "AND LOWER(COALESCE(u.tipo_suscripcion, '')) IN ('prueba', 'admin') " +
+                "AND LOWER(COALESCE(u.tipo_suscripcion, '')) IN ('prueba', 'admin', 'moderador') " +
                 "UNION " +
                 "SELECT u.id AS id FROM users u " +
                 "JOIN users ref ON ref.id = u.referido_por_id " +
-                "WHERE LOWER(COALESCE(ref.tipo_suscripcion, '')) IN ('prueba', 'admin')" +
+                "WHERE LOWER(COALESCE(ref.tipo_suscripcion, '')) IN ('prueba', 'admin', 'moderador')" +
                 ") AS sync_ids ORDER BY id ASC";
         try (Connection conn = getConnectionPrincipal();
              PreparedStatement ps = conn.prepareStatement(sql);
@@ -1011,6 +1012,7 @@ public class ConexionDB {
 
                         sincronizarReferidoPorEnDestino(destino, referidoPorMap);
                         sincronizarRelacionesReferidosEnPruebas(origen, destino, sincronizados.keySet());
+                        sincronizarNequisModeradoresEnPruebas(origen, destino, sincronizados);
                     }
 
                     destino.commit();
@@ -1240,6 +1242,88 @@ public class ConexionDB {
         }
     }
 
+    /** Sincroniza hacia la copia de pruebas los números Nequi de un moderador específico. */
+    public void sincronizarNequisModeradorConPruebas(int moderatorId) {
+        if (!tieneZonaPruebas() || moderatorId <= 0) return;
+        sincronizarUsuarioConPruebas(moderatorId);
+        synchronized (lockSyncPruebas) {
+            try (Connection origen = getConnectionPrincipal();
+                 Connection destino = getConnectionPruebas()) {
+                boolean auto = destino.getAutoCommit();
+                destino.setAutoCommit(false);
+                try {
+                    if (usuarioExisteEnDestino(destino, moderatorId)) {
+                        try (PreparedStatement psDel = destino.prepareStatement(
+                                "DELETE FROM moderator_nequis WHERE moderator_id = ?")) {
+                            psDel.setInt(1, moderatorId);
+                            psDel.executeUpdate();
+                        }
+                        reemplazarNequisModeradorEnDestino(origen, destino, moderatorId);
+                        try (PreparedStatement psSeq = destino.prepareStatement(
+                                "SELECT setval(pg_get_serial_sequence('moderator_nequis', 'id'), " +
+                                "GREATEST(COALESCE((SELECT MAX(id) FROM moderator_nequis), 1), 1), true)");
+                             ResultSet ignored = psSeq.executeQuery()) {
+                        }
+                    }
+                    destino.commit();
+                } catch (SQLException e) {
+                    try { destino.rollback(); } catch (SQLException ignored) {}
+                    throw e;
+                } finally {
+                    try { destino.setAutoCommit(auto); } catch (SQLException ignored) {}
+                }
+            } catch (SQLException e) {
+                logger.warn("No se pudieron sincronizar los Nequis del moderador {} en pruebas: {}",
+                        moderatorId, e.getMessage());
+            }
+        }
+    }
+
+    private static void sincronizarNequisModeradoresEnPruebas(Connection origen, Connection destino,
+                                                              Map<Integer, String> sincronizados) throws SQLException {
+        if (sincronizados == null || sincronizados.isEmpty()) return;
+        boolean huboModerador = false;
+        for (Map.Entry<Integer, String> entry : sincronizados.entrySet()) {
+            int modId = entry.getKey();
+            String tipo = entry.getValue();
+            if (modId <= 0 || !SUSCRIPCION_MODERADOR.equalsIgnoreCase(tipo)) continue;
+            if (!usuarioExisteEnDestino(destino, modId)) continue;
+            huboModerador = true;
+            reemplazarNequisModeradorEnDestino(origen, destino, modId);
+        }
+        if (huboModerador) {
+            try (PreparedStatement psSeq = destino.prepareStatement(
+                    "SELECT setval(pg_get_serial_sequence('moderator_nequis', 'id'), " +
+                    "GREATEST(COALESCE((SELECT MAX(id) FROM moderator_nequis), 1), 1), true)");
+                 ResultSet ignored = psSeq.executeQuery()) {
+            }
+        }
+    }
+
+    private static void reemplazarNequisModeradorEnDestino(Connection origen, Connection destino, int moderatorId)
+            throws SQLException {
+        try (PreparedStatement psLeer = origen.prepareStatement(
+                "SELECT numero, titular, creado_en FROM moderator_nequis WHERE moderator_id = ? ORDER BY id ASC");
+             PreparedStatement psInsert = destino.prepareStatement(
+                     "INSERT INTO moderator_nequis (moderator_id, numero, titular, creado_en) " +
+                     "VALUES (?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP)) " +
+                     "ON CONFLICT (moderator_id, numero) DO NOTHING")) {
+            psLeer.setInt(1, moderatorId);
+            try (ResultSet rs = psLeer.executeQuery()) {
+                while (rs.next()) {
+                    psInsert.setInt(1, moderatorId);
+                    psInsert.setString(2, rs.getString("numero"));
+                    String titular = rs.getString("titular");
+                    psInsert.setString(3, titular != null ? titular : "");
+                    Timestamp creado = rs.getTimestamp("creado_en");
+                    if (creado != null) psInsert.setTimestamp(4, creado);
+                    else psInsert.setNull(4, Types.TIMESTAMP);
+                    psInsert.executeUpdate();
+                }
+            }
+        }
+    }
+
     private static boolean usuarioExisteEnDestino(Connection destino, int userId) throws SQLException {
         if (userId <= 0) return false;
         try (PreparedStatement ps = destino.prepareStatement("SELECT 1 FROM users WHERE id = ?")) {
@@ -1274,6 +1358,8 @@ public class ConexionDB {
             res.addProperty("movimientosLedger", 0);
             res.addProperty("referidos", 0);
             res.addProperty("pagosReferidos", 0);
+            res.addProperty("billeteraModeradores", 0);
+            res.addProperty("nequisModeradores", 0);
             res.addProperty("saldoTotalPruebas", BigDecimal.ZERO);
             return res;
         }
@@ -1288,6 +1374,8 @@ public class ConexionDB {
             res.addProperty("movimientosLedger", contarFilas(conn, "SELECT COUNT(*) FROM wallet_ledger"));
             res.addProperty("referidos", contarFilas(conn, "SELECT COUNT(*) FROM referrals"));
             res.addProperty("pagosReferidos", contarFilas(conn, "SELECT COUNT(*) FROM referral_payouts"));
+            res.addProperty("billeteraModeradores", contarFilas(conn, "SELECT COUNT(*) FROM moderator_wallet"));
+            res.addProperty("nequisModeradores", contarFilas(conn, "SELECT COUNT(*) FROM moderator_nequis"));
             try (PreparedStatement ps = conn.prepareStatement("SELECT COALESCE(SUM(saldo), 0) FROM users");
                  ResultSet rs = ps.executeQuery()) {
                 BigDecimal total = rs.next() && rs.getBigDecimal(1) != null ? rs.getBigDecimal(1) : BigDecimal.ZERO;
@@ -1319,6 +1407,8 @@ public class ConexionDB {
         }
 
         String[] tablasBorrar = {
+                "moderator_wallet",
+                "moderator_nequis",
                 "referral_payouts",
                 "referrals",
                 "leaderboard_cut_payments",
@@ -1365,7 +1455,8 @@ public class ConexionDB {
                 "media_files", "chatbot_conocimiento", "chatbot_mensajes",
                 "legal_acceptances", "wallet_ledger", "support_tickets",
                 "payment_evidences", "voice_channels", "match_queue", "active_matches",
-                "matchmaking_challenges", "user_notifications", "referrals", "referral_payouts"
+                "matchmaking_challenges", "user_notifications", "referrals", "referral_payouts",
+                "moderator_wallet", "moderator_nequis"
         };
 
         try (Connection conn = getConnectionPruebas()) {

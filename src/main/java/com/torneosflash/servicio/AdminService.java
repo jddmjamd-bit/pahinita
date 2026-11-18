@@ -23,9 +23,12 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * Lógica del panel de administración: transacciones pendientes, disputas, estadísticas,
@@ -34,6 +37,9 @@ import java.util.Map;
  * D1: Todo monto y saldo se maneja con {@link BigDecimal} (nunca {@code double}).
  */
 public class AdminService {
+
+    private static final int MAX_NEQUIS_MODERADOR = 20;
+    private static final Pattern NEQUI_FORMATO_PERMITIDO = Pattern.compile("^[0-9 +()-]{7,25}$");
 
     private final GenericDAO db;
     private final UsuarioDAO usuarioDAO;
@@ -84,10 +90,32 @@ public class AdminService {
     // Consultas
     // ------------------------------------------------------------------
 
-    /** Solo las transacciones pendientes de aprobar. */
+    /** Solo las transacciones pendientes de aprobar (vista general del administrador). */
     public ArrayList<JsonObject> transaccionesPendientes() {
-        return db.query("SELECT * FROM transactions WHERE estado = 'pendiente' " +
-                "AND metodo IS DISTINCT FROM 'wompi' ORDER BY id DESC");
+        return db.query(
+                "SELECT t.* FROM transactions t " +
+                "LEFT JOIN users u ON u.id = t.usuario_id " +
+                "LEFT JOIN referrals r ON r.referred_user_id = u.id " +
+                "LEFT JOIN users m ON m.id = COALESCE(u.referido_por_id, r.referrer_user_id) " +
+                "WHERE t.estado = 'pendiente' AND t.metodo IS DISTINCT FROM 'wompi' " +
+                "AND (m.id IS NULL OR m.id = u.id OR LOWER(COALESCE(m.tipo_suscripcion, '')) <> 'moderador') " +
+                "ORDER BY t.id DESC");
+    }
+
+    /** Transacciones pendientes filtradas por rol: el moderador ve solo las de sus usuarios; el admin ve las propias. */
+    public ArrayList<JsonObject> transaccionesPendientes(int actorUserId) {
+        if (esModerador(actorUserId)) {
+            return db.query(
+                    "SELECT t.* FROM transactions t " +
+                    "JOIN users u ON u.id = t.usuario_id " +
+                    "LEFT JOIN referrals r ON r.referred_user_id = u.id " +
+                    "JOIN users m ON m.id = COALESCE(u.referido_por_id, r.referrer_user_id) " +
+                    "WHERE t.estado = 'pendiente' AND t.metodo IS DISTINCT FROM 'wompi' " +
+                    "AND m.id = ? AND m.id <> u.id AND LOWER(COALESCE(m.tipo_suscripcion, '')) = 'moderador' " +
+                    "ORDER BY t.id DESC",
+                    actorUserId);
+        }
+        return transaccionesPendientes();
     }
 
     /** Devuelve tokens descifrados solo al panel protegido para que el administrador los verifique en Discord. */
@@ -118,6 +146,9 @@ public class AdminService {
 
     /** Marca como verificado y borra el token cifrado en la misma actualización. */
     public void confirmarVerificacionClash(int userId, int adminUserId) {
+        if (esModerador(adminUserId)) {
+            throw ServicioException.prohibido("Solo los administradores pueden verificar cuentas de Clash");
+        }
         if (userId <= 0 || adminUserId <= 0) throw ServicioException.solicitudInvalida("Usuario no válido");
         int filas = db.update(
                 "UPDATE users SET player_tag_verificado = TRUE, player_tag_verificado_en = CURRENT_TIMESTAMP, " +
@@ -147,7 +178,11 @@ public class AdminService {
 
     // REVIEW-MONEY
     public JsonObject estadisticas(int adminUserId) {
+        if (esModerador(adminUserId)) {
+            return estadisticasModerador(adminUserId);
+        }
         JsonObject stats = new JsonObject();
+        stats.addProperty("esModerador", false);
         ConexionDB connDb = obtenerConexion();
         stats.addProperty("zonaActiva", ConexionDB.zonaActual());
         stats.addProperty("enZonaPruebas", ConexionDB.esZonaPrueba());
@@ -266,6 +301,109 @@ public class AdminService {
         return stats;
     }
 
+    /**
+     * Estadísticas exclusivas del moderador: dinero en circulación de sus usuarios, comisiones de partidas
+     * acreditadas a su billetera, comisiones de referidos en su billetera y lista de sus usuarios propios
+     * (sin rankings, sorteos ni categorías inactivas del dueño). // REVIEW-MONEY
+     */
+    private JsonObject estadisticasModerador(int moderatorId) {
+        JsonObject stats = new JsonObject();
+        stats.addProperty("esModerador", true);
+        stats.addProperty("zonaActiva", ConexionDB.ZONA_NORMAL);
+        stats.addProperty("enZonaPruebas", false);
+        stats.addProperty("zonaPruebasDisponible", false);
+
+        JsonObject modInfo = db.queryOne(
+                "SELECT id, username, codigo_referido, COALESCE(referido_porcentaje_compartido, 0) AS pct " +
+                "FROM users WHERE id = ?", moderatorId);
+        stats.addProperty("codigoReferido", textoAdmin(modInfo, "codigo_referido"));
+        stats.addProperty("porcentajeCompartido", obtenerMontoJson(modInfo, "pct"));
+
+        JsonObject saldoSum = db.queryOne(
+                "SELECT COALESCE(SUM(u.saldo), 0) AS total " +
+                "FROM users u " +
+                "LEFT JOIN referrals r ON r.referred_user_id = u.id " +
+                "WHERE COALESCE(u.referido_por_id, r.referrer_user_id) = ? AND u.id <> ?",
+                moderatorId, moderatorId);
+        stats.addProperty("totalUsuarios", obtenerMontoJson(saldoSum, "total"));
+
+        JsonObject walletPartidas = db.queryOne(
+                "SELECT COALESCE(SUM(monto), 0) AS total FROM moderator_wallet " +
+                "WHERE moderator_id = ? AND categoria = 'ganancia'",
+                moderatorId);
+        JsonObject walletReferidos = db.queryOne(
+                "SELECT COALESCE(SUM(monto), 0) AS total FROM moderator_wallet " +
+                "WHERE moderator_id = ? AND categoria = 'referidos'",
+                moderatorId);
+        BigDecimal gananciaPartidas = obtenerMontoJson(walletPartidas, "total");
+        BigDecimal gananciaReferidos = obtenerMontoJson(walletReferidos, "total");
+        BigDecimal totalBilletera = gananciaPartidas.add(gananciaReferidos);
+
+        stats.addProperty("gananciaComisionesModerador", gananciaPartidas);
+        stats.addProperty("gananciaReferidosModerador", gananciaReferidos);
+        stats.addProperty("gananciaTotalModerador", totalBilletera);
+
+        JsonObject refConteo = db.queryOne(
+                "SELECT COUNT(*) AS total " +
+                "FROM users u LEFT JOIN referrals r ON r.referred_user_id = u.id " +
+                "WHERE COALESCE(u.referido_por_id, r.referrer_user_id) = ? AND u.id <> ?",
+                moderatorId, moderatorId);
+        JsonObject refPagosSum = db.queryOne(
+                "SELECT COALESCE(SUM(monto_base), 0) AS total_base, " +
+                "COALESCE(SUM(monto_referidor), 0) AS total_referidor, " +
+                "COALESCE(SUM(monto_devuelto_referido), 0) AS total_devuelto " +
+                "FROM referral_payouts WHERE referrer_user_id = ?",
+                moderatorId);
+
+        JsonObject resumenReferidos = new JsonObject();
+        resumenReferidos.addProperty("totalRelaciones",
+                refConteo != null && refConteo.has("total") ? refConteo.get("total").getAsLong() : 0L);
+        resumenReferidos.addProperty("totalComisionBase", obtenerMontoJson(refPagosSum, "total_base"));
+        resumenReferidos.addProperty("totalPagadoReferidores", gananciaReferidos);
+        resumenReferidos.addProperty("totalDevueltoReferidos", obtenerMontoJson(refPagosSum, "total_devuelto"));
+        stats.add("resumenReferidos", resumenReferidos);
+
+        List<JsonObject> usuarios = db.query(
+                "SELECT u.id, u.username, u.email, COALESCE(u.saldo, 0) AS saldo, " +
+                "COALESCE(u.tipo_suscripcion, 'free') AS tipo_suscripcion, " +
+                "COALESCE(mw_gan.total, 0) AS mod_ganancia_partidas, " +
+                "COALESCE(mw_ref.total, 0) AS mod_ganancia_referidos, " +
+                "COALESCE(rp_dev.total_devuelto, 0) AS devuelto_referido, " +
+                "u.total_partidas, u.total_victorias, u.victorias_normales, u.victorias_disputa, " +
+                "u.total_derrotas, u.derrotas_normales, u.derrotas_disputa, " +
+                "u.faltas, u.salidas_chat " +
+                "FROM users u " +
+                "LEFT JOIN referrals r ON r.referred_user_id = u.id " +
+                "LEFT JOIN (SELECT jugador_id, SUM(monto) AS total FROM moderator_wallet " +
+                "           WHERE moderator_id = ? AND categoria = 'ganancia' GROUP BY jugador_id) mw_gan " +
+                "  ON mw_gan.jugador_id = u.id " +
+                "LEFT JOIN (SELECT jugador_id, SUM(monto) AS total FROM moderator_wallet " +
+                "           WHERE moderator_id = ? AND categoria = 'referidos' GROUP BY jugador_id) mw_ref " +
+                "  ON mw_ref.jugador_id = u.id " +
+                "LEFT JOIN (SELECT jugador_id, SUM(monto_devuelto_referido) AS total_devuelto FROM referral_payouts " +
+                "           WHERE referrer_user_id = ? GROUP BY jugador_id) rp_dev " +
+                "  ON rp_dev.jugador_id = u.id " +
+                "WHERE COALESCE(u.referido_por_id, r.referrer_user_id) = ? AND u.id <> ? " +
+                "ORDER BY COALESCE(u.saldo, 0) DESC, u.id DESC",
+                moderatorId, moderatorId, moderatorId, moderatorId, moderatorId);
+
+        JsonArray listaUsuarios = new JsonArray();
+        for (JsonObject u : usuarios) {
+            BigDecimal genPartidas = normalizarColumnaMonto(u, "mod_ganancia_partidas");
+            BigDecimal genReferidos = normalizarColumnaMonto(u, "mod_ganancia_referidos");
+            BigDecimal devueltoRef = normalizarColumnaMonto(u, "devuelto_referido");
+            BigDecimal totalAportado = genPartidas.add(genReferidos);
+            u.addProperty("ganancia_generada", genPartidas);
+            u.addProperty("gen_referidos", genReferidos);
+            u.addProperty("devuelto_referido", devueltoRef);
+            u.addProperty("comision_total_aportada", totalAportado);
+            listaUsuarios.add(u);
+        }
+        stats.add("listaUsuarios", listaUsuarios);
+        stats.addProperty("usuariosOnline", io != null ? io.getSockets().size() : 0);
+        return stats;
+    }
+
     // ------------------------------------------------------------------
     // Zona de Pruebas / Copia Temporal (respaldada por TEST_DATABASE_URL)
     // ------------------------------------------------------------------
@@ -275,6 +413,9 @@ public class AdminService {
      * y el listado de usuarios con su {@code tipo_suscripcion} para cambiarlos entre {@code free} y {@code prueba}.
      */
     public JsonObject estadoZonaPruebas(int adminUserId) {
+        if (esModerador(adminUserId)) {
+            throw ServicioException.prohibido("Solo los administradores pueden acceder a la zona de pruebas");
+        }
         ConexionDB connDb = obtenerConexion();
         boolean disponible = connDb != null && connDb.tieneZonaPruebas();
         String zonaActiva = ConexionDB.zonaActual();
@@ -353,6 +494,9 @@ public class AdminService {
      * Solo puede invocarse desde el panel de administración ({@code /admin}).
      */
     public JsonObject cambiarSuscripcionUsuario(int adminUserId, int targetUserId, String tipoSuscripcionCrudo) {
+        if (esModerador(adminUserId)) {
+            throw ServicioException.prohibido("Solo los administradores pueden cambiar suscripciones");
+        }
         if (adminUserId <= 0 || targetUserId <= 0) {
             throw ServicioException.solicitudInvalida("Usuario no válido");
         }
@@ -387,8 +531,9 @@ public class AdminService {
                         username = rs.getString("username");
                         tipoActual = rs.getString("tipo_suscripcion");
                         String salaPrincipal = rs.getString("sala_actual");
-                        if (ConexionDB.SUSCRIPCION_ADMIN.equalsIgnoreCase(tipoActual)) {
-                            throw ServicioException.prohibido("No se puede modificar la suscripción de otro administrador");
+                        if (ConexionDB.SUSCRIPCION_ADMIN.equalsIgnoreCase(tipoActual)
+                                || ConexionDB.SUSCRIPCION_MODERADOR.equalsIgnoreCase(tipoActual)) {
+                            throw ServicioException.prohibido("No se puede modificar la suscripción de esta cuenta");
                         }
                         if (salaPrincipal != null && !salaPrincipal.isBlank()
                                 && !ConexionDB.SUSCRIPCION_PRUEBA.equalsIgnoreCase(tipoActual)) {
@@ -417,7 +562,7 @@ public class AdminService {
                 }
 
                 try (PreparedStatement upd = connPrin.prepareStatement(
-                        "UPDATE users SET tipo_suscripcion = ? WHERE id = ? AND tipo_suscripcion <> 'admin'")) {
+                        "UPDATE users SET tipo_suscripcion = ? WHERE id = ? AND tipo_suscripcion NOT IN ('admin', 'moderador')")) {
                     upd.setString(1, nuevoTipo);
                     upd.setInt(2, targetUserId);
                     if (upd.executeUpdate() != 1) {
@@ -457,8 +602,9 @@ public class AdminService {
         }
         String tipoActual = actual.has("tipo_suscripcion") && !actual.get("tipo_suscripcion").isJsonNull()
                 ? actual.get("tipo_suscripcion").getAsString() : "";
-        if (ConexionDB.SUSCRIPCION_ADMIN.equalsIgnoreCase(tipoActual)) {
-            throw ServicioException.prohibido("No se puede modificar la suscripción de otro administrador");
+        if (ConexionDB.SUSCRIPCION_ADMIN.equalsIgnoreCase(tipoActual)
+                || ConexionDB.SUSCRIPCION_MODERADOR.equalsIgnoreCase(tipoActual)) {
+            throw ServicioException.prohibido("No se puede modificar la suscripción de esta cuenta");
         }
         int filas = db.update("UPDATE users SET tipo_suscripcion = ? WHERE id = ?", nuevoTipo, targetUserId);
         if (filas != 1) {
@@ -478,6 +624,9 @@ public class AdminService {
      * Permite al administrador elegir en qué zona operar ({@code normal} o {@code prueba}).
      */
     public JsonObject cambiarZonaAdmin(int adminUserId, String zonaCruda) {
+        if (esModerador(adminUserId)) {
+            throw ServicioException.prohibido("Solo un administrador puede cambiar de zona");
+        }
         if (adminUserId <= 0) {
             throw ServicioException.noAutenticado("Inicia sesión como administrador");
         }
@@ -543,6 +692,9 @@ public class AdminService {
      * cuentas con suscripción {@code prueba} y {@code admin} con saldo 0.
      */
     public JsonObject reiniciarZonaPruebas(int adminUserId) {
+        if (esModerador(adminUserId)) {
+            throw ServicioException.prohibido("Solo los administradores pueden reiniciar la zona de pruebas");
+        }
         if (adminUserId <= 0) {
             throw ServicioException.noAutenticado("Inicia sesión como administrador");
         }
@@ -589,6 +741,29 @@ public class AdminService {
 
     // Transacciones (aprobar / rechazar)
     // ------------------------------------------------------------------
+
+    /**
+     * C3: Aprueba ("approve") o rechaza ("reject") una transacción pendiente validando que el actor
+     * tenga permiso sobre el usuario de la transacción (moderador solo sus usuarios; admin los propios).
+     */
+    public String procesarTransaccion(int actorUserId, int transId, String action) {
+        if (actorUserId > 0) {
+            JsonObject tx = db.queryOne("SELECT usuario_id FROM transactions WHERE id = ?", transId);
+            if (tx == null) {
+                throw ServicioException.noEncontrado("Transacción no encontrada");
+            }
+            int txUserId = enteroAdmin(tx, "usuario_id");
+            Integer modDueno = txUserId > 0 ? obtenerModeradorDeUsuario(txUserId) : null;
+            if (esModerador(actorUserId)) {
+                if (modDueno == null || modDueno != actorUserId) {
+                    throw ServicioException.prohibido("No tienes permiso para procesar esta transacción");
+                }
+            } else if (modDueno != null) {
+                throw ServicioException.prohibido("Esta transacción pertenece a otra billetera de referidos");
+            }
+        }
+        return procesarTransaccion(transId, action);
+    }
 
     /**
      * C3: Aprueba ("approve") o rechaza ("reject") una transacción pendiente de forma atómica.
@@ -715,6 +890,63 @@ public class AdminService {
         return "admin".equals(fila.get("tipo_suscripcion").getAsString());
     }
 
+    /** ¿Este usuario tiene rol {@code moderador} activo en la BD principal? */
+    public boolean esModerador(int userId) {
+        if (userId <= 0) return false;
+        if (usuarioDAO != null && usuarioDAO.getConexionDB() != null) {
+            return usuarioDAO.esModeradorEnPrincipal(userId);
+        }
+        JsonObject fila = db.queryOne("SELECT tipo_suscripcion FROM users WHERE id = ?", userId);
+        if (fila == null || !fila.has("tipo_suscripcion") || fila.get("tipo_suscripcion").isJsonNull()) {
+            return false;
+        }
+        return ConexionDB.SUSCRIPCION_MODERADOR.equalsIgnoreCase(fila.get("tipo_suscripcion").getAsString());
+    }
+
+    /**
+     * Devuelve el {@code id} del moderador dueño de {@code userId}, o {@code null} si el usuario
+     * entró sin referido de moderador (pertenece al administrador principal).
+     */
+    public Integer obtenerModeradorDeUsuario(int userId) {
+        if (userId <= 0) return null;
+        JsonObject mod = db.queryOne(
+                "SELECT m.id AS moderator_id " +
+                "FROM users u " +
+                "LEFT JOIN referrals r ON r.referred_user_id = u.id " +
+                "JOIN users m ON m.id = COALESCE(u.referido_por_id, r.referrer_user_id) " +
+                "WHERE u.id = ? AND m.id <> u.id AND LOWER(COALESCE(m.tipo_suscripcion, '')) = 'moderador' " +
+                "LIMIT 1",
+                userId);
+        if (mod == null || !mod.has("moderator_id") || mod.get("moderator_id").isJsonNull()) {
+            return null;
+        }
+        int id = enteroAdmin(mod, "moderator_id");
+        return id > 0 ? id : null;
+    }
+
+    private MapaUsuariosModeradores cargarMapaUsuariosDeModeradores() {
+        Map<Integer, Integer> porId = new HashMap<>();
+        Map<String, Integer> porUser = new HashMap<>();
+        List<JsonObject> rows = db.query(
+                "SELECT u.id AS user_id, u.username, m.id AS moderator_id " +
+                "FROM users u " +
+                "LEFT JOIN referrals r ON r.referred_user_id = u.id " +
+                "JOIN users m ON m.id = COALESCE(u.referido_por_id, r.referrer_user_id) " +
+                "WHERE m.id <> u.id AND LOWER(COALESCE(m.tipo_suscripcion, '')) = 'moderador'");
+        for (JsonObject row : rows) {
+            int uid = enteroAdmin(row, "user_id");
+            int mid = enteroAdmin(row, "moderator_id");
+            String uname = textoAdmin(row, "username").toLowerCase(Locale.ROOT);
+            if (uid > 0 && mid > 0) {
+                porId.put(uid, mid);
+            }
+            if (!uname.isBlank() && mid > 0) {
+                porUser.put(uname, mid);
+            }
+        }
+        return new MapaUsuariosModeradores(porId, porUser);
+    }
+
     /**
      * Resetea el estado de un jugador a normal. S3: ya no verifica aquí si quien lo pide es admin (antes recibía el
      * nombre de un admin por la URL y bastaba con escribir el de cualquiera); eso lo hace {@code AdminMiddleware}
@@ -727,107 +959,40 @@ public class AdminService {
     /**
      * Historial unificado de movimientos administrativos y de plataforma: recargas/retiros pendientes y resueltos,
      * partidas en curso/disputa/finalizadas con su comisión admin, referidos, premios/sobrantes de ranking,
-     * movimientos del pozo de sorteos y depósitos manuales.
+     * movimientos del pozo de sorteos y depósitos manuales. Si el actor es moderador, devuelve solo los suyos.
      */
     public JsonObject obtenerMovimientosAdmin(int adminUserId) {
+        if (esModerador(adminUserId)) {
+            return obtenerMovimientosModerador(adminUserId);
+        }
         ConexionDB connDb = obtenerConexion();
         if (ConexionDB.esZonaPrueba() && connDb != null && connDb.tieneZonaPruebas()) {
             connDb.sincronizarUsuariosPruebaYAdmin();
         }
 
+        MapaUsuariosModeradores mapaMods = cargarMapaUsuariosDeModeradores();
         List<MovimientoAdminOrdenado> lista = new ArrayList<>();
         ComisionService comisionService = new ComisionService();
 
-        int pendientesAccionCount = 0;
+        AcumuladorTxMovimientos acumTx = new AcumuladorTxMovimientos();
         int partidasEnCursoCount = 0;
         BigDecimal comisionesPartidasTotal = BigDecimal.ZERO;
         BigDecimal gananciaNetaAdminPartidas = BigDecimal.ZERO;
         BigDecimal referidosSinReferidorTotal = BigDecimal.ZERO;
-        BigDecimal recargasAprobadasTotal = BigDecimal.ZERO;
-        BigDecimal retirosEnviadosTotal = BigDecimal.ZERO;
 
-        // 1. Transacciones de usuarios (recargas y retiros)
+        // 1. Transacciones de usuarios (recargas y retiros únicamente de usuarios del Admin)
         List<JsonObject> txs = db.query(
                 "SELECT id, usuario_id, usuario_nombre, tipo, metodo, monto, referencia, estado, fecha " +
                 "FROM transactions ORDER BY fecha DESC, id DESC LIMIT 150");
         for (JsonObject tx : txs) {
-            int txId = enteroAdmin(tx, "id");
             int usuarioId = enteroAdmin(tx, "usuario_id");
-            String usuario = textoAdmin(tx, "usuario_nombre");
-            String tipo = textoAdmin(tx, "tipo");
-            String metodo = textoAdmin(tx, "metodo");
-            String referencia = textoAdmin(tx, "referencia");
-            String estado = textoAdmin(tx, "estado");
-            String fecha = textoAdmin(tx, "fecha");
-            BigDecimal monto = obtenerMontoJson(tx, "monto");
-            String tagUsuario = !usuario.isBlank() ? "@" + usuario : "usuario#" + usuarioId;
-            String metodoLegible = metodoLegibleAdmin(metodo, tipo);
-
-            JsonObject item = new JsonObject();
-            item.addProperty("id", "tx-" + txId);
-            item.addProperty("transaccionId", txId);
-            item.addProperty("usuarioId", usuarioId);
-            item.addProperty("usuario", usuario);
-            item.addProperty("tipoTransaccion", tipo);
-            item.addProperty("metodo", metodo);
-            item.addProperty("referencia", referencia);
-            item.addProperty("estado", estado);
-            item.addProperty("fecha", fecha);
-            item.addProperty("monto", monto);
-            item.addProperty("puedeProcesar", "pendiente".equalsIgnoreCase(estado) && !"wompi".equalsIgnoreCase(metodo));
-
-            if ("deposito".equalsIgnoreCase(tipo)) {
-                item.addProperty("categoriaMovimiento", "recarga");
-                item.addProperty("tipo", "recarga");
-                item.addProperty("origen", metodoLegible + " · " + tagUsuario);
-                if ("pendiente".equalsIgnoreCase(estado)) {
-                    item.addProperty("estadoVisual", "pendiente");
-                    item.addProperty("estadoTexto", "wompi".equalsIgnoreCase(metodo) ? "Pendiente Wompi" : "Pendiente");
-                    item.addProperty("signo", "+");
-                    item.addProperty("titulo", "Recarga pendiente de " + tagUsuario);
-                    pendientesAccionCount++;
-                } else if ("completado".equalsIgnoreCase(estado)) {
-                    item.addProperty("estadoVisual", "positivo");
-                    item.addProperty("estadoTexto", "Aprobado");
-                    item.addProperty("signo", "+");
-                    item.addProperty("titulo", "Recarga aprobada de " + tagUsuario);
-                    recargasAprobadasTotal = recargasAprobadasTotal.add(monto);
-                } else {
-                    item.addProperty("estadoVisual", "negativo");
-                    item.addProperty("estadoTexto", "Rechazado");
-                    item.addProperty("signo", "");
-                    item.addProperty("titulo", "Recarga rechazada de " + tagUsuario);
-                }
-            } else {
-                item.addProperty("categoriaMovimiento", "retiro");
-                item.addProperty("tipo", "retiro");
-                if ("pendiente".equalsIgnoreCase(estado)) {
-                    item.addProperty("estadoVisual", "pendiente");
-                    item.addProperty("estadoTexto", "Pendiente");
-                    item.addProperty("signo", "-");
-                    item.addProperty("titulo", "Retiro pendiente de " + tagUsuario);
-                    item.addProperty("origen", metodoLegible + " · " + tagUsuario);
-                    pendientesAccionCount++;
-                } else if ("completado".equalsIgnoreCase(estado)) {
-                    item.addProperty("estadoVisual", "negativo");
-                    item.addProperty("estadoTexto", "Enviado");
-                    item.addProperty("signo", "-");
-                    item.addProperty("titulo", "Retiro enviado a " + tagUsuario);
-                    item.addProperty("origen", metodoLegible + " · " + tagUsuario);
-                    retirosEnviadosTotal = retirosEnviadosTotal.add(monto);
-                } else {
-                    item.addProperty("estadoVisual", "positivo");
-                    item.addProperty("estadoTexto", "Rechazado (devuelto)");
-                    item.addProperty("signo", "+");
-                    item.addProperty("titulo", "Retiro rechazado a " + tagUsuario);
-                    item.addProperty("origen", "Reembolso de retiro · " + tagUsuario);
-                }
+            if (mapaMods.porUserId().containsKey(usuarioId)) {
+                continue;
             }
-            item.addProperty("detalle", !referencia.isBlank() ? "Ref: " + referencia : "");
-            lista.add(new MovimientoAdminOrdenado(parsearFechaAdmin(fecha), txId, item));
+            agregarMovimientoTransaccion(lista, tx, acumTx);
         }
 
-        // 2. Partidas (en curso, disputa y finalizadas con utilidad admin)
+        // 2. Partidas (en curso, disputa y finalizadas con utilidad efectiva del admin)
         List<JsonObject> matches = db.query(
                 "SELECT id, sala_id, jugador1, jugador2, modo, monto, ganador, estado, fecha " +
                 "FROM matches ORDER BY fecha DESC, id DESC LIMIT 150");
@@ -878,9 +1043,17 @@ public class AdminService {
                 item.addProperty("detalle", "Entradas reembolsadas a @" + j1 + " y @" + j2 + " (sin comisión)");
             } else {
                 ComisionService.Desglose d = comisionService.calcular(montoEntrada);
+                Integer modJ1 = mapaMods.porUsernameLower().get(j1.toLowerCase(Locale.ROOT));
+                Integer modJ2 = mapaMods.porUsernameLower().get(j2.toLowerCase(Locale.ROOT));
+                BigDecimal mitadBase = d.porJugador(ComisionService.Categoria.GANANCIA);
                 BigDecimal gananciaBase = d.getGananciaBaseAdmin();
+                if (modJ1 != null) gananciaBase = gananciaBase.subtract(mitadBase);
+                if (modJ2 != null) gananciaBase = gananciaBase.subtract(mitadBase);
+                if (gananciaBase.compareTo(BigDecimal.ZERO) < 0) {
+                    gananciaBase = BigDecimal.ZERO;
+                }
                 BigDecimal gananciaInactivas = d.getGananciaInactivasAdmin();
-                BigDecimal gananciaAdmin = d.getGananciaEfectivaAdmin();
+                BigDecimal gananciaAdmin = gananciaBase.add(gananciaInactivas);
                 BigDecimal comisionTotal = d.getComisionTotal();
                 item.addProperty("estadoVisual", "positivo");
                 item.addProperty("estadoTexto", "Finalizada");
@@ -920,6 +1093,9 @@ public class AdminService {
             int rpId = enteroAdmin(rp, "id");
             int matchId = enteroAdmin(rp, "match_id");
             String destino = textoAdmin(rp, "destino_tipo");
+            if ("moderador".equalsIgnoreCase(destino)) {
+                continue;
+            }
             BigDecimal montoRef = obtenerMontoJson(rp, "monto_referidor");
             BigDecimal montoDev = obtenerMontoJson(rp, "monto_devuelto_referido");
             BigDecimal montoAdmin = obtenerMontoJson(rp, "monto_admin");
@@ -1037,7 +1213,7 @@ public class AdminService {
             lista.add(new MovimientoAdminOrdenado(parsearFechaAdmin(fecha), psId, item));
         }
 
-        // 6. Depósitos manuales directos del admin desde ledger
+        // 6. Depósitos manuales directos del admin desde ledger (excluye usuarios de moderadores)
         List<JsonObject> manuales = db.query(
                 "SELECT wl.id, wl.monto, wl.referencia, wl.fecha, u.username " +
                 "FROM wallet_ledger wl JOIN users u ON u.id = wl.user_id " +
@@ -1047,6 +1223,9 @@ public class AdminService {
             int wlId = enteroAdmin(man, "id");
             BigDecimal monto = obtenerMontoJson(man, "monto");
             String username = textoAdmin(man, "username");
+            if (mapaMods.porUsernameLower().containsKey(username.toLowerCase(Locale.ROOT))) {
+                continue;
+            }
             String fecha = textoAdmin(man, "fecha");
 
             JsonObject item = new JsonObject();
@@ -1061,7 +1240,7 @@ public class AdminService {
             item.addProperty("origen", "Admin manual · @" + username);
             item.addProperty("detalle", "Acreditación directa desde panel admin");
             item.addProperty("fecha", fecha);
-            recargasAprobadasTotal = recargasAprobadasTotal.add(monto);
+            acumTx.recargasAprobadasTotal = acumTx.recargasAprobadasTotal.add(monto);
             lista.add(new MovimientoAdminOrdenado(parsearFechaAdmin(fecha), wlId, item));
         }
 
@@ -1074,22 +1253,345 @@ public class AdminService {
         }
 
         JsonObject resumen = new JsonObject();
-        resumen.addProperty("pendientesAccionCount", pendientesAccionCount);
+        resumen.addProperty("pendientesAccionCount", acumTx.pendientesAccionCount);
         resumen.addProperty("partidasEnCursoCount", partidasEnCursoCount);
         resumen.addProperty("comisionesPartidasTotal", comisionesPartidasTotal);
         resumen.addProperty("gananciaNetaAdminPartidas", gananciaNetaAdminPartidas);
         resumen.addProperty("referidosSinReferidorTotal", referidosSinReferidorTotal);
-        resumen.addProperty("recargasAprobadasTotal", recargasAprobadasTotal);
-        resumen.addProperty("retirosEnviadosTotal", retirosEnviadosTotal);
+        resumen.addProperty("recargasAprobadasTotal", acumTx.recargasAprobadasTotal);
+        resumen.addProperty("retirosEnviadosTotal", acumTx.retirosEnviadosTotal);
         resumen.addProperty("totalMovimientos", arr.size());
 
         JsonObject resp = new JsonObject();
         resp.addProperty("success", true);
+        resp.addProperty("esModerador", false);
         resp.addProperty("zonaActiva", ConexionDB.zonaActual());
         resp.addProperty("enZonaPruebas", ConexionDB.esZonaPrueba());
         resp.add("movimientos", arr);
         resp.add("resumen", resumen);
         return resp;
+    }
+
+    /**
+     * Movimientos aislados para una cuenta moderador: recargas/retiros de sus usuarios,
+     * partidas donde participan sus jugadores (con su ganancia en {@code moderator_wallet})
+     * y comisiones de referidos acreditadas a su billetera. Sin ranking, sorteos ni inactivas.
+     */
+    private JsonObject obtenerMovimientosModerador(int moderatorId) {
+        List<MovimientoAdminOrdenado> lista = new ArrayList<>();
+        AcumuladorTxMovimientos acumTx = new AcumuladorTxMovimientos();
+        int partidasEnCursoCount = 0;
+        BigDecimal gananciaPartidas = BigDecimal.ZERO;
+        BigDecimal gananciaReferidos = BigDecimal.ZERO;
+
+        // 1. Transacciones únicamente de los usuarios del moderador
+        List<JsonObject> txs = db.query(
+                "SELECT t.id, t.usuario_id, t.usuario_nombre, t.tipo, t.metodo, t.monto, t.referencia, t.estado, t.fecha " +
+                "FROM transactions t " +
+                "JOIN users u ON u.id = t.usuario_id " +
+                "LEFT JOIN referrals r ON r.referred_user_id = u.id " +
+                "WHERE COALESCE(u.referido_por_id, r.referrer_user_id) = ? AND u.id <> ? " +
+                "ORDER BY t.fecha DESC, t.id DESC LIMIT 150",
+                moderatorId, moderatorId);
+        for (JsonObject tx : txs) {
+            agregarMovimientoTransaccion(lista, tx, acumTx);
+        }
+
+        // 2. Partidas en las que participa al menos un jugador del moderador
+        List<JsonObject> matches = db.query(
+                "SELECT m.id, m.sala_id, m.jugador1, m.jugador2, m.modo, m.monto, m.ganador, m.estado, m.fecha, " +
+                "COALESCE((SELECT SUM(mw.monto) FROM moderator_wallet mw " +
+                "          WHERE mw.match_id = m.id AND mw.moderator_id = ? AND mw.categoria = 'ganancia'), 0) AS comision_moderador " +
+                "FROM matches m " +
+                "WHERE EXISTS (" +
+                "  SELECT 1 FROM users u " +
+                "  LEFT JOIN referrals r ON r.referred_user_id = u.id " +
+                "  WHERE LOWER(u.username) IN (LOWER(m.jugador1), LOWER(m.jugador2)) " +
+                "    AND COALESCE(u.referido_por_id, r.referrer_user_id) = ? " +
+                "    AND u.id <> ?" +
+                ") " +
+                "ORDER BY m.fecha DESC, m.id DESC LIMIT 150",
+                moderatorId, moderatorId, moderatorId);
+        for (JsonObject m : matches) {
+            int matchId = enteroAdmin(m, "id");
+            String j1 = textoAdmin(m, "jugador1");
+            String j2 = textoAdmin(m, "jugador2");
+            String modo = textoAdmin(m, "modo");
+            String ganador = textoAdmin(m, "ganador");
+            String estado = textoAdmin(m, "estado");
+            String fecha = textoAdmin(m, "fecha");
+            BigDecimal montoEntrada = obtenerMontoJson(m, "monto");
+            BigDecimal pozo = montoEntrada.multiply(BigDecimal.valueOf(2));
+
+            JsonObject item = new JsonObject();
+            item.addProperty("id", "match-" + matchId);
+            item.addProperty("matchId", matchId);
+            item.addProperty("categoriaMovimiento", "partida");
+            item.addProperty("tipo", "partida");
+            item.addProperty("estado", estado);
+            item.addProperty("fecha", fecha);
+            item.addProperty("origen", "Partida #" + matchId + " (@" + j1 + " vs @" + j2
+                    + (!modo.isBlank() ? " · " + modo : "") + ")");
+
+            if ("en_curso".equalsIgnoreCase(estado)) {
+                item.addProperty("estadoVisual", "pendiente");
+                item.addProperty("estadoTexto", "En curso");
+                item.addProperty("signo", "");
+                item.addProperty("monto", pozo);
+                item.addProperty("titulo", "Partida #" + matchId + " en curso");
+                item.addProperty("detalle", "Pozo en juego $" + formatoCopAdmin(pozo)
+                        + " ($" + formatoCopAdmin(montoEntrada) + " por jugador)");
+                partidasEnCursoCount++;
+            } else if ("disputa".equalsIgnoreCase(estado)) {
+                item.addProperty("estadoVisual", "pendiente");
+                item.addProperty("estadoTexto", "En disputa");
+                item.addProperty("signo", "");
+                item.addProperty("monto", pozo);
+                item.addProperty("titulo", "Partida #" + matchId + " en disputa");
+                item.addProperty("detalle", "En revisión de soporte · Pozo $" + formatoCopAdmin(pozo));
+                partidasEnCursoCount++;
+            } else if ("Cancelada".equalsIgnoreCase(ganador)) {
+                item.addProperty("estadoVisual", "pendiente");
+                item.addProperty("estadoTexto", "Cancelada");
+                item.addProperty("signo", "");
+                item.addProperty("monto", montoEntrada);
+                item.addProperty("titulo", "Partida #" + matchId + " cancelada");
+                item.addProperty("detalle", "Entradas reembolsadas a @" + j1 + " y @" + j2 + " (sin comisión)");
+            } else {
+                BigDecimal comisionMod = obtenerMontoJson(m, "comision_moderador");
+                item.addProperty("estadoVisual", "positivo");
+                item.addProperty("estadoTexto", "Finalizada");
+                item.addProperty("signo", "+");
+                item.addProperty("monto", comisionMod);
+                item.addProperty("titulo", "Comisión Partida #" + matchId + " (Ganó @" + ganador + ")");
+                item.addProperty("detalle", "Comisión acreditada a tu billetera: $" + formatoCopAdmin(comisionMod)
+                        + " · Pozo $" + formatoCopAdmin(pozo));
+                gananciaPartidas = gananciaPartidas.add(comisionMod);
+            }
+            lista.add(new MovimientoAdminOrdenado(parsearFechaAdmin(fecha), matchId, item));
+        }
+
+        // 3. Comisiones de referidos acreditadas a su billetera
+        List<JsonObject> refs = db.query(
+                "SELECT rp.id, rp.match_id, rp.monto_referidor, rp.monto_devuelto_referido, " +
+                "rp.porcentaje_compartido, rp.creado_en, uj.username AS jugador_username " +
+                "FROM referral_payouts rp " +
+                "LEFT JOIN users uj ON uj.id = rp.jugador_id " +
+                "WHERE rp.referrer_user_id = ? AND rp.destino_tipo = 'moderador' " +
+                "ORDER BY rp.creado_en DESC, rp.id DESC LIMIT 120",
+                moderatorId);
+        for (JsonObject rp : refs) {
+            int rpId = enteroAdmin(rp, "id");
+            int matchId = enteroAdmin(rp, "match_id");
+            BigDecimal montoRef = obtenerMontoJson(rp, "monto_referidor");
+            BigDecimal montoDev = obtenerMontoJson(rp, "monto_devuelto_referido");
+            BigDecimal pct = obtenerMontoJson(rp, "porcentaje_compartido");
+            String jugUsername = textoAdmin(rp, "jugador_username");
+            String fecha = textoAdmin(rp, "creado_en");
+            String tagJug = !jugUsername.isBlank() ? "@" + jugUsername : "jugador";
+
+            if (montoRef.compareTo(BigDecimal.ZERO) > 0) {
+                JsonObject item = new JsonObject();
+                item.addProperty("id", "ref-" + rpId);
+                item.addProperty("categoriaMovimiento", "referido");
+                item.addProperty("tipo", "referido_moderador");
+                item.addProperty("estadoVisual", "positivo");
+                item.addProperty("estadoTexto", "Ingreso referido");
+                item.addProperty("signo", "+");
+                item.addProperty("monto", montoRef);
+                item.addProperty("titulo", "Comisión de referido · " + tagJug);
+                item.addProperty("origen", "Referidos · Invitado " + tagJug
+                        + (matchId > 0 ? " (Partida #" + matchId + ")" : ""));
+                item.addProperty("detalle", "Acreditado a tu billetera $" + formatoCopAdmin(montoRef)
+                        + (montoDev.compareTo(BigDecimal.ZERO) > 0
+                                ? " · Devolución a " + tagJug + " $" + formatoCopAdmin(montoDev)
+                                  + " (" + pct.stripTrailingZeros().toPlainString() + "%)"
+                                : ""));
+                item.addProperty("fecha", fecha);
+                gananciaReferidos = gananciaReferidos.add(montoRef);
+                lista.add(new MovimientoAdminOrdenado(parsearFechaAdmin(fecha), rpId, item));
+            }
+        }
+
+        lista.sort(Comparator.comparing(MovimientoAdminOrdenado::instante).reversed()
+                .thenComparing(Comparator.comparingLong(MovimientoAdminOrdenado::tieId).reversed()));
+
+        JsonArray arr = new JsonArray();
+        for (MovimientoAdminOrdenado m : lista) {
+            arr.add(m.datos());
+        }
+
+        JsonObject resumen = new JsonObject();
+        resumen.addProperty("pendientesAccionCount", acumTx.pendientesAccionCount);
+        resumen.addProperty("partidasEnCursoCount", partidasEnCursoCount);
+        resumen.addProperty("gananciaComisionesModerador", gananciaPartidas);
+        resumen.addProperty("gananciaReferidosModerador", gananciaReferidos);
+        resumen.addProperty("gananciaTotalModerador", gananciaPartidas.add(gananciaReferidos));
+        resumen.addProperty("recargasAprobadasTotal", acumTx.recargasAprobadasTotal);
+        resumen.addProperty("retirosEnviadosTotal", acumTx.retirosEnviadosTotal);
+        resumen.addProperty("totalMovimientos", arr.size());
+
+        JsonObject resp = new JsonObject();
+        resp.addProperty("success", true);
+        resp.addProperty("esModerador", true);
+        resp.add("movimientos", arr);
+        resp.add("resumen", resumen);
+        return resp;
+    }
+
+    private void agregarMovimientoTransaccion(List<MovimientoAdminOrdenado> lista,
+                                              JsonObject tx,
+                                              AcumuladorTxMovimientos acum) {
+        int txId = enteroAdmin(tx, "id");
+        int usuarioId = enteroAdmin(tx, "usuario_id");
+        String usuario = textoAdmin(tx, "usuario_nombre");
+        String tipo = textoAdmin(tx, "tipo");
+        String metodo = textoAdmin(tx, "metodo");
+        String referencia = textoAdmin(tx, "referencia");
+        String estado = textoAdmin(tx, "estado");
+        String fecha = textoAdmin(tx, "fecha");
+        BigDecimal monto = obtenerMontoJson(tx, "monto");
+        String tagUsuario = !usuario.isBlank() ? "@" + usuario : "usuario#" + usuarioId;
+        String metodoLegible = metodoLegibleAdmin(metodo, tipo);
+
+        JsonObject item = new JsonObject();
+        item.addProperty("id", "tx-" + txId);
+        item.addProperty("transaccionId", txId);
+        item.addProperty("usuarioId", usuarioId);
+        item.addProperty("usuario", usuario);
+        item.addProperty("tipoTransaccion", tipo);
+        item.addProperty("metodo", metodo);
+        item.addProperty("referencia", referencia);
+        item.addProperty("estado", estado);
+        item.addProperty("fecha", fecha);
+        item.addProperty("monto", monto);
+        item.addProperty("puedeProcesar", "pendiente".equalsIgnoreCase(estado) && !"wompi".equalsIgnoreCase(metodo));
+
+        if ("deposito".equalsIgnoreCase(tipo)) {
+            item.addProperty("categoriaMovimiento", "recarga");
+            item.addProperty("tipo", "recarga");
+            item.addProperty("origen", metodoLegible + " · " + tagUsuario);
+            if ("pendiente".equalsIgnoreCase(estado)) {
+                item.addProperty("estadoVisual", "pendiente");
+                item.addProperty("estadoTexto", "wompi".equalsIgnoreCase(metodo) ? "Pendiente Wompi" : "Pendiente");
+                item.addProperty("signo", "+");
+                item.addProperty("titulo", "Recarga pendiente de " + tagUsuario);
+                acum.pendientesAccionCount++;
+            } else if ("completado".equalsIgnoreCase(estado)) {
+                item.addProperty("estadoVisual", "positivo");
+                item.addProperty("estadoTexto", "Aprobado");
+                item.addProperty("signo", "+");
+                item.addProperty("titulo", "Recarga aprobada de " + tagUsuario);
+                acum.recargasAprobadasTotal = acum.recargasAprobadasTotal.add(monto);
+            } else {
+                item.addProperty("estadoVisual", "negativo");
+                item.addProperty("estadoTexto", "Rechazado");
+                item.addProperty("signo", "");
+                item.addProperty("titulo", "Recarga rechazada de " + tagUsuario);
+            }
+        } else {
+            item.addProperty("categoriaMovimiento", "retiro");
+            item.addProperty("tipo", "retiro");
+            if ("pendiente".equalsIgnoreCase(estado)) {
+                item.addProperty("estadoVisual", "pendiente");
+                item.addProperty("estadoTexto", "Pendiente");
+                item.addProperty("signo", "-");
+                item.addProperty("titulo", "Retiro pendiente de " + tagUsuario);
+                item.addProperty("origen", metodoLegible + " · " + tagUsuario);
+                acum.pendientesAccionCount++;
+            } else if ("completado".equalsIgnoreCase(estado)) {
+                item.addProperty("estadoVisual", "negativo");
+                item.addProperty("estadoTexto", "Enviado");
+                item.addProperty("signo", "-");
+                item.addProperty("titulo", "Retiro enviado a " + tagUsuario);
+                item.addProperty("origen", metodoLegible + " · " + tagUsuario);
+                acum.retirosEnviadosTotal = acum.retirosEnviadosTotal.add(monto);
+            } else {
+                item.addProperty("estadoVisual", "positivo");
+                item.addProperty("estadoTexto", "Rechazado (devuelto)");
+                item.addProperty("signo", "+");
+                item.addProperty("titulo", "Retiro rechazado a " + tagUsuario);
+                item.addProperty("origen", "Reembolso de retiro · " + tagUsuario);
+            }
+        }
+        item.addProperty("detalle", !referencia.isBlank() ? "Ref: " + referencia : "");
+        lista.add(new MovimientoAdminOrdenado(parsearFechaAdmin(fecha), txId, item));
+    }
+
+    // ------------------------------------------------------------------
+    // Nequis propios del moderador
+    // ------------------------------------------------------------------
+
+    /** Lista los números Nequi configurados por el moderador autenticado. */
+    public List<JsonObject> listarNequisModerador(int actorUserId) {
+        if (!esModerador(actorUserId)) {
+            throw ServicioException.prohibido("Opción exclusiva para cuentas autorizadas");
+        }
+        return db.query(
+                "SELECT id, numero, titular, creado_en FROM moderator_nequis " +
+                "WHERE moderator_id = ? ORDER BY id ASC",
+                actorUserId);
+    }
+
+    /** Agrega un nuevo número Nequi para que los usuarios de ese moderador puedan recargarle. */
+    public List<JsonObject> agregarNequiModerador(int actorUserId, String numeroCrudo, String titularCrudo) {
+        if (!esModerador(actorUserId)) {
+            throw ServicioException.prohibido("Opción exclusiva para cuentas autorizadas");
+        }
+        String textoEntrada = numeroCrudo == null ? "" : numeroCrudo.trim();
+        if (textoEntrada.isEmpty() || !NEQUI_FORMATO_PERMITIDO.matcher(textoEntrada).matches()) {
+            throw ServicioException.solicitudInvalida("Ingresa un número Nequi válido (ej: 3001234567)");
+        }
+        String soloDigitos = textoEntrada.replaceAll("\\D", "");
+        if (soloDigitos.length() < 10 || soloDigitos.length() > 15) {
+            throw ServicioException.solicitudInvalida("El número Nequi debe tener entre 10 y 15 dígitos");
+        }
+        String titular = ChatSanitizer.limpiarTexto(titularCrudo, 80);
+
+        JsonObject conteo = db.queryOne(
+                "SELECT COUNT(*) AS total FROM moderator_nequis WHERE moderator_id = ?",
+                actorUserId);
+        int totalActual = conteo != null ? enteroAdmin(conteo, "total") : 0;
+        if (totalActual >= MAX_NEQUIS_MODERADOR) {
+            throw ServicioException.solicitudInvalida("Puedes registrar máximo " + MAX_NEQUIS_MODERADOR + " números Nequi");
+        }
+
+        JsonObject duplicado = db.queryOne(
+                "SELECT id FROM moderator_nequis WHERE moderator_id = ? AND numero = ?",
+                actorUserId, soloDigitos);
+        if (duplicado != null) {
+            throw ServicioException.solicitudInvalida("Ese número Nequi ya está en tu lista");
+        }
+
+        db.update(
+                "INSERT INTO moderator_nequis (moderator_id, numero, titular) VALUES (?, ?, ?)",
+                actorUserId, soloDigitos, titular);
+        return listarNequisModerador(actorUserId);
+    }
+
+    /** Elimina un número Nequi propio del moderador autenticado. */
+    public List<JsonObject> eliminarNequiModerador(int actorUserId, int nequiId) {
+        if (!esModerador(actorUserId)) {
+            throw ServicioException.prohibido("Opción exclusiva para cuentas autorizadas");
+        }
+        if (nequiId <= 0) {
+            throw ServicioException.solicitudInvalida("Número Nequi no válido");
+        }
+        int borrados = db.update(
+                "DELETE FROM moderator_nequis WHERE id = ? AND moderator_id = ?",
+                nequiId, actorUserId);
+        if (borrados != 1) {
+            throw ServicioException.noEncontrado("No se encontró ese número Nequi en tu cuenta");
+        }
+        return listarNequisModerador(actorUserId);
+    }
+
+    private record MapaUsuariosModeradores(Map<Integer, Integer> porUserId, Map<String, Integer> porUsernameLower) {}
+
+    private static final class AcumuladorTxMovimientos {
+        int pendientesAccionCount = 0;
+        BigDecimal recargasAprobadasTotal = BigDecimal.ZERO;
+        BigDecimal retirosEnviadosTotal = BigDecimal.ZERO;
     }
 
     private static String tituloPozoSorteo(String tipo) {

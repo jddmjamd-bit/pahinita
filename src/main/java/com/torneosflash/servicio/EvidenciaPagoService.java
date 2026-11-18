@@ -35,15 +35,30 @@ public class EvidenciaPagoService {
     }
 
     // ==================================================================
-    // Admin
+    // Admin / Moderador
     // ==================================================================
 
-    /** Retiros ya aprobados que todavía no tienen evidencia (más recientes primero). Solo admin. */
+    /** Retiros ya aprobados que todavía no tienen evidencia (más recientes primero). Admin o moderador sobre sus usuarios. */
     public List<JsonObject> retirosSinEvidencia(int adminId) {
-        exigirAdmin(adminId);
+        JsonObject actor = exigirAdminOModerador(adminId);
+        if ("moderador".equalsIgnoreCase(texto(actor, "tipo_suscripcion"))) {
+            return db.query("SELECT t.id, t.usuario_id, u.username, t.metodo, t.monto, t.fecha "
+                    + "FROM transactions t "
+                    + "JOIN users u ON u.id = t.usuario_id "
+                    + "LEFT JOIN referrals r ON r.referred_user_id = u.id "
+                    + "JOIN users m ON m.id = COALESCE(u.referido_por_id, r.referrer_user_id) "
+                    + "WHERE t.tipo = 'retiro' AND t.estado = 'completado' "
+                    + "AND m.id = ? AND m.id <> u.id AND LOWER(COALESCE(m.tipo_suscripcion, '')) = 'moderador' "
+                    + "AND NOT EXISTS (SELECT 1 FROM payment_evidences e WHERE e.transaction_id = t.id) "
+                    + "ORDER BY t.id DESC LIMIT ?", adminId, MAX_LISTA_ADMIN);
+        }
         return db.query("SELECT t.id, t.usuario_id, u.username, t.metodo, t.monto, t.fecha "
-                + "FROM transactions t JOIN users u ON u.id = t.usuario_id "
+                + "FROM transactions t "
+                + "JOIN users u ON u.id = t.usuario_id "
+                + "LEFT JOIN referrals r ON r.referred_user_id = u.id "
+                + "LEFT JOIN users m ON m.id = COALESCE(u.referido_por_id, r.referrer_user_id) "
                 + "WHERE t.tipo = 'retiro' AND t.estado = 'completado' "
+                + "AND (m.id IS NULL OR m.id = u.id OR LOWER(COALESCE(m.tipo_suscripcion, '')) <> 'moderador') "
                 + "AND NOT EXISTS (SELECT 1 FROM payment_evidences e WHERE e.transaction_id = t.id) "
                 + "ORDER BY t.id DESC LIMIT ?", MAX_LISTA_ADMIN);
     }
@@ -56,12 +71,12 @@ public class EvidenciaPagoService {
      * @return {@code {success, id}}
      */
     public JsonObject publicar(int adminId, int transaccionId, String imagen, String nota) {
-        JsonObject admin = exigirAdmin(adminId);
+        JsonObject admin = exigirAdminOModerador(adminId);
         validarImagen(imagen);
         String notaLimpia = ChatSanitizer.limpiarTexto(nota, MAX_NOTA);
 
         // Comprobaciones previas solo para dar un mensaje claro; el INSERT de abajo repite las condiciones
-        JsonObject trans = db.queryOne("SELECT id, tipo, estado FROM transactions WHERE id = ?", transaccionId);
+        JsonObject trans = db.queryOne("SELECT id, usuario_id, tipo, estado FROM transactions WHERE id = ?", transaccionId);
         if (trans == null) throw ServicioException.noEncontrado("Ese retiro no existe");
         if (!"retiro".equals(texto(trans, "tipo"))) {
             throw ServicioException.solicitudInvalida("Solo se publica evidencia de retiros");
@@ -69,6 +84,17 @@ public class EvidenciaPagoService {
         if (!"completado".equals(texto(trans, "estado"))) {
             throw ServicioException.solicitudInvalida(
                     "Primero aprueba el retiro: la evidencia solo se publica cuando el pago ya se hizo");
+        }
+        int usuarioId = trans.has("usuario_id") && !trans.get("usuario_id").isJsonNull()
+                ? trans.get("usuario_id").getAsInt() : 0;
+        Integer modDueno = obtenerModeradorDeUsuario(usuarioId);
+        boolean actorEsModerador = "moderador".equalsIgnoreCase(texto(admin, "tipo_suscripcion"));
+        if (actorEsModerador) {
+            if (modDueno == null || modDueno != adminId) {
+                throw ServicioException.prohibido("No tienes permiso para publicar evidencia de este retiro");
+            }
+        } else if (modDueno != null) {
+            throw ServicioException.prohibido("Este retiro pertenece a otra billetera de referidos");
         }
 
         // Una sola sentencia: usuario, monto y método salen de la transacción, y si dos admins publican a la vez
@@ -122,8 +148,19 @@ public class EvidenciaPagoService {
                 + "LEFT JOIN users ua ON ua.id = e.admin_id ";
 
         List<JsonObject> filas;
-        if ("admin".equals(texto(usuario, "tipo_suscripcion"))) {
-            filas = db.query(consultaBase + "ORDER BY e.id DESC LIMIT ?", config.getPagosHistorialLimite());
+        String rol = texto(usuario, "tipo_suscripcion");
+        if ("admin".equalsIgnoreCase(rol)) {
+            filas = db.query(consultaBase
+                    + "LEFT JOIN referrals r ON r.referred_user_id = uu.id "
+                    + "LEFT JOIN users um ON um.id = COALESCE(uu.referido_por_id, r.referrer_user_id) "
+                    + "WHERE um.id IS NULL OR um.id = uu.id OR LOWER(COALESCE(um.tipo_suscripcion, '')) <> 'moderador' "
+                    + "ORDER BY e.id DESC LIMIT ?", config.getPagosHistorialLimite());
+        } else if ("moderador".equalsIgnoreCase(rol)) {
+            filas = db.query(consultaBase
+                    + "LEFT JOIN referrals r ON r.referred_user_id = uu.id "
+                    + "WHERE (COALESCE(uu.referido_por_id, r.referrer_user_id) = ? AND uu.id <> ?) OR e.admin_id = ? "
+                    + "ORDER BY e.id DESC LIMIT ?",
+                    userId, userId, userId, config.getPagosHistorialLimite());
         } else {
             filas = db.query(consultaBase + "WHERE e.user_id = ? ORDER BY e.id DESC LIMIT ?",
                     userId, config.getPagosHistorialLimite());
@@ -186,13 +223,31 @@ public class EvidenciaPagoService {
         return usuario;
     }
 
-    /** Usuario de la sesión que además es admin ({@code tipo_suscripcion = 'admin'}); 403 si no lo es. */
-    private JsonObject exigirAdmin(int userId) {
+    /** Usuario de la sesión que además es admin o moderador; 403 si no lo es. */
+    private JsonObject exigirAdminOModerador(int userId) {
         JsonObject usuario = exigirUsuario(userId);
-        if (!"admin".equals(texto(usuario, "tipo_suscripcion"))) {
+        String rol = texto(usuario, "tipo_suscripcion");
+        if (!"admin".equalsIgnoreCase(rol) && !"moderador".equalsIgnoreCase(rol)) {
             throw ServicioException.prohibido("Solo los administradores pueden hacer esto");
         }
         return usuario;
+    }
+
+    private Integer obtenerModeradorDeUsuario(int usuarioId) {
+        if (usuarioId <= 0) return null;
+        JsonObject row = db.queryOne(
+                "SELECT m.id AS moderator_id "
+                        + "FROM users u "
+                        + "LEFT JOIN referrals r ON r.referred_user_id = u.id "
+                        + "JOIN users m ON m.id = COALESCE(u.referido_por_id, r.referrer_user_id) "
+                        + "WHERE u.id = ? AND m.id <> u.id AND LOWER(COALESCE(m.tipo_suscripcion, '')) = 'moderador' "
+                        + "LIMIT 1",
+                usuarioId);
+        if (row == null || !row.has("moderator_id") || row.get("moderator_id").isJsonNull()) {
+            return null;
+        }
+        int id = row.get("moderator_id").getAsInt();
+        return id > 0 ? id : null;
     }
 
     private static String texto(JsonObject objeto, String campo) {

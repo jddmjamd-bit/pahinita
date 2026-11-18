@@ -8,8 +8,11 @@ import com.torneosflash.eventos.Eventos;
 import java.math.BigDecimal;
 import java.text.NumberFormat;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /** Convierte los eventos confirmados del dominio en avisos persistentes y push para usuarios desconectados. */
@@ -206,12 +209,21 @@ public final class NotificacionesListener {
         }
         String tituloAdmin = esDeposito ? "Nueva recarga pendiente" : "Nuevo retiro pendiente";
         String mensajeAdmin = tagUser + " · $" + montoTxt + " por " + origen;
-        for (int adminId : obtenerAdminIds()) {
-            if (adminId != tx.userId()) {
-                notificaciones.notificar(adminId, "finanzas", tituloAdmin, mensajeAdmin,
+        Integer modId = obtenerModeradorDeUsuario(tx.userId());
+        if (modId != null) {
+            if (modId != tx.userId()) {
+                notificaciones.notificar(modId, "finanzas", tituloAdmin, mensajeAdmin,
                         "/admin", claveTx("admin-tx-pendiente:", tx.transactionId()), datosAdmin, true);
             }
-            emitirMovimientoActualizado(adminId, esDeposito ? "recarga" : "retiro", "pendiente", tx.monto(), origen);
+            emitirMovimientoActualizado(modId, esDeposito ? "recarga" : "retiro", "pendiente", tx.monto(), origen);
+        } else {
+            for (int adminId : obtenerAdminIds()) {
+                if (adminId != tx.userId()) {
+                    notificaciones.notificar(adminId, "finanzas", tituloAdmin, mensajeAdmin,
+                            "/admin", claveTx("admin-tx-pendiente:", tx.transactionId()), datosAdmin, true);
+                }
+                emitirMovimientoActualizado(adminId, esDeposito ? "recarga" : "retiro", "pendiente", tx.monto(), origen);
+            }
         }
     }
 
@@ -276,12 +288,21 @@ public final class NotificacionesListener {
 
         JsonObject datosAdmin = construirDatosMovimiento(estadoVisual, signo, tx.monto(),
                 tagUser + " · " + origen, esDeposito ? "recarga" : "retiro");
-        for (int adminId : obtenerAdminIds()) {
-            if (adminId != tx.userId()) {
-                notificaciones.notificar(adminId, "finanzas", tituloAdmin, msgAdmin,
+        Integer modId = obtenerModeradorDeUsuario(tx.userId());
+        if (modId != null) {
+            if (modId != tx.userId()) {
+                notificaciones.notificar(modId, "finanzas", tituloAdmin, msgAdmin,
                         "/admin", claveTx("admin-tx-resuelta:", tx.transactionId()), datosAdmin, true);
             }
-            emitirMovimientoActualizado(adminId, esDeposito ? "recarga" : "retiro", estadoVisual, tx.monto(), origen);
+            emitirMovimientoActualizado(modId, esDeposito ? "recarga" : "retiro", estadoVisual, tx.monto(), origen);
+        } else {
+            for (int adminId : obtenerAdminIds()) {
+                if (adminId != tx.userId()) {
+                    notificaciones.notificar(adminId, "finanzas", tituloAdmin, msgAdmin,
+                            "/admin", claveTx("admin-tx-resuelta:", tx.transactionId()), datosAdmin, true);
+                }
+                emitirMovimientoActualizado(adminId, esDeposito ? "recarga" : "retiro", estadoVisual, tx.monto(), origen);
+            }
         }
     }
 
@@ -377,11 +398,25 @@ public final class NotificacionesListener {
             }
             emitirMovimientoActualizado(adminId, "partida", "pendiente", montoEntrada, origenAdmin);
         }
+
+        Set<Integer> modIds = new HashSet<>();
+        for (int uid : partida.participantes()) {
+            Integer modId = obtenerModeradorDeUsuario(uid);
+            if (modId != null) {
+                modIds.add(modId);
+            }
+        }
+        for (int modId : modIds) {
+            emitirMovimientoActualizado(modId, "partida", "pendiente", montoEntrada, origenAdmin);
+        }
     }
 
     private void partidaFinalizadaFinanzas(EventBus.Evento evento) {
         Eventos.PartidaFinalizada partida = evento.datos(Eventos.PartidaFinalizada.class);
         if (partida == null || partida.matchId() <= 0) return;
+
+        Map<Integer, Integer> conteoPorMod = new HashMap<>();
+        int jugadoresDeMod = 0;
 
         for (int uid : partida.participantes()) {
             if (uid <= 0) continue;
@@ -392,19 +427,35 @@ public final class NotificacionesListener {
             emitirMovimientoActualizado(uid, "partida", estadoVisual,
                     uid == partida.ganadorId() ? partida.premio() : partida.monto(),
                     "Partida #" + partida.matchId());
+
+            Integer modId = obtenerModeradorDeUsuario(uid);
+            if (modId != null) {
+                conteoPorMod.merge(modId, 1, Integer::sum);
+                jugadoresDeMod++;
+            }
         }
 
         notificaciones.eliminarPorEvento("admin-match-curso:" + partida.matchId());
-        BigDecimal gananciaAdmin = partida.desglose() != null
-                ? partida.desglose().getGananciaEfectivaAdmin()
-                : BigDecimal.ZERO;
-        BigDecimal comisionTotal = partida.desglose() != null
-                ? partida.desglose().getComisionTotal()
-                : BigDecimal.ZERO;
         boolean hayGanador = partida.ganadorId() > 0;
         String estadoAdmin = hayGanador ? "positivo" : "pendiente";
         String origenAdmin = "Partida #" + partida.matchId()
                 + (hayGanador ? " · Ganó @" + partida.ganadorNombre() : " · Cancelada");
+
+        BigDecimal gananciaAdmin = BigDecimal.ZERO;
+        if (partida.desglose() != null) {
+            BigDecimal gananciaBaseAdmin = partida.desglose().getGananciaBaseAdmin();
+            if (jugadoresDeMod > 0) {
+                BigDecimal mitadBase = partida.desglose().porJugador(ComisionService.Categoria.GANANCIA);
+                gananciaBaseAdmin = gananciaBaseAdmin.subtract(mitadBase.multiply(BigDecimal.valueOf(jugadoresDeMod)));
+                if (gananciaBaseAdmin.compareTo(BigDecimal.ZERO) < 0) {
+                    gananciaBaseAdmin = BigDecimal.ZERO;
+                }
+            }
+            gananciaAdmin = gananciaBaseAdmin.add(partida.desglose().getGananciaInactivasAdmin());
+        }
+        BigDecimal comisionTotal = partida.desglose() != null
+                ? partida.desglose().getComisionTotal()
+                : BigDecimal.ZERO;
         String mensajeAdmin = hayGanador
                 ? "Utilidad admin +$" + formatoCop(gananciaAdmin) + " (Comisión total $" + formatoCop(comisionTotal) + ")"
                 : "Partida cancelada o sin ganador";
@@ -420,6 +471,45 @@ public final class NotificacionesListener {
                         "admin-match-fin:" + partida.matchId(), datosAdmin, false);
             }
             emitirMovimientoActualizado(adminId, "partida", estadoAdmin, gananciaAdmin, origenAdmin);
+        }
+
+        for (Map.Entry<Integer, Integer> entry : conteoPorMod.entrySet()) {
+            int modId = entry.getKey();
+            int cant = entry.getValue();
+            BigDecimal gananciaMod = (hayGanador && partida.desglose() != null)
+                    ? partida.desglose().porJugador(ComisionService.Categoria.GANANCIA)
+                            .multiply(BigDecimal.valueOf(cant))
+                    : BigDecimal.ZERO;
+            if (hayGanador && !partida.participantes().contains(modId)) {
+                JsonObject datosMod = construirDatosMovimiento("positivo", "+", gananciaMod, origenAdmin, "partida");
+                datosMod.addProperty("matchId", partida.matchId());
+                notificaciones.notificar(modId, "finanzas",
+                        "Partida #" + partida.matchId() + " finalizada",
+                        "💰 +$" + formatoCop(gananciaMod) + " comisión Partida #" + partida.matchId(),
+                        "/admin", "mod-match-fin:" + partida.matchId() + ":" + modId, datosMod, false);
+            }
+            emitirMovimientoActualizado(modId, "partida", estadoAdmin, gananciaMod, origenAdmin);
+        }
+    }
+
+    private Integer obtenerModeradorDeUsuario(int userId) {
+        if (userId <= 0 || db == null) return null;
+        JsonObject row = db.queryOne(
+                "SELECT m.id AS moderator_id " +
+                "FROM users u " +
+                "LEFT JOIN referrals r ON r.referred_user_id = u.id " +
+                "JOIN users m ON m.id = COALESCE(u.referido_por_id, r.referrer_user_id) " +
+                "WHERE u.id = ? AND m.id <> u.id AND LOWER(COALESCE(m.tipo_suscripcion, '')) = 'moderador' " +
+                "LIMIT 1",
+                userId);
+        if (row == null || !row.has("moderator_id") || row.get("moderator_id").isJsonNull()) {
+            return null;
+        }
+        try {
+            int modId = row.get("moderator_id").getAsInt();
+            return modId > 0 ? modId : null;
+        } catch (Exception e) {
+            return null;
         }
     }
 

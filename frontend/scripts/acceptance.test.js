@@ -30,6 +30,7 @@ const leaderboardJsx = await readFile(new URL('../src/pages/Leaderboard.jsx', im
 const chatbotJsx = await readFile(new URL('../src/pages/Chatbot.jsx', import.meta.url), 'utf8')
 const soporteJsx = await readFile(new URL('../src/pages/Soporte.jsx', import.meta.url), 'utf8')
 const financeJsx = await readFile(new URL('../src/pages/Finance.jsx', import.meta.url), 'utf8')
+const faqJs = await readFile(new URL('../src/data/faq.js', import.meta.url), 'utf8')
 const vozDiscordJsx = await readFile(new URL('../src/components/VozDiscord.jsx', import.meta.url), 'utf8')
 
 test('P2: las rutas privadas esperan la sesión, envían al login si no hay usuario y dejan /faq pública', () => {
@@ -273,4 +274,25 @@ test('P16: Notificaciones y movimientos de dinero (gris pendiente, verde positiv
   assert.match(demoJs, /DEMO_MOVIMIENTOS_FINANZAS/)
   assert.ok(PREGUNTAS.some(p => p.id === 'historial-movimientos-colores'))
   assert.doesNotMatch(demoJs, /\bapuestas?\b|\bapostar\b/i)
+})
+
+test('P17: Rol moderador (acceso con botón Admin sin exponer nombre, panel propio sin disputas/clash/soporte/chatbot/pruebas, múltiples Nequis y envíos a billetera)', () => {
+  assert.doesNotMatch(adminJsx, /\bfetch\s*\(/)
+  assert.match(lobbyJsx, /tipo_suscripcion\s*===\s*['"]moderador['"]/)
+  assert.match(lobbyJsx, /👑 Admin/)
+  assert.doesNotMatch(lobbyJsx, /👑\s*Moderador/i)
+  assert.match(chatJsx, /puedePublicarPagos/)
+  assert.match(chatJsx, /tipo_suscripcion\s*===\s*['"]moderador['"]/)
+  assert.match(chatJsx, /canalActivo\s*===\s*['"]anuncios['"]\s*&&\s*!esAdmin/)
+  assert.match(financeJsx, /\/api\/finance\/nequi-info/)
+  assert.match(financeJsx, /nequi-targets-list/)
+  assert.match(adminJsx, /\/api\/admin\/nequis/)
+  assert.match(adminJsx, /view\s*===\s*['"]nequis['"]/)
+  assert.match(adminJsx, /FILTROS_MODERADOR_MOVIMIENTOS/)
+  assert.match(adminJsx, /gananciaTotalModerador/)
+  assert.match(adminJsx, /esAdminReal\s*&&\s*view\s*===\s*['"]clash-verifications['"]/)
+  assert.match(adminJsx, /esAdminReal\s*&&\s*view\s*===\s*['"]test-zone['"]/)
+  assert.match(adminJsx, /esAdminReal\s*&&\s*view\s*===\s*['"]chatbot['"]/)
+  assert.match(adminJsx, /esAdminReal\s*&&\s*view\s*===\s*['"]soporte['"]/)
+  assert.doesNotMatch(faqJs + demoJs, /\bmoderador(es)?\b/i)
 })

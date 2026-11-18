@@ -404,6 +404,69 @@ class MovimientosFinanzasAdminTest {
                         && new BigDecimal("1100").compareTo(n.getAsJsonObject("datos").get("monto").getAsBigDecimal()) == 0));
     }
 
+    @Test
+    void movimientosAdminParaModeradorSoloMuestraSusUsuariosYBilletera() {
+        GenericDAO dao = new GenericDAO(null) {
+            @Override
+            public JsonObject queryOne(String sql, Object... params) {
+                if (sql.contains("SELECT tipo_suscripcion FROM users WHERE id = ?")) {
+                    JsonObject fila = new JsonObject();
+                    fila.addProperty("tipo_suscripcion", ((int) params[0]) == 50 ? "moderador" : "free");
+                    return fila;
+                }
+                return null;
+            }
+
+            @Override
+            public ArrayList<JsonObject> query(String sql, Object... params) {
+                ArrayList<JsonObject> lista = new ArrayList<>();
+                if (sql.contains("FROM transactions t")) {
+                    JsonObject o = tx(12, "deposito", "manual_nequi", new BigDecimal("25000"), "REF-M1", "pendiente", "2026-11-17T18:00:00Z");
+                    o.addProperty("usuario_id", 101);
+                    o.addProperty("usuario_nombre", "user_mod");
+                    lista.add(o);
+                } else if (sql.contains("FROM matches m")) {
+                    JsonObject m = match(210, "user_mod", "rival_ext", "Clásico", new BigDecimal("10000"), "user_mod", "finalizada", "2026-11-17T17:00:00Z");
+                    m.addProperty("comision_moderador", new BigDecimal("250"));
+                    lista.add(m);
+                } else if (sql.contains("FROM referral_payouts rp")) {
+                    JsonObject rp = new JsonObject();
+                    rp.addProperty("id", 70);
+                    rp.addProperty("match_id", 210);
+                    rp.addProperty("monto_referidor", new BigDecimal("90"));
+                    rp.addProperty("monto_devuelto_referido", new BigDecimal("10"));
+                    rp.addProperty("porcentaje_compartido", new BigDecimal("10"));
+                    rp.addProperty("creado_en", "2026-11-17T17:00:01Z");
+                    rp.addProperty("jugador_username", "user_mod");
+                    lista.add(rp);
+                }
+                return lista;
+            }
+        };
+
+        AdminService adminService = new AdminService(dao, null, null, null, null, null);
+        JsonObject resp = adminService.obtenerMovimientosAdmin(50);
+        assertTrue(resp.get("success").getAsBoolean());
+        assertTrue(resp.get("esModerador").getAsBoolean());
+
+        JsonObject resumen = resp.getAsJsonObject("resumen");
+        assertEquals(1, resumen.get("pendientesAccionCount").getAsInt());
+        assertEquals(0, new BigDecimal("250").compareTo(resumen.get("gananciaComisionesModerador").getAsBigDecimal()));
+        assertEquals(0, new BigDecimal("90").compareTo(resumen.get("gananciaReferidosModerador").getAsBigDecimal()));
+        assertEquals(0, new BigDecimal("340").compareTo(resumen.get("gananciaTotalModerador").getAsBigDecimal()));
+
+        JsonArray movs = resp.getAsJsonArray("movimientos");
+        assertEquals(3, movs.size());
+        for (int i = 0; i < movs.size(); i++) {
+            String cat = movs.get(i).getAsJsonObject().get("categoriaMovimiento").getAsString();
+            assertNotEquals("ranking", cat);
+            assertNotEquals("sorteos", cat);
+        }
+        assertEquals("positivo", buscarPorId(movs, "ref-70").get("estadoVisual").getAsString());
+        assertTrue(buscarPorId(movs, "match-210").get("detalle").getAsString().contains("billetera"));
+        assertFalse(buscarPorId(movs, "match-210").get("detalle").getAsString().contains("Inactivas"));
+    }
+
     private static JsonObject tx(int id, String tipo, String metodo, BigDecimal monto,
                                  String referencia, String estado, String fecha) {
         JsonObject o = new JsonObject();

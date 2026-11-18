@@ -8,7 +8,9 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -198,6 +200,165 @@ class AdminServiceTest {
         assertEquals(400, assertThrows(ServicioException.class,
                 () -> servicio.cambiarZonaAdmin(1, "invalida")).getStatus());
         ConexionDB.limpiarZonaActual();
+    }
+
+    @Test
+    void moderadorTienePanelFinanzasAisladoYNoAccedeAZonaPruebasNiVerificaciones() {
+        List<JsonObject> nequis = new ArrayList<>();
+        AtomicInteger seqNequi = new AtomicInteger(10);
+
+        GenericDAO daoFalso = new GenericDAO(null) {
+            @Override
+            public JsonObject queryOne(String sql, Object... params) {
+                if (sql.contains("SELECT tipo_suscripcion FROM users WHERE id = ?")) {
+                    int id = (int) params[0];
+                    JsonObject fila = new JsonObject();
+                    fila.addProperty("tipo_suscripcion", id == 50 ? "moderador" : (id == 1 ? "admin" : "free"));
+                    return fila;
+                }
+                if (sql.contains("SELECT id, username, codigo_referido")) {
+                    JsonObject mod = new JsonObject();
+                    mod.addProperty("id", 50);
+                    mod.addProperty("username", "aliado_norte");
+                    mod.addProperty("codigo_referido", "MODNORTE");
+                    mod.addProperty("pct", new BigDecimal("10"));
+                    return mod;
+                }
+                if (sql.contains("SELECT COALESCE(SUM(u.saldo), 0) AS total")) {
+                    JsonObject fila = new JsonObject();
+                    fila.addProperty("total", new BigDecimal("45000.00"));
+                    return fila;
+                }
+                if (sql.contains("FROM moderator_wallet") && sql.contains("categoria = 'ganancia'")) {
+                    JsonObject fila = new JsonObject();
+                    fila.addProperty("total", new BigDecimal("1250.00"));
+                    return fila;
+                }
+                if (sql.contains("FROM moderator_wallet") && sql.contains("categoria = 'referidos'")) {
+                    JsonObject fila = new JsonObject();
+                    fila.addProperty("total", new BigDecimal("450.00"));
+                    return fila;
+                }
+                if (sql.contains("SELECT COUNT(*) AS total") && sql.contains("FROM users u")) {
+                    JsonObject fila = new JsonObject();
+                    fila.addProperty("total", 1L);
+                    return fila;
+                }
+                if (sql.contains("FROM referral_payouts WHERE referrer_user_id = ?")) {
+                    JsonObject fila = new JsonObject();
+                    fila.addProperty("total_base", new BigDecimal("500.00"));
+                    fila.addProperty("total_referidor", new BigDecimal("450.00"));
+                    fila.addProperty("total_devuelto", new BigDecimal("50.00"));
+                    return fila;
+                }
+                if (sql.contains("SELECT usuario_id FROM transactions WHERE id = ?")) {
+                    JsonObject tx = new JsonObject();
+                    tx.addProperty("usuario_id", 200);
+                    return tx;
+                }
+                if (sql.contains("AS moderator_id") && params.length > 0 && ((int) params[0]) == 100) {
+                    JsonObject row = new JsonObject();
+                    row.addProperty("moderator_id", 50);
+                    return row;
+                }
+                if (sql.contains("SELECT COUNT(*) AS total FROM moderator_nequis")) {
+                    JsonObject row = new JsonObject();
+                    row.addProperty("total", nequis.size());
+                    return row;
+                }
+                if (sql.contains("SELECT id FROM moderator_nequis WHERE moderator_id = ? AND numero = ?")) {
+                    String num = (String) params[1];
+                    return nequis.stream().filter(n -> num.equals(n.get("numero").getAsString())).findFirst().orElse(null);
+                }
+                return null;
+            }
+
+            @Override
+            public ArrayList<JsonObject> query(String sql, Object... params) {
+                ArrayList<JsonObject> res = new ArrayList<>();
+                if (sql.contains("FROM moderator_nequis")) {
+                    res.addAll(nequis);
+                    return res;
+                }
+                if (sql.contains("mod_ganancia_partidas")) {
+                    JsonObject u = new JsonObject();
+                    u.addProperty("id", 100);
+                    u.addProperty("username", "jugador_mod");
+                    u.addProperty("email", "modj@example.invalid");
+                    u.addProperty("saldo", new BigDecimal("45000.00"));
+                    u.addProperty("tipo_suscripcion", "free");
+                    u.addProperty("mod_ganancia_partidas", new BigDecimal("1250.00"));
+                    u.addProperty("mod_ganancia_referidos", new BigDecimal("450.00"));
+                    u.addProperty("devuelto_referido", new BigDecimal("50.00"));
+                    u.addProperty("total_partidas", 4);
+                    u.addProperty("total_victorias", 3);
+                    u.addProperty("victorias_normales", 3);
+                    u.addProperty("victorias_disputa", 0);
+                    u.addProperty("total_derrotas", 1);
+                    u.addProperty("derrotas_normales", 1);
+                    u.addProperty("derrotas_disputa", 0);
+                    u.addProperty("faltas", 0);
+                    u.addProperty("salidas_chat", 0);
+                    res.add(u);
+                }
+                return res;
+            }
+
+            @Override
+            public int update(String sql, Object... params) {
+                if (sql.contains("INTO moderator_nequis")) {
+                    JsonObject n = new JsonObject();
+                    n.addProperty("id", seqNequi.getAndIncrement());
+                    n.addProperty("numero", (String) params[1]);
+                    n.addProperty("titular", (String) params[2]);
+                    n.addProperty("creado_en", "2026-11-17T20:00:00Z");
+                    nequis.add(n);
+                    return 1;
+                }
+                if (sql.contains("DELETE FROM moderator_nequis")) {
+                    int idBorrar = (int) params[0];
+                    return nequis.removeIf(n -> n.get("id").getAsInt() == idBorrar) ? 1 : 0;
+                }
+                return 0;
+            }
+        };
+
+        AdminService servicio = new AdminService(daoFalso, null, null, null, null, null);
+
+        JsonObject stats = servicio.estadisticas(50);
+        assertTrue(stats.get("esModerador").getAsBoolean());
+        assertEquals("MODNORTE", stats.get("codigoReferido").getAsString());
+        assertMonto("45000.00", stats.get("totalUsuarios").getAsBigDecimal());
+        assertMonto("1250.00", stats.get("gananciaComisionesModerador").getAsBigDecimal());
+        assertMonto("450.00", stats.get("gananciaReferidosModerador").getAsBigDecimal());
+        assertMonto("1700.00", stats.get("gananciaTotalModerador").getAsBigDecimal());
+        assertFalse(stats.has("desglose"));
+        assertFalse(stats.has("gananciaAdminLeaderboard"));
+
+        JsonArray listaUsuarios = stats.getAsJsonArray("listaUsuarios");
+        assertEquals(1, listaUsuarios.size());
+        assertMonto("1700.00", listaUsuarios.get(0).getAsJsonObject().get("comision_total_aportada").getAsBigDecimal());
+
+        assertEquals(403, assertThrows(ServicioException.class,
+                () -> servicio.estadoZonaPruebas(50)).getStatus());
+        assertEquals(403, assertThrows(ServicioException.class,
+                () -> servicio.cambiarZonaAdmin(50, "prueba")).getStatus());
+        assertEquals(403, assertThrows(ServicioException.class,
+                () -> servicio.confirmarVerificacionClash(100, 50)).getStatus());
+        assertEquals(403, assertThrows(ServicioException.class,
+                () -> servicio.procesarTransaccion(50, 99, "approve")).getStatus());
+        assertEquals(403, assertThrows(ServicioException.class,
+                () -> servicio.listarNequisModerador(1)).getStatus());
+
+        List<JsonObject> lista = servicio.agregarNequiModerador(50, "300 123 4567", "Aliado Norte");
+        assertEquals(1, lista.size());
+        assertEquals("3001234567", lista.get(0).get("numero").getAsString());
+        assertEquals(400, assertThrows(ServicioException.class,
+                () -> servicio.agregarNequiModerador(50, "3001234567", "Duplicado")).getStatus());
+        assertEquals(400, assertThrows(ServicioException.class,
+                () -> servicio.agregarNequiModerador(50, "12345", "Corto")).getStatus());
+        int creadoId = lista.get(0).get("id").getAsInt();
+        assertTrue(servicio.eliminarNequiModerador(50, creadoId).isEmpty());
     }
 
     private static void assertMonto(String esperado, BigDecimal actual) {

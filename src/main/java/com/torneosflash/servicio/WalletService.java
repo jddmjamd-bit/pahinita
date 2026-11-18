@@ -1451,6 +1451,27 @@ public class WalletService {
         return new RepartoReferido(montoReferidor, montoDevuelto, pct);
     }
 
+    private record ModeradorUsuario(int id, String username) {}
+
+    private ModeradorUsuario buscarModeradorDeUsuario(Connection conn, int userId) throws SQLException {
+        if (userId <= 0) return null;
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT m.id, m.username " +
+                "FROM users u " +
+                "LEFT JOIN referrals r ON r.referred_user_id = u.id " +
+                "JOIN users m ON m.id = COALESCE(u.referido_por_id, r.referrer_user_id) " +
+                "WHERE u.id = ? AND m.id <> u.id AND LOWER(COALESCE(m.tipo_suscripcion, '')) = 'moderador' " +
+                "LIMIT 1")) {
+            ps.setInt(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return new ModeradorUsuario(rs.getInt("id"), rs.getString("username"));
+                }
+            }
+        }
+        return null;
+    }
+
     /**
      * Liquida el resultado de una partida: paga al ganador, distribuye comisiones,
      * actualiza estadísticas y admin_wallet. Todo en una sola transacción SQL atómica.
@@ -1595,9 +1616,43 @@ public class WalletService {
                 }
             }
 
-            // 4. Registrar comisiones en admin_wallet (una fila por categoría del desglose)
+            // 4. Registrar comisiones en admin_wallet y moderator_wallet según pertenencia de cada jugador // REVIEW-MONEY
+            ModeradorUsuario modGanador = buscarModeradorDeUsuario(conn, idGanador);
+            ModeradorUsuario modPerdedor = buscarModeradorDeUsuario(conn, idPerdedor);
+
+            BigDecimal gananciaAdminEfectiva = BigDecimal.ZERO;
+            BigDecimal mitadGanancia = desglose.porJugador(Categoria.GANANCIA);
+            BigDecimal segundaMitadGanancia = comGanancia.subtract(mitadGanancia);
+
+            if (modGanador != null && mitadGanancia.compareTo(BigDecimal.ZERO) > 0) {
+                String detalleMod = detalle + " · @" + modGanador.username();
+                insertarComisionModerador(conn, modGanador.id(), matchDbId, idGanador,
+                        Categoria.GANANCIA.getClave(), mitadGanancia, razonComision, detalleMod);
+                insertarLedger(conn, 0, TIPO_COMISION, mitadGanancia, BigDecimal.ZERO, BigDecimal.ZERO,
+                        detalle + " ganancia_moderador @" + modGanador.username());
+            } else {
+                gananciaAdminEfectiva = gananciaAdminEfectiva.add(mitadGanancia);
+            }
+
+            if (modPerdedor != null && segundaMitadGanancia.compareTo(BigDecimal.ZERO) > 0) {
+                String detalleMod = detalle + " · @" + modPerdedor.username();
+                insertarComisionModerador(conn, modPerdedor.id(), matchDbId, idPerdedor,
+                        Categoria.GANANCIA.getClave(), segundaMitadGanancia, razonComision, detalleMod);
+                insertarLedger(conn, 0, TIPO_COMISION, segundaMitadGanancia, BigDecimal.ZERO, BigDecimal.ZERO,
+                        detalle + " ganancia_moderador @" + modPerdedor.username());
+            } else {
+                gananciaAdminEfectiva = gananciaAdminEfectiva.add(segundaMitadGanancia);
+            }
+
             for (Map.Entry<Categoria, BigDecimal> entrada : desglose.getMontos().entrySet()) {
-                insertarComisionAdmin(conn, entrada.getValue(), razonComision, detalle, entrada.getKey().getClave());
+                if (entrada.getKey() == Categoria.GANANCIA) {
+                    if (gananciaAdminEfectiva.compareTo(BigDecimal.ZERO) > 0) {
+                        insertarComisionAdmin(conn, gananciaAdminEfectiva, razonComision, detalle,
+                                Categoria.GANANCIA.getClave());
+                    }
+                } else {
+                    insertarComisionAdmin(conn, entrada.getValue(), razonComision, detalle, entrada.getKey().getClave());
+                }
             }
 
             // 5. Repartir comisión de leaderboard en los 4 pozos
@@ -1621,7 +1676,9 @@ public class WalletService {
 
             // D3: registrar en ledger — cada categoría de comisión (user_id=0 = sistema/admin)
             for (Map.Entry<Categoria, BigDecimal> entrada : desglose.getMontos().entrySet()) {
-                BigDecimal montoCategoria = entrada.getValue();
+                BigDecimal montoCategoria = entrada.getKey() == Categoria.GANANCIA
+                        ? gananciaAdminEfectiva
+                        : entrada.getValue();
                 if (montoCategoria.compareTo(BigDecimal.ZERO) > 0) {
                     insertarLedger(conn, 0, TIPO_COMISION, montoCategoria,
                             BigDecimal.ZERO, BigDecimal.ZERO,
@@ -1696,9 +1753,11 @@ public class WalletService {
             Integer referralId = null;
             Integer referrerUserId = null;
             String referrerUsername = null;
+            String referrerTipo = "free";
             BigDecimal porcentajeCompartido = BigDecimal.ZERO;
             try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT r.id, r.referrer_user_id, r.porcentaje_compartido, u.username AS referrer_username " +
+                    "SELECT r.id, r.referrer_user_id, r.porcentaje_compartido, u.username AS referrer_username, " +
+                    "LOWER(COALESCE(u.tipo_suscripcion, 'free')) AS referrer_tipo " +
                     "FROM referrals r " +
                     "JOIN users u ON u.id = r.referrer_user_id " +
                     "WHERE r.referred_user_id = ? FOR UPDATE OF r")) {
@@ -1710,25 +1769,54 @@ public class WalletService {
                             referralId = rs.getInt("id");
                             referrerUserId = refId;
                             referrerUsername = rs.getString("referrer_username");
+                            referrerTipo = rs.getString("referrer_tipo");
                             BigDecimal pct = rs.getBigDecimal("porcentaje_compartido");
                             porcentajeCompartido = pct != null ? pct : BigDecimal.ZERO;
                         }
                     }
                 }
             }
+            if (referrerUserId == null) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "SELECT m.id, m.username, LOWER(COALESCE(m.tipo_suscripcion, 'free')) AS referrer_tipo, " +
+                        "COALESCE(m.referido_porcentaje_compartido, 0) AS porcentaje " +
+                        "FROM users u JOIN users m ON m.id = u.referido_por_id " +
+                        "WHERE u.id = ? AND m.id <> u.id LIMIT 1")) {
+                    ps.setInt(1, jugadorId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next()) {
+                            referrerUserId = rs.getInt("id");
+                            referrerUsername = rs.getString("username");
+                            referrerTipo = rs.getString("referrer_tipo");
+                            BigDecimal pct = rs.getBigDecimal("porcentaje");
+                            porcentajeCompartido = pct != null ? pct : BigDecimal.ZERO;
+                        }
+                    }
+                }
+            }
 
-            if (referralId != null && referrerUserId != null) {
+            if (referrerUserId != null) {
                 RepartoReferido reparto = calcularRepartoReferido(partePorJugador, porcentajeCompartido);
                 String tagReferidor = (referrerUsername != null && !referrerUsername.isBlank())
                         ? "@" + referrerUsername
                         : "usuario#" + referrerUserId;
+                boolean esModeradorRef = "moderador".equalsIgnoreCase(referrerTipo);
                 if (reparto.montoReferidor().compareTo(BigDecimal.ZERO) > 0) {
-                    String motivoRef = "Comisión de referido por " + tagJugador + " " + detalleMatch;
-                    BigDecimal nuevoSaldoRef = acreditarSaldoEnTransaccion(conn, referrerUserId,
-                            reparto.montoReferidor(), motivoRef);
-                    if (nuevoSaldoRef != null) {
-                        movimientos.add(new CambioSaldoReferido(referrerUserId, reparto.montoReferidor(),
-                                nuevoSaldoRef, motivoRef));
+                    if (esModeradorRef) {
+                        String motivoModRef = "Comisión referido (billetera moderador) por " + tagJugador + " " + detalleMatch;
+                        insertarComisionModerador(conn, referrerUserId, matchDbId, jugadorId,
+                                Categoria.REFERIDOS.getClave(), reparto.montoReferidor(),
+                                "comision_referido", motivoModRef);
+                        insertarLedger(conn, 0, TIPO_COMISION, reparto.montoReferidor(),
+                                BigDecimal.ZERO, BigDecimal.ZERO, motivoModRef);
+                    } else {
+                        String motivoRef = "Comisión de referido por " + tagJugador + " " + detalleMatch;
+                        BigDecimal nuevoSaldoRef = acreditarSaldoEnTransaccion(conn, referrerUserId,
+                                reparto.montoReferidor(), motivoRef);
+                        if (nuevoSaldoRef != null) {
+                            movimientos.add(new CambioSaldoReferido(referrerUserId, reparto.montoReferidor(),
+                                    nuevoSaldoRef, motivoRef));
+                        }
                     }
                 }
                 if (reparto.montoDevueltoReferido().compareTo(BigDecimal.ZERO) > 0) {
@@ -1741,20 +1829,23 @@ public class WalletService {
                     }
                 }
 
-                try (PreparedStatement ps = conn.prepareStatement(
-                        "UPDATE referrals SET partidas_jugadas = partidas_jugadas + 1, " +
-                        "total_comision_referido = total_comision_referido + ?, " +
-                        "total_ganado_referidor = total_ganado_referidor + ?, " +
-                        "total_devuelto_referido = total_devuelto_referido + ? WHERE id = ?")) {
-                    ps.setBigDecimal(1, partePorJugador);
-                    ps.setBigDecimal(2, reparto.montoReferidor());
-                    ps.setBigDecimal(3, reparto.montoDevueltoReferido());
-                    ps.setInt(4, referralId);
-                    ps.executeUpdate();
+                if (referralId != null) {
+                    try (PreparedStatement ps = conn.prepareStatement(
+                            "UPDATE referrals SET partidas_jugadas = partidas_jugadas + 1, " +
+                            "total_comision_referido = total_comision_referido + ?, " +
+                            "total_ganado_referidor = total_ganado_referidor + ?, " +
+                            "total_devuelto_referido = total_devuelto_referido + ? WHERE id = ?")) {
+                        ps.setBigDecimal(1, partePorJugador);
+                        ps.setBigDecimal(2, reparto.montoReferidor());
+                        ps.setBigDecimal(3, reparto.montoDevueltoReferido());
+                        ps.setInt(4, referralId);
+                        ps.executeUpdate();
+                    }
                 }
 
                 if (matchDbId > 0) {
-                    insertarReferralPayout(conn, matchDbId, jugadorId, "referidor", referrerUserId,
+                    insertarReferralPayout(conn, matchDbId, jugadorId,
+                            esModeradorRef ? "moderador" : "referidor", referrerUserId,
                             partePorJugador, reparto.porcentajeAplicado(),
                             reparto.montoReferidor(), reparto.montoDevueltoReferido(), BigDecimal.ZERO);
                 }
@@ -2161,6 +2252,32 @@ public class WalletService {
             ps.setString(2, razon);
             ps.setString(3, detalle);
             ps.setString(4, categoria);
+            ps.executeUpdate();
+        }
+    }
+
+    /**
+     * Inserta un registro de comisión en la billetera independiente del moderador dentro de la transacción activa. // REVIEW-MONEY
+     */
+    private void insertarComisionModerador(Connection conn, int moderatorId, int matchDbId, int jugadorId,
+                                            String categoria, BigDecimal monto, String razon,
+                                            String detalle) throws SQLException {
+        if (moderatorId <= 0 || monto == null || monto.compareTo(BigDecimal.ZERO) <= 0) return;
+        String detalleSeguro = detalle != null && detalle.length() > 200
+                ? detalle.substring(0, 200) : (detalle != null ? detalle : "");
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO moderator_wallet (moderator_id, match_id, jugador_id, categoria, monto, razon, detalle) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?) " +
+                "ON CONFLICT (match_id, jugador_id, categoria) DO NOTHING")) {
+            ps.setInt(1, moderatorId);
+            if (matchDbId > 0) ps.setInt(2, matchDbId);
+            else ps.setNull(2, Types.INTEGER);
+            if (jugadorId > 0) ps.setInt(3, jugadorId);
+            else ps.setNull(3, Types.INTEGER);
+            ps.setString(4, categoria);
+            ps.setBigDecimal(5, monto);
+            ps.setString(6, razon != null ? razon : "comision_match");
+            ps.setString(7, detalleSeguro);
             ps.executeUpdate();
         }
     }

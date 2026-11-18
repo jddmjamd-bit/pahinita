@@ -21,8 +21,8 @@ public class RutasAdmin {
 
     public static void register(Javalin app, AdminService admin, AppConfig config) {
 
-        // GET /api/admin/transactions (solo pendientes)
-        app.get("/api/admin/transactions", ctx -> ctx.json(admin.transaccionesPendientes()));
+        // GET /api/admin/transactions (solo pendientes, filtradas según rol)
+        app.get("/api/admin/transactions", ctx -> ctx.json(admin.transaccionesPendientes(Peticion.userIdDeSesion(ctx))));
 
         // GET /api/admin/disputes
         app.get("/api/admin/disputes", ctx -> ctx.json(admin.disputas()));
@@ -75,9 +75,48 @@ public class RutasAdmin {
         app.post("/api/admin/transaction/process", ctx -> {
             JsonObject body = parseBody(ctx);
             String mensaje = admin.procesarTransaccion(
+                    Peticion.userIdDeSesion(ctx),
                     Peticion.entero(body, "transId"),
                     Peticion.texto(body, "action"));
             ctx.json(successJson(mensaje, 0));
+        });
+
+        // GET /api/admin/nequis (listado de números Nequi del moderador)
+        app.get("/api/admin/nequis", ctx -> {
+            JsonObject resp = new JsonObject();
+            JsonArray arr = new JsonArray();
+            admin.listarNequisModerador(Peticion.userIdDeSesion(ctx)).forEach(arr::add);
+            resp.addProperty("success", true);
+            resp.add("nequis", arr);
+            ctx.json(resp);
+        });
+
+        // POST /api/admin/nequis (agregar número Nequi del moderador)
+        app.post("/api/admin/nequis", ctx -> {
+            JsonObject body = parseBody(ctx);
+            JsonObject resp = new JsonObject();
+            JsonArray arr = new JsonArray();
+            admin.agregarNequiModerador(
+                    Peticion.userIdDeSesion(ctx),
+                    Peticion.texto(body, "numero"),
+                    Peticion.textoOpcional(body, "titular", ""))
+                    .forEach(arr::add);
+            resp.addProperty("success", true);
+            resp.add("nequis", arr);
+            ctx.json(resp);
+        });
+
+        // DELETE /api/admin/nequis/{id} (eliminar número Nequi del moderador)
+        app.delete("/api/admin/nequis/{id}", ctx -> {
+            JsonObject resp = new JsonObject();
+            JsonArray arr = new JsonArray();
+            admin.eliminarNequiModerador(
+                    Peticion.userIdDeSesion(ctx),
+                    Peticion.pathEntero(ctx, "id"))
+                    .forEach(arr::add);
+            resp.addProperty("success", true);
+            resp.add("nequis", arr);
+            ctx.json(resp);
         });
 
         // POST /api/admin/resolve-dispute

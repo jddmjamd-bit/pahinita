@@ -45,8 +45,12 @@ const FILTROS_ADMIN_MOVIMIENTOS = [
     { id: 'ranking_sorteos', label: '🏆 Ranking y Sorteos' }
 ];
 
+const FILTROS_MODERADOR_MOVIMIENTOS = FILTROS_ADMIN_MOVIMIENTOS.filter(
+    f => f.id !== 'ranking_sorteos'
+);
+
 export default function Admin() {
-    const [view, setView] = useState('transactions'); // 'transactions', 'movements', 'stats', 'chatbot', 'soporte' o 'clash-verifications'
+    const [view, setView] = useState('transactions'); // 'transactions', 'movements', 'stats', 'nequis', 'chatbot', 'soporte' o 'clash-verifications'
     
     // Transactions & Disputes
     const [transactions, setTransactions] = useState([]);
@@ -84,7 +88,20 @@ export default function Admin() {
     const [updatingSubUserId, setUpdatingSubUserId] = useState(null);
     const [filtroUsuariosPrueba, setFiltroUsuariosPrueba] = useState('');
 
+    // Nequis del panel de referidos
+    const [nequisModerador, setNequisModerador] = useState([]);
+    const [loadingNequis, setLoadingNequis] = useState(false);
+    const [nuevoNequiNumero, setNuevoNequiNumero] = useState('');
+    const [nuevoNequiTitular, setNuevoNequiTitular] = useState('');
+    const [guardandoNequi, setGuardandoNequi] = useState(false);
+    const [errorNequi, setErrorNequi] = useState('');
+    const [linkRefCopiado, setLinkRefCopiado] = useState(false);
+
     const currentUser = useAppStore(state => state.user);
+    const rolUsuario = (currentUser?.tipo_suscripcion || '').toLowerCase();
+    const esAdminReal = rolUsuario === 'admin';
+    const esModerador = rolUsuario === 'moderador';
+    const puedeEntrarAdmin = esAdminReal || esModerador;
     const movimientoRevision = useAppStore(state => state.movimientoRevision);
     const socket = useAppStore(state => state.socket);
     const recargarZonaActiva = useAppStore(state => state.recargarZonaActiva);
@@ -111,45 +128,68 @@ export default function Admin() {
         }
     };
 
-    useEffect(() => {
-        if (currentUser?.tipo_suscripcion === 'admin') {
-            if (view === 'transactions') {
-                cargarTransaccionesAdmin();
-                cargarDisputasAdmin();
-                cargarMovimientosAdmin();
-            } else if (view === 'movements') {
-                cargarMovimientosAdmin();
-                cargarDistribucionComisiones();
-            } else if (view === 'stats') {
-                cargarEstadisticasAdmin();
-            } else if (view === 'clash-verifications') {
-                cargarVerificacionesClash();
-            } else if (view === 'test-zone') {
-                cargarZonaPruebasAdmin();
-            } else {
-                setVerificacionesClash([]);
+    const cargarNequisModerador = async () => {
+        setLoadingNequis(true);
+        setErrorNequi('');
+        try {
+            const { ok, data } = await llamarApi('/api/admin/nequis');
+            if (!ok || !data?.success) {
+                setErrorNequi(data?.error || 'No se pudieron cargar los números Nequi');
+                return;
             }
+            setNequisModerador(Array.isArray(data.nequis) ? data.nequis : []);
+        } catch (e) {
+            console.error(e);
+            setErrorNequi('Error de conexión al cargar los números Nequi');
+        } finally {
+            setLoadingNequis(false);
         }
-    }, [view, zonaActivaAdmin]);
+    };
 
     useEffect(() => {
-        if (currentUser?.tipo_suscripcion !== 'admin' || movimientoRevision === 0) return;
+        if (!puedeEntrarAdmin) return;
+        if (esModerador && !['transactions', 'movements', 'stats', 'nequis'].includes(view)) {
+            setView('transactions');
+            return;
+        }
+        if (view === 'transactions') {
+            cargarTransaccionesAdmin();
+            if (esAdminReal) cargarDisputasAdmin();
+            cargarMovimientosAdmin();
+        } else if (view === 'movements') {
+            cargarMovimientosAdmin();
+            if (esAdminReal) cargarDistribucionComisiones();
+        } else if (view === 'stats') {
+            cargarEstadisticasAdmin();
+        } else if (view === 'nequis' && esModerador) {
+            cargarNequisModerador();
+        } else if (view === 'clash-verifications' && esAdminReal) {
+            cargarVerificacionesClash();
+        } else if (view === 'test-zone' && esAdminReal) {
+            cargarZonaPruebasAdmin();
+        } else {
+            setVerificacionesClash([]);
+        }
+    }, [view, zonaActivaAdmin, rolUsuario]);
+
+    useEffect(() => {
+        if (!puedeEntrarAdmin || movimientoRevision === 0) return;
         cargarMovimientosAdmin();
         if (view === 'transactions') {
             cargarTransaccionesAdmin();
-            cargarDisputasAdmin();
+            if (esAdminReal) cargarDisputasAdmin();
         } else if (view === 'stats') {
             cargarEstadisticasAdmin();
         }
     }, [movimientoRevision]);
 
     useEffect(() => {
-        if (!socket || currentUser?.tipo_suscripcion !== 'admin') return undefined;
+        if (!socket || !puedeEntrarAdmin) return undefined;
         const refrescarZona = () => {
             cargarMovimientosAdmin();
             if (view === 'transactions') {
                 cargarTransaccionesAdmin();
-                cargarDisputasAdmin();
+                if (esAdminReal) cargarDisputasAdmin();
             } else if (view === 'stats') {
                 cargarEstadisticasAdmin();
             }
@@ -162,7 +202,7 @@ export default function Admin() {
         };
     }, [socket, currentUser?.tipo_suscripcion, view]);
 
-    if (!currentUser || currentUser.tipo_suscripcion !== 'admin') {
+    if (!currentUser || !puedeEntrarAdmin) {
         return <div style={{padding: 20, color: 'white', textAlign: 'center'}}>Acceso denegado.</div>;
     }
 
@@ -274,11 +314,71 @@ export default function Admin() {
                 return;
             }
             setStats(data);
-            cargarDistribucionComisiones();
+            if (esAdminReal) cargarDistribucionComisiones();
         } catch (e) {
             console.error(e);
         } finally {
             setLoadingStats(false);
+        }
+    };
+
+    const handleAgregarNequi = async (e) => {
+        e.preventDefault();
+        if (guardandoNequi) return;
+        setErrorNequi('');
+        setGuardandoNequi(true);
+        try {
+            const { ok, data } = await llamarApi('/api/admin/nequis', {
+                method: 'POST',
+                body: JSON.stringify({
+                    numero: nuevoNequiNumero,
+                    titular: nuevoNequiTitular
+                })
+            });
+            if (!ok || !data?.success) {
+                setErrorNequi(data?.error || 'No se pudo guardar el número Nequi');
+                return;
+            }
+            setNequisModerador(Array.isArray(data.nequis) ? data.nequis : []);
+            setNuevoNequiNumero('');
+            setNuevoNequiTitular('');
+        } catch (err) {
+            console.error(err);
+            setErrorNequi('Error de conexión al guardar el número Nequi');
+        } finally {
+            setGuardandoNequi(false);
+        }
+    };
+
+    const handleEliminarNequi = async (nequiId) => {
+        if (!window.confirm('¿Eliminar este número Nequi de tu lista?')) return;
+        setErrorNequi('');
+        try {
+            const { ok, data } = await llamarApi(`/api/admin/nequis/${nequiId}`, {
+                method: 'DELETE'
+            });
+            if (!ok || !data?.success) {
+                setErrorNequi(data?.error || 'No se pudo eliminar el número Nequi');
+                return;
+            }
+            setNequisModerador(Array.isArray(data.nequis) ? data.nequis : []);
+        } catch (err) {
+            console.error(err);
+            setErrorNequi('Error de conexión al eliminar el número Nequi');
+        }
+    };
+
+    const copiarLinkReferido = async (codigo) => {
+        if (!codigo) return;
+        const url = `${window.location.origin}/auth?ref=${codigo}`;
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(url);
+                setLinkRefCopiado(true);
+                setTimeout(() => setLinkRefCopiado(false), 2200);
+            }
+        } catch {
+            alert(`Copia tu enlace de referido:\n${url}`);
         }
     };
 
@@ -490,93 +590,140 @@ export default function Admin() {
         return m.categoriaMovimiento === filtroAdminMov;
     });
 
+    const linkReferidoPanel = stats?.codigoReferido && typeof window !== 'undefined'
+        ? `${window.location.origin}/auth?ref=${stats.codigoReferido}`
+        : '';
+
     return (
         <div className="admin-container">
             <header className="admin-header">
                 <h2>👑 Panel Admin</h2>
                 <div className="admin-tabs">
-                    <button className={`admin-tab ${view === 'transactions' ? 'active' : ''}`} onClick={() => setView('transactions')}>💸 Pagos / Disputas</button>
+                    <button className={`admin-tab ${view === 'transactions' ? 'active' : ''}`} onClick={() => setView('transactions')}>
+                        {esModerador ? '💸 Pagos' : '💸 Pagos / Disputas'}
+                    </button>
                     <button className={`admin-tab ${view === 'movements' ? 'active' : ''}`} onClick={() => setView('movements')}>
                         📋 Movimientos{badgeMovimientosAdmin > 0 ? ` (${badgeMovimientosAdmin})` : ''}
                     </button>
                     <button className={`admin-tab ${view === 'stats' ? 'active' : ''}`} onClick={() => setView('stats')}>📊 Finanzas</button>
-                    <button className={`admin-tab ${view === 'test-zone' ? 'active' : ''}`} onClick={() => setView('test-zone')}>🧪 Zona de Pruebas</button>
-                    <button className={`admin-tab ${view === 'chatbot' ? 'active' : ''}`} onClick={() => setView('chatbot')}>🤖 Chatbot</button>
-                    <button className={`admin-tab ${view === 'soporte' ? 'active' : ''}`} onClick={() => setView('soporte')}>🎫 Soporte</button>
-                    <button className={`admin-tab ${view === 'clash-verifications' ? 'active' : ''}`} onClick={() => setView('clash-verifications')}>⚔️ Verificar Clash</button>
+                    {esModerador ? (
+                        <button className={`admin-tab ${view === 'nequis' ? 'active' : ''}`} onClick={() => setView('nequis')}>📱 Nequi</button>
+                    ) : (
+                        <>
+                            <button className={`admin-tab ${view === 'test-zone' ? 'active' : ''}`} onClick={() => setView('test-zone')}>🧪 Zona de Pruebas</button>
+                            <button className={`admin-tab ${view === 'chatbot' ? 'active' : ''}`} onClick={() => setView('chatbot')}>🤖 Chatbot</button>
+                            <button className={`admin-tab ${view === 'soporte' ? 'active' : ''}`} onClick={() => setView('soporte')}>🎫 Soporte</button>
+                            <button className={`admin-tab ${view === 'clash-verifications' ? 'active' : ''}`} onClick={() => setView('clash-verifications')}>⚔️ Verificar Clash</button>
+                        </>
+                    )}
                 </div>
             </header>
 
-            <section className={`admin-zone-bar ${enZonaPruebasAdmin ? 'is-test' : 'is-normal'}`} aria-label="Selector de zona del administrador">
-                <div className="admin-zone-info">
-                    <span className="admin-zone-pill">
-                        {enZonaPruebasAdmin ? '🧪 Operando en: ZONA DE PRUEBAS (Copia Temporal)' : '🟢 Operando en: ZONA NORMAL (Producción)'}
-                    </span>
-                    <small className="admin-zone-desc">
-                        {enZonaPruebasAdmin
-                            ? 'Todo lo que hagas o apruebes ahora usa la base de datos de pruebas JUnit (TEST_DATABASE_URL) y sus salas/chats aislados.'
-                            : 'Estás viendo y operando sobre la base de datos principal de producción.'}
-                    </small>
-                </div>
-                <div className="admin-zone-actions">
-                    <button
-                        type="button"
-                        className={`zone-switch-btn ${!enZonaPruebasAdmin ? 'active-normal' : ''}`}
-                        disabled={switchingZone || !enZonaPruebasAdmin}
-                        onClick={() => cambiarZonaAdmin('normal')}
-                    >
-                        🟢 Zona Normal
-                    </button>
-                    <button
-                        type="button"
-                        className={`zone-switch-btn ${enZonaPruebasAdmin ? 'active-test' : ''}`}
-                        disabled={switchingZone || enZonaPruebasAdmin}
-                        onClick={() => cambiarZonaAdmin('prueba')}
-                    >
-                        🧪 Zona de Pruebas
-                    </button>
-                </div>
-            </section>
+            {esAdminReal && (
+                <section className={`admin-zone-bar ${enZonaPruebasAdmin ? 'is-test' : 'is-normal'}`} aria-label="Selector de zona del administrador">
+                    <div className="admin-zone-info">
+                        <span className="admin-zone-pill">
+                            {enZonaPruebasAdmin ? '🧪 Operando en: ZONA DE PRUEBAS (Copia Temporal)' : '🟢 Operando en: ZONA NORMAL (Producción)'}
+                        </span>
+                        <small className="admin-zone-desc">
+                            {enZonaPruebasAdmin
+                                ? 'Todo lo que hagas o apruebes ahora usa la base de datos de pruebas JUnit (TEST_DATABASE_URL) y sus salas/chats aislados.'
+                                : 'Estás viendo y operando sobre la base de datos principal de producción.'}
+                        </small>
+                    </div>
+                    <div className="admin-zone-actions">
+                        <button
+                            type="button"
+                            className={`zone-switch-btn ${!enZonaPruebasAdmin ? 'active-normal' : ''}`}
+                            disabled={switchingZone || !enZonaPruebasAdmin}
+                            onClick={() => cambiarZonaAdmin('normal')}
+                        >
+                            🟢 Zona Normal
+                        </button>
+                        <button
+                            type="button"
+                            className={`zone-switch-btn ${enZonaPruebasAdmin ? 'active-test' : ''}`}
+                            disabled={switchingZone || enZonaPruebasAdmin}
+                            onClick={() => cambiarZonaAdmin('prueba')}
+                        >
+                            🧪 Zona de Pruebas
+                        </button>
+                    </div>
+                </section>
+            )}
 
             {view === 'movements' && (
                 <div className="admin-view">
                     <div className="admin-section">
                         <div className="section-header">
-                            <h3>📋 Todos los movimientos de la plataforma</h3>
+                            <h3>{esModerador ? '📋 Movimientos de tus usuarios y billetera' : '📋 Todos los movimientos de la plataforma'}</h3>
                             <button className="refresh-btn" onClick={cargarMovimientosAdmin} disabled={loadingAdminMovements}>
                                 {loadingAdminMovements ? 'Actualizando…' : '🔄 Actualizar'}
                             </button>
                         </div>
 
-                        <div className="admin-mov-resumen-grid">
-                            <div className="admin-mov-stat">
-                                <span>Pendientes por aprobar</span>
-                                <strong className="is-pendiente">{resumenAdminMov.pendientesAccionCount || 0}</strong>
+                        {esModerador ? (
+                            <div className="admin-mov-resumen-grid">
+                                <div className="admin-mov-stat">
+                                    <span>Pendientes por aprobar</span>
+                                    <strong className="is-pendiente">{resumenAdminMov.pendientesAccionCount || 0}</strong>
+                                </div>
+                                <div className="admin-mov-stat">
+                                    <span>Partidas en curso</span>
+                                    <strong className="is-pendiente">{resumenAdminMov.partidasEnCursoCount || 0}</strong>
+                                </div>
+                                <div className="admin-mov-stat">
+                                    <span>Comisión partidas (Billetera)</span>
+                                    <strong className="is-positivo">${formatearMonto(resumenAdminMov.gananciaComisionesModerador)}</strong>
+                                </div>
+                                <div className="admin-mov-stat">
+                                    <span>Comisión referidos (Billetera)</span>
+                                    <strong className="is-positivo">${formatearMonto(resumenAdminMov.gananciaReferidosModerador)}</strong>
+                                </div>
+                                <div className="admin-mov-stat">
+                                    <span>Total en billetera</span>
+                                    <strong className="is-positivo">${formatearMonto(resumenAdminMov.gananciaTotalModerador)}</strong>
+                                </div>
+                                <div className="admin-mov-stat">
+                                    <span>Recargas aprobadas</span>
+                                    <strong className="is-positivo">${formatearMonto(resumenAdminMov.recargasAprobadasTotal)}</strong>
+                                </div>
+                                <div className="admin-mov-stat">
+                                    <span>Retiros enviados</span>
+                                    <strong className="is-negativo">${formatearMonto(resumenAdminMov.retirosEnviadosTotal)}</strong>
+                                </div>
                             </div>
-                            <div className="admin-mov-stat">
-                                <span>Partidas en curso / disputa</span>
-                                <strong className="is-pendiente">{resumenAdminMov.partidasEnCursoCount || 0}</strong>
+                        ) : (
+                            <div className="admin-mov-resumen-grid">
+                                <div className="admin-mov-stat">
+                                    <span>Pendientes por aprobar</span>
+                                    <strong className="is-pendiente">{resumenAdminMov.pendientesAccionCount || 0}</strong>
+                                </div>
+                                <div className="admin-mov-stat">
+                                    <span>Partidas en curso / disputa</span>
+                                    <strong className="is-pendiente">{resumenAdminMov.partidasEnCursoCount || 0}</strong>
+                                </div>
+                                <div className="admin-mov-stat">
+                                    <span>Utilidad admin partidas{distribucion.ganancia !== undefined ? ` (${porcentajeEfectivoGanancia}%)` : ''}</span>
+                                    <strong className="is-positivo">${formatearMonto(resumenAdminMov.gananciaNetaAdminPartidas)}</strong>
+                                </div>
+                                <div className="admin-mov-stat">
+                                    <span>Referidos sin invitador (admin)</span>
+                                    <strong className="is-positivo">${formatearMonto(resumenAdminMov.referidosSinReferidorTotal)}</strong>
+                                </div>
+                                <div className="admin-mov-stat">
+                                    <span>Recargas aprobadas</span>
+                                    <strong className="is-positivo">${formatearMonto(resumenAdminMov.recargasAprobadasTotal)}</strong>
+                                </div>
+                                <div className="admin-mov-stat">
+                                    <span>Retiros enviados</span>
+                                    <strong className="is-negativo">${formatearMonto(resumenAdminMov.retirosEnviadosTotal)}</strong>
+                                </div>
                             </div>
-                            <div className="admin-mov-stat">
-                                <span>Utilidad admin partidas{distribucion.ganancia !== undefined ? ` (${porcentajeEfectivoGanancia}%)` : ''}</span>
-                                <strong className="is-positivo">${formatearMonto(resumenAdminMov.gananciaNetaAdminPartidas)}</strong>
-                            </div>
-                            <div className="admin-mov-stat">
-                                <span>Referidos sin invitador (admin)</span>
-                                <strong className="is-positivo">${formatearMonto(resumenAdminMov.referidosSinReferidorTotal)}</strong>
-                            </div>
-                            <div className="admin-mov-stat">
-                                <span>Recargas aprobadas</span>
-                                <strong className="is-positivo">${formatearMonto(resumenAdminMov.recargasAprobadasTotal)}</strong>
-                            </div>
-                            <div className="admin-mov-stat">
-                                <span>Retiros enviados</span>
-                                <strong className="is-negativo">${formatearMonto(resumenAdminMov.retirosEnviadosTotal)}</strong>
-                            </div>
-                        </div>
+                        )}
 
                         <div className="admin-mov-filtros" role="tablist" aria-label="Filtrar movimientos admin">
-                            {FILTROS_ADMIN_MOVIMIENTOS.map(f => (
+                            {(esModerador ? FILTROS_MODERADOR_MOVIMIENTOS : FILTROS_ADMIN_MOVIMIENTOS).map(f => (
                                 <button
                                     key={f.id}
                                     type="button"
@@ -671,49 +818,51 @@ export default function Admin() {
                         </div>
                     </div>
 
-                    <div className="admin-section" style={{marginTop: 30}}>
-                        <div className="section-header">
-                            <h3>🚨 Disputas Activas</h3>
-                            <button className="refresh-btn" onClick={cargarDisputasAdmin}>🔄 Actualizar</button>
-                        </div>
-                        <div className="admin-list">
-                            {disputes.length === 0 ? <p className="empty">Sin disputas.</p> : (
-                                disputes.map(m => (
-                                    <div key={m.id} className="dispute-item">
-                                        <div className="dispute-info">
-                                            <strong>Partida #{m.id}</strong>: <span style={{color:'#4ecca3'}}>{m.jugador1}</span> vs <span style={{color:'#ed4245'}}>{m.jugador2}</span><br/>
-                                            Monto: ${m.monto}
-                                        </div>
-                                        <div className="dispute-controls">
-                                            <div className="dispute-field">
-                                                <label>GANADOR (Recibe $):</label>
-                                                <select value={disputeResolutions[m.id]?.ganador || m.jugador1} onChange={e => handleDisputeChange(m.id, 'ganador', e.target.value)}>
-                                                    <option value={m.jugador1}>{m.jugador1}</option>
-                                                    <option value={m.jugador2}>{m.jugador2}</option>
-                                                </select>
+                    {esAdminReal && (
+                        <div className="admin-section" style={{marginTop: 30}}>
+                            <div className="section-header">
+                                <h3>🚨 Disputas Activas</h3>
+                                <button className="refresh-btn" onClick={cargarDisputasAdmin}>🔄 Actualizar</button>
+                            </div>
+                            <div className="admin-list">
+                                {disputes.length === 0 ? <p className="empty">Sin disputas.</p> : (
+                                    disputes.map(m => (
+                                        <div key={m.id} className="dispute-item">
+                                            <div className="dispute-info">
+                                                <strong>Partida #{m.id}</strong>: <span style={{color:'#4ecca3'}}>{m.jugador1}</span> vs <span style={{color:'#ed4245'}}>{m.jugador2}</span><br/>
+                                                Monto: ${m.monto}
                                             </div>
-                                            <div className="dispute-field">
-                                                <label>CULPABLE (Falta):</label>
-                                                <select value={disputeResolutions[m.id]?.culpable || 'nadie'} onChange={e => handleDisputeChange(m.id, 'culpable', e.target.value)} style={{borderColor: '#ed4245'}}>
-                                                    <option value="nadie">-- Nadie --</option>
-                                                    <option value={m.jugador1}>{m.jugador1}</option>
-                                                    <option value={m.jugador2}>{m.jugador2}</option>
-                                                </select>
+                                            <div className="dispute-controls">
+                                                <div className="dispute-field">
+                                                    <label>GANADOR (Recibe $):</label>
+                                                    <select value={disputeResolutions[m.id]?.ganador || m.jugador1} onChange={e => handleDisputeChange(m.id, 'ganador', e.target.value)}>
+                                                        <option value={m.jugador1}>{m.jugador1}</option>
+                                                        <option value={m.jugador2}>{m.jugador2}</option>
+                                                    </select>
+                                                </div>
+                                                <div className="dispute-field">
+                                                    <label>CULPABLE (Falta):</label>
+                                                    <select value={disputeResolutions[m.id]?.culpable || 'nadie'} onChange={e => handleDisputeChange(m.id, 'culpable', e.target.value)} style={{borderColor: '#ed4245'}}>
+                                                        <option value="nadie">-- Nadie --</option>
+                                                        <option value={m.jugador1}>{m.jugador1}</option>
+                                                        <option value={m.jugador2}>{m.jugador2}</option>
+                                                    </select>
+                                                </div>
                                             </div>
+                                            <button className="btn-resolve" onClick={() => resolverDisputa(m.id)}>⚖️ DICTAR SENTENCIA</button>
                                         </div>
-                                        <button className="btn-resolve" onClick={() => resolverDisputa(m.id)}>⚖️ DICTAR SENTENCIA</button>
-                                    </div>
-                                ))
-                            )}
+                                    ))
+                                )}
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
             )}
 
-            {view === 'chatbot' && <AdminChatbot />}
-            {view === 'soporte' && <AdminSoporte />}
+            {esAdminReal && view === 'chatbot' && <AdminChatbot />}
+            {esAdminReal && view === 'soporte' && <AdminSoporte />}
 
-            {view === 'clash-verifications' && (
+            {esAdminReal && view === 'clash-verifications' && (
                 <div className="admin-view">
                     <div className="section-header">
                         <h3>⚔️ Verificación manual de Clash Royale</h3>
@@ -744,11 +893,107 @@ export default function Admin() {
             {view === 'stats' && (
                 <div className="admin-view">
                     <div className="section-header">
-                        <h3>📊 Contabilidad del Dueño</h3>
+                        <h3>{esModerador ? '📊 Finanzas y tus usuarios' : '📊 Contabilidad del Dueño'}</h3>
                         <button className="refresh-btn" onClick={cargarEstadisticasAdmin}>🔄 Actualizar</button>
                     </div>
 
-                    {loadingStats || !stats ? <p>Cargando estadísticas...</p> : (
+                    {loadingStats || !stats ? <p>Cargando estadísticas...</p> : esModerador ? (
+                        <>
+                            <div className="stats-summary">
+                                <div className="stat-box">
+                                    <small>Dinero en Circulación (Tus Usuarios)</small>
+                                    <h2 className="stat-amount-warning">${formatearMonto(stats.totalUsuarios)}</h2>
+                                </div>
+                                <div className="stat-box stat-box-success">
+                                    <small>Comisión Partidas (Billetera)</small>
+                                    <h2 className="stat-amount-success">+${formatearMonto(stats.gananciaComisionesModerador)}</h2>
+                                </div>
+                                <div className="stat-box stat-box-primary">
+                                    <small>Comisión Referidos (Billetera)</small>
+                                    <h2 className="stat-amount-primary">+${formatearMonto(stats.gananciaReferidosModerador)}</h2>
+                                </div>
+                                <div className="stat-box stat-box-success">
+                                    <small>Total en tu Billetera</small>
+                                    <h2 className="stat-amount-success">+${formatearMonto(stats.gananciaTotalModerador)}</h2>
+                                </div>
+                            </div>
+
+                            <section className="mod-referral-box" aria-label="Tu enlace de referido">
+                                <div className="mod-referral-info">
+                                    <h4>🔗 Tu enlace de referido</h4>
+                                    <p>
+                                        Comparte este enlace con tus jugadores. Quien se registre desde él quedará asignado a tu panel y tus comisiones de partidas y referidos irán a tu billetera.
+                                    </p>
+                                    {stats.codigoReferido ? (
+                                        <div className="mod-referral-link-row">
+                                            <code>{linkReferidoPanel}</code>
+                                            <button
+                                                type="button"
+                                                className="refresh-btn"
+                                                onClick={() => copiarLinkReferido(stats.codigoReferido)}
+                                            >
+                                                {linkRefCopiado ? '✓ Copiado' : '📋 Copiar enlace'}
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <p className="empty">Aún no tienes un código de referido generado.</p>
+                                    )}
+                                </div>
+                                <div className="mod-referral-badge">
+                                    <span>Usuarios vinculados</span>
+                                    <strong>{stats.resumenReferidos?.totalRelaciones ?? (stats.listaUsuarios?.length || 0)}</strong>
+                                </div>
+                            </section>
+
+                            <h4 className="admin-subsection-title">Tus Usuarios y lo que te ha generado cada uno</h4>
+                            <div className="admin-list users-list">
+                                {!stats.listaUsuarios || stats.listaUsuarios.length === 0 ? (
+                                    <p className="empty">Todavía no tienes usuarios registrados con tu enlace de referido.</p>
+                                ) : stats.listaUsuarios.map(u => (
+                                    <div key={u.id} className="user-card">
+                                        <div className="user-header-row">
+                                            <div className="user-basic">
+                                                <span className="user-title-line">
+                                                    👤 <strong>{u.username}</strong>
+                                                </span>
+                                                <span className="user-email">{u.email}</span>
+                                            </div>
+                                            <div className="user-financials">
+                                                <div className="user-balance-line">Saldo usuario: <span className="val-green">${formatearMonto(u.saldo)}</span></div>
+                                                <div className="user-total-contrib-line">Total generado: <span className="val-gold">+${formatearMonto(u.comision_total_aportada)}</span></div>
+                                            </div>
+                                        </div>
+                                        <div className="user-contributions">
+                                            <div className="user-contributions-grid">
+                                                <div className="user-contrib-item is-ganancia">
+                                                    <span className="user-contrib-name">💰 Comisión Partidas</span>
+                                                    <strong className="user-contrib-amount">+${formatearMonto(u.ganancia_generada)}</strong>
+                                                </div>
+                                                <div className="user-contrib-item">
+                                                    <span className="user-contrib-name">🤝 Referidos</span>
+                                                    <strong className="user-contrib-amount">+${formatearMonto(u.gen_referidos)}</strong>
+                                                    {Number(u.devuelto_referido || 0) > 0 && (
+                                                        <small className="mod-cashback-note">Devuelto al jugador: ${formatearMonto(u.devuelto_referido)}</small>
+                                                    )}
+                                                </div>
+                                                <div className="user-contrib-item">
+                                                    <span className="user-contrib-name">💼 Total Billetera</span>
+                                                    <strong className="user-contrib-amount">+${formatearMonto(u.comision_total_aportada)}</strong>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="stats-grid">
+                                            <div className="stat-item"><span className="stat-label">PARTIDAS</span><span className="stat-val">{u.total_partidas || 0}</span></div>
+                                            <div className="stat-item"><span className="stat-label">VICTORIAS</span><span className="stat-val val-green">{u.total_victorias || 0}</span> <span className="stat-subdetail">({u.victorias_normales}/{u.victorias_disputa})</span></div>
+                                            <div className="stat-item"><span className="stat-label">DERROTAS</span><span className="stat-val val-red">{u.total_derrotas || 0}</span> <span className="stat-subdetail">({u.derrotas_normales}/{u.derrotas_disputa})</span></div>
+                                            <div className="stat-item"><span className="stat-label">FALTAS (JUEZ)</span><span className="stat-val val-red">{u.faltas || 0}</span></div>
+                                            <div className="stat-item"><span className="stat-label">HUIDAS TOTALES</span><span className="stat-val val-gold">{u.salidas_chat || 0}</span></div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </>
+                    ) : (
                         <>
                             <div className="stats-summary">
                                 <div className="stat-box">
@@ -885,7 +1130,7 @@ export default function Admin() {
                                                     </span>
                                                 </span>
                                                 <span className="user-email">{u.email}</span>
-                                                {u.tipo_suscripcion !== 'admin' && (
+                                                {u.tipo_suscripcion !== 'admin' && u.tipo_suscripcion !== 'moderador' && (
                                                     <div className="user-sub-actions">
                                                         <button
                                                             type="button"
@@ -948,7 +1193,68 @@ export default function Admin() {
                 </div>
             )}
 
-            {view === 'test-zone' && (
+            {esModerador && view === 'nequis' && (
+                <div className="admin-view">
+                    <div className="admin-section">
+                        <div className="section-header">
+                            <h3>📱 Números Nequi para recargas de tus usuarios</h3>
+                            <button className="refresh-btn" onClick={cargarNequisModerador} disabled={loadingNequis}>
+                                {loadingNequis ? 'Actualizando…' : '🔄 Actualizar'}
+                            </button>
+                        </div>
+                        <p className="clash-verification-help">
+                            Agrega uno o varios números Nequi. Cuando tus usuarios entren a <strong>Finanzas → Recargar → Nequi Manual</strong>, únicamente les aparecerán los números registrados aquí.
+                        </p>
+                        <form className="mod-nequi-form" onSubmit={handleAgregarNequi}>
+                            <input
+                                type="tel"
+                                placeholder="Número Nequi (ej: 3001234567)"
+                                value={nuevoNequiNumero}
+                                onChange={e => setNuevoNequiNumero(e.target.value)}
+                                maxLength={25}
+                                required
+                            />
+                            <input
+                                type="text"
+                                placeholder="Titular opcional (ej: Juan Pérez)"
+                                value={nuevoNequiTitular}
+                                onChange={e => setNuevoNequiTitular(e.target.value)}
+                                maxLength={80}
+                            />
+                            <button type="submit" className="btn-approve" disabled={guardandoNequi}>
+                                {guardandoNequi ? 'Guardando…' : '➕ Agregar Nequi'}
+                            </button>
+                        </form>
+                        {errorNequi && <p className="mod-nequi-error">{errorNequi}</p>}
+
+                        <div className="admin-list" style={{ marginTop: 16 }}>
+                            {loadingNequis && nequisModerador.length === 0 ? (
+                                <p>Cargando números Nequi...</p>
+                            ) : nequisModerador.length === 0 ? (
+                                <p className="empty">Todavía no has registrado ningún número Nequi. Agrega uno arriba para habilitar recargas manuales a tus usuarios.</p>
+                            ) : nequisModerador.map(nq => (
+                                <div key={nq.id} className="trans-item">
+                                    <div className="trans-info">
+                                        <strong>📱 {nq.numero}</strong>
+                                        {nq.titular && <><br/><span style={{ color: '#bbb' }}>Titular: {nq.titular}</span></>}
+                                    </div>
+                                    <div className="trans-actions">
+                                        <button
+                                            type="button"
+                                            className="btn-reject"
+                                            onClick={() => handleEliminarNequi(nq.id)}
+                                        >
+                                            🗑️ Eliminar
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {esAdminReal && view === 'test-zone' && (
                 <div className="admin-view">
                     <div className="section-header">
                         <h3>🧪 Copia Temporal / Zona de Pruebas (Base JUnit)</h3>
@@ -1021,13 +1327,14 @@ export default function Admin() {
                                 {usuariosFiltradosPrueba.length === 0 ? (
                                     <p className="empty">No se encontraron usuarios.</p>
                                 ) : usuariosFiltradosPrueba.map(u => {
-                                    const esAdmin = u.tipo_suscripcion === 'admin';
+                                    const esCuentaAdmin = u.tipo_suscripcion === 'admin';
+                                    const esCuentaProtegida = esCuentaAdmin || u.tipo_suscripcion === 'moderador';
                                     const esPrueba = u.tipo_suscripcion === 'prueba';
                                     return (
                                         <div key={u.id} className="test-zone-user-row">
                                             <div className="user-basic">
                                                 <span className="user-title-line">
-                                                    {esAdmin ? '👑' : esPrueba ? '🧪' : '👤'}{' '}
+                                                    {esCuentaAdmin ? '👑' : esPrueba ? '🧪' : '👤'}{' '}
                                                     <strong>{u.username}</strong>{' '}
                                                     <span className={`sub-badge sub-${u.tipo_suscripcion || 'free'}`}>
                                                         {u.tipo_suscripcion || 'free'}
@@ -1040,9 +1347,11 @@ export default function Admin() {
                                                 </span>
                                             </div>
                                             <div className="test-zone-user-actions">
-                                                {esAdmin ? (
+                                                {esCuentaProtegida ? (
                                                     <span className="admin-zone-note">
-                                                        Admin (zona actual: <strong>{u.zona_admin || 'normal'}</strong>)
+                                                        {esCuentaAdmin
+                                                            ? <>Admin (zona actual: <strong>{u.zona_admin || 'normal'}</strong>)</>
+                                                            : 'Cuenta con rol especial'}
                                                     </span>
                                                 ) : (
                                                     <>

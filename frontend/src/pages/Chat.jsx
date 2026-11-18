@@ -103,6 +103,7 @@ export default function Chat() {
     const setChatHistory = useAppStore(state => state.setChatHistory);
     const solicitarAutenticacionVistaPrevia = useAppStore(state => state.solicitarAutenticacionVistaPrevia);
     const esAdmin = currentUser?.tipo_suscripcion === 'admin';
+    const puedePublicarPagos = esAdmin || currentUser?.tipo_suscripcion === 'moderador';
 
     useEffect(() => {
         const canalQuery = leerCanalDeQuery(location.search);
@@ -157,10 +158,10 @@ export default function Chat() {
     useEffect(() => {
         if (canalActivo === 'pagos' && currentUser) {
             cargarPagos();
-            if (esAdmin) cargarRetirosSinEvidencia();
+            if (puedePublicarPagos) cargarRetirosSinEvidencia();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canalActivo, currentUser?.id, esAdmin]);
+    }, [canalActivo, currentUser?.id, puedePublicarPagos]);
 
     useEffect(() => {
         // Auto-scroll al recibir mensajes o cambiar de canal
@@ -444,7 +445,7 @@ export default function Chat() {
                     <div className="chat-read-only">
                         <span>📜 Canal de registro de eventos y partidas del sistema (solo lectura).</span>
                     </div>
-                ) : canalActivo === 'pagos' && !esAdmin ? (
+                ) : canalActivo === 'pagos' && !puedePublicarPagos ? (
                     <div className="chat-read-only">
                         <span>🧾 Aquí el administrador publica los comprobantes de los retiros pagados (solo lectura).</span>
                     </div>

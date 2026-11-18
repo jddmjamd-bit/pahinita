@@ -456,6 +456,7 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | P14 | Modo Vista Previa desde `/auth` | Al entrar sin sesión siempre redirige a `/auth`; al oprimir `👀 Ver vista previa de la página` se recorre el lobby (`/chat`, `/match`, `/sorteos`, `/leaderboard`, `/chatbot`, `/soporte`, `/finance`, `/referidos`, `/faq`) con datos de ejemplo sin conectar sockets ni APIs privadas, mostrando el modal de inicio de sesión ante cualquier acción interactiva y bloqueando `/admin`. |
 | P15 | Sistema de referidos en frontend (`/auth?ref=` y `/referidos`) | Entrar por `/auth?ref=CODIGO` abre automáticamente el formulario de registro con el código prellenado y opcional; `/referidos` permite copiar link solo o con mensaje corto editable, configurar comisión compartida (`0%`–`100%`) general o por referido y ver estadísticas/pagos usando `llamarApi` y `DEMO_REFERIDOS` en vista previa. |
 | P16 | Notificaciones en vivo e historial de movimientos (`/finance` y `/admin`) | Cada notificación de movimiento y tarjeta de `📋 Movimientos` muestra estado **gris** (`Pendiente` / `En curso`), **verde** (`+$` ingreso) o **rojo** (`-$` salida/rechazo), hora exacta y origen detallado (Nequi Manual, Wompi, Partida vs rival, Referidos, Rankings o Abonos), actualizándose en vivo con `movimiento_actualizado`. |
+| P17 | Panel del rol moderador y Nequis dinámicos (`/admin` y `/finance`) | Entra con el botón `👑 Admin` (sin mostrar la palabra "Moderador"), ve solo 4 pestañas (`Pagos`, `Movimientos`, `Finanzas`, `Nequi`), puede publicar evidencias en `pagos` de sus usuarios (bloqueado en `anuncios`) y en `/finance` sus referidos ven únicamente los Nequis registrados por ese moderador. |
 
 ### 🔗 R — Sistema de Referidos (Prioridad 6.5)
 
@@ -479,10 +480,20 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | S5 | Liquidar partida con referido y sin referidor | En `📋 Movimientos` del usuario aparece el ingreso en **verde** indicando `Comisión de referido por @invitado` o `Devolución de referido (@referidor)`; en `/admin` aparece además el ingreso sin referidor acreditado al admin. |
 | S6 | `MovimientosFinanzasAdminTest` (3 pruebas) | Verifica `FinanzasService.obtenerMovimientos` (14 escenarios sin duplicados), `AdminService.obtenerMovimientosAdmin` (8 fuentes y métricas) y `NotificacionesListener` (gris→verde/rojo, limpieza de pendientes, referidos y `movimiento_actualizado`). |
 
+### 🛂 T — Rol Moderador (Billetera Independiente y Nequis Múltiples · V27)
+
+| # | Prueba | Resultado esperado |
+|---|--------|-------------------|
+| T1 | Activar `tipo_suscripcion = 'moderador'` en BD y abrir sesión | En el sidebar aparece `👑 Admin` (sin texto "Moderador"); al abrir `/admin` solo carga `Pagos`, `Movimientos`, `Finanzas` y `Nequi`. |
+| T2 | Intentar acceder como moderador a disputas, Clash, zona de pruebas, soporte o chatbot | `AdminMiddleware` / `AdminService` devuelven `403 Forbidden`. |
+| T3 | Registrar jugadores con `?ref=` de Mod A, Mod B y sin referido | `Mod A` solo ve/aprueba recargas, retiros y evidencias de sus jugadores (`Mod B` y `admin` reciben `403` sobre usuarios de `Mod A`). |
+| T4 | Liquidar partida entre jugador de `Mod A` y jugador sin moderador | La mitad de `GANANCIA` (25%) del jugador de `Mod A` y su comisión `REFERIDOS` (10%, descontando cashback) van a `moderator_wallet` de `Mod A` sin alterar `users.saldo` ni mezclarse con `/finance`; el admin recibe su mitad base más inactivas y sobrantes. |
+| T5 | Configurar múltiples Nequis en `/admin` (`📱 Nequi`) | Los usuarios de `Mod A` ven esos Nequis en `GET /api/finance/nequi-info` / `/finance` (Nequi Manual); usuarios sin moderador ven `3126655995`. |
+
 ### 📋 Q — Flyway Migrations
 
 | # | Prueba | Resultado esperado |
 |---|--------|-------------------|
-| Q1 | Verificar `SELECT version, success FROM flyway_schema_history ORDER BY installed_rank` | V1 a V26, todas con `success = true`. |
-| Q2 | Arrancar con BD vacía | Flyway aplica las migraciones actuales (V1–V26) automáticamente. |
+| Q1 | Verificar `SELECT version, success FROM flyway_schema_history ORDER BY installed_rank` | V1 a V27, todas con `success = true`. |
+| Q2 | Arrancar con BD vacía | Flyway aplica las migraciones actuales (V1–V27) automáticamente. |
 | Q3 | V17 con duplicados existentes | Migración aborta con mensaje explicativo (no borra datos). |

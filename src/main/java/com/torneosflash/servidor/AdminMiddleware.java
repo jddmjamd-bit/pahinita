@@ -7,13 +7,16 @@ import io.javalin.http.Context;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Locale;
+import java.util.Set;
+
 /**
  * Middleware de autorización de administrador (S3).
  *
  * Corre ANTES de cada ruta que solo debe usar un admin y corta la petición si quien la hace no lo es:
  * <ul>
  *   <li>Sin sesión JWT válida → 401</li>
- *   <li>Con sesión pero sin rol {@code admin} en la BD → 403</li>
+ *   <li>Con sesión pero sin rol {@code admin} (o {@code moderador} en su subconjunto permitido) en la BD → 403</li>
  * </ul>
  * La respuesta es el {@code {"error": "..."}} de siempre (lo arma {@link ManejadorErrores}).
  *
@@ -41,6 +44,20 @@ public final class AdminMiddleware {
             "/check-ip"
     };
 
+    /**
+     * Subconjunto estricto de rutas del panel al que puede acceder una cuenta {@code moderador}
+     * (transacciones, movimientos y finanzas de sus usuarios, evidencias de pago y sus números Nequi).
+     */
+    private static final Set<String> RUTAS_MODERADOR = Set.of(
+            "/api/admin/transactions",
+            "/api/admin/transaction/process",
+            "/api/admin/movements",
+            "/api/admin/stats",
+            "/api/admin/pagos/retiros",
+            "/api/admin/pagos/evidencias",
+            "/api/admin/nequis"
+    );
+
     private AdminMiddleware() {
     }
 
@@ -48,6 +65,13 @@ public final class AdminMiddleware {
         for (String patron : RUTAS_ADMIN) {
             app.before(patron, ctx -> exigirAdmin(ctx, admin));
         }
+    }
+
+    private static boolean esRutaPermitidaModerador(String rutaCruda) {
+        String ruta = RateLimitMiddleware.normalizar(rutaCruda);
+        if (RUTAS_MODERADOR.contains(ruta)) return true;
+        return ruta.startsWith("/api/admin/nequis/")
+                && ruta.substring("/api/admin/nequis/".length()).matches("\\d+");
     }
 
     private static void exigirAdmin(Context ctx, AdminService admin) {
@@ -58,9 +82,14 @@ public final class AdminMiddleware {
         if (userId == null) {
             throw ServicioException.noAutenticado("Inicia sesión para continuar");
         }
-        if (!admin.esAdmin(userId)) {
-            logger.warn("⛔ Acceso admin denegado: usuario {} intentó {} {}", userId, ctx.method(), ctx.path());
-            throw ServicioException.prohibido("Solo los administradores pueden hacer esto");
+        if (admin.esAdmin(userId)) {
+            return;
         }
+        if (esRutaPermitidaModerador(ctx.path()) && admin.esModerador(userId)) {
+            return;
+        }
+        logger.warn("⛔ Acceso admin denegado: usuario {} intentó {} {}",
+                userId, ctx.method(), ctx.path().toLowerCase(Locale.ROOT));
+        throw ServicioException.prohibido("Solo los administradores pueden hacer esto");
     }
 }

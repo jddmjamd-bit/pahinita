@@ -2,6 +2,7 @@ package com.torneosflash.dao;
 
 import com.google.gson.JsonParser;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonPrimitive;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
@@ -1752,5 +1753,166 @@ class RenderAcceptanceCheck {
         String sinEsquema = jdbcUrl.replaceAll("(?i)([?&])currentschema=[^&]*", "");
         sinEsquema = sinEsquema.replaceAll("[?&]$", "");
         return sinEsquema + (sinEsquema.contains("?") ? "&" : "?") + "currentSchema=" + schema;
+    }
+
+    @Test
+    void moderadoresIndependientesAislanUsuariosComisionesNequisYEvidencias() {
+        String sufijo = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        ReferidosService refSrv = new ReferidosService(dao, usuarios);
+
+        int modAId = crearUsuario("qa_mod_a_" + sufijo, "moderador", BigDecimal.ZERO);
+        int modBId = crearUsuario("qa_mod_b_" + sufijo, "moderador", BigDecimal.ZERO);
+        String codigoModA = dao.queryOne("SELECT codigo_referido FROM users WHERE id = ?", modAId)
+                .get("codigo_referido").getAsString();
+        String codigoModB = dao.queryOne("SELECT codigo_referido FROM users WHERE id = ?", modBId)
+                .get("codigo_referido").getAsString();
+        assertFalse(codigoModA.isBlank());
+        assertFalse(codigoModB.isBlank());
+
+        refSrv.actualizarConfiguracion(modAId, new BigDecimal("20"), null, false);
+
+        String userAUsername = "qa_ma_u_" + sufijo;
+        String userBUsername = "qa_mb_u_" + sufijo;
+        String telA = "3" + String.format("%09d", 100_000_000
+                + Math.floorMod(CONTADOR_TELEFONOS_TEST.getAndIncrement(), 900_000_000));
+        String telB = "3" + String.format("%09d", 100_000_000
+                + Math.floorMod(CONTADOR_TELEFONOS_TEST.getAndIncrement(), 900_000_000));
+        auth.registrar(userAUsername, userAUsername + "@example.test", "ClaveSegura!123",
+                tagPruebaUnico(), telA, "tok-ma", true, codigoModA);
+        auth.registrar(userBUsername, userBUsername + "@example.test", "ClaveSegura!123",
+                tagPruebaUnico(), telB, "tok-mb", true, codigoModB);
+
+        int userAId = dao.queryOne("SELECT id FROM users WHERE username = ?", userAUsername).get("id").getAsInt();
+        int userBId = dao.queryOne("SELECT id FROM users WHERE username = ?", userBUsername).get("id").getAsInt();
+        int userLibreId = usuarioConSaldo(new BigDecimal("10000.00"));
+        String userLibreUsername = dao.queryOne("SELECT username FROM users WHERE id = ?", userLibreId)
+                .get("username").getAsString();
+
+        // Nequis múltiples aislados por moderador y separados del Admin
+        admin.agregarNequiModerador(modAId, "300 111 2233", "Mod A Uno");
+        admin.agregarNequiModerador(modAId, "3004445566", "Mod A Dos");
+        admin.agregarNequiModerador(modBId, "3117778899", "Mod B");
+
+        JsonObject nequiUserA = finanzas.obtenerNequisParaRecarga(userAId);
+        assertTrue(nequiUserA.get("esDeModerador").getAsBoolean());
+        assertEquals(2, nequiUserA.getAsJsonArray("nequis").size());
+        assertEquals("3001112233", nequiUserA.getAsJsonArray("nequis").get(0).getAsJsonObject().get("numero").getAsString());
+        assertEquals("3004445566", nequiUserA.getAsJsonArray("nequis").get(1).getAsJsonObject().get("numero").getAsString());
+
+        JsonObject nequiUserB = finanzas.obtenerNequisParaRecarga(userBId);
+        assertTrue(nequiUserB.get("esDeModerador").getAsBoolean());
+        assertEquals(1, nequiUserB.getAsJsonArray("nequis").size());
+        assertEquals("3117778899", nequiUserB.getAsJsonArray("nequis").get(0).getAsJsonObject().get("numero").getAsString());
+
+        JsonObject nequiUserLibre = finanzas.obtenerNequisParaRecarga(userLibreId);
+        assertFalse(nequiUserLibre.get("esDeModerador").getAsBoolean());
+        assertEquals("3126655995", nequiUserLibre.getAsJsonArray("nequis").get(0).getAsJsonObject().get("numero").getAsString());
+
+        // Permisos restringidos para moderadores
+        assertEquals(403, assertThrows(ServicioException.class, () -> admin.estadoZonaPruebas(modAId)).getStatus());
+        assertEquals(403, assertThrows(ServicioException.class, () -> admin.cambiarZonaAdmin(modAId, "prueba")).getStatus());
+        assertEquals(403, assertThrows(ServicioException.class, () -> admin.confirmarVerificacionClash(userAId, modAId)).getStatus());
+
+        // Recarga manual de userA solo visible y aprobable por modA
+        String refA = "MODA-" + sufijo;
+        finanzas.crearSolicitudRecarga(userAId, "nequi", refA, new JsonPrimitive(10000));
+        int txAId = dao.queryOne("SELECT id FROM transactions WHERE usuario_id = ? AND referencia = ?",
+                userAId, refA).get("id").getAsInt();
+
+        assertTrue(admin.transaccionesPendientes(modAId).stream().anyMatch(t -> t.get("id").getAsInt() == txAId));
+        assertTrue(admin.transaccionesPendientes(modBId).stream().noneMatch(t -> t.get("id").getAsInt() == txAId));
+        assertTrue(admin.transaccionesPendientes(adminId).stream().noneMatch(t -> t.get("id").getAsInt() == txAId));
+        assertEquals(403, assertThrows(ServicioException.class,
+                () -> admin.procesarTransaccion(modBId, txAId, "approve")).getStatus());
+        assertEquals(403, assertThrows(ServicioException.class,
+                () -> admin.procesarTransaccion(adminId, txAId, "approve")).getStatus());
+        assertEquals("Aprobada", admin.procesarTransaccion(modAId, txAId, "approve"));
+
+        // Partida entre jugador de modA (ganador) y jugador del Admin (perdedor)
+        String sala = "qa-mod-" + UUID.randomUUID();
+        dao.update("INSERT INTO active_matches (sala_id, player1_id, player1_username, player2_id, player2_username, "
+                        + "last_modo, last_dinero) VALUES (?, ?, ?, ?, ?, 'friendly', '10000')",
+                sala, userAId, userAUsername, userLibreId, userLibreUsername);
+        var inicio = wallet.iniciarPartidaTorneo(userAId, userAUsername, userLibreId, userLibreUsername,
+                sala, "friendly", new BigDecimal("10000"), "#MODA01", "#LIBR01", "2026-11-17T10:00:00Z");
+        assertTrue(inicio.success);
+        var liq = wallet.liquidar(userAId, userLibreId, new BigDecimal("10000"), inicio.matchId,
+                "comision_match", "en_curso", userAUsername, null);
+        assertTrue(liq.success);
+
+        // Billetera del moderador: 250 ganancia partida (solo jugador modA) + 80 referidos (80% de 100) = 330
+        // La cuenta personal (users.saldo) de modA NO recibe el dinero de referidos.
+        assertMonto(new BigDecimal("250.00"), dao.queryOne(
+                "SELECT COALESCE(SUM(monto), 0) AS total FROM moderator_wallet "
+                        + "WHERE match_id = ? AND moderator_id = ? AND categoria = 'ganancia'",
+                inicio.matchId, modAId).get("total").getAsBigDecimal());
+        assertMonto(new BigDecimal("80.00"), dao.queryOne(
+                "SELECT COALESCE(SUM(monto), 0) AS total FROM moderator_wallet "
+                        + "WHERE match_id = ? AND moderator_id = ? AND categoria = 'referidos'",
+                inicio.matchId, modAId).get("total").getAsBigDecimal());
+        assertMonto(BigDecimal.ZERO, wallet.obtenerSaldo(modAId));
+        assertMonto(new BigDecimal("18020.00"), wallet.obtenerSaldo(userAId));
+
+        // Admin solo recibe la mitad base de userLibre (250) + todas las categorías inactivas (600) + sobrantes (700)
+        assertMonto(new BigDecimal("250.00"), dao.queryOne(
+                "SELECT COALESCE(SUM(monto), 0) AS total FROM admin_wallet WHERE match_id = ? AND categoria = 'ganancia'",
+                inicio.matchId).get("total").getAsBigDecimal());
+        assertMonto(new BigDecimal("200.00"), dao.queryOne(
+                "SELECT COALESCE(SUM(monto), 0) AS total FROM admin_wallet WHERE match_id = ? AND categoria = 'misiones'",
+                inicio.matchId).get("total").getAsBigDecimal());
+        assertMonto(new BigDecimal("100.00"), dao.queryOne(
+                "SELECT COALESCE(SUM(monto), 0) AS total FROM admin_wallet WHERE match_id = ? AND categoria = 'logros'",
+                inicio.matchId).get("total").getAsBigDecimal());
+        assertMonto(new BigDecimal("300.00"), dao.queryOne(
+                "SELECT COALESCE(SUM(monto), 0) AS total FROM admin_wallet WHERE match_id = ? AND categoria = 'devolucion'",
+                inicio.matchId).get("total").getAsBigDecimal());
+        assertMonto(new BigDecimal("300.00"), dao.queryOne(
+                "SELECT COALESCE(SUM(monto), 0) AS total FROM admin_wallet WHERE match_id = ? AND categoria = 'leaderboard'",
+                inicio.matchId).get("total").getAsBigDecimal());
+        assertMonto(new BigDecimal("400.00"), dao.queryOne(
+                "SELECT COALESCE(SUM(monto), 0) AS total FROM admin_wallet WHERE match_id = ? AND categoria = 'sorteos'",
+                inicio.matchId).get("total").getAsBigDecimal());
+        assertEquals("moderador", dao.queryOne(
+                "SELECT destino_tipo FROM referral_payouts WHERE match_id = ? AND jugador_id = ?",
+                inicio.matchId, userAId).get("destino_tipo").getAsString());
+
+        // Panel estadísticas y movimientos del moderador
+        JsonObject statsModA = admin.estadisticas(modAId);
+        assertTrue(statsModA.get("esModerador").getAsBoolean());
+        assertMonto(new BigDecimal("250.00"), statsModA.get("gananciaComisionesModerador").getAsBigDecimal());
+        assertMonto(new BigDecimal("80.00"), statsModA.get("gananciaReferidosModerador").getAsBigDecimal());
+        assertMonto(new BigDecimal("330.00"), statsModA.get("gananciaTotalModerador").getAsBigDecimal());
+        assertEquals(1, statsModA.getAsJsonArray("listaUsuarios").size());
+        assertEquals(userAUsername, statsModA.getAsJsonArray("listaUsuarios").get(0).getAsJsonObject()
+                .get("username").getAsString());
+
+        // Billetera personal de jugador del moderador NO mezcla lo de moderator_wallet
+        assertMonto(BigDecimal.ZERO, finanzas.obtenerMovimientos(modAId)
+                .getAsJsonObject("resumen").get("totalReferidos").getAsBigDecimal());
+
+        JsonObject movsModA = admin.obtenerMovimientosAdmin(modAId);
+        assertTrue(movsModA.get("esModerador").getAsBoolean());
+        assertMonto(new BigDecimal("330.00"), movsModA.getAsJsonObject("resumen")
+                .get("gananciaTotalModerador").getAsBigDecimal());
+
+        // Retiro + Evidencia de pago aislada
+        dao.update("UPDATE users SET player_tag_verificado = TRUE WHERE id = ?", userAId);
+        finanzas.solicitarRetiro(userAId, "nequi_retiro", "3001112233", new JsonPrimitive(5000));
+        int txRetId = dao.queryOne(
+                "SELECT id FROM transactions WHERE usuario_id = ? AND tipo = 'retiro' ORDER BY id DESC LIMIT 1",
+                userAId).get("id").getAsInt();
+        admin.procesarTransaccion(modAId, txRetId, "approve");
+
+        assertTrue(evidencias.retirosSinEvidencia(modAId).stream().anyMatch(t -> t.get("id").getAsInt() == txRetId));
+        assertTrue(evidencias.retirosSinEvidencia(modBId).stream().noneMatch(t -> t.get("id").getAsInt() == txRetId));
+        assertTrue(evidencias.retirosSinEvidencia(adminId).stream().noneMatch(t -> t.get("id").getAsInt() == txRetId));
+        assertEquals(403, assertThrows(ServicioException.class,
+                () -> evidencias.publicar(modBId, txRetId, "data:image/png;base64,AAAA", "No")).getStatus());
+        assertEquals(403, assertThrows(ServicioException.class,
+                () -> evidencias.publicar(adminId, txRetId, "data:image/png;base64,AAAA", "No")).getStatus());
+        assertTrue(evidencias.publicar(modAId, txRetId, "data:image/png;base64,AAAA", "Pago Mod A")
+                .get("success").getAsBoolean());
+        assertEquals(1, evidencias.historial(modAId).size());
+        assertEquals(0, evidencias.historial(modBId).size());
     }
 }

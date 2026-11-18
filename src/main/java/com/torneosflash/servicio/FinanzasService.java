@@ -136,7 +136,7 @@ public class FinanzasService {
             eventos.emit(Eventos.TRANSACCION_PENDIENTE_CREADA, new Eventos.TransaccionPendiente(
                     txId, userId, username, "deposito", metodoLimpio, monto, refLimpia));
         }
-        if (correo != null) {
+        if (correo != null && obtenerModeradorDeUsuario(userId) == null) {
             correo.notificarAdmin("Nueva solicitud de depósito",
                     "Un usuario registró una solicitud de recarga que requiere revisión.\n\n"
                             + "Usuario: " + username + " (id " + userId + ")\n"
@@ -840,13 +840,13 @@ public class FinanzasService {
             }
         }
 
-        // C1. Comisiones ganadas como referidor
+        // C1. Comisiones ganadas como referidor (excluye billetera de moderador)
         List<JsonObject> pagosReferidor = db.query(
                 "SELECT rp.id, rp.match_id, rp.monto_referidor, rp.porcentaje_compartido, rp.creado_en, " +
                 "u.username AS invitado_username " +
                 "FROM referral_payouts rp " +
                 "JOIN users u ON u.id = rp.jugador_id " +
-                "WHERE rp.referrer_user_id = ? AND rp.monto_referidor > 0 " +
+                "WHERE rp.referrer_user_id = ? AND rp.destino_tipo = 'referidor' AND rp.monto_referidor > 0 " +
                 "ORDER BY rp.creado_en DESC, rp.id DESC LIMIT 120",
                 userId);
         for (JsonObject rp : pagosReferidor) {
@@ -1083,6 +1083,59 @@ public class FinanzasService {
         nf.setMaximumFractionDigits(2);
         nf.setMinimumFractionDigits(0);
         return nf.format(monto);
+    }
+
+    private Integer obtenerModeradorDeUsuario(int userId) {
+        if (userId <= 0) return null;
+        JsonObject row = db.queryOne(
+                "SELECT m.id AS moderator_id " +
+                "FROM users u " +
+                "LEFT JOIN referrals r ON r.referred_user_id = u.id " +
+                "JOIN users m ON m.id = COALESCE(u.referido_por_id, r.referrer_user_id) " +
+                "WHERE u.id = ? AND m.id <> u.id AND LOWER(COALESCE(m.tipo_suscripcion, '')) = 'moderador' " +
+                "LIMIT 1",
+                userId);
+        if (row == null || !row.has("moderator_id") || row.get("moderator_id").isJsonNull()) {
+            return null;
+        }
+        int modId = enteroJson(row, "moderator_id");
+        return modId > 0 ? modId : null;
+    }
+
+    /**
+     * Devuelve los números Nequi disponibles para que {@code userId} realice su recarga manual.
+     * Si el usuario entró con el referido de un moderador, devuelve exclusivamente los Nequis de ese moderador;
+     * de lo contrario, devuelve el número principal del administrador.
+     */
+    public JsonObject obtenerNequisParaRecarga(int userId) {
+        Integer modId = obtenerModeradorDeUsuario(userId);
+        JsonObject resp = new JsonObject();
+        JsonArray nequisArr = new JsonArray();
+        if (modId != null) {
+            List<JsonObject> filas = db.query(
+                    "SELECT id, numero, titular FROM moderator_nequis WHERE moderator_id = ? ORDER BY id ASC",
+                    modId);
+            for (JsonObject f : filas) {
+                JsonObject item = new JsonObject();
+                item.addProperty("id", enteroJson(f, "id"));
+                item.addProperty("numero", texto(f, "numero"));
+                item.addProperty("titular", texto(f, "titular"));
+                nequisArr.add(item);
+            }
+            resp.addProperty("success", true);
+            resp.addProperty("esDeModerador", true);
+            resp.add("nequis", nequisArr);
+            return resp;
+        }
+        JsonObject def = new JsonObject();
+        def.addProperty("id", 0);
+        def.addProperty("numero", "3126655995");
+        def.addProperty("titular", "");
+        nequisArr.add(def);
+        resp.addProperty("success", true);
+        resp.addProperty("esDeModerador", false);
+        resp.add("nequis", nequisArr);
+        return resp;
     }
 
     private record MovimientoOrdenado(Instant instante, long tieId, JsonObject datos) {}

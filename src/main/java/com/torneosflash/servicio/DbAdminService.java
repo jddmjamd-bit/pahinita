@@ -67,11 +67,12 @@ public class DbAdminService {
      */
     private static final String TABLA_LEDGER = "wallet_ledger";
     private static final String TABLA_REFERRAL_PAYOUTS = "referral_payouts";
+    private static final String TABLA_MODERATOR_WALLET = "moderator_wallet";
     private static final Set<String> COLUMNAS_PROTEGIDAS_REFERRALS = Set.of(
             "partidas_jugadas", "total_comision_referido", "total_ganado_referidor", "total_devuelto_referido");
     private static final String MASCARA_PASSWORD = "[HASH_PROTEGIDO]";
     private static final Set<String> TABLAS_NO_IMPORTABLES = Set.of("users", "transactions", "admin_wallet",
-            "wallet_ledger", "user_tokens", "referral_payouts");
+            "wallet_ledger", "user_tokens", "referral_payouts", "moderator_wallet");
 
     public DbAdminService(GenericDAO db, ConexionDB conexion, AppConfig config) {
         this.db = db;
@@ -180,6 +181,9 @@ public class DbAdminService {
             if (TABLA_REFERRAL_PAYOUTS.equalsIgnoreCase(tableName)) {
                 throw ServicioException.prohibido("La tabla referral_payouts es de auditoría financiera y no se puede editar");
             }
+            if (TABLA_MODERATOR_WALLET.equalsIgnoreCase(tableName)) {
+                throw ServicioException.prohibido("La tabla moderator_wallet es de auditoría financiera y no se puede editar");
+            }
             if ("referrals".equalsIgnoreCase(tableName) && column != null
                     && COLUMNAS_PROTEGIDAS_REFERRALS.contains(column.toLowerCase())) {
                 throw ServicioException.prohibido("Los acumulados financieros de referidos no pueden editarse manualmente");
@@ -233,6 +237,9 @@ public class DbAdminService {
             if (TABLA_REFERRAL_PAYOUTS.equalsIgnoreCase(tableName)) {
                 throw ServicioException.prohibido("La tabla referral_payouts es de auditoría financiera y no permite borrar registros");
             }
+            if (TABLA_MODERATOR_WALLET.equalsIgnoreCase(tableName)) {
+                throw ServicioException.prohibido("La tabla moderator_wallet es de auditoría financiera y no permite borrar registros");
+            }
             try (Connection conn = db.getConnection()) {
                 exigirTablaValida(conn, tableName);
                 String tablaCitada = citarIdentificador(tableName);
@@ -253,6 +260,10 @@ public class DbAdminService {
         if (TABLA_REFERRAL_PAYOUTS.equalsIgnoreCase(tableName)) {
             throw ServicioException
                     .prohibido("La tabla referral_payouts solo admite registros generados por WalletService");
+        }
+        if (TABLA_MODERATOR_WALLET.equalsIgnoreCase(tableName)) {
+            throw ServicioException
+                    .prohibido("La tabla moderator_wallet solo admite registros generados por WalletService");
         }
         if ("users".equalsIgnoreCase(tableName) && body != null && body.has("saldo")
                 && !body.get("saldo").isJsonNull()) {

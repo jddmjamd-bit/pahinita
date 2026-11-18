@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
-import { API_BASE_URL } from '../store/llamarApi';
+import { API_BASE_URL, llamarApi } from '../store/llamarApi';
 import { DEMO_MOVIMIENTOS_FINANZAS } from '../data/vistaPreviaDemo';
 import './Finance.css';
 
@@ -44,6 +44,12 @@ export default function Finance() {
     const [autoAmount, setAutoAmount] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [wompiPendientes, setWompiPendientes] = useState([]);
+    const [nequiInfo, setNequiInfo] = useState({
+        cargado: false,
+        esDeModerador: false,
+        nequis: [{ id: 0, numero: '3126655995', titular: '' }]
+    });
+    const [nequiCopiado, setNequiCopiado] = useState('');
 
     // Withdraw states
     const [withdrawAmount, setWithdrawAmount] = useState('');
@@ -51,6 +57,7 @@ export default function Finance() {
     const [withdrawName, setWithdrawName] = useState('');
 
     const currentUser = useAppStore(state => state.user);
+    const zonaActiva = useAppStore(state => state.zonaActiva);
     const movimientoRevision = useAppStore(state => state.movimientoRevision);
     const solicitarAutenticacionVistaPrevia = useAppStore(state => state.solicitarAutenticacionVistaPrevia);
     const setUser = useAppStore(state => state.setUser);
@@ -94,9 +101,44 @@ export default function Finance() {
         }
     };
 
+    const cargarNequiInfo = useCallback(async () => {
+        if (!currentUser) {
+            setNequiInfo({
+                cargado: true,
+                esDeModerador: false,
+                nequis: [{ id: 0, numero: '3126655995', titular: '' }]
+            });
+            return;
+        }
+        const { ok, data } = await llamarApi('/api/finance/nequi-info');
+        if (ok && data) {
+            setNequiInfo({
+                cargado: true,
+                esDeModerador: Boolean(data.esDeModerador),
+                nequis: Array.isArray(data.nequis) ? data.nequis : []
+            });
+        }
+    }, [currentUser]);
+
+    const copiarNequi = async (numero) => {
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(numero);
+                setNequiCopiado(numero);
+                setTimeout(() => setNequiCopiado(prev => (prev === numero ? '' : prev)), 2000);
+            }
+        } catch {
+            // Sin permiso de portapapeles no bloquea el flujo manual
+        }
+    };
+
     useEffect(() => {
         cargarWompiPendientes();
     }, [currentUser?.id]);
+
+    useEffect(() => {
+        void cargarNequiInfo();
+    }, [cargarNequiInfo, zonaActiva]);
 
     useEffect(() => {
         void cargarMovimientos();
@@ -374,7 +416,41 @@ export default function Finance() {
 
                     {depositMethod === 'manual' ? (
                         <div className="deposit-section">
-                            <p className="info-text">Envía a Nequi <strong>3126655995</strong>.<br/>Espera aprobación (1-5 min).</p>
+                            {currentUser && !nequiInfo.cargado ? (
+                                <p className="info-text">Cargando datos de Nequi...</p>
+                            ) : nequiInfo.esDeModerador && nequiInfo.nequis.length === 0 ? (
+                                <div className="nequi-empty-notice">
+                                    ⚠️ Aún no hay un número de Nequi configurado para recargas manuales en tu cuenta. Usa Tarjeta / PSE (Wompi) o solicita que agreguen el número en administración.
+                                </div>
+                            ) : (
+                                <div className="nequi-targets-box">
+                                    <p className="info-text" style={{ marginBottom: nequiInfo.nequis.length > 1 ? 10 : 0 }}>
+                                        {nequiInfo.nequis.length > 1
+                                            ? 'Envía a cualquiera de estas cuentas Nequi:'
+                                            : 'Envía a Nequi:'}
+                                    </p>
+                                    <div className="nequi-targets-list">
+                                        {nequiInfo.nequis.map((item) => (
+                                            <div key={item.id ?? item.numero} className="nequi-target-row">
+                                                <div className="nequi-target-data">
+                                                    <strong>{item.numero}</strong>
+                                                    {item.titular && <span className="nequi-target-holder">{item.titular}</span>}
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    className="nequi-copy-btn"
+                                                    onClick={() => copiarNequi(item.numero)}
+                                                >
+                                                    {nequiCopiado === item.numero ? '✓ Copiado' : 'Copiar'}
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <p className="info-text" style={{ marginTop: 10, marginBottom: 16 }}>
+                                        Espera aprobación (1-5 min).
+                                    </p>
+                                </div>
+                            )}
                             <input type="number" placeholder="Monto enviado" min="1000"
                                 value={manualAmount} onChange={e => setManualAmount(e.target.value)} />
                             <input type="text" placeholder="Número de Referencia"

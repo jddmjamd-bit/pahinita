@@ -935,3 +935,28 @@ Centraliza el ciclo completo de vida, color visual, hora exacta y trazabilidad d
   - `GET /api/finance/movements` (`RutasFinanzas` -> `FinanzasService.obtenerMovimientos`): agrega transacciones, partidas, `referral_payouts` (referidor e invitado) y movimientos de `wallet_ledger` sin duplicados, con contadores de resumen y filtros.
   - `GET /api/admin/movements` (`RutasAdmin` -> `AdminService.obtenerMovimientosAdmin`): consolida transacciones de usuarios (con botones inline de aprobar/rechazar), partidas con utilidad efectiva del admin del 55% (`GANANCIA` 25% base + 30% divisiones inactivas `misiones`, `logros` y `devolucion`) y desglose completo, `referral_payouts` (incluyendo créditos al admin cuando el jugador no tiene referidor), `leaderboard_cut_payments`, `raffle_pool_movements` y créditos manuales.
 
+---
+
+## 27. Rol Moderador / Panel Independiente (`tipo_suscripcion = 'moderador'` · `V27`)
+
+Permite habilitar cuentas independientes con `users.tipo_suscripcion = 'moderador'` (activables únicamente desde base de datos igual que `'admin'`), manteniendo aislamiento estricto frente al administrador principal y entre múltiples moderadores:
+
+- **Identificación de usuarios propios:** Todo usuario registrado usando el enlace o código de referido de un moderador (`users.referido_por_id` o `referrals.referrer_user_id`) queda vinculado exclusivamente a ese moderador. Quienes entran sin referido o bajo un referidor no moderador pertenecen al administrador principal.
+- **Esquema `V27__moderadores_billetera_y_nequis.sql`:**
+  - Amplía el `CHECK` de `referral_payouts.destino_tipo` a `('referidor', 'admin', 'moderador')`.
+  - Crea `moderator_wallet` (`id`, `moderator_id`, `match_id`, `jugador_id`, `categoria IN ('ganancia', 'referidos')`, `monto`, `razon`, `detalle`, `fecha`, `UNIQUE (match_id, jugador_id, categoria)`) para acumular sus comisiones sin modificar su saldo personal de jugador (`users.saldo`).
+  - Crea `moderator_nequis` (`id`, `moderator_id`, `numero`, `titular`, `creado_en`, `UNIQUE (moderator_id, numero)`) para almacenar múltiples números de Nequi por moderador.
+- **Reparto económico en `WalletService` y `FinanzasService`:**
+  - En `WalletService.liquidar()`, la mitad de `Categoria.GANANCIA` (25%) correspondiente a cada jugador vinculado a un moderador se acredita a `moderator_wallet` (y se registra en `wallet_ledger` con `user_id = 0` y `tipo = 'ganancia_moderador'`), mientras el administrador recibe únicamente la mitad base de sus jugadores propios más los sobrantes de categorías activas/ranking (`SORTEOS`, `LEADERBOARD`) e inactivas (`MISIONES`, `LOGROS`, `DEVOLUCION`).
+  - En `WalletService.distribuirComisionReferidos()`, si el referidor del jugador tiene `tipo_suscripcion = 'moderador'`, su parte de `REFERIDOS` (descontado el cashback opcional al jugador) se acredita a `moderator_wallet` (`categoria = 'referidos'`) y se registra en `referral_payouts` con `destino_tipo = 'moderador'`, sin acreditar `users.saldo` ni mezclarse con `FinanzasService.obtenerMovimientos`.
+- **Autorización, chat, notificaciones y Nequis:**
+  - `AdminMiddleware` permite a `'moderador'` únicamente `/api/admin/transactions`, `/api/admin/transaction/process`, `/api/admin/movements`, `/api/admin/stats`, `/api/admin/pagos/retiros`, `/api/admin/pagos/evidencias`, `/api/admin/nequis` y `/api/admin/nequis/{id}`, devolviendo `403` en disputas, verificación Clash, zona de pruebas, soporte y chatbot.
+  - `AdminService`, `EvidenciaPagoService` y `NotificacionesListener` aíslan transacciones pendientes, evidencias de retiro, notificaciones, correos y movimientos para que cada moderador vea y apruebe únicamente los de sus propios usuarios (y el admin principal no reciba los de usuarios de moderadores).
+  - `SocketHandler` mantiene `anuncios` exclusivo para `tipo_suscripcion = 'admin'`, mientras `EvidenciaPagoService` habilita la publicación de comprobantes en `pagos` para retiros completados de los propios usuarios del moderador.
+  - `GET /api/finance/nequi-info` (`RutasFinanzas` -> `FinanzasService.obtenerNequisParaRecarga`) entrega a los usuarios de un moderador exclusivamente los números configurados en `moderator_nequis`, y a los demás usuarios el Nequi principal de la plataforma.
+- **Frontend (`Lobby.jsx`, `Chat.jsx`, `Finance.jsx`, `Admin.jsx`):**
+  - El botón lateral y el encabezado muestran `👑 Admin` / `👑 Panel Admin` (sin exponer el rótulo "Moderador").
+  - En `/admin`, el moderador accede únicamente a 4 pestañas (`Pagos`, `Movimientos`, `Finanzas` y `Nequi`), con su enlace copiable de referido, métricas de billetera, aportes (`ganancia` y `referidos`) por cada usuario propio y administración de múltiples Nequis.
+  - `ConexionDB` y `UsuarioDAO` excluyen `moderador` de cambios en `/admin-db` y sincronizan `moderator_nequis` / limpian `moderator_wallet` y `moderator_nequis` al reiniciar la Zona de Pruebas.
+
+

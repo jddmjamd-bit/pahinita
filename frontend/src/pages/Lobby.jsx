@@ -253,7 +253,7 @@ export default function Lobby() {
                     >
                         <span>💰 Finanzas / Movimientos</span>{punto('finanzas')}
                     </button>
-                    {currentUser.tipo_suscripcion === 'admin' && (
+                    {(currentUser.tipo_suscripcion === 'admin' || currentUser.tipo_suscripcion === 'moderador') && (
                         <button className="mini-btn admin-btn" onClick={() => handleNavigation('/admin')} style={{marginTop: 5}}>
                             <span>👑 Admin</span>{punto('finanzas')}
                         </button>
