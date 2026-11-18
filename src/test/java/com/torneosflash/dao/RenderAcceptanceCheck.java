@@ -1893,7 +1893,7 @@ class RenderAcceptanceCheck {
 
         // Retiro + Evidencia de pago aislada
         dao.update("UPDATE users SET player_tag_verificado = TRUE WHERE id = ?", userAId);
-        finanzas.solicitarRetiro(userAId, "nequi_retiro", "3001112233", new JsonPrimitive(5000));
+        finanzas.solicitarRetiro(userAId, "nequi_retiro", "3001112233", new JsonPrimitive(10000));
         int txRetId = dao.queryOne(
                 "SELECT id FROM transactions WHERE usuario_id = ? AND tipo = 'retiro' ORDER BY id DESC LIMIT 1",
                 userAId).get("id").getAsInt();
