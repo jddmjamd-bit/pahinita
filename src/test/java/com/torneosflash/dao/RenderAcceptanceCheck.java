@@ -365,6 +365,8 @@ class RenderAcceptanceCheck {
                     "session=" + tokenAdmin.valor(), null);
             assertEquals(200, statsAdminHttp.statusCode());
             JsonObject statsJson = JsonParser.parseString(statsAdminHttp.body()).getAsJsonObject();
+            assertTrue(statsJson.has("gananciaBaseComisionesAdmin"));
+            assertTrue(statsJson.has("gananciaInactivasAdmin"));
             assertTrue(statsJson.has("gananciaComisionesAdmin"));
             assertTrue(statsJson.has("gananciaAdminLeaderboard"));
             assertTrue(statsJson.has("gananciaTotalCombinadaAdmin"));
@@ -738,7 +740,9 @@ class RenderAcceptanceCheck {
     @Test
     void estadisticasAdminSeparaYSumaGananciasYExponeAportePorJugador() {
         JsonObject antes = admin.estadisticas(adminId);
-        BigDecimal gananciaAntes = antes.getAsJsonObject("desglose").get("ganancia").getAsBigDecimal();
+        BigDecimal gananciaBaseAntes = antes.getAsJsonObject("desglose").get("ganancia").getAsBigDecimal();
+        BigDecimal gananciaInactivasAntes = antes.get("gananciaInactivasAdmin").getAsBigDecimal();
+        BigDecimal gananciaComisionesAntes = antes.get("gananciaComisionesAdmin").getAsBigDecimal();
         BigDecimal sobrantesAntes = antes.get("gananciaAdminLeaderboard").getAsBigDecimal();
 
         int p1 = usuarioConSaldo(new BigDecimal("10000"));
@@ -765,10 +769,14 @@ class RenderAcceptanceCheck {
         leaderboard.premiarYResetear("dia", "victorias_dia", claveCorteStats);
 
         JsonObject despues = admin.estadisticas(adminId);
-        BigDecimal gananciaEsperada = gananciaAntes.add(new BigDecimal("500.00"));
+        BigDecimal gananciaBaseEsperada = gananciaBaseAntes.add(new BigDecimal("500.00"));
+        BigDecimal gananciaInactivasEsperada = gananciaInactivasAntes.add(new BigDecimal("600.00"));
+        BigDecimal gananciaEsperada = gananciaComisionesAntes.add(new BigDecimal("1100.00"));
         BigDecimal sobrantesEsperados = sobrantesAntes.add(new BigDecimal("375.00"));
 
-        assertMonto(gananciaEsperada, despues.getAsJsonObject("desglose").get("ganancia").getAsBigDecimal());
+        assertMonto(gananciaBaseEsperada, despues.getAsJsonObject("desglose").get("ganancia").getAsBigDecimal());
+        assertMonto(gananciaBaseEsperada, despues.get("gananciaBaseComisionesAdmin").getAsBigDecimal());
+        assertMonto(gananciaInactivasEsperada, despues.get("gananciaInactivasAdmin").getAsBigDecimal());
         assertMonto(gananciaEsperada, despues.get("gananciaComisionesAdmin").getAsBigDecimal());
         assertMonto(sobrantesEsperados, despues.get("gananciaAdminLeaderboard").getAsBigDecimal());
         assertMonto(gananciaEsperada.add(sobrantesEsperados), despues.get("gananciaTotalCombinadaAdmin").getAsBigDecimal());
@@ -789,6 +797,8 @@ class RenderAcceptanceCheck {
         assertMonto(new BigDecimal("150.00"), filaJugador.get("gen_leaderboard").getAsBigDecimal());
         assertMonto(new BigDecimal("150.00"), filaJugador.get("gen_devolucion").getAsBigDecimal());
         assertMonto(new BigDecimal("100.00"), filaJugador.get("gen_referidos").getAsBigDecimal());
+        assertMonto(new BigDecimal("300.00"), filaJugador.get("ganancia_inactivas_admin").getAsBigDecimal());
+        assertMonto(new BigDecimal("550.00"), filaJugador.get("ganancia_efectiva_admin").getAsBigDecimal());
         assertMonto(new BigDecimal("1000.00"), filaJugador.get("comision_total_aportada").getAsBigDecimal());
     }
 

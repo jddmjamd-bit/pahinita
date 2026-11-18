@@ -182,10 +182,19 @@ public class AdminService {
         }
         stats.add("desglose", desglose);
 
-        // Resumen combinado de ganancias del dueño: suma Ganancia (25%) + sobrantes de ranking sin que una modifique a la otra. // REVIEW-MONEY
+        // Resumen combinado de ganancias del dueño: Ganancia base (25%) + divisiones inactivas (30%) + sobrantes de ranking. // REVIEW-MONEY
         BigDecimal gananciaAdminLeaderboard = obtenerMontoJson(stats, "gananciaAdminLeaderboard");
-        BigDecimal gananciaComisionesAdmin = obtenerMontoJson(desglose, ComisionService.Categoria.GANANCIA.getClave());
+        BigDecimal gananciaBaseComisionesAdmin = obtenerMontoJson(desglose, ComisionService.Categoria.GANANCIA.getClave());
+        BigDecimal gananciaInactivasAdmin = BigDecimal.ZERO;
+        for (ComisionService.Categoria categoria : ComisionService.Categoria.values()) {
+            if (!categoria.isActiva()) {
+                gananciaInactivasAdmin = gananciaInactivasAdmin.add(obtenerMontoJson(desglose, categoria.getClave()));
+            }
+        }
+        BigDecimal gananciaComisionesAdmin = gananciaBaseComisionesAdmin.add(gananciaInactivasAdmin);
         BigDecimal gananciaTotalCombinadaAdmin = gananciaComisionesAdmin.add(gananciaAdminLeaderboard);
+        stats.addProperty("gananciaBaseComisionesAdmin", gananciaBaseComisionesAdmin);
+        stats.addProperty("gananciaInactivasAdmin", gananciaInactivasAdmin);
         stats.addProperty("gananciaComisionesAdmin", gananciaComisionesAdmin);
         stats.addProperty("gananciaTotalCombinadaAdmin", gananciaTotalCombinadaAdmin);
 
@@ -231,6 +240,14 @@ public class AdminService {
             BigDecimal genLeaderboard = normalizarColumnaMonto(u, "gen_leaderboard");
             BigDecimal genDevolucion = normalizarColumnaMonto(u, "gen_devolucion");
             BigDecimal genReferidos = normalizarColumnaMonto(u, "gen_referidos");
+            BigDecimal gananciaInactivasAdminUsuario = BigDecimal.ZERO;
+            for (ComisionService.Categoria categoria : ComisionService.Categoria.values()) {
+                if (!categoria.isActiva()) {
+                    gananciaInactivasAdminUsuario = gananciaInactivasAdminUsuario
+                            .add(normalizarColumnaMonto(u, "gen_" + categoria.getClave()));
+                }
+            }
+            BigDecimal gananciaEfectivaAdminUsuario = gananciaGenerada.add(gananciaInactivasAdminUsuario);
             BigDecimal comisionTotalAportada = gananciaGenerada
                     .add(genSorteos)
                     .add(genMisiones)
@@ -238,6 +255,8 @@ public class AdminService {
                     .add(genLeaderboard)
                     .add(genDevolucion)
                     .add(genReferidos);
+            u.addProperty("ganancia_inactivas_admin", gananciaInactivasAdminUsuario);
+            u.addProperty("ganancia_efectiva_admin", gananciaEfectivaAdminUsuario);
             u.addProperty("comision_total_aportada", comisionTotalAportada);
             listaUsuarios.add(u);
         }
@@ -859,22 +878,28 @@ public class AdminService {
                 item.addProperty("detalle", "Entradas reembolsadas a @" + j1 + " y @" + j2 + " (sin comisión)");
             } else {
                 ComisionService.Desglose d = comisionService.calcular(montoEntrada);
-                BigDecimal gananciaAdmin = d.getMonto(ComisionService.Categoria.GANANCIA);
+                BigDecimal gananciaBase = d.getGananciaBaseAdmin();
+                BigDecimal gananciaInactivas = d.getGananciaInactivasAdmin();
+                BigDecimal gananciaAdmin = d.getGananciaEfectivaAdmin();
                 BigDecimal comisionTotal = d.getComisionTotal();
                 item.addProperty("estadoVisual", "positivo");
                 item.addProperty("estadoTexto", "Finalizada");
                 item.addProperty("signo", "+");
                 item.addProperty("monto", gananciaAdmin);
+                item.addProperty("gananciaBaseAdmin", gananciaBase);
+                item.addProperty("gananciaInactivasAdmin", gananciaInactivas);
                 item.addProperty("montoSecundario", comisionTotal);
                 item.addProperty("titulo", "Comisión Partida #" + matchId + " (Ganó @" + ganador + ")");
                 item.addProperty("detalle", "Ganancia admin $" + formatoCopAdmin(gananciaAdmin)
-                        + " · Comisión total $" + formatoCopAdmin(comisionTotal)
+                        + " (Base $" + formatoCopAdmin(gananciaBase)
+                        + " + Inactivas $" + formatoCopAdmin(gananciaInactivas)
+                        + ": Misiones $" + formatoCopAdmin(d.getMonto(ComisionService.Categoria.MISIONES))
+                        + ", Logros $" + formatoCopAdmin(d.getMonto(ComisionService.Categoria.LOGROS))
+                        + ", Devolución $" + formatoCopAdmin(d.getMonto(ComisionService.Categoria.DEVOLUCION))
+                        + ") · Comisión total $" + formatoCopAdmin(comisionTotal)
                         + " (Sorteos $" + formatoCopAdmin(d.getMonto(ComisionService.Categoria.SORTEOS))
                         + ", Ranking $" + formatoCopAdmin(d.getMonto(ComisionService.Categoria.LEADERBOARD))
                         + ", Referidos $" + formatoCopAdmin(d.getMonto(ComisionService.Categoria.REFERIDOS))
-                        + ", Misiones $" + formatoCopAdmin(d.getMonto(ComisionService.Categoria.MISIONES))
-                        + ", Logros $" + formatoCopAdmin(d.getMonto(ComisionService.Categoria.LOGROS))
-                        + ", Devolución $" + formatoCopAdmin(d.getMonto(ComisionService.Categoria.DEVOLUCION))
                         + ") · Premio jugador $" + formatoCopAdmin(d.getPremio()));
                 comisionesPartidasTotal = comisionesPartidasTotal.add(comisionTotal);
                 gananciaNetaAdminPartidas = gananciaNetaAdminPartidas.add(gananciaAdmin);

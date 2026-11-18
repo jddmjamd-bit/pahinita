@@ -396,7 +396,7 @@ public final class NotificacionesListener {
 
         notificaciones.eliminarPorEvento("admin-match-curso:" + partida.matchId());
         BigDecimal gananciaAdmin = partida.desglose() != null
-                ? partida.desglose().getMonto(ComisionService.Categoria.GANANCIA)
+                ? partida.desglose().getGananciaEfectivaAdmin()
                 : BigDecimal.ZERO;
         BigDecimal comisionTotal = partida.desglose() != null
                 ? partida.desglose().getComisionTotal()

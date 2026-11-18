@@ -314,22 +314,22 @@ Una sola clase decide cuánto se cobra y cómo se reparte. Es lógica pura (no t
 
 **Reparto de la comisión** (enum `ComisionService.Categoria`, cada una redondeada hacia abajo a pesos enteros):
 
-| Categoría (`admin_wallet.categoria`) | % de la comisión |
-|---|---|
-| `sorteos` | 20% |
-| `misiones` | 10% |
-| `logros` | 5% |
-| `leaderboard` | 15% (se reparte en 4 pozos: día/semana/mes/año) |
-| `devolucion` | 15% |
-| `referidos` | 10% (repartido por jugador al liquidar: al referidor + cashback opcional `0%`–`100%`, o a cuentas `admin` si no tiene referidor) |
-| `ganancia` | residuo (= 25%): lo que sobra, así la suma siempre cuadra al peso |
+| Categoría (`admin_wallet.categoria`) | % de la comisión | Estado actual |
+|---|---|---|
+| `sorteos` | 20% | Activa |
+| `misiones` | 10% | Inactiva → suma temporalmente a ganancia del admin |
+| `logros` | 5% | Inactiva → suma temporalmente a ganancia del admin |
+| `leaderboard` | 15% (se reparte en 4 pozos: día/semana/mes/año) | Activa |
+| `devolucion` | 15% | Inactiva → suma temporalmente a ganancia del admin |
+| `referidos` | 10% (repartido por jugador al liquidar: al referidor + cashback opcional `0%`–`100%`, o a cuentas `admin` si no tiene referidor) | Activa |
+| `ganancia` | residuo (= 25% base): lo que sobra, así la suma siempre cuadra al peso | Activa (efectivo admin = 25% base + 30% inactivas = 55%) |
 
-Cada jugador se atribuye la mitad de cada categoría (`Desglose.porJugador()`, columnas `users.gen_*` y `ganancia_generada`); de ahí salen también los tickets de sorteo (`SorteoService.acumularTicketsPorPartida`).
+Cada jugador se atribuye la mitad de cada categoría (`Desglose.porJugador()`, columnas `users.gen_*` y `ganancia_generada`); de ahí salen también los tickets de sorteo (`SorteoService.acumularTicketsPorPartida`). En `Desglose`, `getGananciaBaseAdmin()` devuelve la ganancia base (25%), `getGananciaInactivasAdmin()` suma las divisiones inactivas (30%) y `getGananciaEfectivaAdmin()` devuelve la suma efectiva (55%) usada en contabilidad, estadísticas, movimientos y notificaciones del admin sin alterar `admin_wallet` ni `users.gen_*`.
 
 | Endpoint | Respuesta |
 |---|---|
 | `GET /api/comisiones/simular?monto=5000` | `{ success, monto, pozo, porcentajeComision, comision, premio }`. El monto se valida con `ValidadorMonto.torneo()` (400 si es inválido). Lo usa `Match.jsx` para "Si ganas recibes". |
-| `GET /api/comisiones/distribucion` | `{ success, distribucion: { sorteos: 20, misiones: 10, ... } }`. Lo usa `Admin.jsx` para los títulos del desglose. |
+| `GET /api/comisiones/distribucion` | `{ success, distribucion: { sorteos: 20, misiones: 10, ... }, activas: { sorteos: true, misiones: false, ... }, porcentajeInactivasAdmin: 30, porcentajeGananciaEfectivaAdmin: 55 }`. Lo usa `Admin.jsx` para los títulos, etiquetas de inactivas y resumen de ganancia del admin. |
 
 - Para cambiar la política se edita **solo** `ComisionService` (constantes y enum). El panel admin y `Match.jsx` se actualizan solos.
 - La tarifa de pasarela Wompi (`FinanzasService.calcularMontoCentavosWompi`) se calcula con `BigDecimal` y `RoundingMode.CEILING` (D1).
@@ -933,5 +933,5 @@ Centraliza el ciclo completo de vida, color visual, hora exacta y trazabilidad d
 - **Eventos e invalidación en tiempo real:** `Eventos.java` incorpora `TRANSACCION_PENDIENTE_CREADA` (emitido desde `FinanzasService` al crear solicitudes manuales o Wompi y desde `WalletService` al solicitar retiros) y `TRANSACCION_PROCESADA` (al aprobar/rechazar en `WalletService` o webhook/sincronización Wompi). `NotificacionesListener` limpia avisos previos `tx-pendiente:*`, `admin-tx-pendiente:*`, `match-curso:*` y `admin-match-curso:*` mediante `NotificacionesService.eliminarPorEvento` y emite el evento Socket.IO `movimiento_actualizado` (`useAppStore.movimientoRevision`) para refrescar automáticamente `/finance` y `/admin`.
 - **APIs de historial unificado:**
   - `GET /api/finance/movements` (`RutasFinanzas` -> `FinanzasService.obtenerMovimientos`): agrega transacciones, partidas, `referral_payouts` (referidor e invitado) y movimientos de `wallet_ledger` sin duplicados, con contadores de resumen y filtros.
-  - `GET /api/admin/movements` (`RutasAdmin` -> `AdminService.obtenerMovimientosAdmin`): consolida transacciones de usuarios (con botones inline de aprobar/rechazar), partidas con utilidad neta del 25% (`GANANCIA`) y desglose de comisión, `referral_payouts` (incluyendo créditos al admin cuando el jugador no tiene referidor), `leaderboard_cut_payments`, `raffle_pool_movements` y créditos manuales.
+  - `GET /api/admin/movements` (`RutasAdmin` -> `AdminService.obtenerMovimientosAdmin`): consolida transacciones de usuarios (con botones inline de aprobar/rechazar), partidas con utilidad efectiva del admin del 55% (`GANANCIA` 25% base + 30% divisiones inactivas `misiones`, `logros` y `devolucion`) y desglose completo, `referral_payouts` (incluyendo créditos al admin cuando el jugador no tiene referidor), `leaderboard_cut_payments`, `raffle_pool_movements` y créditos manuales.
 

@@ -260,10 +260,34 @@
     text-align: center;
     border: 1px solid var(--border-color);
 }
+.breakdown-box.is-inactive-admin {
+    border-style: dashed;
+    border-color: var(--accent-warning);
+}
+.breakdown-box.is-ganancia-admin {
+    border-color: var(--accent-success);
+}
 .bd-icon { font-size: 2rem; margin-bottom: 10px; }
 .bd-title { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px; font-weight: 600; }
 .bd-actual { color: var(--accent-success); font-weight: 800; font-size: 1.2rem; }
 .bd-hist { color: var(--accent-warning); font-size: 0.9rem; margin-top: 5px; }
+.bd-admin-redirect {
+    margin-top: 8px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    color: var(--accent-warning);
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    border-radius: var(--radius-full);
+    padding: 3px 8px;
+    display: inline-block;
+}
+.bd-admin-effective {
+    margin-top: 8px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--accent-success);
+}
 
 .clash-verification-help {
     color: var(--text-secondary);
@@ -354,10 +378,18 @@
 .user-contrib-item.is-ganancia {
     border-color: var(--border-glow);
 }
+.user-contrib-item.is-inactive-admin {
+    border-style: dashed;
+}
 .user-contrib-name {
     font-size: 0.78rem;
     color: var(--text-secondary);
     font-weight: 500;
+}
+.user-contrib-redirect {
+    color: var(--accent-warning);
+    font-weight: 700;
+    font-size: 0.72rem;
 }
 .user-contrib-amount {
     font-size: 0.85rem;

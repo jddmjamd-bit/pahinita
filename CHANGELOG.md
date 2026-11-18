@@ -11,6 +11,25 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-17 — Redirección de divisiones de comisión inactivas (Misiones, Logros, Devolución) a Ganancia del Admin (Antigravity)
+- **`ComisionService.java` y `RutasComisiones.java`:**
+  - Añadido estado `activa` a `ComisionService.Categoria`: siguen activas `SORTEOS` (20%), `LEADERBOARD` (15%), `REFERIDOS` (10%) y `GANANCIA` (25% residuo base), y quedan marcadas como inactivas (`activa = false`) `MISIONES` (10%), `LOGROS` (5%) y `DEVOLUCION` (15%).
+  - Conservados los montos nominales por categoría (`admin_wallet` y `users.gen_*`) e incorporados `getGananciaBaseAdmin()`, `getGananciaInactivasAdmin()`, `getGananciaEfectivaAdmin()` (55% = 25% base + 30% inactivas), `utilidadInactivasPorJugador()`, `utilidadEfectivaPorJugador()`, `fraccionInactivas()` y `fraccionGananciaEfectivaAdmin()` (`// REVIEW-MONEY`).
+  - `GET /api/comisiones/distribucion` ahora expone además `activas`, `porcentajeInactivasAdmin` (`30`) y `porcentajeGananciaEfectivaAdmin` (`55`).
+- **Contabilidad, movimientos y notificaciones del admin (`AdminService.java` y `NotificacionesListener.java`):**
+  - `AdminService.estadisticas`: agrega `gananciaBaseComisionesAdmin` y `gananciaInactivasAdmin`, suma ambas en `gananciaComisionesAdmin` (55%), lo propaga a `gananciaTotalCombinadaAdmin` y `gananciaTotalConReferidosAdmin`, y añade `ganancia_inactivas_admin` y `ganancia_efectiva_admin` en cada usuario de `listaUsuarios`.
+  - `AdminService.obtenerMovimientosAdmin`: las partidas finalizadas muestran `monto = gananciaEfectivaAdmin` (55%), junto con `gananciaBaseAdmin` y `gananciaInactivasAdmin` y su detalle explícito, sumándolo en `gananciaNetaAdminPartidas`.
+  - `NotificacionesListener.partidaFinalizadaFinanzas`: usa `desglose.getGananciaEfectivaAdmin()` en la notificación y el evento en vivo hacia el admin.
+- **Frontend Admin (`Admin.jsx`, `Admin.css`):**
+  - En Finanzas y Movimientos, la tarjeta `Ganancia por Partidas` y la métrica `Utilidad admin partidas` muestran el porcentaje efectivo (55%) con desglose `Base 25% + Inactivas 30% (Misiones, Logros, Devolución)`.
+  - En `Desglose de Comisiones` y en los aportes por jugador, las divisiones inactivas muestran la etiqueta `⚡ Inactiva → Suma a Ganancia Admin` / `(→ Admin)` y `Ganancia` muestra el total efectivo con inactivas.
+- **Pruebas y documentación:** actualizados `AdminServiceTest.java`, `MovimientosFinanzasAdminTest.java`, `RenderAcceptanceCheck.java`, `frontend/scripts/acceptance.test.js`, `ARCHITECTURE.md` y `GUIA_PRUEBAS_Y_VARIABLES.md`.
+- **Verificación:**
+  - `.\mvnw.cmd clean verify`: `BUILD SUCCESS` (`Tests run: 81, Failures: 0, Errors: 0, Skipped: 0`, incluyendo `AdminServiceTest` `3/3` y `MovimientosFinanzasAdminTest` `3/3`; `RenderAcceptanceCheck` compiló sin errores, pendiente ejecución contra BD PostgreSQL de pruebas `TEST_DATABASE_URL`).
+  - En `frontend/`: `npm.cmd run lint` (`58 warnings and 0 errors`), `npm.cmd run test:acceptance` (`15/15`), `npm.cmd run build` (`vite build` en `2.51s`) y `npm.cmd run test:visual` (`3/3`).
+Archivos: `src/main/java/com/torneosflash/servicio/ComisionService.java`, `src/main/java/com/torneosflash/servidor/RutasComisiones.java`, `src/main/java/com/torneosflash/servicio/AdminService.java`, `src/main/java/com/torneosflash/servicio/NotificacionesListener.java`, `frontend/src/pages/Admin.jsx`, `frontend/src/pages/Admin.css`, `src/test/java/com/torneosflash/servicio/AdminServiceTest.java`, `src/test/java/com/torneosflash/servicio/MovimientosFinanzasAdminTest.java`, `src/test/java/com/torneosflash/dao/RenderAcceptanceCheck.java`, `frontend/scripts/acceptance.test.js`, `ARCHITECTURE.md`, `GUIA_PRUEBAS_Y_VARIABLES.md`, `CHANGELOG.md`
+
+---
 ## 2026-11-14 — Desglose de entrada y premio en partidas ganadas en Movimientos
 - Evitada la confusión visual entre recargas y premios al ganar una partida (`FinanzasService.obtenerMovimientos`):
   - Al ganar una partida (`username == ganador`), ahora se listan dos movimientos separados para esa partida: la **entrada descontada** (`match-entry-<id>`, `estadoVisual: "negativo"`, `estadoTexto: "Entrada"`, signo `-`) y el **premio recibido** (`match-<id>`, `estadoVisual: "positivo"`, `estadoTexto: "Victoria"`, signo `+`), ordenados con la victoria arriba de su entrada y sumando `montoEntrada` a `totalEgresos`.

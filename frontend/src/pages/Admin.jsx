@@ -6,13 +6,13 @@ import AdminSoporte from './AdminSoporte';
 import './Admin.css';
 
 const CATEGORIAS_COMISION = [
-    { clave: 'ganancia', campoUsuario: 'ganancia_generada', icono: '💰', nombre: 'Ganancia' },
-    { clave: 'sorteos', campoUsuario: 'gen_sorteos', icono: '🎰', nombre: 'Sorteos' },
-    { clave: 'misiones', campoUsuario: 'gen_misiones', icono: '📋', nombre: 'Misiones' },
-    { clave: 'logros', campoUsuario: 'gen_logros', icono: '🏅', nombre: 'Logros' },
-    { clave: 'leaderboard', campoUsuario: 'gen_leaderboard', icono: '🏆', nombre: 'Leaderboard' },
-    { clave: 'devolucion', campoUsuario: 'gen_devolucion', icono: '🔄', nombre: 'Devolución' },
-    { clave: 'referidos', campoUsuario: 'gen_referidos', icono: '👥', nombre: 'Referidos' }
+    { clave: 'ganancia', campoUsuario: 'ganancia_generada', icono: '💰', nombre: 'Ganancia', activa: true },
+    { clave: 'sorteos', campoUsuario: 'gen_sorteos', icono: '🎰', nombre: 'Sorteos', activa: true },
+    { clave: 'misiones', campoUsuario: 'gen_misiones', icono: '📋', nombre: 'Misiones', activa: false },
+    { clave: 'logros', campoUsuario: 'gen_logros', icono: '🏅', nombre: 'Logros', activa: false },
+    { clave: 'leaderboard', campoUsuario: 'gen_leaderboard', icono: '🏆', nombre: 'Leaderboard', activa: true },
+    { clave: 'devolucion', campoUsuario: 'gen_devolucion', icono: '🔄', nombre: 'Devolución', activa: false },
+    { clave: 'referidos', campoUsuario: 'gen_referidos', icono: '👥', nombre: 'Referidos', activa: true }
 ];
 
 const formatearMonto = (valor) => Number(valor ?? 0).toLocaleString('es-CO', {
@@ -63,6 +63,11 @@ export default function Admin() {
     const [loadingStats, setLoadingStats] = useState(false);
     // D4: porcentaje de la comisión por categoría, tal como lo define el servidor (ComisionService)
     const [distribucion, setDistribucion] = useState({});
+    const [distribucionMeta, setDistribucionMeta] = useState({
+        activas: {},
+        porcentajeInactivasAdmin: undefined,
+        porcentajeGananciaEfectivaAdmin: undefined
+    });
 
     // Form inputs for disputes
     const [disputeResolutions, setDisputeResolutions] = useState({});
@@ -114,6 +119,7 @@ export default function Admin() {
                 cargarMovimientosAdmin();
             } else if (view === 'movements') {
                 cargarMovimientosAdmin();
+                cargarDistribucionComisiones();
             } else if (view === 'stats') {
                 cargarEstadisticasAdmin();
             } else if (view === 'clash-verifications') {
@@ -251,6 +257,11 @@ export default function Admin() {
         const { ok, data } = await llamarApi('/api/comisiones/distribucion');
         if (ok && data?.success) {
             setDistribucion(data.distribucion || {});
+            setDistribucionMeta({
+                activas: data.activas || {},
+                porcentajeInactivasAdmin: data.porcentajeInactivasAdmin,
+                porcentajeGananciaEfectivaAdmin: data.porcentajeGananciaEfectivaAdmin
+            });
         }
     };
 
@@ -440,6 +451,18 @@ export default function Admin() {
             || (u.referido_por_username || '').toLowerCase().includes(q);
     });
 
+    const esCategoriaActiva = (clave) => {
+        if (distribucionMeta.activas && Object.prototype.hasOwnProperty.call(distribucionMeta.activas, clave)) {
+            return Boolean(distribucionMeta.activas[clave]);
+        }
+        const meta = CATEGORIAS_COMISION.find(c => c.clave === clave);
+        return meta ? meta.activa !== false : true;
+    };
+    const porcentajeBaseGanancia = distribucion.ganancia ?? 25;
+    const porcentajeInactivasAdmin = distribucionMeta.porcentajeInactivasAdmin ?? 30;
+    const porcentajeEfectivoGanancia = distribucionMeta.porcentajeGananciaEfectivaAdmin
+        ?? (Number(porcentajeBaseGanancia) + Number(porcentajeInactivasAdmin));
+
     const adminMovimientos = Array.isArray(adminMovementsData?.movimientos) ? adminMovementsData.movimientos : [];
     const resumenAdminMov = adminMovementsData?.resumen || {
         pendientesAccionCount: 0,
@@ -535,7 +558,7 @@ export default function Admin() {
                                 <strong className="is-pendiente">{resumenAdminMov.partidasEnCursoCount || 0}</strong>
                             </div>
                             <div className="admin-mov-stat">
-                                <span>Utilidad admin partidas (25%)</span>
+                                <span>Utilidad admin partidas{distribucion.ganancia !== undefined ? ` (${porcentajeEfectivoGanancia}%)` : ''}</span>
                                 <strong className="is-positivo">${formatearMonto(resumenAdminMov.gananciaNetaAdminPartidas)}</strong>
                             </div>
                             <div className="admin-mov-stat">
@@ -755,12 +778,14 @@ export default function Admin() {
                                 <div className="admin-earnings-grid">
                                     <div className="admin-earning-card">
                                         <span className="admin-earning-label">
-                                            💰 Ganancia por Partidas{distribucion.ganancia !== undefined ? ` (${distribucion.ganancia}%)` : ''}
+                                            💰 Ganancia por Partidas{distribucion.ganancia !== undefined ? ` (${porcentajeEfectivoGanancia}%)` : ''}
                                         </span>
                                         <strong className="admin-earning-value val-green">
                                             ${formatearMonto(stats.gananciaComisionesAdmin ?? stats.desglose?.ganancia)}
                                         </strong>
-                                        <small className="admin-earning-note">Solo categoría Ganancia de comisiones</small>
+                                        <small className="admin-earning-note">
+                                            Base {porcentajeBaseGanancia}% (${formatearMonto(stats.gananciaBaseComisionesAdmin ?? stats.desglose?.ganancia)}) + Inactivas {porcentajeInactivasAdmin}% (${formatearMonto(stats.gananciaInactivasAdmin ?? 0)}: Misiones, Logros, Devolución)
+                                        </small>
                                     </div>
                                     <div className="admin-earning-operator" aria-hidden="true">+</div>
                                     <div className="admin-earning-card">
@@ -826,12 +851,21 @@ export default function Admin() {
                                     const meta = CATEGORIAS_COMISION.find(c => c.clave === cat);
                                     const icono = meta ? meta.icono : '📌';
                                     const nombre = meta ? meta.nombre : cat;
+                                    const activa = esCategoriaActiva(cat);
                                     return (
-                                        <div key={cat} className="breakdown-box">
+                                        <div key={cat} className={`breakdown-box ${!activa ? 'is-inactive-admin' : ''} ${cat === 'ganancia' ? 'is-ganancia-admin' : ''}`}>
                                             <div className="bd-icon">{icono}</div>
                                             <div className="bd-title">{nombre + (distribucion[cat] !== undefined ? ` (${distribucion[cat]}%)` : '')}</div>
                                             <div className="bd-actual">Actual: ${formatearMonto(monto)}</div>
                                             <div className="bd-hist">Histórico: ${formatearMonto(monto)}</div>
+                                            {!activa && (
+                                                <div className="bd-admin-redirect">⚡ Inactiva → Suma a Ganancia Admin</div>
+                                            )}
+                                            {cat === 'ganancia' && (
+                                                <div className="bd-admin-effective">
+                                                    Efectivo con inactivas: ${formatearMonto(stats.gananciaComisionesAdmin ?? monto)}
+                                                </div>
+                                            )}
                                         </div>
                                     );
                                 })}
@@ -879,20 +913,24 @@ export default function Admin() {
                                                 Aporte por categoría (dividido entre 2 por jugador)
                                             </div>
                                             <div className="user-contributions-grid">
-                                                {CATEGORIAS_COMISION.map(cat => (
-                                                    <div
-                                                        key={cat.clave}
-                                                        className={`user-contrib-item ${cat.clave === 'ganancia' ? 'is-ganancia' : ''}`}
-                                                    >
-                                                        <span className="user-contrib-name">
-                                                            {cat.icono} {cat.nombre}
-                                                            {distribucion[cat.clave] !== undefined ? ` (${distribucion[cat.clave]}%)` : ''}
-                                                        </span>
-                                                        <strong className="user-contrib-amount">
-                                                            +${formatearMonto(u[cat.campoUsuario])}
-                                                        </strong>
-                                                    </div>
-                                                ))}
+                                                {CATEGORIAS_COMISION.map(cat => {
+                                                    const activa = esCategoriaActiva(cat.clave);
+                                                    return (
+                                                        <div
+                                                            key={cat.clave}
+                                                            className={`user-contrib-item ${cat.clave === 'ganancia' ? 'is-ganancia' : ''} ${!activa ? 'is-inactive-admin' : ''}`}
+                                                        >
+                                                            <span className="user-contrib-name">
+                                                                {cat.icono} {cat.nombre}
+                                                                {distribucion[cat.clave] !== undefined ? ` (${distribucion[cat.clave]}%)` : ''}
+                                                                {!activa && <span className="user-contrib-redirect"> (→ Admin)</span>}
+                                                            </span>
+                                                            <strong className="user-contrib-amount">
+                                                                +${formatearMonto(u[cat.campoUsuario])}
+                                                            </strong>
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                         </div>
                                         <div className="stats-grid">

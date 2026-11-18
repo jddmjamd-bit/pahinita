@@ -48,15 +48,26 @@ public class RutasComisiones {
         // Porcentaje (de la comisión) que recibe cada categoría: {"sorteos": 20, "misiones": 10, ...}
         app.get("/api/comisiones/distribucion", ctx -> {
             JsonObject distribucion = new JsonObject();
+            JsonObject activas = new JsonObject();
             for (Map.Entry<Categoria, BigDecimal> e : comisiones.distribucion().entrySet()) {
-                BigDecimal porcentaje = e.getValue().multiply(BigDecimal.valueOf(100)).stripTrailingZeros();
-                if (porcentaje.scale() < 0) porcentaje = porcentaje.setScale(0);
-                distribucion.addProperty(e.getKey().getClave(), porcentaje);
+                distribucion.addProperty(e.getKey().getClave(), aPorcentaje(e.getValue()));
+                activas.addProperty(e.getKey().getClave(), e.getKey().isActiva());
             }
             JsonObject res = new JsonObject();
             res.addProperty("success", true);
             res.add("distribucion", distribucion);
+            res.add("activas", activas);
+            res.addProperty("porcentajeInactivasAdmin", aPorcentaje(comisiones.fraccionInactivas()));
+            res.addProperty("porcentajeGananciaEfectivaAdmin", aPorcentaje(comisiones.fraccionGananciaEfectivaAdmin()));
             ctx.json(res);
         });
+    }
+
+    private static BigDecimal aPorcentaje(BigDecimal fraccion) {
+        BigDecimal porcentaje = fraccion.multiply(BigDecimal.valueOf(100)).stripTrailingZeros();
+        if (porcentaje.scale() < 0) {
+            porcentaje = porcentaje.setScale(0);
+        }
+        return porcentaje;
     }
 }

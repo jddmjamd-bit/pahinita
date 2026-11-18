@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -95,9 +96,11 @@ class AdminServiceTest {
         assertMonto("1250.00", desglose.get("ganancia").getAsBigDecimal());
         assertMonto("375.50", stats.get("gananciaAdminLeaderboard").getAsBigDecimal());
 
-        // La nueva zona combinada suma ambas sin alterar ninguna de las dos
-        assertMonto("1250.00", stats.get("gananciaComisionesAdmin").getAsBigDecimal());
-        assertMonto("1625.50", stats.get("gananciaTotalCombinadaAdmin").getAsBigDecimal());
+        // La nueva zona combinada suma base + divisiones inactivas + sobrantes sin alterar las categorías individuales
+        assertMonto("1250.00", stats.get("gananciaBaseComisionesAdmin").getAsBigDecimal());
+        assertMonto("1500.00", stats.get("gananciaInactivasAdmin").getAsBigDecimal());
+        assertMonto("2750.00", stats.get("gananciaComisionesAdmin").getAsBigDecimal());
+        assertMonto("3125.50", stats.get("gananciaTotalCombinadaAdmin").getAsBigDecimal());
 
         // Cada usuario conserva el aporte por categoría dividido entre 2 y el total aportado
         JsonArray usuarios = stats.getAsJsonArray("listaUsuarios");
@@ -111,12 +114,39 @@ class AdminServiceTest {
         assertMonto("375.00", primero.get("gen_leaderboard").getAsBigDecimal());
         assertMonto("375.00", primero.get("gen_devolucion").getAsBigDecimal());
         assertMonto("250.00", primero.get("gen_referidos").getAsBigDecimal());
+        assertMonto("750.50", primero.get("ganancia_inactivas_admin").getAsBigDecimal());
+        assertMonto("1375.50", primero.get("ganancia_efectiva_admin").getAsBigDecimal());
         assertMonto("2500.50", primero.get("comision_total_aportada").getAsBigDecimal());
 
         JsonObject segundo = usuarios.get(1).getAsJsonObject();
         assertMonto("0", segundo.get("ganancia_generada").getAsBigDecimal());
         assertMonto("0", segundo.get("gen_sorteos").getAsBigDecimal());
+        assertMonto("0", segundo.get("ganancia_inactivas_admin").getAsBigDecimal());
+        assertMonto("0", segundo.get("ganancia_efectiva_admin").getAsBigDecimal());
         assertMonto("0", segundo.get("comision_total_aportada").getAsBigDecimal());
+    }
+
+    @Test
+    void comisionServiceRedirigeDivisionesInactivasAGananciaEfectivaAdmin() {
+        assertTrue(ComisionService.Categoria.SORTEOS.isActiva());
+        assertTrue(ComisionService.Categoria.LEADERBOARD.isActiva());
+        assertTrue(ComisionService.Categoria.GANANCIA.isActiva());
+        assertTrue(ComisionService.Categoria.REFERIDOS.isActiva());
+        assertFalse(ComisionService.Categoria.MISIONES.isActiva());
+        assertFalse(ComisionService.Categoria.LOGROS.isActiva());
+        assertFalse(ComisionService.Categoria.DEVOLUCION.isActiva());
+
+        ComisionService servicio = new ComisionService();
+        assertMonto("0.30", servicio.fraccionInactivas());
+        assertMonto("0.55", servicio.fraccionGananciaEfectivaAdmin());
+
+        ComisionService.Desglose desglose = servicio.calcular(new BigDecimal("10000"));
+        assertMonto("2000", desglose.getComisionTotal());
+        assertMonto("500", desglose.getGananciaBaseAdmin());
+        assertMonto("600", desglose.getGananciaInactivasAdmin());
+        assertMonto("1100", desglose.getGananciaEfectivaAdmin());
+        assertMonto("300.00", desglose.utilidadInactivasPorJugador());
+        assertMonto("550.00", desglose.utilidadEfectivaPorJugador());
     }
 
     @Test

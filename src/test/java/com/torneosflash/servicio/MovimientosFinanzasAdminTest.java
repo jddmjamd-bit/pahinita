@@ -238,6 +238,9 @@ class MovimientosFinanzasAdminTest {
         JsonObject matchFin = buscarPorId(movs, "match-201");
         assertEquals("positivo", matchFin.get("estadoVisual").getAsString());
         assertTrue(matchFin.get("detalle").getAsString().contains("Ganancia admin"));
+        assertEquals(0, new BigDecimal("1100").compareTo(matchFin.get("monto").getAsBigDecimal()));
+        assertEquals(0, new BigDecimal("500").compareTo(matchFin.get("gananciaBaseAdmin").getAsBigDecimal()));
+        assertEquals(0, new BigDecimal("600").compareTo(matchFin.get("gananciaInactivasAdmin").getAsBigDecimal()));
 
         JsonObject refAdmin = buscarPorId(movs, "ref-301");
         assertEquals("positivo", refAdmin.get("estadoVisual").getAsString());
@@ -247,7 +250,7 @@ class MovimientosFinanzasAdminTest {
         assertEquals(1, resumen.get("pendientesAccionCount").getAsInt());
         assertEquals(1, resumen.get("partidasEnCursoCount").getAsInt());
         assertEquals(0, new BigDecimal("300").compareTo(resumen.get("referidosSinReferidorTotal").getAsBigDecimal()));
-        assertTrue(resumen.get("gananciaNetaAdminPartidas").getAsBigDecimal().compareTo(BigDecimal.ZERO) > 0);
+        assertEquals(0, new BigDecimal("1100").compareTo(resumen.get("gananciaNetaAdminPartidas").getAsBigDecimal()));
     }
 
     @Test
@@ -397,7 +400,8 @@ class MovimientosFinanzasAdminTest {
                 n.get("user_id").getAsInt() == 1
                         && !n.get("evento_clave").isJsonNull()
                         && "admin-match-fin:55".equals(n.get("evento_clave").getAsString())
-                        && "positivo".equals(n.getAsJsonObject("datos").get("estadoVisual").getAsString())));
+                        && "positivo".equals(n.getAsJsonObject("datos").get("estadoVisual").getAsString())
+                        && new BigDecimal("1100").compareTo(n.getAsJsonObject("datos").get("monto").getAsBigDecimal()) == 0));
     }
 
     private static JsonObject tx(int id, String tipo, String metodo, BigDecimal monto,

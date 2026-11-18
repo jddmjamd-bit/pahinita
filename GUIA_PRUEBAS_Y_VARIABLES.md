@@ -390,7 +390,7 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | J4 | Resolver disputa: asignar ganador | Liquidación atómica, comisiones distribuidas, estadísticas actualizadas. |
 | J5 | Resolver disputa de partida ya finalizada | Rechazado (idempotencia `WHERE estado = 'disputa'`). |
 | J6 | `GET /api/admin/check-ip` | Muestra IP efectiva del rate limit, configuración de hops y XFF recibido. |
-| J7 | Revisar pestaña `Finanzas` en `/admin` *(backend/HTTP automatizado en `AdminServiceTest` y `RenderAcceptanceCheck`)* | Muestra la zona combinada `Ganancia por Partidas + Sobrantes de Rankings = Total Combinado Admin` sin alterar cada apartado individual, y en cada usuario el aporte dividido entre 2 de las 7 categorías (`ganancia`, `sorteos`, `misiones`, `logros`, `leaderboard`, `devolucion`, `referidos`). |
+| J7 | Revisar pestaña `Finanzas` en `/admin` *(backend/HTTP automatizado en `AdminServiceTest` y `RenderAcceptanceCheck`)* | Muestra la zona combinada `Ganancia por Partidas (55% = 25% Base + 30% Inactivas) + Sobrantes de Rankings = Total Combinado Admin` sin alterar cada apartado individual en `admin_wallet`, marca `Misiones`, `Logros` y `Devolución` como inactivas redirigidas al admin, y en cada usuario muestra el aporte dividido entre 2 de las 7 categorías (`ganancia`, `sorteos`, `misiones`, `logros`, `leaderboard`, `devolucion`, `referidos`). |
 
 ### 🗄️ K — Panel de Base de Datos (`/admin-db`)
 
@@ -475,7 +475,7 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | S1 | Crear recarga (Nequi Manual o Wompi) o solicitar retiro | Emite `TRANSACCION_PENDIENTE_CREADA`, muestra notificación **gris** al usuario y al admin, y aparece en `📋 Movimientos` como `Pendiente` con hora y método de origen. |
 | S2 | Aprobar recarga o retiro desde `/admin` (o webhook Wompi) | Se elimina la notificación gris pendiente, llega notificación **verde** (recarga) o **roja** (retiro enviado), se emite `movimiento_actualizado` y el historial se actualiza automáticamente. |
 | S3 | Rechazar recarga o retiro desde `/admin` | Recarga rechazada pasa a **rojo** (`Rechazada`); retiro rechazado pasa a **verde** (`Rechazado · Devuelto`) indicando la devolución al saldo disponible. |
-| S4 | Iniciar y finalizar partida | Al iniciar aparece en **gris** (`En curso`, con `@rival` para jugador y `@j1 vs @j2` para admin); al terminar pasa a **verde** para ganador y admin (utilidad 25% `GANANCIA`) o **rojo** para perdedor. |
+| S4 | Iniciar y finalizar partida | Al iniciar aparece en **gris** (`En curso`, con `@rival` para jugador y `@j1 vs @j2` para admin); al terminar pasa a **verde** para ganador y admin (utilidad efectiva 55%: `GANANCIA` 25% base + 30% divisiones inactivas `misiones`, `logros`, `devolucion`) o **rojo** para perdedor. |
 | S5 | Liquidar partida con referido y sin referidor | En `📋 Movimientos` del usuario aparece el ingreso en **verde** indicando `Comisión de referido por @invitado` o `Devolución de referido (@referidor)`; en `/admin` aparece además el ingreso sin referidor acreditado al admin. |
 | S6 | `MovimientosFinanzasAdminTest` (3 pruebas) | Verifica `FinanzasService.obtenerMovimientos` (14 escenarios sin duplicados), `AdminService.obtenerMovimientosAdmin` (8 fuentes y métricas) y `NotificacionesListener` (gris→verde/rojo, limpieza de pendientes, referidos y `movimiento_actualizado`). |
 

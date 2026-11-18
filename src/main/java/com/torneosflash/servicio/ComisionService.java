@@ -51,20 +51,22 @@ public class ComisionService {
      * fracción fija: es lo que sobra, para que el reparto siempre cuadre al peso.
      */
     public enum Categoria {
-        SORTEOS("sorteos", "0.20"),
-        MISIONES("misiones", "0.10"),
-        LOGROS("logros", "0.05"),
-        LEADERBOARD("leaderboard", "0.15"),
-        DEVOLUCION("devolucion", "0.15"),
-        GANANCIA("ganancia", null),
-        REFERIDOS("referidos", "0.10");
+        SORTEOS("sorteos", "0.20", true),
+        MISIONES("misiones", "0.10", false),
+        LOGROS("logros", "0.05", false),
+        LEADERBOARD("leaderboard", "0.15", true),
+        DEVOLUCION("devolucion", "0.15", false),
+        GANANCIA("ganancia", null, true),
+        REFERIDOS("referidos", "0.10", true);
 
         private final String clave;
         private final BigDecimal fraccion;
+        private final boolean activa;
 
-        Categoria(String clave, String fraccion) {
+        Categoria(String clave, String fraccion, boolean activa) {
             this.clave = clave;
             this.fraccion = fraccion != null ? new BigDecimal(fraccion) : null;
+            this.activa = activa;
         }
 
         /** Valor guardado en {@code admin_wallet.categoria}. */
@@ -75,6 +77,9 @@ public class ComisionService {
 
         /** true si la categoría recibe lo que sobra del reparto (ganancia del dueño). */
         public boolean esResiduo() { return fraccion == null; }
+
+        /** true si la división está activa; si es false, su monto suma temporalmente a la ganancia del admin. */
+        public boolean isActiva() { return activa; }
     }
 
     private static final Map<Categoria, BigDecimal> DISTRIBUCION = construirDistribucion();
@@ -132,6 +137,42 @@ public class ComisionService {
         /** Ganancia del dueño atribuida a cada jugador (columna {@code ganancia_generada}). */
         public BigDecimal utilidadPorJugador() {
             return porJugador(Categoria.GANANCIA);
+        }
+
+        /** Ganancia base de la categoría {@link Categoria#GANANCIA} (25% residuo). */
+        // REVIEW-MONEY
+        public BigDecimal getGananciaBaseAdmin() {
+            return getMonto(Categoria.GANANCIA);
+        }
+
+        /** Suma de los montos de las divisiones aún no activas, redirigida al admin como ganancia. */
+        // REVIEW-MONEY
+        public BigDecimal getGananciaInactivasAdmin() {
+            BigDecimal total = BigDecimal.ZERO;
+            for (Categoria categoria : Categoria.values()) {
+                if (!categoria.isActiva()) {
+                    total = total.add(getMonto(categoria));
+                }
+            }
+            return total;
+        }
+
+        /** Ganancia efectiva para el admin en esta partida: ganancia base + divisiones inactivas. */
+        // REVIEW-MONEY
+        public BigDecimal getGananciaEfectivaAdmin() {
+            return getGananciaBaseAdmin().add(getGananciaInactivasAdmin());
+        }
+
+        /** Mitad de la ganancia de divisiones inactivas atribuida a cada jugador. */
+        // REVIEW-MONEY
+        public BigDecimal utilidadInactivasPorJugador() {
+            return getGananciaInactivasAdmin().divide(DOS, 2, RoundingMode.HALF_UP);
+        }
+
+        /** Mitad de la ganancia efectiva del admin (base + inactivas) atribuida a cada jugador. */
+        // REVIEW-MONEY
+        public BigDecimal utilidadEfectivaPorJugador() {
+            return utilidadPorJugador().add(utilidadInactivasPorJugador());
         }
     }
 
@@ -201,6 +242,22 @@ public class ComisionService {
      */
     public Map<Categoria, BigDecimal> distribucion() {
         return DISTRIBUCION;
+    }
+
+    /** Suma de las fracciones correspondientes a las divisiones aún no activas (redirigidas al admin). */
+    public BigDecimal fraccionInactivas() {
+        BigDecimal total = BigDecimal.ZERO;
+        for (Categoria categoria : Categoria.values()) {
+            if (!categoria.isActiva()) {
+                total = total.add(DISTRIBUCION.get(categoria));
+            }
+        }
+        return total;
+    }
+
+    /** Fracción efectiva que recibe el admin (ganancia base + divisiones inactivas). */
+    public BigDecimal fraccionGananciaEfectivaAdmin() {
+        return DISTRIBUCION.get(Categoria.GANANCIA).add(fraccionInactivas());
     }
 
     private static Map<Categoria, BigDecimal> construirDistribucion() {

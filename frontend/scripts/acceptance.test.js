@@ -90,9 +90,12 @@ test('P8: el chat privado define estilos propios de burbuja y habilita el canal 
 test('P9: Admin Finanzas muestra la zona combinada de ganancias y el aporte por jugador en las 7 categorías sin fetch suelto', () => {
   assert.doesNotMatch(adminJsx, /\bfetch\s*\(/)
   assert.match(adminJsx, /admin-earnings-zone/)
+  assert.match(adminJsx, /gananciaBaseComisionesAdmin/)
+  assert.match(adminJsx, /gananciaInactivasAdmin/)
   assert.match(adminJsx, /gananciaComisionesAdmin/)
   assert.match(adminJsx, /gananciaAdminLeaderboard/)
   assert.match(adminJsx, /gananciaTotalCombinadaAdmin/)
+  assert.match(adminJsx, /Inactiva → Suma a Ganancia Admin/)
   for (const campo of [
     'ganancia_generada',
     'gen_sorteos',
