@@ -915,13 +915,13 @@ public class FinanzasService {
             lista.add(new MovimientoOrdenado(parsearFecha(fecha), rpId, item));
         }
 
-        // D. Premios y sobrantes de leaderboard
+        // D. Premios de leaderboard para jugadores (los sobrantes de admin van solo al panel admin)
         List<JsonObject> lbPagos = db.query(
                 "SELECT lcp.id, lcp.tipo_pago, lcp.posicion, lcp.monto, lcp.estado, lcp.creado_en, lcp.pagado_en, " +
                 "lc.periodo, lc.clave_corte " +
                 "FROM leaderboard_cut_payments lcp " +
                 "JOIN leaderboard_cuts lc ON lc.id = lcp.corte_id " +
-                "WHERE lcp.user_id = ? " +
+                "WHERE lcp.user_id = ? AND lcp.tipo_pago = 'jugador' " +
                 "ORDER BY COALESCE(lcp.pagado_en, lcp.creado_en) DESC, lcp.id DESC LIMIT 100",
                 userId);
         for (JsonObject lb : lbPagos) {
@@ -1043,6 +1043,7 @@ public class FinanzasService {
         }
         if ("premio".equalsIgnoreCase(tipo)) {
             return ref.startsWith("Comisión de referido")
+                    || ref.startsWith("Comisión referidos (sin referidor")
                     || ref.startsWith("Devolución comisión referid")
                     || ref.startsWith("Premio leaderboard")
                     || ref.startsWith("Leaderboard sobrantes");

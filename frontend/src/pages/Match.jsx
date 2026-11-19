@@ -68,6 +68,8 @@ export default function Match() {
     const [apiStatusText, setApiStatusText] = useState('Buscando resultado en Clash Royale...');
     const [apiResult, setApiResult] = useState(() => useAppStore.getState().matchState.resultado || null); // { esGanador, premio, ganador, mensaje } o { disputa: true, mensaje }
     const [flujoCompletado, setFlujoCompletado] = useState(() => useAppStore.getState().matchState.status === 'finished');
+    const [chatAbiertoEnJuego, setChatAbiertoEnJuego] = useState(false);
+    const [mensajesPrivadosSinLeer, setMensajesPrivadosSinLeer] = useState(0);
     const [ahoraMs, setAhoraMs] = useState(() => Date.now());
     const [mostrarVariables, setMostrarVariables] = useState(false);
     const [demoSalaActiva, setDemoSalaActiva] = useState(false);
@@ -102,12 +104,24 @@ export default function Match() {
         setWinText('Ganancia: $0');
         setBtnState({ text: '🎮 COMENZAR', disabled: true, cssClass: '' });
         setShowConfirmModal(false);
+        setChatAbiertoEnJuego(false);
+        setMensajesPrivadosSinLeer(0);
     }, [clearMatchState]);
 
     const chatEndRef = useRef(null);
+    const chatAbiertoEnJuegoRef = useRef(chatAbiertoEnJuego);
+    const viewRef = useRef(view);
     const simulacionRef = useRef(0); // id de la última consulta de ganancia (descarta respuestas viejas)
     const gananciaTimerRef = useRef(null); // S8: debounce de la consulta de ganancia (antes: una petición por cada tecla/flecha del input)
     const ultimaSyncBusquedasRef = useRef(0);
+
+    useEffect(() => {
+        chatAbiertoEnJuegoRef.current = chatAbiertoEnJuego;
+    }, [chatAbiertoEnJuego]);
+
+    useEffect(() => {
+        viewRef.current = view;
+    }, [view]);
 
     useEffect(() => () => clearTimeout(gananciaTimerRef.current), []);
 
@@ -163,7 +177,7 @@ export default function Match() {
     useEffect(() => {
         // Auto-scroll chat
         if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }, [chatMessages]);
+    }, [chatMessages, chatAbiertoEnJuego]);
 
     useEffect(() => {
         if (!socket) return;
@@ -180,6 +194,8 @@ export default function Match() {
             setApiResult(null);
             setFlujoCompletado(false);
             setShowConfirmModal(false);
+            setChatAbiertoEnJuego(false);
+            setMensajesPrivadosSinLeer(0);
             setRivalData(rival);
             setMaxMontoPermitido(data.maxMonto || 10000);
             setView('private');
@@ -238,6 +254,8 @@ export default function Match() {
 
         const onJuegoIniciado = () => {
             setShowConfirmModal(false);
+            setChatAbiertoEnJuego(false);
+            setMensajesPrivadosSinLeer(0);
             setView('game_result');
             setApiStatusText('Buscando resultado en Clash Royale...');
             setMatchState({ inMatch: true, status: 'playing', rivalDesconectado: null, timerNegociacion: null });
@@ -258,6 +276,14 @@ export default function Match() {
 
         const onMensajePrivado = (data) => {
             setChatMessages(prev => [...prev, data]);
+            const esDeOtro = Boolean(data?.usuario) && data.usuario !== currentUser?.username;
+            const estadoMatch = useAppStore.getState().matchState.status;
+            const enVistaApi = viewRef.current === 'game_result'
+                || estadoMatch === 'playing'
+                || estadoMatch === 'finished';
+            if (esDeOtro && enVistaApi && !chatAbiertoEnJuegoRef.current) {
+                setMensajesPrivadosSinLeer(prev => prev + 1);
+            }
         };
 
         const onRestaurarPartida = (data) => {
@@ -740,6 +766,52 @@ export default function Match() {
     const modoMostrado = esVistaPrevia && !gameMode ? DEMO_SALA_PRIVADA.modoEjemplo : gameMode;
     const montoMostrado = esVistaPrevia && !monto ? DEMO_SALA_PRIVADA.montoEjemplo : monto;
     const winTextMostrado = esVistaPrevia ? DEMO_SALA_PRIVADA.gananciaEjemplo : winText;
+    const mostrarRecordatorioInicio = btnState.cssClass === 'waiting-cancel' || btnState.cssClass === 'rival-ready';
+
+    const toggleChatEnJuego = () => {
+        setChatAbiertoEnJuego(prev => {
+            const proximo = !prev;
+            if (proximo) setMensajesPrivadosSinLeer(0);
+            return proximo;
+        });
+    };
+
+    const renderChatPrivado = (textoVacio) => (
+        <>
+            <div className="friend-link-reminder" role="note">
+                <span>🤝</span>
+                <span>
+                    <strong>Recordatorio:</strong> Envíense por este chat privado el <strong>link de amistad de Clash Royale</strong> para agregarse antes de jugar.
+                </span>
+            </div>
+
+            <div className="mini-chat">
+                {mensajesMostrados.length === 0 ? (
+                    <div className="mini-chat-empty">
+                        {textoVacio}
+                    </div>
+                ) : (
+                    mensajesMostrados.map((m, i) => {
+                        const esPropio = m.usuario === (currentUser?.username || 'Visitante');
+                        const hora = formatearHoraPrivada(m.fecha);
+                        return (
+                            <div key={i} className={`msg ${esPropio ? 'own' : 'other'}`}>
+                                <span className="msg-user">{m.usuario}</span>
+                                <span className="msg-text">{renderTextoPrivado(m.texto)}</span>
+                                {hora && <span className="msg-time">{hora}</span>}
+                            </div>
+                        );
+                    })
+                )}
+                <div ref={chatEndRef} />
+            </div>
+
+            <form className="chat-input-area mini" onSubmit={handleChatSubmit}>
+                <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Escribe un mensaje o pega tu link de amistad..." style={{ margin: 0 }} />
+                <button type="submit">Enviar</button>
+            </form>
+        </>
+    );
 
     return (
         <div className="match-container">
@@ -800,31 +872,7 @@ export default function Match() {
                             </div>
                         )}
 
-                        <div className="mini-chat">
-                            {mensajesMostrados.length === 0 ? (
-                                <div className="mini-chat-empty">
-                                    Saluda a tu rival y acuerden aquí el modo y el monto.
-                                </div>
-                            ) : (
-                                mensajesMostrados.map((m, i) => {
-                                    const esPropio = m.usuario === (currentUser?.username || 'Visitante');
-                                    const hora = formatearHoraPrivada(m.fecha);
-                                    return (
-                                        <div key={i} className={`msg ${esPropio ? 'own' : 'other'}`}>
-                                            <span className="msg-user">{m.usuario}</span>
-                                            <span className="msg-text">{renderTextoPrivado(m.texto)}</span>
-                                            {hora && <span className="msg-time">{hora}</span>}
-                                        </div>
-                                    );
-                                })
-                            )}
-                            <div ref={chatEndRef} />
-                        </div>
-
-                        <form className="chat-input-area mini" onSubmit={handleChatSubmit}>
-                            <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Escribe un mensaje..." style={{ margin: 0 }} />
-                            <button type="submit">Enviar</button>
-                        </form>
+                        {renderChatPrivado('Saluda a tu rival, envíense el link de amistad de Clash Royale y acuerden aquí el modo y el monto.')}
 
                         <VozDiscord enPartida={true} />
 
@@ -844,6 +892,11 @@ export default function Match() {
                                 {winTextMostrado}
                             </p>
                             <p className="validation-error">{validationMsg}</p>
+                            {mostrarRecordatorioInicio && (
+                                <div className="start-friend-link-warning" role="status">
+                                    🤝 ¿Ya se enviaron el <strong>link de amistad de Clash Royale</strong> por el chat privado? Asegúrate de haber agregado a tu rival antes de iniciar.
+                                </div>
+                            )}
                             <button
                                 className={`start-game-btn ${esVistaPrevia ? 'enabled' : btnState.cssClass}`}
                                 disabled={!esVistaPrevia && btnState.disabled}
@@ -867,6 +920,28 @@ export default function Match() {
                                 </div>
                                 <h2>{apiStatusText}</h2>
                                 <p style={{ color: '#bbb', marginTop: 10 }}>La API detectará automáticamente quién ganó.</p>
+                                <div className="game-private-chat-controls">
+                                    <button
+                                        type="button"
+                                        className={`private-chat-toggle-btn ${chatAbiertoEnJuego ? 'open' : ''}`}
+                                        aria-expanded={chatAbiertoEnJuego}
+                                        onClick={toggleChatEnJuego}
+                                    >
+                                        <span>💬 {chatAbiertoEnJuego ? 'Ocultar chat privado' : 'Abrir chat privado'}</span>
+                                        {mensajesPrivadosSinLeer > 0 && (
+                                            <span
+                                                className="notification-dot private-chat-unread-dot"
+                                                aria-label={`${mensajesPrivadosSinLeer} mensajes nuevos`}
+                                                title={`${mensajesPrivadosSinLeer} mensaje(s) nuevo(s)`}
+                                            />
+                                        )}
+                                    </button>
+                                </div>
+                                {chatAbiertoEnJuego && (
+                                    <div className="game-private-chat-panel">
+                                        {renderChatPrivado('Aún no hay mensajes. Puedes escribirle a tu rival o enviarle tu link de amistad aquí.')}
+                                    </div>
+                                )}
                                 <VozDiscord enPartida={true} />
                                 <p style={{ color: '#faa61a', fontSize: '0.9rem' }}>⏱️ Tiempo límite: 10 minutos</p>
                             </>
@@ -901,6 +976,9 @@ export default function Match() {
                         <h2>⚠️ ¿Aceptas la partida?</h2>
                         <p>Modo: <strong style={{ color: '#7289da' }}>{confirmData.modo}</strong></p>
                         <p>Monto: <strong style={{ color: '#43b581' }}>${Number(confirmData.monto).toLocaleString()}</strong></p>
+                        <p className="modal-friend-link-note">
+                            🤝 Recuerda haber enviado o aceptado el <strong>link de amistad</strong> en el chat privado antes de aceptar.
+                        </p>
                         <div style={{ marginTop: 20, display: 'flex', gap: 10, justifyContent: 'center' }}>
                             <button style={{ background: '#43b581', padding: '10px 20px', border: 'none', color: 'white', borderRadius: 4 }} onClick={handleAcceptMatch}>{confirmBtnText}</button>
                             <button style={{ background: '#ed4245', padding: '10px 20px', border: 'none', color: 'white', borderRadius: 4 }} onClick={handleRejectMatch}>Rechazar</button>

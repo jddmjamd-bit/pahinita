@@ -709,6 +709,7 @@ class RenderAcceptanceCheck {
         dao.update("UPDATE users SET victorias_dia = 0");
         dao.update("UPDATE users SET victorias_dia = 1 WHERE id = ?", jugador);
         BigDecimal saldoAdminAntes = wallet.obtenerSaldo(adminId);
+        BigDecimal sobrantesAdminAntes = admin.estadisticas(adminId).get("gananciaAdminLeaderboard").getAsBigDecimal();
         dao.update("UPDATE leaderboard_pools SET dia = 1000 WHERE id = 1");
         String claveCorte = "qa-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
 
@@ -724,7 +725,9 @@ class RenderAcceptanceCheck {
         assertEquals(0, dao.queryOne("SELECT victorias_dia FROM users WHERE id = ?", jugador)
                 .get("victorias_dia").getAsInt());
         assertMonto(new BigDecimal("625.00"), wallet.obtenerSaldo(jugador));
-        assertMonto(saldoAdminAntes.add(new BigDecimal("375.00")), wallet.obtenerSaldo(adminId));
+        assertMonto(saldoAdminAntes, wallet.obtenerSaldo(adminId));
+        assertMonto(sobrantesAdminAntes.add(new BigDecimal("375.00")),
+                admin.estadisticas(adminId).get("gananciaAdminLeaderboard").getAsBigDecimal());
         assertEquals(2, dao.queryOne("SELECT COUNT(*) AS total FROM leaderboard_cut_payments WHERE corte_id = ? "
                 + "AND estado = 'pagado'", corteId).get("total").getAsInt());
         assertEquals(1, dao.queryOne("SELECT COUNT(*) AS total FROM leaderboard_history "
@@ -733,7 +736,9 @@ class RenderAcceptanceCheck {
 
         leaderboard.premiarYResetear("dia", "victorias_dia", claveCorte);
         assertMonto(new BigDecimal("625.00"), wallet.obtenerSaldo(jugador));
-        assertMonto(saldoAdminAntes.add(new BigDecimal("375.00")), wallet.obtenerSaldo(adminId));
+        assertMonto(saldoAdminAntes, wallet.obtenerSaldo(adminId));
+        assertMonto(sobrantesAdminAntes.add(new BigDecimal("375.00")),
+                admin.estadisticas(adminId).get("gananciaAdminLeaderboard").getAsBigDecimal());
         assertEquals(1, dao.queryOne("SELECT COUNT(*) AS total FROM leaderboard_cuts WHERE periodo = 'dia' "
                 + "AND clave_corte = ?", claveCorte).get("total").getAsInt());
     }
@@ -818,6 +823,14 @@ class RenderAcceptanceCheck {
         assertTrue(sorteos.eliminar(sorteoId).contains("tickets devueltos"));
         assertEquals(3, sorteos.ticketsDeUsuario(usuarioId).get("tickets").getAsInt());
         assertMonto(new BigDecimal("10000"), sorteos.pozo().get("pool").getAsBigDecimal());
+
+        // Encuesta: votar registra, cambiar actualiza y volver a votar la misma categoría elimina el voto
+        assertFalse(sorteos.votar(usuarioId, "gemas"));
+        assertEquals("gemas", sorteos.encuesta(usuarioId).get("miVoto").getAsString());
+        assertFalse(sorteos.votar(usuarioId, "pass"));
+        assertEquals("pass", sorteos.encuesta(usuarioId).get("miVoto").getAsString());
+        assertTrue(sorteos.votar(usuarioId, "pass"));
+        assertTrue(sorteos.encuesta(usuarioId).get("miVoto").isJsonNull());
     }
 
     @Test
@@ -1558,7 +1571,7 @@ class RenderAcceptanceCheck {
 
         // Pozo = 20000 -> comisión 10% = 2000 -> REFERIDOS 10% = 200 -> porJugador = 100.00.
         // referidoId (25% compartido): 75.00 referidor + 25.00 devolución referido.
-        // sinReferidorId: 100.00 directo a cuentas admin.
+        // sinReferidorId: 100.00 registrado solo en el panel admin (sin sumar a users.saldo del admin).
         assertMonto(new BigDecimal("575.00"),
                 dao.queryOne("SELECT saldo FROM users WHERE id = ?", referidorId).get("saldo").getAsBigDecimal());
         assertMonto(new BigDecimal("25.00"),
@@ -1566,7 +1579,7 @@ class RenderAcceptanceCheck {
         BigDecimal adminSaldoDespues = dao.queryOne(
                         "SELECT COALESCE(SUM(saldo), 0) AS total FROM users WHERE tipo_suscripcion = 'admin'")
                 .get("total").getAsBigDecimal();
-        assertMonto(adminSaldoAntes.add(new BigDecimal("100.00")), adminSaldoDespues);
+        assertMonto(adminSaldoAntes, adminSaldoDespues);
 
         BigDecimal adminRefStatsDespues = admin.estadisticas(adminId).get("gananciaAdminReferidos").getAsBigDecimal();
         assertMonto(adminRefStatsAntes.add(new BigDecimal("100.00")), adminRefStatsDespues);

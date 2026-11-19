@@ -133,14 +133,21 @@ public class SorteoService {
     // Encuesta
     // ------------------------------------------------------------------
 
-    public void votar(int userId, String categoria) {
+    public boolean votar(int userId, String categoria) {
         String cat = categoria == null ? "" : categoria.trim().toLowerCase();
         if (!CATEGORIAS_VALIDAS.contains(cat)) {
             throw ServicioException.solicitudInvalida("Categoría de encuesta no válida");
         }
-        db.update("INSERT INTO raffle_votes (user_id, categoria) VALUES (?, ?) " +
-                "ON CONFLICT (user_id) DO UPDATE SET categoria = ?", userId, cat, cat);
-        io.emit("poll_updated", new JsonObject());
+        int eliminados = db.update("DELETE FROM raffle_votes WHERE user_id = ? AND categoria = ?", userId, cat);
+        boolean eliminado = eliminados > 0;
+        if (!eliminado) {
+            db.update("INSERT INTO raffle_votes (user_id, categoria) VALUES (?, ?) " +
+                    "ON CONFLICT (user_id) DO UPDATE SET categoria = ?", userId, cat, cat);
+        }
+        if (io != null) {
+            io.emit("poll_updated", new JsonObject());
+        }
+        return eliminado;
     }
 
     public void reiniciarEncuesta() {

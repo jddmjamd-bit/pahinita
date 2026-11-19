@@ -42,8 +42,10 @@ public class RutasSorteos {
             int userId = Peticion.userIdDeSesion(ctx);
             if (userId <= 0)
                 throw ServicioException.noAutenticado("Inicia sesión");
-            sorteos.votar(userId, Peticion.texto(body, "categoria"));
-            ctx.json(successJson("Voto registrado", 0));
+            boolean eliminado = sorteos.votar(userId, Peticion.texto(body, "categoria"));
+            JsonObject resp = successJson(eliminado ? "Voto eliminado" : "Voto registrado", 0);
+            resp.addProperty("eliminado", eliminado);
+            ctx.json(resp);
         });
 
         // DELETE /api/admin/raffle/poll

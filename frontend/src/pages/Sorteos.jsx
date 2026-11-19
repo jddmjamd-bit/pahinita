@@ -357,14 +357,28 @@ export default function Sorteos() {
 
                 <div className="sorteos-poll">
                     <h3>📊 ¿Qué sorteamos luego?</h3>
-                    <p className="poll-desc">Vota por el próximo premio.</p>
+                    <p className="poll-desc">Vota por el próximo premio (vuelve a tocar tu elección para eliminar tu voto).</p>
                     <div className="poll-list">
                         {Object.keys(categoriasEncuesta).map(cat => {
                             const votos = votosPorCat[cat] || 0;
                             const porcentaje = totalVotos > 0 ? Math.round((votos / totalVotos) * 100) : 0;
                             const isVoted = miVoto === cat;
                             return (
-                                <div key={cat} className={`poll-item ${isVoted ? 'voted' : ''}`} onClick={() => votarSorteo(cat)}>
+                                <div
+                                    key={cat}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-pressed={isVoted}
+                                    title={isVoted ? 'Toca de nuevo para eliminar tu voto' : 'Votar por esta categoría'}
+                                    className={`poll-item ${isVoted ? 'voted' : ''}`}
+                                    onClick={() => votarSorteo(cat)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            votarSorteo(cat);
+                                        }
+                                    }}
+                                >
                                     <div className="poll-fill" style={{ width: `${porcentaje}%` }}></div>
                                     <div className="poll-content">
                                         <span className="poll-title">{categoriasEncuesta[cat]}</span>

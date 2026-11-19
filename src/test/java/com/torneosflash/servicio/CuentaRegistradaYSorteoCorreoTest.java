@@ -150,4 +150,44 @@ class CuentaRegistradaYSorteoCorreoTest {
         sorteos.enviarCorreoGanadorSorteo("Pass Royale", 42, "campeon_cr", "correo-invalido");
         assertEquals(1, correo.enviados.size());
     }
+
+    @Test
+    void encuestaSorteoEliminaVotoAlPresionarDeNuevoLaMismaCategoria() {
+        java.util.Map<Integer, String> votos = new java.util.HashMap<>();
+        GenericDAO daoEncuesta = new GenericDAO(null) {
+            @Override
+            public int update(String sql, Object... params) {
+                if (sql.startsWith("DELETE FROM raffle_votes")) {
+                    int userId = (int) params[0];
+                    String cat = (String) params[1];
+                    if (cat.equals(votos.get(userId))) {
+                        votos.remove(userId);
+                        return 1;
+                    }
+                    return 0;
+                }
+                if (sql.startsWith("INSERT INTO raffle_votes")) {
+                    int userId = (int) params[0];
+                    String cat = (String) params[1];
+                    votos.put(userId, cat);
+                    return 1;
+                }
+                return 0;
+            }
+        };
+
+        AppConfig config = new AppConfig(Map.of("JWT_SECRET", "secreto-prueba-sorteo-con-32-caracteres-min"));
+        SorteoService sorteos = new SorteoService(daoEncuesta, null, null, null, new ValidadorMonto(config));
+
+        assertFalse(sorteos.votar(10, "gemas"));
+        assertEquals("gemas", votos.get(10));
+
+        // Cambiar a otra categoría reemplaza el voto
+        assertFalse(sorteos.votar(10, "pass"));
+        assertEquals("pass", votos.get(10));
+
+        // Volver a presionar la misma categoría elimina el voto
+        assertTrue(sorteos.votar(10, "pass"));
+        assertFalse(votos.containsKey(10));
+    }
 }

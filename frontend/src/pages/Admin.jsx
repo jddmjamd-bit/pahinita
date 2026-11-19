@@ -1044,7 +1044,7 @@ export default function Admin() {
                                         <strong className="admin-earning-value val-primary">
                                             ${formatearMonto(stats.gananciaAdminLeaderboard)}
                                         </strong>
-                                        <small className="admin-earning-note">Pagos acreditados al cerrar rankings</small>
+                                        <small className="admin-earning-note">Registrados en el panel al cerrar rankings</small>
                                     </div>
                                     <div className="admin-earning-operator" aria-hidden="true">=</div>
                                     <div className="admin-earning-card is-total">
@@ -1075,7 +1075,7 @@ export default function Admin() {
                                         <strong className="admin-earning-value val-green">
                                             ${formatearMonto(stats.gananciaAdminReferidos)}
                                         </strong>
-                                        <small className="admin-earning-note">Acreditado directo al saldo del admin</small>
+                                        <small className="admin-earning-note">Registrado solo en el panel admin</small>
                                     </div>
                                     <div className="admin-earning-card">
                                         <span className="admin-earning-label">🤝 Pagado a Referidores</span>

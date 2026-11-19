@@ -1801,6 +1801,7 @@ public class WalletService {
                         ? "@" + referrerUsername
                         : "usuario#" + referrerUserId;
                 boolean esModeradorRef = "moderador".equalsIgnoreCase(referrerTipo);
+                boolean esAdminRef = "admin".equalsIgnoreCase(referrerTipo);
                 if (reparto.montoReferidor().compareTo(BigDecimal.ZERO) > 0) {
                     if (esModeradorRef) {
                         String motivoModRef = "Comisión referido (billetera moderador) por " + tagJugador + " " + detalleMatch;
@@ -1809,6 +1810,10 @@ public class WalletService {
                                 "comision_referido", motivoModRef);
                         insertarLedger(conn, 0, TIPO_COMISION, reparto.montoReferidor(),
                                 BigDecimal.ZERO, BigDecimal.ZERO, motivoModRef);
+                    } else if (esAdminRef) {
+                        String motivoAdminRef = "Comisión referidos (referidor admin: " + tagJugador + ") " + detalleMatch;
+                        insertarLedger(conn, 0, TIPO_COMISION, reparto.montoReferidor(),
+                                BigDecimal.ZERO, BigDecimal.ZERO, motivoAdminRef);
                     } else {
                         String motivoRef = "Comisión de referido por " + tagJugador + " " + detalleMatch;
                         BigDecimal nuevoSaldoRef = acreditarSaldoEnTransaccion(conn, referrerUserId,
@@ -1845,39 +1850,20 @@ public class WalletService {
 
                 if (matchDbId > 0) {
                     insertarReferralPayout(conn, matchDbId, jugadorId,
-                            esModeradorRef ? "moderador" : "referidor", referrerUserId,
+                            esModeradorRef ? "moderador" : (esAdminRef ? "admin" : "referidor"), referrerUserId,
                             partePorJugador, reparto.porcentajeAplicado(),
-                            reparto.montoReferidor(), reparto.montoDevueltoReferido(), BigDecimal.ZERO);
+                            esAdminRef ? BigDecimal.ZERO : reparto.montoReferidor(),
+                            reparto.montoDevueltoReferido(),
+                            esAdminRef ? reparto.montoReferidor() : BigDecimal.ZERO);
                 }
             } else {
-                List<Integer> adminIds = new ArrayList<>();
-                try (PreparedStatement ps = conn.prepareStatement(
-                        "SELECT id FROM users WHERE tipo_suscripcion = 'admin' ORDER BY id ASC FOR UPDATE");
-                     ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) adminIds.add(rs.getInt("id"));
-                }
-                BigDecimal acreditadoAdmins = BigDecimal.ZERO;
-                if (!adminIds.isEmpty()) {
-                    int nAdmins = adminIds.size();
-                    BigDecimal porAdmin = partePorJugador.divide(BigDecimal.valueOf(nAdmins), 2, RoundingMode.FLOOR);
-                    BigDecimal residuo = partePorJugador.subtract(porAdmin.multiply(BigDecimal.valueOf(nAdmins)));
-                    String motivoAdmin = "Comisión referidos (sin referidor: " + tagJugador + ") " + detalleMatch;
-                    for (int i = 0; i < nAdmins; i++) {
-                        int adminUserId = adminIds.get(i);
-                        BigDecimal cuota = (i == 0) ? porAdmin.add(residuo) : porAdmin;
-                        if (cuota.compareTo(BigDecimal.ZERO) > 0) {
-                            BigDecimal nuevoSaldoAdmin = acreditarSaldoEnTransaccion(conn, adminUserId, cuota, motivoAdmin);
-                            if (nuevoSaldoAdmin != null) {
-                                acreditadoAdmins = acreditadoAdmins.add(cuota);
-                                movimientos.add(new CambioSaldoReferido(adminUserId, cuota, nuevoSaldoAdmin, motivoAdmin));
-                            }
-                        }
-                    }
-                }
+                String motivoAdmin = "Comisión referidos (sin referidor: " + tagJugador + ") " + detalleMatch;
+                insertarLedger(conn, 0, TIPO_COMISION, partePorJugador,
+                        BigDecimal.ZERO, BigDecimal.ZERO, motivoAdmin);
                 if (matchDbId > 0) {
                     insertarReferralPayout(conn, matchDbId, jugadorId, "admin", null,
                             partePorJugador, BigDecimal.ZERO,
-                            BigDecimal.ZERO, BigDecimal.ZERO, acreditadoAdmins);
+                            BigDecimal.ZERO, BigDecimal.ZERO, partePorJugador);
                 }
             }
         }
@@ -2004,13 +1990,14 @@ public class WalletService {
     public WalletResult premiarLeaderboard(long pagoId, String motivo) {
         Connection conn = null;
         int userId = 0;
+        String tipoPago = "jugador";
         BigDecimal monto = null;
         try {
             conn = db.getConnection();
             conn.setAutoCommit(false);
 
             try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT user_id, monto, estado FROM leaderboard_cut_payments WHERE id = ? FOR UPDATE")) {
+                    "SELECT user_id, tipo_pago, monto, estado FROM leaderboard_cut_payments WHERE id = ? FOR UPDATE")) {
                 ps.setLong(1, pagoId);
                 try (ResultSet rs = ps.executeQuery()) {
                     if (!rs.next()) {
@@ -2018,6 +2005,7 @@ public class WalletService {
                         return WalletResult.fail("Pago de leaderboard no encontrado");
                     }
                     userId = rs.getInt("user_id");
+                    tipoPago = rs.getString("tipo_pago");
                     monto = rs.getBigDecimal("monto");
                     if ("pagado".equals(rs.getString("estado"))) {
                         BigDecimal saldoActual = leerSaldo(conn, userId);
@@ -2031,6 +2019,24 @@ public class WalletService {
                 conn.rollback();
                 registrarFalloPagoLeaderboard(pagoId, "Monto persistido inválido");
                 return WalletResult.fail("Monto del pago de leaderboard inválido");
+            }
+
+            if ("admin".equalsIgnoreCase(tipoPago)) {
+                BigDecimal saldoActual = leerSaldo(conn, userId);
+                insertarLedger(conn, 0, TIPO_COMISION, monto, BigDecimal.ZERO, BigDecimal.ZERO, motivo);
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "UPDATE leaderboard_cut_payments SET estado = 'pagado', intentos = intentos + 1, " +
+                        "ultimo_error = NULL, pagado_en = CURRENT_TIMESTAMP WHERE id = ? AND estado = 'pendiente'")) {
+                    ps.setLong(1, pagoId);
+                    if (ps.executeUpdate() != 1) {
+                        conn.rollback();
+                        return WalletResult.fail("El pago de leaderboard cambió mientras se procesaba");
+                    }
+                }
+                conn.commit();
+                logger.info("🎁 SOBRANTE ADMIN leaderboard pagoId={} adminId={} monto={} motivo='{}' (solo panel admin)",
+                        pagoId, userId, monto, motivo);
+                return WalletResult.ok(saldoActual);
             }
 
             BigDecimal saldoAnterior = leerSaldoBloqueando(conn, userId);
@@ -2094,11 +2100,12 @@ public class WalletService {
     }
 
     /**
-     * Premiar a todos los admins (leaderboard sobrantes).
+     * Registra sobrantes del leaderboard para los administradores únicamente en el panel admin,
+     * sin acreditar su saldo personal de jugador.
      *
-     * @param montoPorAdmin Monto a dar a cada admin
+     * @param montoPorAdmin Monto correspondiente a cada admin
      * @param motivo        Descripción
-     * @return WalletResult (el saldo retornado no es específico de un solo admin)
+     * @return WalletResult con el total registrado en el panel
      */
     // REVIEW-MONEY
     public WalletResult premiarAdmins(BigDecimal montoPorAdmin, String motivo) {
@@ -2111,48 +2118,31 @@ public class WalletService {
             conn = db.getConnection();
             conn.setAutoCommit(false);
 
-            // D3 / M3: leer y bloquear IDs y saldos de los admins ANTES del pago
-            List<Object[]> adminsInfo = new java.util.ArrayList<>(); // {id, saldoAnterior}
+            int cantidadAdmins = 0;
             try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT id, saldo FROM users WHERE tipo_suscripcion = 'admin' ORDER BY id ASC FOR UPDATE")) {
+                    "SELECT COUNT(*) AS total FROM users WHERE tipo_suscripcion = 'admin'")) {
                 try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        int adminId = rs.getInt("id");
-                        BigDecimal saldoAntes = rs.getBigDecimal("saldo");
-                        if (saldoAntes == null) saldoAntes = BigDecimal.ZERO;
-                        adminsInfo.add(new Object[]{adminId, saldoAntes});
+                    if (rs.next()) {
+                        cantidadAdmins = rs.getInt("total");
                     }
                 }
             }
 
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "UPDATE users SET saldo = saldo + ? WHERE tipo_suscripcion = 'admin'")) {
-                ps.setBigDecimal(1, montoPorAdmin);
-                ps.executeUpdate();
-            }
-
-            // D3: registrar en el ledger una fila por cada admin
-            for (Object[] info : adminsInfo) {
-                int adminId = (int) info[0];
-                BigDecimal saldoAntes = (BigDecimal) info[1];
-                BigDecimal saldoDespues = saldoAntes.add(montoPorAdmin);
-                insertarLedger(conn, adminId, TIPO_PREMIO, montoPorAdmin, saldoAntes, saldoDespues, motivo);
-            }
+            BigDecimal totalAdmin = cantidadAdmins > 0
+                    ? montoPorAdmin.multiply(BigDecimal.valueOf(cantidadAdmins))
+                    : montoPorAdmin;
+            insertarComisionAdmin(conn, totalAdmin, "sobrante_leaderboard", motivo, Categoria.LEADERBOARD.getClave());
+            insertarLedger(conn, 0, TIPO_COMISION, totalAdmin, BigDecimal.ZERO, BigDecimal.ZERO, motivo);
 
             conn.commit();
-            logger.info("🎁 PREMIO ADMINS monto={} motivo='{}' admins={}", montoPorAdmin, motivo, adminsInfo.size());
-            for (Object[] info : adminsInfo) {
-                int adminId = (int) info[0];
-                BigDecimal saldoDespues = ((BigDecimal) info[1]).add(montoPorAdmin);
-                emitirEvento(Eventos.WALLET_AWARDED, new Eventos.MovimientoWallet(
-                        Eventos.TipoMovimiento.PREMIO, adminId, montoPorAdmin, saldoDespues, motivo));
-            }
-            return WalletResult.ok(montoPorAdmin); // No hay un saldo específico para "todos los admins"
+            logger.info("🎁 SOBRANTE ADMINS (solo panel admin) montoPorAdmin={} total={} motivo='{}' admins={}",
+                    montoPorAdmin, totalAdmin, motivo, cantidadAdmins);
+            return WalletResult.ok(totalAdmin);
 
         } catch (SQLException e) {
             rollbackSilencioso(conn);
             logger.error("❌ Error en premiarAdmins: {}", e.getMessage());
-            return WalletResult.fail("Error interno al premiar admins");
+            return WalletResult.fail("Error interno al registrar ingreso admin");
         } finally {
             cerrarConexion(conn);
         }

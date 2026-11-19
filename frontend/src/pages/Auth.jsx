@@ -3,11 +3,18 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
 import { API_BASE_URL } from '../store/llamarApi';
 import { esperarSolicitudesPush } from '../services/pushTokens';
+import {
+    obtenerPermisoNotificacionesNavegador,
+    solicitarPermisoNotificacionesNavegador
+} from '../services/browserPush';
 import AceptacionLegal from '../components/AceptacionLegal';
 import './Auth.css';
 
 const excedeLimiteBcrypt = value => new TextEncoder().encode(value).length > 72;
 const REF_STORAGE_KEY = 'tf_ref_code';
+const esNavegadorWeb = () => typeof window !== 'undefined'
+    && !window.Capacitor?.isNativePlatform?.()
+    && window.location?.protocol !== 'capacitor:';
 
 const extraerRefDeLocation = (loc) => {
     const q = new URLSearchParams(loc?.search || '').get('ref');
@@ -120,6 +127,14 @@ export default function Auth() {
     const [emailValid, setEmailValid] = useState(false);
     const [playerTagValid, setPlayerTagValid] = useState(false);
     const [referidoInvalido, setReferidoInvalido] = useState(false);
+    const [permisoNotif, setPermisoNotif] = useState(() => obtenerPermisoNotificacionesNavegador());
+    const enNavegadorWeb = esNavegadorWeb();
+
+    const pedirPermisoNotificaciones = async () => {
+        const resultado = await solicitarPermisoNotificacionesNavegador();
+        setPermisoNotif(resultado);
+        return resultado;
+    };
 
     const alternarAyuda = (clave) => {
         setAyudaAbierta(actual => (actual === clave ? null : clave));
@@ -327,6 +342,9 @@ export default function Auth() {
         }
 
         try {
+            if (enNavegadorWeb && obtenerPermisoNotificacionesNavegador() === 'default') {
+                await pedirPermisoNotificaciones();
+            }
             await esperarSolicitudesPush();
             const res = await fetch(API_BASE_URL + '/api/register', {
                 method: 'POST',
@@ -369,6 +387,9 @@ export default function Auth() {
         e.preventDefault();
         if (excedeLimiteBcrypt(password)) return alert('La contraseña es demasiado larga. Si olvidaste tu clave, recupérala por correo.');
         try {
+            if (enNavegadorWeb && obtenerPermisoNotificacionesNavegador() === 'default') {
+                await pedirPermisoNotificaciones();
+            }
             await esperarSolicitudesPush();
             const res = await fetch(API_BASE_URL + '/api/login', {
                 method: 'POST',
@@ -655,6 +676,30 @@ export default function Auth() {
                             />
                             <div className={referidoStatus.className}>{referidoStatus.text}</div>
                         </div>
+
+                        {enNavegadorWeb && permisoNotif !== 'no-disponible' && (
+                            <div className={`auth-notif-reminder ${permisoNotif === 'granted' ? 'is-granted' : ''}`} role="note">
+                                <div className="auth-notif-reminder-text">
+                                    <strong>🔔 Activa las notificaciones al crear tu cuenta</strong>
+                                    <span>
+                                        {permisoNotif === 'granted'
+                                            ? '¡Listo! Ya tienes las notificaciones activas para enterarte cuando busquen partida o recibas un reto.'
+                                            : permisoNotif === 'denied'
+                                                ? 'Las notificaciones están bloqueadas en tu navegador. Actívalas desde el candado o ajustes del sitio en tu celular para no perderte partidas.'
+                                                : 'Actívalas para recibir avisos en tu celular cuando alguien busque partida o te invite a jugar.'}
+                                    </span>
+                                </div>
+                                {permisoNotif === 'default' && (
+                                    <button
+                                        type="button"
+                                        className="auth-notif-btn"
+                                        onClick={() => void pedirPermisoNotificaciones()}
+                                    >
+                                        🔔 Activar ahora
+                                    </button>
+                                )}
+                            </div>
+                        )}
 
                         <AceptacionLegal acepta={acepta} onChange={setAcepta} />
                         <button type="submit">Registrarse</button>

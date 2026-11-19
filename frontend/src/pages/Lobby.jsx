@@ -1,7 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
-import { registrarPushNavegador, cerrarPushBusqueda } from '../services/browserPush';
+import {
+    obtenerPermisoNotificacionesNavegador,
+    registrarPushNavegador,
+    solicitarPermisoYRegistrarPush,
+    cerrarPushBusqueda
+} from '../services/browserPush';
 import {
     calcularRestanteSegundos,
     formatearTiempoReloj,
@@ -128,6 +133,8 @@ export default function Lobby() {
     const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [avisosOcultos, setAvisosOcultos] = useState(() => new Set());
     const [retoAhoraMs, setRetoAhoraMs] = useState(() => Date.now());
+    const [permisoNotifWeb, setPermisoNotifWeb] = useState(() => obtenerPermisoNotificacionesNavegador());
+    const [avisoNotifCerrado, setAvisoNotifCerrado] = useState(false);
 
     useEffect(() => {
         if (!retoRecibido) return undefined;
@@ -144,16 +151,54 @@ export default function Lobby() {
         )
         : 0;
 
+    const activarPushWeb = useCallback(async () => {
+        if (!currentUser?.id || !esNavegadorWeb) return;
+        const resultado = await solicitarPermisoYRegistrarPush(currentUser.id);
+        if (resultado?.permiso) {
+            setPermisoNotifWeb(resultado.permiso);
+        } else {
+            setPermisoNotifWeb(obtenerPermisoNotificacionesNavegador());
+        }
+        if (resultado?.token) {
+            setPushToken(resultado.token);
+        }
+    }, [currentUser?.id, esNavegadorWeb, setPushToken]);
+
     useEffect(() => {
-        if (!currentUser?.id) return;
+        if (!currentUser?.id) return undefined;
         void cargarNotificaciones();
         void cargarEstadoMatchmaking();
-        if (esNavegadorWeb && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        if (!esNavegadorWeb || typeof Notification === 'undefined') return undefined;
+
+        const permisoActual = obtenerPermisoNotificacionesNavegador();
+        setPermisoNotifWeb(permisoActual);
+        if (permisoActual === 'granted') {
             void registrarPushNavegador(currentUser.id).then(resultado => {
                 if (resultado.token) setPushToken(resultado.token);
             });
+            return undefined;
         }
-    }, [currentUser?.id, cargarNotificaciones, cargarEstadoMatchmaking, esNavegadorWeb, setPushToken]);
+        if (permisoActual !== 'default') return undefined;
+
+        void activarPushWeb();
+        let resuelto = false;
+        const alPrimerGesto = () => {
+            if (resuelto) return;
+            resuelto = true;
+            if (obtenerPermisoNotificacionesNavegador() === 'default') {
+                void activarPushWeb();
+            }
+        };
+        window.addEventListener('pointerdown', alPrimerGesto, { once: true, capture: true });
+        window.addEventListener('click', alPrimerGesto, { once: true, capture: true });
+        window.addEventListener('keydown', alPrimerGesto, { once: true, capture: true });
+        return () => {
+            resuelto = true;
+            window.removeEventListener('pointerdown', alPrimerGesto, { capture: true });
+            window.removeEventListener('click', alPrimerGesto, { capture: true });
+            window.removeEventListener('keydown', alPrimerGesto, { capture: true });
+        };
+    }, [currentUser?.id, cargarNotificaciones, cargarEstadoMatchmaking, esNavegadorWeb, setPushToken, activarPushWeb]);
 
     useEffect(() => {
         if (!currentUser?.id) return;
@@ -325,6 +370,26 @@ export default function Lobby() {
                                 Gestionar zona
                             </button>
                         )}
+                    </div>
+                )}
+                {!esVistaPrevia && currentUser?.id && esNavegadorWeb && permisoNotifWeb === 'default' && !avisoNotifCerrado && (
+                    <div className="notif-permission-banner" role="status">
+                        <span>
+                            🔔 <strong>Activa las notificaciones del navegador</strong> para recibir avisos cuando alguien busque partida o te envíen mensajes.
+                        </span>
+                        <div className="notif-permission-actions">
+                            <button type="button" className="notif-permission-btn" onClick={() => void activarPushWeb()}>
+                                🔔 Activar notificaciones
+                            </button>
+                            <button
+                                type="button"
+                                className="notif-permission-close"
+                                aria-label="Cerrar recordatorio de notificaciones"
+                                onClick={() => setAvisoNotifCerrado(true)}
+                            >
+                                ×
+                            </button>
+                        </div>
                     </div>
                 )}
                 <Outlet />

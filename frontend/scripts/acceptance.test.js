@@ -32,6 +32,7 @@ const soporteJsx = await readFile(new URL('../src/pages/Soporte.jsx', import.met
 const financeJsx = await readFile(new URL('../src/pages/Finance.jsx', import.meta.url), 'utf8')
 const faqJs = await readFile(new URL('../src/data/faq.js', import.meta.url), 'utf8')
 const vozDiscordJsx = await readFile(new URL('../src/components/VozDiscord.jsx', import.meta.url), 'utf8')
+const browserPushJs = await readFile(new URL('../src/services/browserPush.js', import.meta.url), 'utf8')
 
 test('P2: las rutas privadas esperan la sesión, envían al login si no hay usuario y dejan /faq pública', () => {
   assert.match(app, /RUTAS_PUBLICAS\s*=\s*\[[^\]]*'\/faq'[^\]]*\]/)
@@ -295,4 +296,24 @@ test('P17: Rol moderador (acceso con botón Admin sin exponer nombre, panel prop
   assert.match(adminJsx, /esAdminReal\s*&&\s*view\s*===\s*['"]chatbot['"]/)
   assert.match(adminJsx, /esAdminReal\s*&&\s*view\s*===\s*['"]soporte['"]/)
   assert.doesNotMatch(faqJs + demoJs, /\bmoderador(es)?\b/i)
+})
+
+test('P18: Recordatorio de link de amistad y chat privado habilitado en juego con puntito rojo, encuesta toggle, notificaciones móviles y admin solo en panel', () => {
+  assert.match(matchJsx, /friend-link-reminder/)
+  assert.match(matchJsx, /start-friend-link-warning/)
+  assert.match(matchJsx, /link de amistad/i)
+  assert.match(matchJsx, /private-chat-toggle-btn/)
+  assert.match(matchJsx, /private-chat-unread-dot/)
+  assert.match(matchJsx, /mensajesPrivadosSinLeer/)
+  assert.match(matchCss, /\.friend-link-reminder\b/)
+  assert.match(matchCss, /\.private-chat-toggle-btn\b/)
+  assert.match(matchCss, /\.private-chat-unread-dot\b/)
+  assert.match(sorteosJsx, /eliminar tu voto/)
+  assert.match(browserPushJs, /solicitarPermisoNotificacionesNavegador/)
+  assert.match(browserPushJs, /solicitarPermisoYRegistrarPush/)
+  assert.match(authJsx, /auth-notif-reminder/)
+  assert.match(authJsx, /Activa las notificaciones al crear tu cuenta/)
+  assert.match(lobbyJsx, /notif-permission-banner/)
+  assert.match(lobbyJsx, /solicitarPermisoYRegistrarPush/)
+  assert.match(adminJsx, /Registrado solo en el panel admin/)
 })

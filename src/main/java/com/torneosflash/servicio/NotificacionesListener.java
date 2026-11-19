@@ -109,6 +109,10 @@ public final class NotificacionesListener {
                             ganador.get("premio").getAsBigDecimal().toPlainString() + ".",
                     "/leaderboard", "ranking-ganador:" + corte.corteId(), datos, true);
         }
+
+        for (int adminId : obtenerAdminIds()) {
+            emitirMovimientoActualizado(adminId, "ranking", "positivo", null, "Corte ranking " + periodo);
+        }
     }
 
     private void sorteoNuevo(EventBus.Evento evento) {

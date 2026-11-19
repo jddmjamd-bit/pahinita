@@ -10,6 +10,45 @@ const importarFirebase = async (biblioteca) => import(
     /* @vite-ignore */ `https://www.gstatic.com/firebasejs/${VERSION_FIREBASE}/${biblioteca}.js`
 );
 
+export function obtenerPermisoNotificacionesNavegador() {
+    if (typeof window === 'undefined' || !('Notification' in window)) return 'no-disponible';
+    return window.Notification.permission || 'default';
+}
+
+export async function solicitarPermisoNotificacionesNavegador() {
+    if (typeof window === 'undefined' || !('Notification' in window)) return 'no-disponible';
+    const actual = window.Notification.permission;
+    if (actual === 'granted' || actual === 'denied') return actual;
+    return new Promise((resolve) => {
+        try {
+            const posiblePromesa = window.Notification.requestPermission((permiso) => resolve(permiso || window.Notification.permission || 'default'));
+            if (posiblePromesa && typeof posiblePromesa.then === 'function') {
+                posiblePromesa.then(
+                    (permiso) => resolve(permiso || window.Notification.permission || 'default'),
+                    () => resolve(window.Notification.permission || 'default')
+                );
+            } else if (typeof posiblePromesa === 'string') {
+                resolve(posiblePromesa);
+            }
+        } catch {
+            resolve(window.Notification.permission || 'default');
+        }
+    });
+}
+
+export async function solicitarPermisoYRegistrarPush(userId) {
+    const permiso = await solicitarPermisoNotificacionesNavegador();
+    if (permiso !== 'granted') {
+        return {
+            estado: permiso === 'denied' ? 'rechazado' : (permiso === 'no-disponible' ? 'no-disponible' : 'pendiente'),
+            permiso
+        };
+    }
+    if (!userId) return { estado: 'pendiente', permiso };
+    const registro = await registrarPushNavegador(userId);
+    return { ...registro, permiso };
+}
+
 /** Registra el token web en la sesión cuando el navegador ya permite notificaciones. */
 export async function registrarPushNavegador(userId) {
     if (!userId || typeof window === 'undefined' || !('Notification' in window)

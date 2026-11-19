@@ -775,13 +775,13 @@ public class LeaderboardService {
     private void notificarPagoLeaderboard(JsonObject pago, WalletService.WalletResult resultado, String nombrePeriodo) {
         int userId = pago.get("user_id").getAsInt();
         boolean jugador = "jugador".equals(pago.get("tipo_pago").getAsString());
-        for (SocketIOClient socket : io.getSockets().values()) {
-            JsonObject userData = socket.getUserData();
-            if (userData == null || !userData.has("id") || userData.get("id").isJsonNull()
-                    || userData.get("id").getAsInt() != userId) continue;
-            userData.addProperty("saldo", resultado.getNuevoSaldo());
-            socket.emit("actualizar_saldo", new JsonPrimitive(resultado.getNuevoSaldo()));
-            if (jugador) {
+        if (jugador) {
+            for (SocketIOClient socket : io.getSockets().values()) {
+                JsonObject userData = socket.getUserData();
+                if (userData == null || !userData.has("id") || userData.get("id").isJsonNull()
+                        || userData.get("id").getAsInt() != userId) continue;
+                userData.addProperty("saldo", resultado.getNuevoSaldo());
+                socket.emit("actualizar_saldo", new JsonPrimitive(resultado.getNuevoSaldo()));
                 int posicion = pago.get("posicion").getAsInt();
                 BigDecimal premio = pago.get("monto").getAsBigDecimal();
                 JsonObject data = new JsonObject();

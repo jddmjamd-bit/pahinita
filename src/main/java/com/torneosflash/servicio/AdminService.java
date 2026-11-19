@@ -1146,11 +1146,19 @@ public class AdminService {
                 item.addProperty("estadoTexto", "Ingreso admin");
                 item.addProperty("signo", "+");
                 item.addProperty("monto", montoAdmin);
-                item.addProperty("titulo", "Referido sin invitador (acreditado a admin)");
-                item.addProperty("origen", "Referidos · " + tagJug
-                        + (matchId > 0 ? " (Partida #" + matchId + ")" : ""));
-                item.addProperty("detalle", "La cuota de referidos de " + tagJug
-                        + " pasó a cuentas administrador por no tener referidor");
+                if (!refUsername.isBlank()) {
+                    item.addProperty("titulo", "Comisión de referido (" + tagRef + " · panel admin)");
+                    item.addProperty("origen", "Referidos · " + tagJug + " -> " + tagRef
+                            + (matchId > 0 ? " (Partida #" + matchId + ")" : ""));
+                    item.addProperty("detalle", "La cuota de referidos de " + tagJug
+                            + " se registró en el panel del administrador");
+                } else {
+                    item.addProperty("titulo", "Referido sin invitador (panel admin)");
+                    item.addProperty("origen", "Referidos · " + tagJug
+                            + (matchId > 0 ? " (Partida #" + matchId + ")" : ""));
+                    item.addProperty("detalle", "La cuota de referidos de " + tagJug
+                            + " se registró en el panel del administrador por no tener referidor");
+                }
                 referidosSinReferidorTotal = referidosSinReferidorTotal.add(montoAdmin);
                 lista.add(new MovimientoAdminOrdenado(parsearFechaAdmin(fecha), rpId, item));
             } else {
@@ -1209,7 +1217,7 @@ public class AdminService {
                     : "Premio Ranking #" + posicion + " (" + periodo + ") -> @" + username);
             item.addProperty("origen", "Ranking " + periodo + (!claveCorte.isBlank() ? " · " + claveCorte : ""));
             item.addProperty("detalle", esAdminPago
-                    ? "Sobrante de pozo de ranking acreditado a admin"
+                    ? "Sobrante de pozo de ranking registrado en panel admin"
                     : "Pago a jugador por posición #" + posicion + " en corte " + claveCorte);
             item.addProperty("fecha", fecha);
             lista.add(new MovimientoAdminOrdenado(parsearFechaAdmin(fecha), lbId, item));

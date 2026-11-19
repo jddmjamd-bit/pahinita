@@ -134,6 +134,58 @@
     line-height: 1.5;
 }
 
+.auth-notif-reminder {
+    box-sizing: border-box;
+    max-width: 100%;
+    padding: 12px 14px;
+    border-radius: var(--radius-md);
+    background: rgba(6, 182, 212, 0.12);
+    border: 1px solid rgba(6, 182, 212, 0.45);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.auth-notif-reminder.is-granted {
+    background: rgba(16, 185, 129, 0.12);
+    border-color: rgba(16, 185, 129, 0.45);
+}
+
+.auth-notif-reminder-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.84rem;
+    line-height: 1.45;
+    color: var(--text-secondary);
+}
+
+.auth-notif-reminder-text strong {
+    color: var(--text-primary);
+    font-size: 0.88rem;
+}
+
+#auth-flow .auth-notif-btn {
+    width: auto;
+    align-self: flex-start;
+    max-width: 100%;
+    padding: 7px 14px;
+    border-radius: var(--radius-full);
+    background: var(--bg-surface-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--accent-secondary);
+    font-size: 0.82rem;
+    font-weight: 600;
+    box-shadow: none;
+    cursor: pointer;
+}
+
+#auth-flow .auth-notif-btn:hover {
+    background: var(--accent-secondary);
+    color: #0f172a;
+    transform: none;
+}
+
 /* Estados de validación en vivo */
 .tag-status {
     font-size: 0.82rem;
