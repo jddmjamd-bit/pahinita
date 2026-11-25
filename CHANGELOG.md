@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-24 — Copiar admin-db.html en frontend-build de Docker y reinicio previo en Zona de Pruebas (Antigravity)
+- **`Dockerfile` (Etapa 1 `frontend-build`):** Copiado `public/admin-db.html` a `/app/public/admin-db.html` después de `npm run build` para que `npm run test:acceptance` (`P20`) encuentre el archivo durante el build de la imagen en Render sin invalidar la caché de `npm ci` ni de `vite build`.
+- **`RenderAcceptanceCheck.java`:** Añadido `admin.reiniciarZonaPruebas(adminId);` antes de la sección de aislamiento en `ZONA_PRUEBA` de `estadisticasAdminSeparaYSumaGananciasYExponeAportePorJugador` para asegurar estado inicial en cero independiente del orden de ejecución en JUnit 5.
+- **Verificación:** ejecutados `npm run test:acceptance` en `frontend/` y `.\mvnw.cmd clean verify` en la raíz (`RenderAcceptanceCheck` compilado; requiere ejecución en Render con `TEST_DATABASE_URL` durante el despliegue).
+Archivos: `Dockerfile`, `src/test/java/com/torneosflash/dao/RenderAcceptanceCheck.java`, `CHANGELOG.md`
+
+---
 ## 2026-11-24 — Redirección 5s a Clash Royale, filtros en Panel DB y saldo Actual descontado en Finanzas Admin (Antigravity)
 - **Redirección automática a Clash Royale tras 5s (`useAppStore.js`, `Match.jsx`, `Match.css`):**
   - Al recibir `juego_iniciado` (ambos jugadores aceptaron comenzar la partida), se programa una espera de 5 segundos (`REDIRECCION_CLASH_SEGUNDOS = 5`) una sola vez por `matchId` y se navega a `/match` mostrando el aviso `.clash-redirect-banner` de búsqueda en la API antes de abrir `https://link.clashroyale.com` (con opción `Quedarme en esta página`). Se evita bucle al reconectar (`restaurar_partida`) o cambiar de estado y se preserva el conteo exacto de 2 `<VozDiscord enPartida={true} />`.

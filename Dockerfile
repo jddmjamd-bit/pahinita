@@ -5,6 +5,7 @@ COPY frontend/package*.json ./
 RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
+COPY public/admin-db.html /app/public/admin-db.html
 RUN npm run test:acceptance
 
 # Etapa 2: Build Backend

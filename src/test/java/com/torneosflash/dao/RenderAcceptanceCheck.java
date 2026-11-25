@@ -806,6 +806,7 @@ class RenderAcceptanceCheck {
         assertMonto(pozoSorteoVivo.get("total").getAsBigDecimal(), actualDespues.get("sorteos").getAsBigDecimal());
 
         // Verificar aislamiento en Zona de Pruebas (desgloseActual vs desgloseHistorico)
+        admin.reiniciarZonaPruebas(adminId);
         admin.cambiarSuscripcionUsuario(adminId, p1, "prueba");
         admin.cambiarSuscripcionUsuario(adminId, p2, "prueba");
         ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, () -> {

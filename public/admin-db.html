@@ -1,206 +1,608 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🗄️ DB Admin - Torneos Flash</title>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; }
-        
-        .top-bar {
-            background: #16213e; padding: 12px 20px; display: flex; align-items: center;
-            justify-content: space-between; flex-wrap: wrap; gap: 8px; border-bottom: 2px solid #0f3460;
-            position: sticky; top: 0; z-index: 100;
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
         }
-        .top-bar h1 { font-size: 1.2rem; color: #e94560; }
-        .top-bar .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-        .btn {
-            padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer;
-            font-size: 0.85rem; font-weight: 600; transition: 0.2s;
-        }
-        .btn:hover { transform: scale(1.03); }
-        .btn-export { background: #43b581; color: #fff; }
-        .btn-backup { background: #2d9cdb; color: #fff; }
-        .btn-restore { background: #c0392b; color: #fff; }
-        .btn-import { background: #faa61a; color: #000; }
-        .btn-danger { background: #ed4245; color: #fff; }
-        .btn-primary { background: #5865f2; color: #fff; }
-        .btn-sm { padding: 4px 10px; font-size: 0.75rem; }
 
-        .layout { display: flex; min-height: calc(100vh - 52px); }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+        }
+
+        .top-bar {
+            background: #16213e;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 8px;
+            border-bottom: 2px solid #0f3460;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .top-bar h1 {
+            font-size: 1.2rem;
+            color: #e94560;
+        }
+
+        .top-bar .actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: 0.2s;
+        }
+
+        .btn:hover {
+            transform: scale(1.03);
+        }
+
+        .btn-export {
+            background: #43b581;
+            color: #fff;
+        }
+
+        .btn-backup {
+            background: #2d9cdb;
+            color: #fff;
+        }
+
+        .btn-restore {
+            background: #c0392b;
+            color: #fff;
+        }
+
+        .btn-import {
+            background: #faa61a;
+            color: #000;
+        }
+
+        .btn-danger {
+            background: #ed4245;
+            color: #fff;
+        }
+
+        .btn-primary {
+            background: #5865f2;
+            color: #fff;
+        }
+
+        .btn-sm {
+            padding: 4px 10px;
+            font-size: 0.75rem;
+        }
+
+        .layout {
+            display: flex;
+            min-height: calc(100vh - 52px);
+        }
 
         /* Sidebar */
         .sidebar {
-            width: 220px; background: #16213e; padding: 10px; overflow-y: auto;
-            border-right: 1px solid #0f3460; flex-shrink: 0;
+            width: 220px;
+            background: #16213e;
+            padding: 10px;
+            overflow-y: auto;
+            border-right: 1px solid #0f3460;
+            flex-shrink: 0;
         }
-        .sidebar h3 { font-size: 0.8rem; color: #888; margin: 10px 0 5px; text-transform: uppercase; }
+
+        .sidebar h3 {
+            font-size: 0.8rem;
+            color: #888;
+            margin: 10px 0 5px;
+            text-transform: uppercase;
+        }
+
         .table-btn {
-            display: block; width: 100%; text-align: left; padding: 8px 12px;
-            background: transparent; color: #bbb; border: none; cursor: pointer;
-            border-radius: 5px; font-size: 0.9rem; margin-bottom: 2px;
+            display: block;
+            width: 100%;
+            text-align: left;
+            padding: 8px 12px;
+            background: transparent;
+            color: #bbb;
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+            font-size: 0.9rem;
+            margin-bottom: 2px;
         }
-        .table-btn:hover { background: #0f3460; color: #fff; }
-        .table-btn.active { background: #e94560; color: #fff; }
-        .table-btn .count { float: right; font-size: 0.75rem; opacity: 0.6; }
+
+        .table-btn:hover {
+            background: #0f3460;
+            color: #fff;
+        }
+
+        .table-btn.active {
+            background: #e94560;
+            color: #fff;
+        }
+
+        .table-btn .count {
+            float: right;
+            font-size: 0.75rem;
+            opacity: 0.6;
+        }
 
         /* Main */
-        .main { flex: 1; padding: 20px; overflow: auto; }
-        .table-title { margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
-        .table-title h2 { color: #e94560; }
-        .table-title span { color: #888; font-size: 0.85rem; }
+        .main {
+            flex: 1;
+            padding: 20px;
+            overflow: auto;
+        }
+
+        .table-title {
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .table-title h2 {
+            color: #e94560;
+        }
+
+        .table-title span {
+            color: #888;
+            font-size: 0.85rem;
+        }
 
         /* Data Table */
-        .data-table-wrap { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        .data-table-wrap {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+
         th {
-            background: #0f3460; color: #e94560; text-align: left; padding: 10px 8px;
-            position: sticky; top: 0; font-size: 0.75rem; text-transform: uppercase;
+            background: #0f3460;
+            color: #e94560;
+            text-align: left;
+            padding: 10px 8px;
+            position: sticky;
+            top: 0;
+            font-size: 0.75rem;
+            text-transform: uppercase;
         }
+
         td {
-            padding: 8px; border-bottom: 1px solid #1a1a2e; background: #16213e;
-            max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            padding: 8px;
+            border-bottom: 1px solid #1a1a2e;
+            background: #16213e;
+            max-width: 250px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
-        tr:hover td { background: #1e2a4a; }
-        td.editable { cursor: text; }
-        td.editable:hover { outline: 1px dashed #5865f2; }
+
+        tr:hover td {
+            background: #1e2a4a;
+        }
+
+        td.editable {
+            cursor: text;
+        }
+
+        td.editable:hover {
+            outline: 1px dashed #5865f2;
+        }
+
         td.editing {
-            outline: 2px solid #5865f2; background: #202540;
-            white-space: normal; word-break: break-all;
+            outline: 2px solid #5865f2;
+            background: #202540;
+            white-space: normal;
+            word-break: break-all;
         }
+
         td.editing input {
-            width: 100%; background: transparent; border: none; color: #fff;
-            font-size: 0.85rem; outline: none;
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 0.85rem;
+            outline: none;
         }
-        .row-actions { display: flex; gap: 4px; }
+
+        .row-actions {
+            display: flex;
+            gap: 4px;
+        }
 
         /* Welcome */
         .welcome {
-            display: flex; flex-direction: column; align-items: center;
-            justify-content: center; height: 100%; color: #555;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #555;
         }
-        .welcome h2 { font-size: 2rem; margin-bottom: 10px; }
+
+        .welcome h2 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
 
         /* Import Modal */
         .modal-bg {
-            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8); z-index: 500; align-items: center; justify-content: center;
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 500;
+            align-items: center;
+            justify-content: center;
         }
-        .modal-bg.open { display: flex; }
+
+        .modal-bg.open {
+            display: flex;
+        }
+
         .modal {
-            background: #16213e; padding: 25px; border-radius: 10px; width: 90%;
-            max-width: 500px; border: 1px solid #0f3460;
+            background: #16213e;
+            padding: 25px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 500px;
+            border: 1px solid #0f3460;
         }
-        .modal h3 { color: #faa61a; margin-bottom: 15px; }
-        .modal p { color: #aaa; font-size: 0.85rem; margin-bottom: 15px; }
+
+        .modal h3 {
+            color: #faa61a;
+            margin-bottom: 15px;
+        }
+
+        .modal p {
+            color: #aaa;
+            font-size: 0.85rem;
+            margin-bottom: 15px;
+        }
+
         .file-drop {
-            border: 2px dashed #0f3460; border-radius: 8px; padding: 30px;
-            text-align: center; cursor: pointer; color: #888; transition: 0.2s;
+            border: 2px dashed #0f3460;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+            cursor: pointer;
+            color: #888;
+            transition: 0.2s;
         }
-        .file-drop:hover { border-color: #faa61a; color: #faa61a; }
-        .modal-actions { display: flex; gap: 10px; margin-top: 15px; justify-content: flex-end; }
+
+        .file-drop:hover {
+            border-color: #faa61a;
+            color: #faa61a;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            justify-content: flex-end;
+        }
 
         /* Toast */
         .toast {
-            position: fixed; bottom: 20px; right: 20px; background: #43b581;
-            color: #fff; padding: 12px 20px; border-radius: 8px; font-weight: 600;
-            z-index: 999; animation: fadeIn 0.3s;
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #43b581;
+            color: #fff;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            z-index: 999;
+            animation: fadeIn 0.3s;
         }
-        .toast.error { background: #ed4245; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+        .toast.error {
+            background: #ed4245;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
 
         /* Insert Row */
-        .insert-row td { background: #1a2236; }
+        .insert-row td {
+            background: #1a2236;
+        }
+
         .insert-row input {
-            width: 100%; background: #202540; border: 1px solid #0f3460; color: #fff;
-            padding: 4px 6px; border-radius: 3px; font-size: 0.8rem;
+            width: 100%;
+            background: #202540;
+            border: 1px solid #0f3460;
+            color: #fff;
+            padding: 4px 6px;
+            border-radius: 3px;
+            font-size: 0.8rem;
         }
 
         /* Status bar */
         .status-bar {
-            background: #0f3460; padding: 6px 15px; font-size: 0.75rem; color: #888;
-            display: flex; justify-content: space-between;
+            background: #0f3460;
+            padding: 6px 15px;
+            font-size: 0.75rem;
+            color: #888;
+            display: flex;
+            justify-content: space-between;
         }
 
         /* Filtros y ordenamiento */
         .sidebar-tools {
-            display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 10px;
         }
-        .sidebar-tools input, .sidebar-tools select {
-            width: 100%; background: #202540; border: 1px solid #0f3460; color: #eee;
-            padding: 6px 8px; border-radius: 5px; font-size: 0.8rem; outline: none;
+
+        .sidebar-tools input,
+        .sidebar-tools select {
+            width: 100%;
+            background: #202540;
+            border: 1px solid #0f3460;
+            color: #eee;
+            padding: 6px 8px;
+            border-radius: 5px;
+            font-size: 0.8rem;
+            outline: none;
         }
-        .sidebar-tools input:focus, .sidebar-tools select:focus { border-color: #5865f2; }
+
+        .sidebar-tools input:focus,
+        .sidebar-tools select:focus {
+            border-color: #5865f2;
+        }
+
         .filter-toolbar {
-            display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
-            background: #16213e; border: 1px solid #0f3460; border-radius: 8px;
-            padding: 12px; margin-bottom: 14px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: flex-end;
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 14px;
         }
+
         .filter-group {
-            display: flex; flex-direction: column; gap: 4px; min-width: 150px; flex: 1 1 170px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 150px;
+            flex: 1 1 170px;
         }
-        .filter-group.is-search { flex: 2 1 240px; }
+
+        .filter-group.is-search {
+            flex: 2 1 240px;
+        }
+
         .filter-group label {
-            font-size: 0.72rem; text-transform: uppercase; color: #9aa5c4; font-weight: 600;
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            color: #9aa5c4;
+            font-weight: 600;
         }
-        .filter-group input, .filter-group select {
-            width: 100%; background: #202540; border: 1px solid #0f3460; color: #fff;
-            padding: 7px 9px; border-radius: 5px; font-size: 0.83rem; outline: none;
+
+        .filter-group input,
+        .filter-group select {
+            width: 100%;
+            background: #202540;
+            border: 1px solid #0f3460;
+            color: #fff;
+            padding: 7px 9px;
+            border-radius: 5px;
+            font-size: 0.83rem;
+            outline: none;
         }
-        .filter-group input:focus, .filter-group select:focus { border-color: #5865f2; }
+
+        .filter-group input:focus,
+        .filter-group select:focus {
+            border-color: #5865f2;
+        }
+
         .filter-actions {
-            display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 4px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            padding-top: 4px;
         }
+
         .filter-check {
-            display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem;
-            color: #d6dcfa; cursor: pointer; user-select: none;
-            background: #202540; border: 1px solid #0f3460; padding: 6px 10px; border-radius: 5px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.82rem;
+            color: #d6dcfa;
+            cursor: pointer;
+            user-select: none;
+            background: #202540;
+            border: 1px solid #0f3460;
+            padding: 6px 10px;
+            border-radius: 5px;
         }
-        .filter-check input { width: auto; accent-color: #5865f2; cursor: pointer; }
+
+        .filter-check input {
+            width: auto;
+            accent-color: #5865f2;
+            cursor: pointer;
+        }
+
         .btn-ghost {
-            background: #202540; color: #ddd; border: 1px solid #0f3460;
+            background: #202540;
+            color: #ddd;
+            border: 1px solid #0f3460;
         }
-        .btn-ghost:hover { border-color: #e94560; color: #fff; }
+
+        .btn-ghost:hover {
+            border-color: #e94560;
+            color: #fff;
+        }
+
         .table-meta-count {
-            font-size: 0.82rem; color: #8dd3a8; font-weight: 600; margin-left: auto;
+            font-size: 0.82rem;
+            color: #8dd3a8;
+            font-weight: 600;
+            margin-left: auto;
         }
+
         th.sort-th {
-            cursor: pointer; user-select: none; white-space: nowrap; transition: background 0.15s;
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+            transition: background 0.15s;
         }
-        th.sort-th:hover { background: #164480; }
-        th.sort-th .sort-indicator { margin-left: 5px; font-size: 0.7rem; color: #faa61a; }
-        td.null-val { color: #6c7897; font-style: italic; }
+
+        th.sort-th:hover {
+            background: #164480;
+        }
+
+        th.sort-th .sort-indicator {
+            margin-left: 5px;
+            font-size: 0.7rem;
+            color: #faa61a;
+        }
+
+        td.null-val {
+            color: #6c7897;
+            font-style: italic;
+        }
 
         @media (max-width: 768px) {
-            .top-bar { align-items: flex-start; }
-            .top-bar .actions { justify-content: flex-start; }
-            .sidebar { width: 100%; height: auto; max-height: 150px; }
-            .layout { flex-direction: column; }
+            .top-bar {
+                align-items: flex-start;
+            }
+
+            .top-bar .actions {
+                justify-content: flex-start;
+            }
+
+            .sidebar {
+                width: 100%;
+                height: auto;
+                max-height: 150px;
+            }
+
+            .layout {
+                flex-direction: column;
+            }
         }
 
         /* Pantalla de acceso (S10): la clave ya no va en la URL */
         .login-bg {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: #1a1a2e; z-index: 1000; display: flex; align-items: center; justify-content: center;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #1a1a2e;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
-        .login-bg.hidden { display: none; }
+
+        .login-bg.hidden {
+            display: none;
+        }
+
         .login-box {
-            background: #16213e; padding: 30px; border-radius: 10px; width: 90%;
-            max-width: 380px; border: 1px solid #0f3460; text-align: center;
+            background: #16213e;
+            padding: 30px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 380px;
+            border: 1px solid #0f3460;
+            text-align: center;
         }
-        .login-box h2 { color: #e94560; margin-bottom: 8px; }
-        .login-box p { color: #888; font-size: 0.85rem; margin-bottom: 16px; }
+
+        .login-box h2 {
+            color: #e94560;
+            margin-bottom: 8px;
+        }
+
+        .login-box p {
+            color: #888;
+            font-size: 0.85rem;
+            margin-bottom: 16px;
+        }
+
         .login-box input {
-            width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #0f3460;
-            background: #202540; color: #fff; font-size: 0.95rem; margin-bottom: 12px;
+            width: 100%;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #0f3460;
+            background: #202540;
+            color: #fff;
+            font-size: 0.95rem;
+            margin-bottom: 12px;
         }
-        .login-box .login-error { color: #ed4245; font-size: 0.85rem; min-height: 1.2em; margin-bottom: 10px; }
-        .confirm-phrase { width: 100%; padding: 10px; border: 1px solid #0f3460; border-radius: 6px; background: #202540; color: #fff; margin-top: 6px; }
-        .restore-warning { color: #ff7675 !important; }
-        .modal-actions .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        .login-box .login-error {
+            color: #ed4245;
+            font-size: 0.85rem;
+            min-height: 1.2em;
+            margin-bottom: 10px;
+        }
+
+        .confirm-phrase {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #0f3460;
+            border-radius: 6px;
+            background: #202540;
+            color: #fff;
+            margin-top: 6px;
+        }
+
+        .restore-warning {
+            color: #ff7675 !important;
+        }
+
+        .modal-actions .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
     </style>
 </head>
+
 <body>
     <!-- Pantalla de acceso -->
     <div class="login-bg" id="login-bg">
@@ -228,7 +630,8 @@
         <div class="sidebar" id="sidebar">
             <h3>Tablas</h3>
             <div class="sidebar-tools">
-                <input type="search" id="table-search" placeholder="🔍 Filtrar tablas..." oninput="renderizarListaTablas()" aria-label="Filtrar tablas por nombre">
+                <input type="search" id="table-search" placeholder="🔍 Filtrar tablas..."
+                    oninput="renderizarListaTablas()" aria-label="Filtrar tablas por nombre">
                 <select id="table-sort" onchange="renderizarListaTablas()" aria-label="Ordenar lista de tablas">
                     <option value="name_asc">Ordenar: A → Z</option>
                     <option value="name_desc">Ordenar: Z → A</option>
@@ -236,7 +639,9 @@
                     <option value="count_asc">Menos filas primero</option>
                 </select>
             </div>
-            <div id="tables-list"><p style="color:#555; font-size:0.8rem;">Cargando...</p></div>
+            <div id="tables-list">
+                <p style="color:#555; font-size:0.8rem;">Cargando...</p>
+            </div>
         </div>
         <div class="main" id="main-content">
             <div class="welcome">
@@ -250,7 +655,8 @@
     <div class="modal-bg" id="import-modal">
         <div class="modal">
             <h3>📤 Importar Base de Datos</h3>
-            <p>Este JSON solo reemplaza las tablas editables que admite el panel. No contiene usuarios ni datos financieros.</p>
+            <p>Este JSON solo reemplaza las tablas editables que admite el panel. No contiene usuarios ni datos
+                financieros.</p>
             <div class="file-drop" id="file-drop" onclick="document.getElementById('file-input').click()">
                 📁 Haz clic para seleccionar archivo JSON<br>
                 <span style="font-size:0.75rem;">o arrastra y suelta aquí</span>
@@ -261,7 +667,8 @@
             </div>
             <div class="modal-actions">
                 <button class="btn btn-danger btn-sm" onclick="cerrarImport()">Cancelar</button>
-                <button class="btn btn-primary btn-sm" id="btn-confirmar-import" onclick="importarDB()" disabled>Importar</button>
+                <button class="btn btn-primary btn-sm" id="btn-confirmar-import" onclick="importarDB()"
+                    disabled>Importar</button>
             </div>
         </div>
     </div>
@@ -270,15 +677,22 @@
     <div class="modal-bg" id="full-restore-modal">
         <div class="modal">
             <h3>♻️ Restaurar backup completo</h3>
-            <p class="restore-warning"><strong>Se reemplazará la base de datos actual y se perderán los cambios posteriores a la fecha del backup.</strong> La API quedará en mantenimiento durante la restauración.</p>
-            <p>El backup incluye usuarios y hashes, tokens, transacciones, saldos y ledger en el mismo archivo. Si PostgreSQL encuentra un error, revierte la restauración completa.</p>
-            <p>Selecciona un archivo <code>.dump</code> creado por este panel. Solo restaura archivos de confianza: un backup puede contener instrucciones SQL. El rol de conexión debe poder reemplazar los objetos de la base.</p>
+            <p class="restore-warning"><strong>Se reemplazará la base de datos actual y se perderán los cambios
+                    posteriores a la fecha del backup.</strong> La API quedará en mantenimiento durante la restauración.
+            </p>
+            <p>El backup incluye usuarios y hashes, tokens, transacciones, saldos y ledger en el mismo archivo. Si
+                PostgreSQL encuentra un error, revierte la restauración completa.</p>
+            <p>Selecciona un archivo <code>.dump</code> creado por este panel. Solo restaura archivos de confianza: un
+                backup puede contener instrucciones SQL. El rol de conexión debe poder reemplazar los objetos de la
+                base.</p>
             <input type="file" id="full-restore-file" accept=".dump,application/octet-stream">
-            <p style="margin-top:12px; margin-bottom:4px;">Escribe <strong>RESTAURAR BASE DE DATOS</strong> para confirmar:</p>
+            <p style="margin-top:12px; margin-bottom:4px;">Escribe <strong>RESTAURAR BASE DE DATOS</strong> para
+                confirmar:</p>
             <input class="confirm-phrase" type="text" id="full-restore-confirm" autocomplete="off">
             <div class="modal-actions">
                 <button class="btn btn-danger btn-sm" onclick="cerrarRestoreCompleto()">Cancelar</button>
-                <button class="btn btn-restore btn-sm" id="btn-confirmar-full-restore" onclick="restaurarCompleto()" disabled>Reemplazar base de datos</button>
+                <button class="btn btn-restore btn-sm" id="btn-confirmar-full-restore" onclick="restaurarCompleto()"
+                    disabled>Reemplazar base de datos</button>
             </div>
         </div>
     </div>
@@ -304,7 +718,7 @@
             if (res.status === 404) { cerrarSesion('Panel no disponible (revisa DB_ADMIN_SECRET en el servidor)'); throw new Error('No disponible'); }
             if (res.status === 429) {
                 let msg = 'Demasiados intentos. Espera unos minutos.';
-                try { msg = (await res.json()).error || msg; } catch (e) {}
+                try { msg = (await res.json()).error || msg; } catch (e) { }
                 cerrarSesion(msg);
                 throw new Error(msg);
             }
@@ -804,9 +1218,9 @@
                 <tr class="insert-row">
                     <td><button class="btn btn-primary btn-sm" onclick="insertarFila('${esc(tablaActual)}')">➕</button></td>
                     ${colNames.map(c => {
-                        if (c === 'id') return '<td><input disabled placeholder="auto" style="opacity:0.4"></td>';
-                        return `<td><input id="new-${esc(c)}" placeholder="${esc(c)}"></td>`;
-                    }).join('')}
+                if (c === 'id') return '<td><input disabled placeholder="auto" style="opacity:0.4"></td>';
+                return `<td><input id="new-${esc(c)}" placeholder="${esc(c)}"></td>`;
+            }).join('')}
                 </tr>`;
 
             if (filtradas.length === 0) {
@@ -980,7 +1394,7 @@
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `torneos_backup_${new Date().toISOString().slice(0,10)}.json`;
+                a.download = `torneos_backup_${new Date().toISOString().slice(0, 10)}.json`;
                 a.click();
                 URL.revokeObjectURL(url);
                 toast('✅ Exportación completada');
@@ -1094,8 +1508,8 @@
         }
 
         // --- IMPORTAR ---
-        function abrirImport() { 
-            document.getElementById('import-modal').classList.add('open'); 
+        function abrirImport() {
+            document.getElementById('import-modal').classList.add('open');
             datosImport = null;
             document.getElementById('import-preview').style.display = 'none';
             document.getElementById('btn-confirmar-import').disabled = true;
@@ -1111,7 +1525,7 @@
                     datosImport = JSON.parse(ev.target.result);
                     const tablas = Object.keys(datosImport);
                     const totalRows = tablas.reduce((acc, t) => acc + (datosImport[t]?.length || 0), 0);
-                    document.getElementById('import-info').textContent = 
+                    document.getElementById('import-info').textContent =
                         `📋 ${tablas.length} tablas, ${totalRows} filas totales: ${tablas.join(', ')}`;
                     document.getElementById('import-preview').style.display = 'block';
                     document.getElementById('btn-confirmar-import').disabled = false;
@@ -1188,4 +1602,5 @@
         }
     </script>
 </body>
+
 </html>

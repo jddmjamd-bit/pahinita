@@ -157,11 +157,12 @@ public class DbAdminService {
     }
 
     /**
-     * Columnas y filas de una tabla aplicando filtro por palabras (exactas o parecidas) y ordenamiento seguro
+     * Columnas y filas de una tabla aplicando filtro por palabras (exactas o
+     * parecidas) y ordenamiento seguro
      * sobre los resultados devueltos por {@link PreparedStatement}.
      */
     public JsonObject datosTabla(String tableName, String busqueda, String columnaFiltro, boolean aproximada,
-                                 String ordenarPor, String direccion, String modoOrden) {
+            String ordenarPor, String direccion, String modoOrden) {
         return conErrores(() -> {
             try (Connection conn = db.getConnection()) {
                 exigirTablaValida(conn, tableName);
@@ -200,15 +201,18 @@ public class DbAdminService {
         });
     }
 
-    private record FilaConRelevancia(JsonObject fila, int puntaje, int indiceOriginal) {}
+    private record FilaConRelevancia(JsonObject fila, int puntaje, int indiceOriginal) {
+    }
 
     /**
-     * Filtra filas por tokens de búsqueda (con coincidencia exacta o por palabras parecidas: sin tildes,
-     * prefijos, distancia de Levenshtein y similitud de bigramas) y las ordena de forma segura en memoria.
+     * Filtra filas por tokens de búsqueda (con coincidencia exacta o por palabras
+     * parecidas: sin tildes,
+     * prefijos, distancia de Levenshtein y similitud de bigramas) y las ordena de
+     * forma segura en memoria.
      */
     public static JsonArray filtrarYOrdenarFilas(JsonArray rows, List<String> colNames, Map<String, String> colTypes,
-                                                 String busqueda, String columnaFiltro, boolean aproximada,
-                                                 String ordenarPor, String direccion, String modoOrden) {
+            String busqueda, String columnaFiltro, boolean aproximada,
+            String ordenarPor, String direccion, String modoOrden) {
         if (rows == null || rows.isEmpty()) {
             return new JsonArray();
         }
@@ -226,14 +230,16 @@ public class DbAdminService {
         List<String> tokens = new ArrayList<>();
         if (!busquedaNorm.isEmpty()) {
             for (String tok : busquedaNorm.split("\\s+")) {
-                if (!tok.isEmpty()) tokens.add(tok);
+                if (!tok.isEmpty())
+                    tokens.add(tok);
             }
         }
 
         List<FilaConRelevancia> filtradas = new ArrayList<>(rows.size());
         for (int i = 0; i < rows.size(); i++) {
             JsonElement elem = rows.get(i);
-            if (elem == null || !elem.isJsonObject()) continue;
+            if (elem == null || !elem.isJsonObject())
+                continue;
             JsonObject fila = elem.getAsJsonObject();
             if (tokens.isEmpty()) {
                 filtradas.add(new FilaConRelevancia(fila, 0, i));
@@ -269,12 +275,16 @@ public class DbAdminService {
                 JsonElement e2 = b.fila().get(sortCol);
                 boolean vacio1 = esNuloOVacio(e1);
                 boolean vacio2 = esNuloOVacio(e2);
-                if (vacio1 && vacio2) return Integer.compare(a.indiceOriginal(), b.indiceOriginal());
-                if (vacio1) return 1;
-                if (vacio2) return -1;
+                if (vacio1 && vacio2)
+                    return Integer.compare(a.indiceOriginal(), b.indiceOriginal());
+                if (vacio1)
+                    return 1;
+                if (vacio2)
+                    return -1;
                 int cmp = compararValores(e1.getAsString(), e2.getAsString(), tipoCol, modo,
                         collatorPrimario, collatorTerciario);
-                if (cmp == 0) return Integer.compare(a.indiceOriginal(), b.indiceOriginal());
+                if (cmp == 0)
+                    return Integer.compare(a.indiceOriginal(), b.indiceOriginal());
                 return desc ? -cmp : cmp;
             });
         }
@@ -286,18 +296,23 @@ public class DbAdminService {
         return salida;
     }
 
-    private static int calcularPuntajeFila(JsonObject fila, List<String> columnas, List<String> tokens, boolean aproximada) {
+    private static int calcularPuntajeFila(JsonObject fila, List<String> columnas, List<String> tokens,
+            boolean aproximada) {
         int total = 0;
         for (String token : tokens) {
             int mejorToken = -1;
             for (String col : columnas) {
                 JsonElement val = fila.get(col);
-                if (esNuloOVacio(val)) continue;
+                if (esNuloOVacio(val))
+                    continue;
                 int score = puntajeTokenEnTexto(val.getAsString(), token, aproximada);
-                if (score > mejorToken) mejorToken = score;
-                if (mejorToken >= 100) break;
+                if (score > mejorToken)
+                    mejorToken = score;
+                if (mejorToken >= 100)
+                    break;
             }
-            if (mejorToken < 0) return -1;
+            if (mejorToken < 0)
+                return -1;
             total += mejorToken;
         }
         return total;
@@ -305,22 +320,28 @@ public class DbAdminService {
 
     private static int puntajeTokenEnTexto(String crudo, String token, boolean aproximada) {
         String norm = normalizarTexto(crudo);
-        if (norm.isEmpty()) return -1;
-        if (norm.equals(token)) return 120;
-        if (norm.contains(token)) return 100;
-        if (!aproximada || token.length() < 2) return -1;
+        if (norm.isEmpty())
+            return -1;
+        if (norm.equals(token))
+            return 120;
+        if (norm.contains(token))
+            return 100;
+        if (!aproximada || token.length() < 2)
+            return -1;
 
         String[] palabras = PATRON_SEPARADOR_PALABRAS.split(norm);
         int mejor = -1;
         for (String palabra : palabras) {
-            if (palabra.isEmpty()) continue;
+            if (palabra.isEmpty())
+                continue;
             if (palabra.startsWith(token) || (palabra.length() >= 3 && token.startsWith(palabra))) {
                 mejor = Math.max(mejor, 85);
                 continue;
             }
             int maxLen = Math.max(token.length(), palabra.length());
             int minLen = Math.min(token.length(), palabra.length());
-            if (minLen < 2) continue;
+            if (minLen < 2)
+                continue;
             int maxDist = maxLen <= 4 ? 1 : (maxLen <= 8 ? 2 : 3);
             if (Math.abs(token.length() - palabra.length()) <= maxDist) {
                 int dist = levenshteinAcotado(token, palabra, maxDist);
@@ -337,9 +358,11 @@ public class DbAdminService {
     }
 
     private static String normalizarTexto(String texto) {
-        if (texto == null) return "";
+        if (texto == null)
+            return "";
         String limpio = texto.trim().toLowerCase(Locale.ROOT);
-        if (limpio.isEmpty()) return "";
+        if (limpio.isEmpty())
+            return "";
         String nfd = Normalizer.normalize(limpio, Normalizer.Form.NFD);
         return PATRON_DIACRITICOS.matcher(nfd).replaceAll("");
     }
@@ -347,10 +370,12 @@ public class DbAdminService {
     private static int levenshteinAcotado(String a, String b, int limite) {
         int n = a.length();
         int m = b.length();
-        if (Math.abs(n - m) > limite) return limite + 1;
+        if (Math.abs(n - m) > limite)
+            return limite + 1;
         int[] prev = new int[m + 1];
         int[] curr = new int[m + 1];
-        for (int j = 0; j <= m; j++) prev[j] = j;
+        for (int j = 0; j <= m; j++)
+            prev[j] = j;
         for (int i = 1; i <= n; i++) {
             curr[0] = i;
             int minFila = curr[0];
@@ -358,9 +383,11 @@ public class DbAdminService {
             for (int j = 1; j <= m; j++) {
                 int costo = ca == b.charAt(j - 1) ? 0 : 1;
                 curr[j] = Math.min(Math.min(curr[j - 1] + 1, prev[j] + 1), prev[j - 1] + costo);
-                if (curr[j] < minFila) minFila = curr[j];
+                if (curr[j] < minFila)
+                    minFila = curr[j];
             }
-            if (minFila > limite) return limite + 1;
+            if (minFila > limite)
+                return limite + 1;
             int[] tmp = prev;
             prev = curr;
             curr = tmp;
@@ -369,7 +396,8 @@ public class DbAdminService {
     }
 
     private static double similitudBigramas(String a, String b) {
-        if (a.length() < 2 || b.length() < 2) return 0.0;
+        if (a.length() < 2 || b.length() < 2)
+            return 0.0;
         Map<String, Integer> conteoA = new HashMap<>();
         for (int i = 0; i < a.length() - 1; i++) {
             String bg = a.substring(i, i + 2);
@@ -392,7 +420,7 @@ public class DbAdminService {
     }
 
     private static int compararValores(String s1, String s2, String colType, String modo,
-                                       Collator collatorPrimario, Collator collatorTerciario) {
+            Collator collatorPrimario, Collator collatorTerciario) {
         String modoEfectivo = modo;
         if (modoEfectivo == null || modoEfectivo.isEmpty() || "auto".equals(modoEfectivo)) {
             if (esTipoNumericoSql(colType)) {
@@ -400,9 +428,12 @@ public class DbAdminService {
             } else if (esTipoFechaSql(colType)) {
                 modoEfectivo = "fecha";
             } else if (colType == null || colType.isEmpty()) {
-                if (parsearNumero(s1) != null && parsearNumero(s2) != null) modoEfectivo = "numero";
-                else if (parsearFechaMs(s1) != null && parsearFechaMs(s2) != null) modoEfectivo = "fecha";
-                else modoEfectivo = "texto";
+                if (parsearNumero(s1) != null && parsearNumero(s2) != null)
+                    modoEfectivo = "numero";
+                else if (parsearFechaMs(s1) != null && parsearFechaMs(s2) != null)
+                    modoEfectivo = "fecha";
+                else
+                    modoEfectivo = "texto";
             } else {
                 modoEfectivo = "texto";
             }
@@ -411,19 +442,26 @@ public class DbAdminService {
         if ("numero".equals(modoEfectivo)) {
             BigDecimal n1 = parsearNumero(s1);
             BigDecimal n2 = parsearNumero(s2);
-            if (n1 != null && n2 != null) return n1.compareTo(n2);
-            if (n1 != null) return -1;
-            if (n2 != null) return 1;
+            if (n1 != null && n2 != null)
+                return n1.compareTo(n2);
+            if (n1 != null)
+                return -1;
+            if (n2 != null)
+                return 1;
         } else if ("fecha".equals(modoEfectivo)) {
             Long f1 = parsearFechaMs(s1);
             Long f2 = parsearFechaMs(s2);
-            if (f1 != null && f2 != null) return Long.compare(f1, f2);
-            if (f1 != null) return -1;
-            if (f2 != null) return 1;
+            if (f1 != null && f2 != null)
+                return Long.compare(f1, f2);
+            if (f1 != null)
+                return -1;
+            if (f2 != null)
+                return 1;
         }
 
         int cmp = collatorPrimario.compare(s1, s2);
-        if (cmp != 0) return cmp;
+        if (cmp != 0)
+            return cmp;
         cmp = collatorTerciario.compare(s1, s2);
         return cmp != 0 ? cmp : s1.compareToIgnoreCase(s2);
     }
@@ -480,14 +518,17 @@ public class DbAdminService {
                 throw ServicioException.prohibido("La tabla wallet_ledger es inmutable y no se puede editar");
             }
             if (TABLA_REFERRAL_PAYOUTS.equalsIgnoreCase(tableName)) {
-                throw ServicioException.prohibido("La tabla referral_payouts es de auditoría financiera y no se puede editar");
+                throw ServicioException
+                        .prohibido("La tabla referral_payouts es de auditoría financiera y no se puede editar");
             }
             if (TABLA_MODERATOR_WALLET.equalsIgnoreCase(tableName)) {
-                throw ServicioException.prohibido("La tabla moderator_wallet es de auditoría financiera y no se puede editar");
+                throw ServicioException
+                        .prohibido("La tabla moderator_wallet es de auditoría financiera y no se puede editar");
             }
             if ("referrals".equalsIgnoreCase(tableName) && column != null
                     && COLUMNAS_PROTEGIDAS_REFERRALS.contains(column.toLowerCase())) {
-                throw ServicioException.prohibido("Los acumulados financieros de referidos no pueden editarse manualmente");
+                throw ServicioException
+                        .prohibido("Los acumulados financieros de referidos no pueden editarse manualmente");
             }
             if ("users".equalsIgnoreCase(tableName) && "saldo".equalsIgnoreCase(column)) {
                 throw ServicioException.prohibido(
@@ -536,10 +577,12 @@ public class DbAdminService {
                 throw ServicioException.prohibido("La tabla wallet_ledger es inmutable y no permite borrar registros");
             }
             if (TABLA_REFERRAL_PAYOUTS.equalsIgnoreCase(tableName)) {
-                throw ServicioException.prohibido("La tabla referral_payouts es de auditoría financiera y no permite borrar registros");
+                throw ServicioException.prohibido(
+                        "La tabla referral_payouts es de auditoría financiera y no permite borrar registros");
             }
             if (TABLA_MODERATOR_WALLET.equalsIgnoreCase(tableName)) {
-                throw ServicioException.prohibido("La tabla moderator_wallet es de auditoría financiera y no permite borrar registros");
+                throw ServicioException.prohibido(
+                        "La tabla moderator_wallet es de auditoría financiera y no permite borrar registros");
             }
             try (Connection conn = db.getConnection()) {
                 exigirTablaValida(conn, tableName);
