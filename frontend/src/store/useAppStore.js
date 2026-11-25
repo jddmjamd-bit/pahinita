@@ -18,6 +18,24 @@ const eliminarUsuarioPersistido = () => {
 eliminarUsuarioPersistido();
 
 const CANALES_CHAT_VALIDOS = new Set(['general', 'anuncios', 'clash', 'clash_logs', 'pagos']);
+const REDIRECCION_CLASH_SEGUNDOS = 5;
+const REDIRECCION_CLASH_MS = REDIRECCION_CLASH_SEGUNDOS * 1000;
+
+const estadoMatchInicial = () => ({
+    inMatch: false,
+    salaId: null,
+    matchId: null,
+    rival: null,
+    gameMode: '',
+    monto: 0,
+    maxMonto: 10000,
+    status: 'idle', // idle, searching, negotiating, waiting, playing, finished
+    resultado: null,
+    rivalDesconectado: null,
+    timerNegociacion: null,
+    redireccionClashHastaMs: null,
+    redireccionClashEjecutada: false
+});
 
 const extraerCanalDeAviso = (aviso) => {
     if (!aviso) return '';
@@ -169,7 +187,8 @@ export const useAppStore = create((set, get) => ({
             retoEnviado: null,
             avisoMatchmaking: null,
             matchmakingConfig: null,
-            matchState: { inMatch: false, salaId: null, rival: null, gameMode: '', monto: 0, maxMonto: 10000, status: 'idle', rivalDesconectado: null, timerNegociacion: null }
+            ultimoMatchRedirigidoId: null,
+            matchState: estadoMatchInicial()
         });
     },
 
@@ -550,10 +569,11 @@ export const useAppStore = create((set, get) => ({
             if (!data) return;
             const yo = get().user;
             const rival = data.p1?.id === yo?.id ? data.p2 : data.p1;
-            set({ retoRecibido: null, retoEnviado: null, avisoMatchmaking: null });
+            set({ retoRecibido: null, retoEnviado: null, avisoMatchmaking: null, ultimoMatchRedirigidoId: null });
             get().setMatchState({
                 inMatch: true,
                 salaId: data.salaId,
+                matchId: null,
                 rival,
                 maxMonto: data.maxMonto || 10000,
                 status: 'negotiating',
@@ -561,7 +581,9 @@ export const useAppStore = create((set, get) => ({
                 gameMode: '',
                 monto: '',
                 rivalDesconectado: null,
-                timerNegociacion: null
+                timerNegociacion: null,
+                redireccionClashHastaMs: null,
+                redireccionClashEjecutada: false
             });
         });
 
@@ -572,6 +594,7 @@ export const useAppStore = create((set, get) => ({
             get().setMatchState({
                 inMatch: true,
                 salaId: data.salaId,
+                matchId: data.matchId || null,
                 rival: data.rival || null,
                 maxMonto: data.maxMonto || 10000,
                 status: data.iniciado ? 'playing' : 'negotiating',
@@ -581,7 +604,8 @@ export const useAppStore = create((set, get) => ({
                 rivalDesconectado: data.rivalDesconectado ? get().matchState.rivalDesconectado : null,
                 timerNegociacion: !data.iniciado && data.timerNegociacion
                     ? { ...data.timerNegociacion, recibidoEn: Date.now() }
-                    : null
+                    : null,
+                redireccionClashHastaMs: null
             });
         });
 
@@ -592,13 +616,27 @@ export const useAppStore = create((set, get) => ({
             });
         });
 
-        newSocket.on('juego_iniciado', () => {
+        newSocket.on('juego_iniciado', (data) => {
+            const matchIdNuevo = Number(data?.matchId) || null;
+            const estadoActual = get().matchState;
+            const yaProgramadoMismoMatch = Boolean(matchIdNuevo && get().ultimoMatchRedirigidoId === matchIdNuevo);
+            const debeProgramarRedireccion = !yaProgramadoMismoMatch && !estadoActual?.redireccionClashEjecutada;
+            if (matchIdNuevo) {
+                set({ ultimoMatchRedirigidoId: matchIdNuevo });
+            }
             get().setMatchState({
                 inMatch: true,
                 status: 'playing',
+                matchId: matchIdNuevo || estadoActual?.matchId || null,
                 rivalDesconectado: null,
-                timerNegociacion: null
+                timerNegociacion: null,
+                ...(debeProgramarRedireccion
+                    ? { redireccionClashHastaMs: Date.now() + REDIRECCION_CLASH_MS, redireccionClashEjecutada: false }
+                    : {})
             });
+            if (typeof window !== 'undefined' && window.location?.pathname !== '/match') {
+                window.dispatchEvent(new CustomEvent('torneos:navegar', { detail: { ruta: '/match' } }));
+            }
         });
 
         // Resultado de la partida: también en el store, para que no se pierda si el usuario está en otra pantalla
@@ -607,19 +645,23 @@ export const useAppStore = create((set, get) => ({
             if (!data) return;
             get().setMatchState({
                 status: 'finished',
-                resultado: { esGanador: data.esGanador === true, premio: data.premio, ganador: data.ganador, mensaje: data.mensaje }
+                resultado: { esGanador: data.esGanador === true, premio: data.premio, ganador: data.ganador, mensaje: data.mensaje },
+                redireccionClashHastaMs: null
             });
         });
         const alDisputa = (data) => {
             get().setMatchState({
                 status: 'finished',
-                resultado: { disputa: true, mensaje: data?.mensaje || 'Resultado no claro, disputa creada.' }
+                resultado: { disputa: true, mensaje: data?.mensaje || 'Resultado no claro, disputa creada.' },
+                redireccionClashHastaMs: null
             });
         };
         newSocket.on('disputa_creada', alDisputa);
         newSocket.on('disputa_timeout', alDisputa);
         newSocket.on('flujo_completado', () => {
-            if (get().matchState.inMatch) get().setMatchState({ status: 'finished' });
+            if (get().matchState.inMatch) {
+                get().setMatchState({ status: 'finished', redireccionClashHastaMs: null });
+            }
         });
 
         // Estado de la búsqueda (silencioso; Match.jsx muestra los avisos cuando está abierto)
@@ -759,17 +801,8 @@ export const useAppStore = create((set, get) => ({
     },
 
     // Estado de la partida actual
-    matchState: {
-        inMatch: false,
-        salaId: null,
-        rival: null,
-        gameMode: '',
-        monto: 0,
-        maxMonto: 10000,
-        status: 'idle', // idle, searching, negotiating, waiting, playing, finished
-        rivalDesconectado: null,
-        timerNegociacion: null
-    },
+    ultimoMatchRedirigidoId: null,
+    matchState: estadoMatchInicial(),
     busquedasVisibles: [],
     retoRecibido: null,
     retoEnviado: null,
@@ -794,6 +827,7 @@ export const useAppStore = create((set, get) => ({
     clearMatchState: () => set({ 
         retoRecibido: null,
         retoEnviado: null,
-        matchState: { inMatch: false, salaId: null, rival: null, gameMode: '', monto: 0, maxMonto: 10000, status: 'idle', rivalDesconectado: null, timerNegociacion: null }
+        ultimoMatchRedirigidoId: null,
+        matchState: estadoMatchInicial()
     }),
 }));

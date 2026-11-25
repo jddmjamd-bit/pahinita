@@ -1103,18 +1103,29 @@ export default function Admin() {
                                     const icono = meta ? meta.icono : '📌';
                                     const nombre = meta ? meta.nombre : cat;
                                     const activa = esCategoriaActiva(cat);
+                                    const montoHistorico = stats.desgloseHistorico?.[cat] ?? monto;
+                                    const montoActual = stats.desgloseActual?.[cat]
+                                        ?? (!activa || cat === 'referidos' ? 0 : montoHistorico);
+                                    const montoDescontado = stats.desgloseDescontado?.[cat]
+                                        ?? Math.max(0, Number(montoHistorico ?? 0) - Number(montoActual ?? 0));
                                     return (
                                         <div key={cat} className={`breakdown-box ${!activa ? 'is-inactive-admin' : ''} ${cat === 'ganancia' ? 'is-ganancia-admin' : ''}`}>
                                             <div className="bd-icon">{icono}</div>
                                             <div className="bd-title">{nombre + (distribucion[cat] !== undefined ? ` (${distribucion[cat]}%)` : '')}</div>
-                                            <div className="bd-actual">Actual: ${formatearMonto(monto)}</div>
-                                            <div className="bd-hist">Histórico: ${formatearMonto(monto)}</div>
+                                            <div className="bd-actual">Actual: ${formatearMonto(montoActual)}</div>
+                                            <div className="bd-hist">Histórico: ${formatearMonto(montoHistorico)}</div>
                                             {!activa && (
                                                 <div className="bd-admin-redirect">⚡ Inactiva → Suma a Ganancia Admin</div>
                                             )}
+                                            {cat === 'referidos' && (
+                                                <div className="bd-admin-redirect">🤝 Repartido a referidores / Admin</div>
+                                            )}
+                                            {(cat === 'leaderboard' || cat === 'sorteos') && Number(montoDescontado) > 0 && (
+                                                <div className="bd-deducted">Descontado: -${formatearMonto(montoDescontado)}</div>
+                                            )}
                                             {cat === 'ganancia' && (
                                                 <div className="bd-admin-effective">
-                                                    Efectivo con inactivas: ${formatearMonto(stats.gananciaComisionesAdmin ?? monto)}
+                                                    Efectivo con inactivas: ${formatearMonto(stats.gananciaComisionesAdmin ?? montoHistorico)}
                                                 </div>
                                             )}
                                         </div>

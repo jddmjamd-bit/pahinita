@@ -284,7 +284,7 @@ export const PREGUNTAS = [
             'Escribe el modo y el monto en los campos de Configuración.',
             'Pulsa «Comenzar». Quedas esperando a que el rival también pulse.',
             'Cuando los dos pulsan, aparece una ventana para aceptar la partida con el modo y el monto: pulsa «Aceptar».',
-            'Cuando ambos aceptan, la partida empieza y juegan en Clash Royale.'
+            'Cuando ambos aceptan, la pantalla muestra durante 5 segundos que ya se está buscando la batalla en la API de Clash Royale y te redirige automáticamente a Clash Royale (https://link.clashroyale.com).'
         ],
         video: { titulo: 'Cómo acordar modo y monto con tu rival', youtube: '', archivo: '' }
     },
@@ -319,7 +319,7 @@ export const PREGUNTAS = [
         categoria: 'partidas',
         pregunta: '¿Cómo se decide quién ganó?',
         respuesta: [
-            'Automáticamente. Cuando empieza la partida, la plataforma consulta la información de Clash Royale con el Player Tag de cada jugador y detecta el resultado. Tienes hasta 10 minutos para jugarla.',
+            'Automáticamente. Apenas ambos aceptan comenzar la partida, la pantalla permanece 5 segundos mostrando que la plataforma ya está consultando la API de Clash Royale y luego te redirige automáticamente a Clash Royale (con botón directo por si prefieres abrirlo antes o quedarte en la página). Tienes hasta 10 minutos para jugarla.',
             'Al terminar verás en pantalla si ganaste o perdiste y, si ganaste, el premio acreditado. Pulsa «Volver» para cerrar el resultado.'
         ],
         video: { titulo: 'Qué pasa cuando termina la partida', youtube: '', archivo: '' }

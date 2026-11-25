@@ -9,6 +9,13 @@ import com.torneosflash.dao.GenericDAO;
 
 import java.math.BigDecimal;
 import java.sql.*;
+import java.text.Collator;
+import java.text.Normalizer;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.*;
 import java.util.regex.Pattern;
 
@@ -39,6 +46,9 @@ public class DbAdminService {
 
     /** S4: patrón estricto para identificadores SQL (tablas y columnas). */
     private static final Pattern IDENTIFICADOR_SQL = Pattern.compile("^[a-zA-Z_][a-zA-Z0-9_]*$");
+    private static final Pattern PATRON_DIACRITICOS = Pattern.compile("\\p{M}+");
+    private static final Pattern PATRON_SEPARADOR_PALABRAS = Pattern.compile("[^\\p{Alnum}]+");
+    private static final Locale LOCALE_ES = Locale.forLanguageTag("es-CO");
 
     private final GenericDAO db;
     private final ConexionDB conexion;
@@ -143,30 +153,321 @@ public class DbAdminService {
 
     /** Columnas y filas de una tabla. */
     public JsonObject datosTabla(String tableName) {
+        return datosTabla(tableName, null, null, true, null, "asc", "auto");
+    }
+
+    /**
+     * Columnas y filas de una tabla aplicando filtro por palabras (exactas o parecidas) y ordenamiento seguro
+     * sobre los resultados devueltos por {@link PreparedStatement}.
+     */
+    public JsonObject datosTabla(String tableName, String busqueda, String columnaFiltro, boolean aproximada,
+                                 String ordenarPor, String direccion, String modoOrden) {
         return conErrores(() -> {
             try (Connection conn = db.getConnection()) {
                 exigirTablaValida(conn, tableName);
 
                 JsonArray columns = new JsonArray();
+                List<String> colNames = new ArrayList<>();
+                Map<String, String> colTypes = new LinkedHashMap<>();
                 try (PreparedStatement colPs = conn.prepareStatement(
                         "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ? ORDER BY ordinal_position")) {
                     colPs.setString(1, tableName);
                     try (ResultSet colRs = colPs.executeQuery()) {
                         while (colRs.next()) {
+                            String colName = colRs.getString("column_name");
+                            String dataType = colRs.getString("data_type");
                             JsonObject col = new JsonObject();
-                            col.addProperty("column_name", colRs.getString("column_name"));
-                            col.addProperty("data_type", colRs.getString("data_type"));
+                            col.addProperty("column_name", colName);
+                            col.addProperty("data_type", dataType);
                             columns.add(col);
+                            colNames.add(colName);
+                            colTypes.put(colName, dataType != null ? dataType.toLowerCase(Locale.ROOT) : "");
                         }
                     }
                 }
 
+                JsonArray allRows = filasDeTabla(conn, tableName);
+                JsonArray rows = filtrarYOrdenarFilas(allRows, colNames, colTypes, busqueda, columnaFiltro,
+                        aproximada, ordenarPor, direccion, modoOrden);
+
                 JsonObject result = new JsonObject();
                 result.add("columns", columns);
-                result.add("rows", filasDeTabla(conn, tableName));
+                result.add("rows", rows);
+                result.addProperty("totalRows", allRows.size());
+                result.addProperty("filteredCount", rows.size());
                 return result;
             }
         });
+    }
+
+    private record FilaConRelevancia(JsonObject fila, int puntaje, int indiceOriginal) {}
+
+    /**
+     * Filtra filas por tokens de búsqueda (con coincidencia exacta o por palabras parecidas: sin tildes,
+     * prefijos, distancia de Levenshtein y similitud de bigramas) y las ordena de forma segura en memoria.
+     */
+    public static JsonArray filtrarYOrdenarFilas(JsonArray rows, List<String> colNames, Map<String, String> colTypes,
+                                                 String busqueda, String columnaFiltro, boolean aproximada,
+                                                 String ordenarPor, String direccion, String modoOrden) {
+        if (rows == null || rows.isEmpty()) {
+            return new JsonArray();
+        }
+        List<String> columnasDisponibles = colNames != null ? colNames : List.of();
+        Map<String, String> tipos = colTypes != null ? colTypes : Map.of();
+
+        String colFiltroLimpia = columnaFiltro != null ? columnaFiltro.trim() : "";
+        boolean filtrarPorColumna = !colFiltroLimpia.isEmpty() && !"*".equals(colFiltroLimpia)
+                && (columnasDisponibles.contains(colFiltroLimpia) || tipos.containsKey(colFiltroLimpia));
+        List<String> columnasBusqueda = filtrarPorColumna
+                ? List.of(colFiltroLimpia)
+                : columnasDisponibles;
+
+        String busquedaNorm = normalizarTexto(busqueda);
+        List<String> tokens = new ArrayList<>();
+        if (!busquedaNorm.isEmpty()) {
+            for (String tok : busquedaNorm.split("\\s+")) {
+                if (!tok.isEmpty()) tokens.add(tok);
+            }
+        }
+
+        List<FilaConRelevancia> filtradas = new ArrayList<>(rows.size());
+        for (int i = 0; i < rows.size(); i++) {
+            JsonElement elem = rows.get(i);
+            if (elem == null || !elem.isJsonObject()) continue;
+            JsonObject fila = elem.getAsJsonObject();
+            if (tokens.isEmpty()) {
+                filtradas.add(new FilaConRelevancia(fila, 0, i));
+                continue;
+            }
+            List<String> colsObjetivo = columnasBusqueda.isEmpty() ? new ArrayList<>(fila.keySet()) : columnasBusqueda;
+            int puntaje = calcularPuntajeFila(fila, colsObjetivo, tokens, aproximada);
+            if (puntaje >= 0) {
+                filtradas.add(new FilaConRelevancia(fila, puntaje, i));
+            }
+        }
+
+        String modo = modoOrden != null ? modoOrden.trim().toLowerCase(Locale.ROOT) : "auto";
+        String sortCol = ordenarPor != null ? ordenarPor.trim() : "";
+        boolean desc = "desc".equalsIgnoreCase(direccion);
+        boolean ordenarPorRelevancia = "relevancia".equals(modo)
+                || "_relevancia".equals(sortCol)
+                || (sortCol.isEmpty() && !tokens.isEmpty());
+
+        if (ordenarPorRelevancia && !tokens.isEmpty()) {
+            filtradas.sort(Comparator.comparingInt(FilaConRelevancia::puntaje).reversed()
+                    .thenComparingInt(FilaConRelevancia::indiceOriginal));
+        } else if (!sortCol.isEmpty() && (columnasDisponibles.contains(sortCol) || tipos.containsKey(sortCol)
+                || (!filtradas.isEmpty() && filtradas.get(0).fila().has(sortCol)))) {
+            String tipoCol = tipos.getOrDefault(sortCol, "");
+            Collator collatorPrimario = Collator.getInstance(LOCALE_ES);
+            collatorPrimario.setStrength(Collator.PRIMARY);
+            Collator collatorTerciario = Collator.getInstance(LOCALE_ES);
+            collatorTerciario.setStrength(Collator.TERTIARY);
+
+            filtradas.sort((a, b) -> {
+                JsonElement e1 = a.fila().get(sortCol);
+                JsonElement e2 = b.fila().get(sortCol);
+                boolean vacio1 = esNuloOVacio(e1);
+                boolean vacio2 = esNuloOVacio(e2);
+                if (vacio1 && vacio2) return Integer.compare(a.indiceOriginal(), b.indiceOriginal());
+                if (vacio1) return 1;
+                if (vacio2) return -1;
+                int cmp = compararValores(e1.getAsString(), e2.getAsString(), tipoCol, modo,
+                        collatorPrimario, collatorTerciario);
+                if (cmp == 0) return Integer.compare(a.indiceOriginal(), b.indiceOriginal());
+                return desc ? -cmp : cmp;
+            });
+        }
+
+        JsonArray salida = new JsonArray();
+        for (FilaConRelevancia item : filtradas) {
+            salida.add(item.fila());
+        }
+        return salida;
+    }
+
+    private static int calcularPuntajeFila(JsonObject fila, List<String> columnas, List<String> tokens, boolean aproximada) {
+        int total = 0;
+        for (String token : tokens) {
+            int mejorToken = -1;
+            for (String col : columnas) {
+                JsonElement val = fila.get(col);
+                if (esNuloOVacio(val)) continue;
+                int score = puntajeTokenEnTexto(val.getAsString(), token, aproximada);
+                if (score > mejorToken) mejorToken = score;
+                if (mejorToken >= 100) break;
+            }
+            if (mejorToken < 0) return -1;
+            total += mejorToken;
+        }
+        return total;
+    }
+
+    private static int puntajeTokenEnTexto(String crudo, String token, boolean aproximada) {
+        String norm = normalizarTexto(crudo);
+        if (norm.isEmpty()) return -1;
+        if (norm.equals(token)) return 120;
+        if (norm.contains(token)) return 100;
+        if (!aproximada || token.length() < 2) return -1;
+
+        String[] palabras = PATRON_SEPARADOR_PALABRAS.split(norm);
+        int mejor = -1;
+        for (String palabra : palabras) {
+            if (palabra.isEmpty()) continue;
+            if (palabra.startsWith(token) || (palabra.length() >= 3 && token.startsWith(palabra))) {
+                mejor = Math.max(mejor, 85);
+                continue;
+            }
+            int maxLen = Math.max(token.length(), palabra.length());
+            int minLen = Math.min(token.length(), palabra.length());
+            if (minLen < 2) continue;
+            int maxDist = maxLen <= 4 ? 1 : (maxLen <= 8 ? 2 : 3);
+            if (Math.abs(token.length() - palabra.length()) <= maxDist) {
+                int dist = levenshteinAcotado(token, palabra, maxDist);
+                if (dist <= maxDist) {
+                    mejor = Math.max(mejor, Math.max(45, 80 - dist * 15));
+                    continue;
+                }
+            }
+            if (token.length() >= 3 && palabra.length() >= 3 && similitudBigramas(token, palabra) >= 0.55) {
+                mejor = Math.max(mejor, 50);
+            }
+        }
+        return mejor;
+    }
+
+    private static String normalizarTexto(String texto) {
+        if (texto == null) return "";
+        String limpio = texto.trim().toLowerCase(Locale.ROOT);
+        if (limpio.isEmpty()) return "";
+        String nfd = Normalizer.normalize(limpio, Normalizer.Form.NFD);
+        return PATRON_DIACRITICOS.matcher(nfd).replaceAll("");
+    }
+
+    private static int levenshteinAcotado(String a, String b, int limite) {
+        int n = a.length();
+        int m = b.length();
+        if (Math.abs(n - m) > limite) return limite + 1;
+        int[] prev = new int[m + 1];
+        int[] curr = new int[m + 1];
+        for (int j = 0; j <= m; j++) prev[j] = j;
+        for (int i = 1; i <= n; i++) {
+            curr[0] = i;
+            int minFila = curr[0];
+            char ca = a.charAt(i - 1);
+            for (int j = 1; j <= m; j++) {
+                int costo = ca == b.charAt(j - 1) ? 0 : 1;
+                curr[j] = Math.min(Math.min(curr[j - 1] + 1, prev[j] + 1), prev[j - 1] + costo);
+                if (curr[j] < minFila) minFila = curr[j];
+            }
+            if (minFila > limite) return limite + 1;
+            int[] tmp = prev;
+            prev = curr;
+            curr = tmp;
+        }
+        return prev[m];
+    }
+
+    private static double similitudBigramas(String a, String b) {
+        if (a.length() < 2 || b.length() < 2) return 0.0;
+        Map<String, Integer> conteoA = new HashMap<>();
+        for (int i = 0; i < a.length() - 1; i++) {
+            String bg = a.substring(i, i + 2);
+            conteoA.merge(bg, 1, Integer::sum);
+        }
+        int interseccion = 0;
+        for (int i = 0; i < b.length() - 1; i++) {
+            String bg = b.substring(i, i + 2);
+            Integer disponible = conteoA.get(bg);
+            if (disponible != null && disponible > 0) {
+                interseccion++;
+                conteoA.put(bg, disponible - 1);
+            }
+        }
+        return (2.0 * interseccion) / ((a.length() - 1) + (b.length() - 1));
+    }
+
+    private static boolean esNuloOVacio(JsonElement elem) {
+        return elem == null || elem.isJsonNull() || elem.getAsString().trim().isEmpty();
+    }
+
+    private static int compararValores(String s1, String s2, String colType, String modo,
+                                       Collator collatorPrimario, Collator collatorTerciario) {
+        String modoEfectivo = modo;
+        if (modoEfectivo == null || modoEfectivo.isEmpty() || "auto".equals(modoEfectivo)) {
+            if (esTipoNumericoSql(colType)) {
+                modoEfectivo = "numero";
+            } else if (esTipoFechaSql(colType)) {
+                modoEfectivo = "fecha";
+            } else if (colType == null || colType.isEmpty()) {
+                if (parsearNumero(s1) != null && parsearNumero(s2) != null) modoEfectivo = "numero";
+                else if (parsearFechaMs(s1) != null && parsearFechaMs(s2) != null) modoEfectivo = "fecha";
+                else modoEfectivo = "texto";
+            } else {
+                modoEfectivo = "texto";
+            }
+        }
+
+        if ("numero".equals(modoEfectivo)) {
+            BigDecimal n1 = parsearNumero(s1);
+            BigDecimal n2 = parsearNumero(s2);
+            if (n1 != null && n2 != null) return n1.compareTo(n2);
+            if (n1 != null) return -1;
+            if (n2 != null) return 1;
+        } else if ("fecha".equals(modoEfectivo)) {
+            Long f1 = parsearFechaMs(s1);
+            Long f2 = parsearFechaMs(s2);
+            if (f1 != null && f2 != null) return Long.compare(f1, f2);
+            if (f1 != null) return -1;
+            if (f2 != null) return 1;
+        }
+
+        int cmp = collatorPrimario.compare(s1, s2);
+        if (cmp != 0) return cmp;
+        cmp = collatorTerciario.compare(s1, s2);
+        return cmp != 0 ? cmp : s1.compareToIgnoreCase(s2);
+    }
+
+    private static boolean esTipoNumericoSql(String colType) {
+        return colType != null && (colType.contains("int") || colType.contains("numeric")
+                || colType.contains("decimal") || colType.contains("real") || colType.contains("double"));
+    }
+
+    private static boolean esTipoFechaSql(String colType) {
+        return colType != null && (colType.contains("timestamp") || "date".equals(colType));
+    }
+
+    private static BigDecimal parsearNumero(String valor) {
+        try {
+            return new BigDecimal(valor.trim());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static Long parsearFechaMs(String valor) {
+        String s = valor.trim();
+        try {
+            return Instant.parse(s).toEpochMilli();
+        } catch (Exception ignored) {
+        }
+        try {
+            return OffsetDateTime.parse(s).toInstant().toEpochMilli();
+        } catch (Exception ignored) {
+        }
+        try {
+            return Timestamp.valueOf(s).getTime();
+        } catch (Exception ignored) {
+        }
+        try {
+            return LocalDateTime.parse(s).toInstant(ZoneOffset.UTC).toEpochMilli();
+        } catch (Exception ignored) {
+        }
+        try {
+            return LocalDate.parse(s).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     // ------------------------------------------------------------------

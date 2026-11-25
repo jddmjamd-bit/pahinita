@@ -207,7 +207,8 @@ public class AdminService {
         stats.addProperty("gananciaAdminLeaderboard",
                 obtenerMontoJson(rankingAdminSum, "total"));
 
-        // Desglose por categorías (Actual e Histórico - por ahora es lo mismo)
+        // Desglose por categorías: Histórico (todo lo que se acumuló) y Actual (lo que sigue disponible en cada
+        // categoría tras descontar lo ya repartido, pagado o transferido al dueño). // REVIEW-MONEY
         JsonObject desglose = new JsonObject();
         for (ComisionService.Categoria categoria : ComisionService.Categoria.values()) {
             String cat = categoria.getClave();
@@ -216,6 +217,21 @@ public class AdminService {
             desglose.addProperty(cat, obtenerMontoJson(catSum, "total"));
         }
         stats.add("desglose", desglose);
+
+        JsonObject desgloseHistorico = new JsonObject();
+        JsonObject desgloseActual = new JsonObject();
+        JsonObject desgloseDescontado = new JsonObject();
+        for (ComisionService.Categoria categoria : ComisionService.Categoria.values()) {
+            String cat = categoria.getClave();
+            BigDecimal historico = obtenerMontoJson(desglose, cat);
+            BigDecimal actual = calcularActualCategoria(categoria, historico);
+            desgloseHistorico.addProperty(cat, historico);
+            desgloseActual.addProperty(cat, actual);
+            desgloseDescontado.addProperty(cat, historico.subtract(actual).max(BigDecimal.ZERO));
+        }
+        stats.add("desgloseHistorico", desgloseHistorico);
+        stats.add("desgloseActual", desgloseActual);
+        stats.add("desgloseDescontado", desgloseDescontado);
 
         // Resumen combinado de ganancias del dueño: Ganancia base (25%) + divisiones inactivas (30%) + sobrantes de ranking. // REVIEW-MONEY
         BigDecimal gananciaAdminLeaderboard = obtenerMontoJson(stats, "gananciaAdminLeaderboard");
@@ -299,6 +315,51 @@ public class AdminService {
 
         stats.addProperty("usuariosOnline", io != null ? io.getSockets().size() : 0);
         return stats;
+    }
+
+    /**
+     * Monto «actual» de una categoría de comisión: lo que todavía está disponible para esa categoría. // REVIEW-MONEY
+     * <ul>
+     *   <li>Categorías inactivas (misiones, logros, devolución): ya pasaron a la ganancia del dueño, quedan en 0.</li>
+     *   <li>Referidos: se reparte al liquidar cada partida (referidor, cashback o dueño), siempre queda en 0.</li>
+     *   <li>Ranking: pozos vivos (día/semana/mes/año) más pagos de un corte aún pendientes.</li>
+     *   <li>Sorteos: saldo del pozo de sorteos (ya descuenta premios reservados, devoluciones y mitad del admin).</li>
+     *   <li>Ganancia: utilidad base del dueño, no se descuenta.</li>
+     * </ul>
+     */
+    private BigDecimal calcularActualCategoria(ComisionService.Categoria categoria, BigDecimal historico) {
+        if (!categoria.isActiva() || categoria == ComisionService.Categoria.REFERIDOS) {
+            return BigDecimal.ZERO;
+        }
+        if (categoria == ComisionService.Categoria.LEADERBOARD) {
+            JsonObject pozos = db.queryOne(
+                    "SELECT (COALESCE(dia, 0) + COALESCE(semana, 0) + COALESCE(mes, 0) + COALESCE(ano, 0)) AS total " +
+                    "FROM leaderboard_pools WHERE id = 1");
+            if (pozos != null) {
+                JsonObject pendientes = db.queryOne(
+                        "SELECT COALESCE(SUM(monto), 0) AS total FROM leaderboard_cut_payments WHERE estado = 'pendiente'");
+                return obtenerMontoJson(pozos, "total").add(obtenerMontoJson(pendientes, "total"))
+                        .max(BigDecimal.ZERO);
+            }
+            JsonObject pagados = db.queryOne(
+                    "SELECT COALESCE(SUM(monto), 0) AS total FROM leaderboard_cut_payments WHERE estado = 'pagado'");
+            JsonObject historialLegado = db.queryOne(
+                    "SELECT COALESCE(SUM(premio), 0) AS total FROM leaderboard_history WHERE corte_pago_id IS NULL");
+            BigDecimal totalPagado = obtenerMontoJson(pagados, "total").add(obtenerMontoJson(historialLegado, "total"));
+            return historico.subtract(totalPagado).max(BigDecimal.ZERO);
+        }
+        if (categoria == ComisionService.Categoria.SORTEOS) {
+            JsonObject pozoSorteos = db.queryOne("SELECT monto AS total FROM raffle_pool WHERE id = 1");
+            if (pozoSorteos != null) {
+                return obtenerMontoJson(pozoSorteos, "total").max(BigDecimal.ZERO);
+            }
+            JsonObject usados = db.queryOne(
+                    "SELECT COALESCE(SUM(precio), 0) AS total FROM raffles WHERE estado IN ('activo', 'completado')");
+            return usados != null
+                    ? historico.subtract(obtenerMontoJson(usados, "total")).max(BigDecimal.ZERO)
+                    : historico;
+        }
+        return historico;
     }
 
     /**

@@ -123,6 +123,55 @@
             display: flex; justify-content: space-between;
         }
 
+        /* Filtros y ordenamiento */
+        .sidebar-tools {
+            display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;
+        }
+        .sidebar-tools input, .sidebar-tools select {
+            width: 100%; background: #202540; border: 1px solid #0f3460; color: #eee;
+            padding: 6px 8px; border-radius: 5px; font-size: 0.8rem; outline: none;
+        }
+        .sidebar-tools input:focus, .sidebar-tools select:focus { border-color: #5865f2; }
+        .filter-toolbar {
+            display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+            background: #16213e; border: 1px solid #0f3460; border-radius: 8px;
+            padding: 12px; margin-bottom: 14px;
+        }
+        .filter-group {
+            display: flex; flex-direction: column; gap: 4px; min-width: 150px; flex: 1 1 170px;
+        }
+        .filter-group.is-search { flex: 2 1 240px; }
+        .filter-group label {
+            font-size: 0.72rem; text-transform: uppercase; color: #9aa5c4; font-weight: 600;
+        }
+        .filter-group input, .filter-group select {
+            width: 100%; background: #202540; border: 1px solid #0f3460; color: #fff;
+            padding: 7px 9px; border-radius: 5px; font-size: 0.83rem; outline: none;
+        }
+        .filter-group input:focus, .filter-group select:focus { border-color: #5865f2; }
+        .filter-actions {
+            display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 4px;
+        }
+        .filter-check {
+            display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem;
+            color: #d6dcfa; cursor: pointer; user-select: none;
+            background: #202540; border: 1px solid #0f3460; padding: 6px 10px; border-radius: 5px;
+        }
+        .filter-check input { width: auto; accent-color: #5865f2; cursor: pointer; }
+        .btn-ghost {
+            background: #202540; color: #ddd; border: 1px solid #0f3460;
+        }
+        .btn-ghost:hover { border-color: #e94560; color: #fff; }
+        .table-meta-count {
+            font-size: 0.82rem; color: #8dd3a8; font-weight: 600; margin-left: auto;
+        }
+        th.sort-th {
+            cursor: pointer; user-select: none; white-space: nowrap; transition: background 0.15s;
+        }
+        th.sort-th:hover { background: #164480; }
+        th.sort-th .sort-indicator { margin-left: 5px; font-size: 0.7rem; color: #faa61a; }
+        td.null-val { color: #6c7897; font-style: italic; }
+
         @media (max-width: 768px) {
             .top-bar { align-items: flex-start; }
             .top-bar .actions { justify-content: flex-start; }
@@ -178,6 +227,15 @@
     <div class="layout">
         <div class="sidebar" id="sidebar">
             <h3>Tablas</h3>
+            <div class="sidebar-tools">
+                <input type="search" id="table-search" placeholder="🔍 Filtrar tablas..." oninput="renderizarListaTablas()" aria-label="Filtrar tablas por nombre">
+                <select id="table-sort" onchange="renderizarListaTablas()" aria-label="Ordenar lista de tablas">
+                    <option value="name_asc">Ordenar: A → Z</option>
+                    <option value="name_desc">Ordenar: Z → A</option>
+                    <option value="count_desc">Más filas primero</option>
+                    <option value="count_asc">Menos filas primero</option>
+                </select>
+            </div>
             <div id="tables-list"><p style="color:#555; font-size:0.8rem;">Cargando...</p></div>
         </div>
         <div class="main" id="main-content">
@@ -282,21 +340,166 @@
 
         let tablaActual = null;
         let datosImport = null;
+        let listaTablas = [];
+        let columnasTablaActual = [];
+        let filasTablaActual = [];
+        let tieneColumnaId = true;
+        const filtroEstado = {
+            query: '',
+            col: '*',
+            fuzzy: true,
+            nullFilter: 'all',
+            sortCol: '',
+            sortMode: 'auto_asc'
+        };
+
+        function resetearFiltroTabla() {
+            filtroEstado.query = '';
+            filtroEstado.col = '*';
+            filtroEstado.fuzzy = true;
+            filtroEstado.nullFilter = 'all';
+            filtroEstado.sortCol = '';
+            filtroEstado.sortMode = 'auto_asc';
+        }
+
+        function normalizarTexto(texto) {
+            return String(texto ?? '')
+                .trim()
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '');
+        }
+
+        function levenshteinAcotado(a, b, limite) {
+            const n = a.length;
+            const m = b.length;
+            if (Math.abs(n - m) > limite) return limite + 1;
+            let prev = Array.from({ length: m + 1 }, (_, j) => j);
+            let curr = new Array(m + 1);
+            for (let i = 1; i <= n; i++) {
+                curr[0] = i;
+                let minFila = i;
+                const ca = a.charCodeAt(i - 1);
+                for (let j = 1; j <= m; j++) {
+                    const costo = ca === b.charCodeAt(j - 1) ? 0 : 1;
+                    curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + costo);
+                    if (curr[j] < minFila) minFila = curr[j];
+                }
+                if (minFila > limite) return limite + 1;
+                const tmp = prev;
+                prev = curr;
+                curr = tmp;
+            }
+            return prev[m];
+        }
+
+        function similitudBigramas(a, b) {
+            if (a.length < 2 || b.length < 2) return 0;
+            const mapa = new Map();
+            for (let i = 0; i < a.length - 1; i++) {
+                const bg = a.slice(i, i + 2);
+                mapa.set(bg, (mapa.get(bg) || 0) + 1);
+            }
+            let inter = 0;
+            for (let i = 0; i < b.length - 1; i++) {
+                const bg = b.slice(i, i + 2);
+                const disp = mapa.get(bg) || 0;
+                if (disp > 0) {
+                    inter++;
+                    mapa.set(bg, disp - 1);
+                }
+            }
+            return (2 * inter) / ((a.length - 1) + (b.length - 1));
+        }
+
+        function puntajeTokenEnValor(crudo, token, aproximada) {
+            const norm = normalizarTexto(crudo);
+            if (!norm) return -1;
+            if (norm === token) return 120;
+            if (norm.includes(token)) return 100;
+            if (!aproximada || token.length < 2) return -1;
+
+            const palabras = norm.split(/[^a-z0-9]+/).filter(Boolean);
+            let mejor = -1;
+            for (const palabra of palabras) {
+                if (palabra.startsWith(token) || (palabra.length >= 3 && token.startsWith(palabra))) {
+                    mejor = Math.max(mejor, 85);
+                    continue;
+                }
+                const maxLen = Math.max(token.length, palabra.length);
+                const minLen = Math.min(token.length, palabra.length);
+                if (minLen < 2) continue;
+                const maxDist = maxLen <= 4 ? 1 : (maxLen <= 8 ? 2 : 3);
+                if (Math.abs(token.length - palabra.length) <= maxDist) {
+                    const dist = levenshteinAcotado(token, palabra, maxDist);
+                    if (dist <= maxDist) {
+                        mejor = Math.max(mejor, Math.max(45, 80 - dist * 15));
+                        continue;
+                    }
+                }
+                if (token.length >= 3 && palabra.length >= 3 && similitudBigramas(token, palabra) >= 0.55) {
+                    mejor = Math.max(mejor, 50);
+                }
+            }
+            return mejor;
+        }
+
+        function esVacio(val) {
+            return val === null || val === undefined || String(val).trim() === '';
+        }
+
+        function parsearFechaValor(val) {
+            if (esVacio(val)) return null;
+            const s = String(val).trim();
+            if (/^-?\d+(\.\d+)?$/.test(s)) return null;
+            const iso = s.includes(' ') && !s.includes('T') ? s.replace(' ', 'T') : s;
+            const t = Date.parse(iso);
+            return Number.isFinite(t) ? t : null;
+        }
+
+        function parsearNumeroValor(val) {
+            if (esVacio(val)) return null;
+            const s = String(val).trim();
+            if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
+            const n = Number(s);
+            return Number.isFinite(n) ? n : null;
+        }
+
+        function compararCeldas(v1, v2, tipoSql, modo) {
+            let modoEfectivo = modo;
+            if (modoEfectivo === 'auto') {
+                const t = (tipoSql || '').toLowerCase();
+                if (t.includes('int') || t.includes('numeric') || t.includes('decimal') || t.includes('real') || t.includes('double')) {
+                    modoEfectivo = 'numero';
+                } else if (t.includes('timestamp') || t === 'date') {
+                    modoEfectivo = 'fecha';
+                } else {
+                    modoEfectivo = 'texto';
+                }
+            }
+            if (modoEfectivo === 'numero') {
+                const n1 = parsearNumeroValor(v1);
+                const n2 = parsearNumeroValor(v2);
+                if (n1 !== null && n2 !== null) return n1 - n2;
+                if (n1 !== null) return -1;
+                if (n2 !== null) return 1;
+            } else if (modoEfectivo === 'fecha') {
+                const f1 = parsearFechaValor(v1);
+                const f2 = parsearFechaValor(v2);
+                if (f1 !== null && f2 !== null) return f1 - f2;
+                if (f1 !== null) return -1;
+                if (f2 !== null) return 1;
+            }
+            return String(v1).localeCompare(String(v2), 'es', { sensitivity: 'base', numeric: true });
+        }
 
         // --- CARGAR TABLAS ---
         async function cargarTablas() {
             try {
                 const res = await apiFetch('/tables');
                 const data = await res.json();
-                const container = document.getElementById('tables-list');
-                container.innerHTML = '';
-                for (const t of data) {
-                    const btn = document.createElement('button');
-                    btn.className = 'table-btn';
-                    btn.innerHTML = `📋 ${esc(t.name)} <span class="count">${esc(t.count)}</span>`;
-                    btn.onclick = () => cargarTabla(t.name, btn);
-                    container.appendChild(btn);
-                }
+                listaTablas = Array.isArray(data) ? data : [];
+                renderizarListaTablas();
                 return true;
             } catch (e) {
                 console.error(e);
@@ -304,10 +507,45 @@
             }
         }
 
+        function renderizarListaTablas() {
+            const container = document.getElementById('tables-list');
+            const queryNorm = normalizarTexto(document.getElementById('table-search')?.value || '');
+            const tokens = queryNorm ? queryNorm.split(/\s+/).filter(Boolean) : [];
+            const orden = document.getElementById('table-sort')?.value || 'name_asc';
+
+            let visibles = listaTablas.filter(t => {
+                if (tokens.length === 0) return true;
+                return tokens.every(tok => puntajeTokenEnValor(t.name, tok, true) >= 0);
+            });
+
+            visibles.sort((a, b) => {
+                if (orden === 'name_desc') return b.name.localeCompare(a.name, 'es');
+                if (orden === 'count_desc') return (b.count - a.count) || a.name.localeCompare(b.name, 'es');
+                if (orden === 'count_asc') return (a.count - b.count) || a.name.localeCompare(b.name, 'es');
+                return a.name.localeCompare(b.name, 'es');
+            });
+
+            container.innerHTML = '';
+            if (visibles.length === 0) {
+                container.innerHTML = '<p style="color:#666; font-size:0.8rem; padding:6px;">Sin tablas coincidentes</p>';
+                return;
+            }
+            for (const t of visibles) {
+                const btn = document.createElement('button');
+                btn.className = 'table-btn' + (t.name === tablaActual ? ' active' : '');
+                btn.innerHTML = `📋 ${esc(t.name)} <span class="count">${esc(t.count)}</span>`;
+                btn.onclick = () => cargarTabla(t.name, btn);
+                container.appendChild(btn);
+            }
+        }
+
         // --- CARGAR DATOS DE UNA TABLA ---
         async function cargarTabla(nombre, btn) {
+            if (tablaActual !== nombre) {
+                resetearFiltroTabla();
+            }
             tablaActual = nombre;
-            document.querySelectorAll('.table-btn').forEach(b => b.classList.remove('active'));
+            renderizarListaTablas();
             if (btn) btn.classList.add('active');
 
             const main = document.getElementById('main-content');
@@ -316,80 +554,323 @@
             try {
                 const res = await apiFetch(`/table/${encodeURIComponent(nombre)}`);
                 const data = await res.json();
-                renderTabla(nombre, data.columns, data.rows);
+                columnasTablaActual = Array.isArray(data.columns) ? data.columns : [];
+                filasTablaActual = (Array.isArray(data.rows) ? data.rows : []).map((row, idx) => ({
+                    row,
+                    idxOriginal: idx
+                }));
+                tieneColumnaId = columnasTablaActual.some(c => c.column_name === 'id');
+                renderTabla(nombre, columnasTablaActual);
             } catch (e) {
                 console.error(e);
                 main.innerHTML = `<p style="color:#ed4245;">Error: ${esc(e.message)}</p>`;
             }
         }
 
+        function obtenerFilasFiltradasYOrdenadas() {
+            const colNames = columnasTablaActual.map(c => c.column_name);
+            const colTypes = Object.fromEntries(columnasTablaActual.map(c => [c.column_name, c.data_type || '']));
+            const colsObjetivo = filtroEstado.col !== '*' && colNames.includes(filtroEstado.col)
+                ? [filtroEstado.col]
+                : colNames;
+            const tokens = normalizarTexto(filtroEstado.query).split(/\s+/).filter(Boolean);
+
+            const resultado = [];
+            for (const item of filasTablaActual) {
+                const row = item.row;
+
+                if (filtroEstado.nullFilter !== 'all') {
+                    const algunoVacio = colsObjetivo.some(c => esVacio(row[c]));
+                    const algunoLleno = colsObjetivo.some(c => !esVacio(row[c]));
+                    if (filtroEstado.nullFilter === 'empty' && !algunoVacio) continue;
+                    if (filtroEstado.nullFilter === 'not_empty' && !algunoLleno) continue;
+                }
+
+                let puntaje = 0;
+                if (tokens.length > 0) {
+                    let ok = true;
+                    for (const tok of tokens) {
+                        let mejor = -1;
+                        for (const c of colsObjetivo) {
+                            if (esVacio(row[c])) continue;
+                            const s = puntajeTokenEnValor(row[c], tok, filtroEstado.fuzzy);
+                            if (s > mejor) mejor = s;
+                            if (mejor >= 100) break;
+                        }
+                        if (mejor < 0) {
+                            ok = false;
+                            break;
+                        }
+                        puntaje += mejor;
+                    }
+                    if (!ok) continue;
+                }
+                resultado.push({ row: item.row, idxOriginal: item.idxOriginal, puntaje });
+            }
+
+            if (filtroEstado.sortMode === 'relevancia' || (!filtroEstado.sortCol && tokens.length > 0)) {
+                if (tokens.length > 0) {
+                    resultado.sort((a, b) => (b.puntaje - a.puntaje) || (a.idxOriginal - b.idxOriginal));
+                }
+                return resultado;
+            }
+
+            if (filtroEstado.sortCol && colNames.includes(filtroEstado.sortCol)) {
+                const [modo, dir] = filtroEstado.sortMode.split('_');
+                const desc = dir === 'desc';
+                const col = filtroEstado.sortCol;
+                const tipoSql = colTypes[col] || '';
+                resultado.sort((a, b) => {
+                    const v1 = a.row[col];
+                    const v2 = b.row[col];
+                    const vacio1 = esVacio(v1);
+                    const vacio2 = esVacio(v2);
+                    if (vacio1 && vacio2) return a.idxOriginal - b.idxOriginal;
+                    if (vacio1) return 1;
+                    if (vacio2) return -1;
+                    const cmp = compararCeldas(v1, v2, tipoSql, modo);
+                    if (cmp === 0) return a.idxOriginal - b.idxOriginal;
+                    return desc ? -cmp : cmp;
+                });
+            }
+
+            return resultado;
+        }
+
+        function ordenarPorColumna(col) {
+            if (filtroEstado.sortCol === col) {
+                const [modo, dir] = filtroEstado.sortMode.split('_');
+                const modoBase = modo === 'relevancia' ? 'auto' : modo;
+                filtroEstado.sortMode = `${modoBase}_${dir === 'asc' ? 'desc' : 'asc'}`;
+            } else {
+                filtroEstado.sortCol = col;
+                const [modo] = filtroEstado.sortMode.split('_');
+                const modoBase = modo === 'relevancia' ? 'auto' : modo;
+                filtroEstado.sortMode = `${modoBase}_asc`;
+            }
+            sincronizarControlesFiltro();
+            renderFilasTabla();
+        }
+
+        function sincronizarControlesFiltro() {
+            const qEl = document.getElementById('filter-query');
+            const fEl = document.getElementById('filter-fuzzy');
+            const cEl = document.getElementById('filter-col');
+            const nEl = document.getElementById('filter-nulls');
+            const sEl = document.getElementById('sort-col');
+            const mEl = document.getElementById('sort-mode');
+            if (qEl && qEl.value !== filtroEstado.query) qEl.value = filtroEstado.query;
+            if (fEl) fEl.checked = filtroEstado.fuzzy;
+            if (cEl) cEl.value = filtroEstado.col;
+            if (nEl) nEl.value = filtroEstado.nullFilter;
+            if (sEl) sEl.value = filtroEstado.sortCol;
+            if (mEl) mEl.value = filtroEstado.sortMode;
+        }
+
+        function limpiarFiltrosTabla() {
+            resetearFiltroTabla();
+            sincronizarControlesFiltro();
+            renderFilasTabla();
+        }
+
         // --- RENDERIZAR TABLA ---
-        function renderTabla(nombre, columns, rows) {
+        function renderTabla(nombre, columns) {
             const main = document.getElementById('main-content');
             const colNames = columns.map(c => c.column_name);
 
             let html = `
                 <div class="table-title">
                     <h2>${esc(nombre)}</h2>
-                    <span>${rows.length} filas · ${colNames.length} columnas</span>
-                    <button class="btn btn-primary btn-sm" onclick="cargarTabla('${nombre}')">🔄</button>
+                    <span>${filasTablaActual.length} filas · ${colNames.length} columnas</span>
+                    <button class="btn btn-primary btn-sm" onclick="cargarTabla('${esc(nombre)}')">🔄</button>
+                </div>
+                <div class="filter-toolbar" role="region" aria-label="Filtros y ordenamiento de tabla">
+                    <div class="filter-group is-search">
+                        <label for="filter-query">Buscar (palabras o parecidos)</label>
+                        <input id="filter-query" type="search" value="${esc(filtroEstado.query)}" placeholder="Ej: valkiria, juan 5000, nequi...">
+                    </div>
+                    <div class="filter-group">
+                        <label for="filter-col">Columna de búsqueda</label>
+                        <select id="filter-col">
+                            <option value="*">Todas las columnas</option>
+                            ${colNames.map(c => `<option value="${esc(c)}" ${filtroEstado.col === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="filter-nulls">Valores</label>
+                        <select id="filter-nulls">
+                            <option value="all" ${filtroEstado.nullFilter === 'all' ? 'selected' : ''}>Todos</option>
+                            <option value="not_empty" ${filtroEstado.nullFilter === 'not_empty' ? 'selected' : ''}>Con valor</option>
+                            <option value="empty" ${filtroEstado.nullFilter === 'empty' ? 'selected' : ''}>Vacíos / NULL</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="sort-col">Ordenar por columna</label>
+                        <select id="sort-col">
+                            <option value="">Orden original / Relevancia</option>
+                            ${colNames.map(c => `<option value="${esc(c)}" ${filtroEstado.sortCol === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="sort-mode">Modo y dirección</label>
+                        <select id="sort-mode">
+                            <option value="auto_asc" ${filtroEstado.sortMode === 'auto_asc' ? 'selected' : ''}>🔄 Automático (A→Z / 1→9)</option>
+                            <option value="auto_desc" ${filtroEstado.sortMode === 'auto_desc' ? 'selected' : ''}>🔄 Automático (Z→A / 9→1)</option>
+                            <option value="texto_asc" ${filtroEstado.sortMode === 'texto_asc' ? 'selected' : ''}>🔤 Letras (A → Z)</option>
+                            <option value="texto_desc" ${filtroEstado.sortMode === 'texto_desc' ? 'selected' : ''}>🔤 Letras (Z → A)</option>
+                            <option value="numero_asc" ${filtroEstado.sortMode === 'numero_asc' ? 'selected' : ''}>🔢 Números (Menor → Mayor)</option>
+                            <option value="numero_desc" ${filtroEstado.sortMode === 'numero_desc' ? 'selected' : ''}>🔢 Números (Mayor → Menor)</option>
+                            <option value="fecha_desc" ${filtroEstado.sortMode === 'fecha_desc' ? 'selected' : ''}>📅 Fecha (Más reciente)</option>
+                            <option value="fecha_asc" ${filtroEstado.sortMode === 'fecha_asc' ? 'selected' : ''}>📅 Fecha (Más antigua)</option>
+                            <option value="relevancia" ${filtroEstado.sortMode === 'relevancia' ? 'selected' : ''}>🎯 Mejor coincidencia</option>
+                        </select>
+                    </div>
+                    <div class="filter-actions" style="width:100%;">
+                        <label class="filter-check">
+                            <input type="checkbox" id="filter-fuzzy" ${filtroEstado.fuzzy ? 'checked' : ''}>
+                            <span>✨ Incluir palabras parecidas</span>
+                        </label>
+                        <button type="button" class="btn btn-ghost btn-sm" onclick="limpiarFiltrosTabla()">✖ Limpiar filtros</button>
+                        <span class="table-meta-count" id="filter-count"></span>
+                    </div>
                 </div>
                 <div class="data-table-wrap">
                 <table>
                     <thead><tr>
                         <th>Acciones</th>
-                        ${colNames.map(c => `<th>${esc(c)}</th>`).join('')}
+                        ${colNames.map(c => `<th class="sort-th" data-sort-th="${esc(c)}" title="Clic para ordenar por ${esc(c)}">${esc(c)}<span class="sort-indicator"></span></th>`).join('')}
                     </tr></thead>
-                    <tbody>
-                    <!-- Fila de inserción -->
-                    <tr class="insert-row">
-                        <td><button class="btn btn-primary btn-sm" onclick="insertarFila('${nombre}')">➕</button></td>
-                        ${colNames.map(c => {
-                            if (c === 'id') return '<td><input disabled placeholder="auto" style="opacity:0.4"></td>';
-                            return `<td><input id="new-${esc(c)}" placeholder="${esc(c)}"></td>`;
-                        }).join('')}
-                    </tr>
-            `;
+                    <tbody id="table-tbody"></tbody>
+                </table></div>`;
+            main.innerHTML = html;
 
-            for (const row of rows) {
-                html += `<tr data-id="${row.id}">`;
-                html += `<td class="row-actions">
-                    <button class="btn btn-danger btn-sm" onclick="eliminarFila('${nombre}', ${row.id})">🗑️</button>
-                </td>`;
-                for (const col of colNames) {
-                    const val = row[col] === null ? '' : row[col];
-                    const display = esc(String(val).length > 60 ? String(val).substring(0, 60) + '...' : val);
-                    const isId = col === 'id';
-                    html += `<td class="${isId ? '' : 'editable'}" 
-                                 title="${esc(val)}"
-                                 ${isId ? '' : `onclick="editarCelda(this, '${nombre}', ${row.id}, '${col}')"`}
-                             >${display}</td>`;
+            document.getElementById('filter-query').addEventListener('input', (e) => {
+                filtroEstado.query = e.target.value;
+                renderFilasTabla();
+            });
+            document.getElementById('filter-fuzzy').addEventListener('change', (e) => {
+                filtroEstado.fuzzy = e.target.checked;
+                renderFilasTabla();
+            });
+            document.getElementById('filter-col').addEventListener('change', (e) => {
+                filtroEstado.col = e.target.value;
+                renderFilasTabla();
+            });
+            document.getElementById('filter-nulls').addEventListener('change', (e) => {
+                filtroEstado.nullFilter = e.target.value;
+                renderFilasTabla();
+            });
+            document.getElementById('sort-col').addEventListener('change', (e) => {
+                filtroEstado.sortCol = e.target.value;
+                renderFilasTabla();
+            });
+            document.getElementById('sort-mode').addEventListener('change', (e) => {
+                filtroEstado.sortMode = e.target.value;
+                if (filtroEstado.sortMode !== 'relevancia' && !filtroEstado.sortCol && colNames.length > 0) {
+                    filtroEstado.sortCol = colNames[0];
+                    sincronizarControlesFiltro();
                 }
-                html += '</tr>';
+                renderFilasTabla();
+            });
+            document.querySelectorAll('th.sort-th').forEach(th => {
+                th.addEventListener('click', () => ordenarPorColumna(th.dataset.sortTh));
+            });
+
+            renderFilasTabla();
+        }
+
+        function renderFilasTabla() {
+            const tbody = document.getElementById('table-tbody');
+            if (!tbody) return;
+            const colNames = columnasTablaActual.map(c => c.column_name);
+            const filtradas = obtenerFilasFiltradasYOrdenadas();
+
+            const countEl = document.getElementById('filter-count');
+            if (countEl) {
+                countEl.textContent = `Mostrando ${filtradas.length} de ${filasTablaActual.length} filas`;
             }
 
-            html += '</tbody></table></div>';
-            main.innerHTML = html;
+            document.querySelectorAll('th.sort-th').forEach(th => {
+                const ind = th.querySelector('.sort-indicator');
+                if (!ind) return;
+                if (th.dataset.sortTh === filtroEstado.sortCol && filtroEstado.sortMode !== 'relevancia') {
+                    ind.textContent = filtroEstado.sortMode.endsWith('_desc') ? '▼' : '▲';
+                } else {
+                    ind.textContent = '';
+                }
+            });
+
+            let html = `
+                <tr class="insert-row">
+                    <td><button class="btn btn-primary btn-sm" onclick="insertarFila('${esc(tablaActual)}')">➕</button></td>
+                    ${colNames.map(c => {
+                        if (c === 'id') return '<td><input disabled placeholder="auto" style="opacity:0.4"></td>';
+                        return `<td><input id="new-${esc(c)}" placeholder="${esc(c)}"></td>`;
+                    }).join('')}
+                </tr>`;
+
+            if (filtradas.length === 0) {
+                html += `<tr><td colspan="${colNames.length + 1}" style="text-align:center; color:#888; padding:24px;">No hay filas que coincidan con los filtros actuales.</td></tr>`;
+            } else {
+                for (const item of filtradas) {
+                    const row = item.row;
+                    const rowId = tieneColumnaId ? row.id : null;
+                    html += `<tr data-id="${esc(rowId ?? '')}" data-idx="${item.idxOriginal}">`;
+                    html += `<td class="row-actions">
+                        ${tieneColumnaId && rowId !== null && rowId !== undefined
+                            ? `<button class="btn btn-danger btn-sm" onclick="eliminarFila(tablaActual, ${Number(rowId)})">🗑️</button>`
+                            : '<span style="color:#666;">—</span>'}
+                    </td>`;
+                    for (const col of colNames) {
+                        const esNull = row[col] === null || row[col] === undefined;
+                        const val = esNull ? '' : row[col];
+                        const display = esNull
+                            ? 'NULL'
+                            : esc(String(val).length > 60 ? String(val).substring(0, 60) + '...' : val);
+                        const editable = tieneColumnaId && col !== 'id' && rowId !== null && rowId !== undefined;
+                        html += `<td class="${editable ? 'editable' : ''} ${esNull ? 'null-val' : ''}"
+                                     title="${esc(val)}"
+                                     data-col="${esc(col)}"
+                                     data-row-id="${esc(rowId ?? '')}"
+                                     data-row-idx="${item.idxOriginal}"
+                                 >${display}</td>`;
+                    }
+                    html += '</tr>';
+                }
+            }
+
+            tbody.innerHTML = html;
+            tbody.querySelectorAll('td.editable').forEach(td => {
+                td.addEventListener('click', () => {
+                    editarCelda(td, tablaActual, Number(td.dataset.rowId), td.dataset.col, Number(td.dataset.rowIdx));
+                });
+            });
         }
 
         // --- EDITAR CELDA ---
-        function editarCelda(td, tabla, rowId, columna) {
+        function editarCelda(td, tabla, rowId, columna, rowIdx) {
             if (td.classList.contains('editing')) return;
-            const valorOriginal = td.getAttribute('title') || td.textContent;
+            const valorOriginal = td.getAttribute('title') || '';
             td.classList.add('editing');
+            td.classList.remove('null-val');
             td.textContent = '';
             const input = document.createElement('input');
             input.value = valorOriginal;
             let cancelado = false;
             input.addEventListener('blur', () => {
-                if (!cancelado) guardarCelda(input, tabla, rowId, columna);
+                if (!cancelado) guardarCelda(input, tabla, rowId, columna, rowIdx, valorOriginal);
             });
             input.addEventListener('keydown', (ev) => {
                 if (ev.key === 'Enter') input.blur();
                 if (ev.key === 'Escape') {
                     cancelado = true;
                     td.classList.remove('editing');
-                    td.textContent = valorOriginal.length > 60 ? valorOriginal.substring(0, 60) + '...' : valorOriginal;
+                    if (valorOriginal === '') {
+                        td.classList.add('null-val');
+                        td.textContent = 'NULL';
+                    } else {
+                        td.textContent = valorOriginal.length > 60 ? valorOriginal.substring(0, 60) + '...' : valorOriginal;
+                    }
                 }
             });
             td.appendChild(input);
@@ -397,11 +878,17 @@
             input.select();
         }
 
-        async function guardarCelda(input, tabla, rowId, columna) {
+        async function guardarCelda(input, tabla, rowId, columna, rowIdx, valorOriginal) {
             const nuevoValor = input.value;
             const td = input.parentElement;
             td.classList.remove('editing');
-            td.textContent = nuevoValor.length > 60 ? nuevoValor.substring(0, 60) + '...' : nuevoValor;
+            if (nuevoValor === '') {
+                td.classList.add('null-val');
+                td.textContent = 'NULL';
+            } else {
+                td.classList.remove('null-val');
+                td.textContent = nuevoValor.length > 60 ? nuevoValor.substring(0, 60) + '...' : nuevoValor;
+            }
             td.setAttribute('title', nuevoValor);
 
             try {
@@ -412,8 +899,12 @@
                 });
                 const data = await res.json();
                 if (data.success) {
+                    const item = filasTablaActual.find(f => f.idxOriginal === rowIdx);
+                    if (item) item.row[columna] = nuevoValor === '' ? null : nuevoValor;
                     toast('✅ Guardado');
                 } else {
+                    td.setAttribute('title', valorOriginal);
+                    td.textContent = valorOriginal.length > 60 ? valorOriginal.substring(0, 60) + '...' : valorOriginal;
                     toast('❌ Error: ' + data.error, true);
                 }
             } catch (e) {

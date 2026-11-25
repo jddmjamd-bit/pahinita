@@ -787,6 +787,59 @@ class RenderAcceptanceCheck {
         assertMonto(sobrantesEsperados, despues.get("gananciaAdminLeaderboard").getAsBigDecimal());
         assertMonto(gananciaEsperada.add(sobrantesEsperados), despues.get("gananciaTotalCombinadaAdmin").getAsBigDecimal());
 
+        JsonObject actualDespues = despues.getAsJsonObject("desgloseActual");
+        JsonObject historicoDespues = despues.getAsJsonObject("desgloseHistorico");
+        JsonObject descontadoDespues = despues.getAsJsonObject("desgloseDescontado");
+        assertNotNull(actualDespues);
+        assertNotNull(historicoDespues);
+        assertNotNull(descontadoDespues);
+        assertMonto(BigDecimal.ZERO, actualDespues.get("misiones").getAsBigDecimal());
+        assertMonto(BigDecimal.ZERO, actualDespues.get("logros").getAsBigDecimal());
+        assertMonto(BigDecimal.ZERO, actualDespues.get("devolucion").getAsBigDecimal());
+        assertMonto(BigDecimal.ZERO, actualDespues.get("referidos").getAsBigDecimal());
+        JsonObject poolsVivos = dao.queryOne(
+                "SELECT (COALESCE(dia, 0) + COALESCE(semana, 0) + COALESCE(mes, 0) + COALESCE(ano, 0)) AS total FROM leaderboard_pools WHERE id = 1");
+        assertMonto(poolsVivos.get("total").getAsBigDecimal(), actualDespues.get("leaderboard").getAsBigDecimal());
+        assertTrue(descontadoDespues.get("leaderboard").getAsBigDecimal().compareTo(BigDecimal.ZERO) > 0,
+                "Después de ejecutar cortes del ranking, desgloseActual debe descontar lo pagado/transferido.");
+        JsonObject pozoSorteoVivo = dao.queryOne("SELECT monto AS total FROM raffle_pool WHERE id = 1");
+        assertMonto(pozoSorteoVivo.get("total").getAsBigDecimal(), actualDespues.get("sorteos").getAsBigDecimal());
+
+        // Verificar aislamiento en Zona de Pruebas (desgloseActual vs desgloseHistorico)
+        admin.cambiarSuscripcionUsuario(adminId, p1, "prueba");
+        admin.cambiarSuscripcionUsuario(adminId, p2, "prueba");
+        ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, () -> {
+            assertTrue(wallet.depositar(p1, new BigDecimal("10000"), "QA Zona Prueba Stats").isSuccess());
+            assertTrue(wallet.depositar(p2, new BigDecimal("10000"), "QA Zona Prueba Stats").isSuccess());
+            String salaPrueba = "qa-stats-zp-" + UUID.randomUUID();
+            dao.update("INSERT INTO active_matches (sala_id, player1_id, player1_username, player2_id, player2_username, "
+                    + "last_modo, last_dinero) VALUES (?, ?, ?, ?, ?, 'friendly', '10000')",
+                    salaPrueba, p1, nombre1, p2, nombre2);
+            var iniZp = wallet.iniciarPartidaTorneo(p1, nombre1, p2, nombre2, salaPrueba, "friendly",
+                    new BigDecimal("10000"), "#PQL123", "#PQL124", "2026-10-22T00:00:00Z");
+            assertTrue(iniZp.success);
+            assertTrue(wallet.liquidar(p1, p2, new BigDecimal("10000"), iniZp.matchId,
+                    "comision_match", "en_curso", nombre1, null).success);
+            JsonObject statsZpAntesCorte = admin.estadisticas(adminId);
+            assertMonto(new BigDecimal("300.00"), statsZpAntesCorte.getAsJsonObject("desgloseActual").get("leaderboard").getAsBigDecimal());
+            assertMonto(new BigDecimal("400.00"), statsZpAntesCorte.getAsJsonObject("desgloseActual").get("sorteos").getAsBigDecimal());
+            assertMonto(BigDecimal.ZERO, statsZpAntesCorte.getAsJsonObject("desgloseActual").get("referidos").getAsBigDecimal());
+
+            leaderboard.premiarYResetear("dia", "victorias_dia", "qa-zp-" + UUID.randomUUID().toString().replace("-", "").substring(0, 10));
+            JsonObject statsZpTrasCorte = admin.estadisticas(adminId);
+            assertMonto(new BigDecimal("225.00"), statsZpTrasCorte.getAsJsonObject("desgloseActual").get("leaderboard").getAsBigDecimal());
+            assertMonto(new BigDecimal("300.00"), statsZpTrasCorte.getAsJsonObject("desgloseHistorico").get("leaderboard").getAsBigDecimal());
+            assertMonto(new BigDecimal("75.00"), statsZpTrasCorte.getAsJsonObject("desgloseDescontado").get("leaderboard").getAsBigDecimal());
+        });
+        admin.reiniciarZonaPruebas(adminId);
+        ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, () -> {
+            JsonObject statsZpReset = admin.estadisticas(adminId);
+            assertMonto(BigDecimal.ZERO, statsZpReset.getAsJsonObject("desgloseActual").get("leaderboard").getAsBigDecimal());
+            assertMonto(BigDecimal.ZERO, statsZpReset.getAsJsonObject("desgloseHistorico").get("leaderboard").getAsBigDecimal());
+        });
+        admin.cambiarSuscripcionUsuario(adminId, p1, "free");
+        admin.cambiarSuscripcionUsuario(adminId, p2, "free");
+
         JsonObject filaJugador = null;
         for (var elem : despues.getAsJsonArray("listaUsuarios")) {
             JsonObject u = elem.getAsJsonObject();
@@ -978,6 +1031,11 @@ class RenderAcceptanceCheck {
         panelDb.actualizarCelda("users", idTemporal, "username", usernameTemporal);
         assertEquals(usernameTemporal, dao.queryOne("SELECT username FROM users WHERE id = ?", idTemporal)
                 .get("username").getAsString());
+
+        JsonObject filtradoDb = panelDb.datosTabla("users", usernameTemporal, "username", true, "username", "asc", "texto");
+        assertEquals(1, filtradoDb.get("filteredCount").getAsInt());
+        assertEquals(usernameTemporal, filtradoDb.getAsJsonArray("rows").get(0).getAsJsonObject().get("username").getAsString());
+
         assertThrows(ServicioException.class, () -> panelDb.actualizarCelda("users", idTemporal,
                 "saldo", "999999"));
         assertThrows(ServicioException.class, () -> panelDb.actualizarCelda("wallet_ledger", 1,

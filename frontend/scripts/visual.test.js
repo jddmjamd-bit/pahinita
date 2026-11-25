@@ -316,3 +316,55 @@ test('Celular (390x844): /auth?ref=DEMO2026 y /referidos (menú ☰) se adaptan 
         await context.close();
     }
 });
+
+test('PC (1280x800) y Celular (390x844): Vista Previa /match muestra redirección de 5s a Clash Royale sin errores ni desbordes', async (t) => {
+    if (!browser) {
+        t.skip('No hay Chrome/Edge local disponible en este entorno.');
+        return;
+    }
+
+    for (const cfg of [
+        { name: 'PC', viewport: { width: 1280, height: 800 }, mobile: false },
+        { name: 'Celular', viewport: { width: 390, height: 844 }, mobile: true }
+    ]) {
+        const context = await browser.newContext({ viewport: cfg.viewport });
+        const page = await context.newPage();
+        const pageErrors = [];
+        page.on('pageerror', (err) => pageErrors.push(err.message));
+
+        try {
+            await page.goto(`${baseUrl}/auth`, { waitUntil: 'networkidle' });
+            await page.locator('.auth-preview-btn').click();
+            await page.locator('.preview-mode-banner').waitFor({ state: 'visible' });
+
+            if (cfg.mobile) {
+                await page.locator('button.mobile-menu-btn').click();
+                await page.locator('.sidebar.open .channel', { hasText: 'Jugar' }).click();
+            } else {
+                await page.locator('.sidebar .channel', { hasText: 'Jugar' }).click();
+            }
+
+            await page.locator('.match-container').waitFor({ state: 'visible' });
+            await page.locator('.match-preview-tab', { hasText: 'Partida en curso' }).click();
+            await page.locator('.clash-redirect-banner').waitFor({ state: 'visible' });
+
+            const bannerText = await page.locator('.clash-redirect-banner').innerText();
+            assert.match(bannerText, /buscando tu batalla en la API/i);
+            assert.match(bannerText, /5s/);
+            const href = await page.locator('.clash-open-link-btn').getAttribute('href');
+            assert.equal(href, 'https://link.clashroyale.com');
+
+            await ensureTheme(page, 'dark');
+            await assertNoHorizontalOverflow(page, `${cfg.name} /match en_curso oscuro`);
+            await maybeScreenshot(page, `visual-match-redirect-${cfg.name.toLowerCase()}-dark.png`);
+
+            await ensureTheme(page, 'light');
+            await assertNoHorizontalOverflow(page, `${cfg.name} /match en_curso claro`);
+            await maybeScreenshot(page, `visual-match-redirect-${cfg.name.toLowerCase()}-light.png`);
+
+            assert.deepEqual(pageErrors, [], `Errores JS inesperados (${cfg.name}): ${pageErrors.join('; ')}`);
+        } finally {
+            await context.close();
+        }
+    }
+});

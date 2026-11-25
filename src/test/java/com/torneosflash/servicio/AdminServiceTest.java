@@ -40,7 +40,7 @@ class AdminServiceTest {
                     fila.addProperty("total", new BigDecimal("150000.00"));
                     return fila;
                 }
-                if (sql.contains("FROM leaderboard_cut_payments")) {
+                if (sql.contains("FROM leaderboard_cut_payments") && sql.contains("user_id = ?")) {
                     assertEquals(7, params[0]);
                     fila.addProperty("total", new BigDecimal("375.50"));
                     return fila;
@@ -98,6 +98,27 @@ class AdminServiceTest {
         assertMonto("1250.00", desglose.get("ganancia").getAsBigDecimal());
         assertMonto("375.50", stats.get("gananciaAdminLeaderboard").getAsBigDecimal());
 
+        // Histórico vs Actual descontado por categoría
+        JsonObject desgloseHistorico = stats.getAsJsonObject("desgloseHistorico");
+        JsonObject desgloseActual = stats.getAsJsonObject("desgloseActual");
+        JsonObject desgloseDescontado = stats.getAsJsonObject("desgloseDescontado");
+        assertNotNull(desgloseHistorico);
+        assertNotNull(desgloseActual);
+        assertNotNull(desgloseDescontado);
+        assertMonto("1000.00", desgloseHistorico.get("sorteos").getAsBigDecimal());
+        assertMonto("1000.00", desgloseActual.get("sorteos").getAsBigDecimal());
+        assertMonto("750.00", desgloseHistorico.get("leaderboard").getAsBigDecimal());
+        assertMonto("750.00", desgloseActual.get("leaderboard").getAsBigDecimal());
+        assertMonto("0", desgloseActual.get("misiones").getAsBigDecimal());
+        assertMonto("0", desgloseActual.get("logros").getAsBigDecimal());
+        assertMonto("0", desgloseActual.get("devolucion").getAsBigDecimal());
+        assertMonto("0", desgloseActual.get("referidos").getAsBigDecimal());
+        assertMonto("500.00", desgloseDescontado.get("misiones").getAsBigDecimal());
+        assertMonto("250.00", desgloseDescontado.get("logros").getAsBigDecimal());
+        assertMonto("750.00", desgloseDescontado.get("devolucion").getAsBigDecimal());
+        assertMonto("500.00", desgloseDescontado.get("referidos").getAsBigDecimal());
+        assertMonto("1250.00", desgloseActual.get("ganancia").getAsBigDecimal());
+
         // La nueva zona combinada suma base + divisiones inactivas + sobrantes sin alterar las categorías individuales
         assertMonto("1250.00", stats.get("gananciaBaseComisionesAdmin").getAsBigDecimal());
         assertMonto("1500.00", stats.get("gananciaInactivasAdmin").getAsBigDecimal());
@@ -126,6 +147,82 @@ class AdminServiceTest {
         assertMonto("0", segundo.get("ganancia_inactivas_admin").getAsBigDecimal());
         assertMonto("0", segundo.get("ganancia_efectiva_admin").getAsBigDecimal());
         assertMonto("0", segundo.get("comision_total_aportada").getAsBigDecimal());
+    }
+
+    @Test
+    void estadisticasDescuentaPagosDeLeaderboardYSorteosEnActualManteniendoHistorico() {
+        Map<String, BigDecimal> montosPorCategoria = Map.of(
+                "sorteos", new BigDecimal("5000.00"),
+                "misiones", new BigDecimal("1000.00"),
+                "logros", new BigDecimal("500.00"),
+                "leaderboard", new BigDecimal("3000.00"),
+                "devolucion", new BigDecimal("1500.00"),
+                "ganancia", new BigDecimal("2500.00"),
+                "referidos", new BigDecimal("1000.00")
+        );
+
+        GenericDAO daoFalso = new GenericDAO(null) {
+            @Override
+            public JsonObject queryOne(String sql, Object... params) {
+                JsonObject fila = new JsonObject();
+                if (sql.contains("FROM leaderboard_pools WHERE id = 1")) {
+                    fila.addProperty("total", new BigDecimal("600.00"));
+                    return fila;
+                }
+                if (sql.contains("FROM leaderboard_cut_payments WHERE estado = 'pendiente'")) {
+                    fila.addProperty("total", new BigDecimal("150.00"));
+                    return fila;
+                }
+                if (sql.contains("FROM raffle_pool WHERE id = 1")) {
+                    fila.addProperty("total", new BigDecimal("2000.00"));
+                    return fila;
+                }
+                if (sql.contains("FROM leaderboard_cut_payments")) {
+                    fila.addProperty("total", new BigDecimal("900.00"));
+                    return fila;
+                }
+                if (sql.contains("FROM admin_wallet WHERE categoria = ?")) {
+                    String cat = (String) params[0];
+                    fila.addProperty("total", montosPorCategoria.getOrDefault(cat, BigDecimal.ZERO));
+                    return fila;
+                }
+                if (sql.contains("FROM admin_wallet WHERE monto > 0")) {
+                    fila.addProperty("total", new BigDecimal("14500.00"));
+                    return fila;
+                }
+                if (sql.contains("FROM users")) {
+                    fila.addProperty("total", new BigDecimal("100000.00"));
+                    return fila;
+                }
+                return null;
+            }
+
+            @Override
+            public ArrayList<JsonObject> query(String sql, Object... params) {
+                return new ArrayList<>();
+            }
+        };
+
+        AdminService servicio = new AdminService(daoFalso, null, null, null, null, null);
+        JsonObject stats = servicio.estadisticas(7);
+
+        JsonObject actual = stats.getAsJsonObject("desgloseActual");
+        JsonObject historico = stats.getAsJsonObject("desgloseHistorico");
+        JsonObject descontado = stats.getAsJsonObject("desgloseDescontado");
+
+        assertMonto("3000.00", historico.get("leaderboard").getAsBigDecimal());
+        assertMonto("750.00", actual.get("leaderboard").getAsBigDecimal());
+        assertMonto("2250.00", descontado.get("leaderboard").getAsBigDecimal());
+
+        assertMonto("5000.00", historico.get("sorteos").getAsBigDecimal());
+        assertMonto("2000.00", actual.get("sorteos").getAsBigDecimal());
+        assertMonto("3000.00", descontado.get("sorteos").getAsBigDecimal());
+
+        assertMonto("0", actual.get("referidos").getAsBigDecimal());
+        assertMonto("0", actual.get("misiones").getAsBigDecimal());
+        assertMonto("0", actual.get("logros").getAsBigDecimal());
+        assertMonto("0", actual.get("devolucion").getAsBigDecimal());
+        assertMonto("2500.00", actual.get("ganancia").getAsBigDecimal());
     }
 
     @Test

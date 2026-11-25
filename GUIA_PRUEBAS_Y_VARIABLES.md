@@ -390,7 +390,7 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | J4 | Resolver disputa: asignar ganador | Liquidación atómica, comisiones distribuidas, estadísticas actualizadas. |
 | J5 | Resolver disputa de partida ya finalizada | Rechazado (idempotencia `WHERE estado = 'disputa'`). |
 | J6 | `GET /api/admin/check-ip` | Muestra IP efectiva del rate limit, configuración de hops y XFF recibido. |
-| J7 | Revisar pestaña `Finanzas` en `/admin` *(backend/HTTP automatizado en `AdminServiceTest` y `RenderAcceptanceCheck`)* | Muestra la zona combinada `Ganancia por Partidas (55% = 25% Base + 30% Inactivas) + Sobrantes de Rankings = Total Combinado Admin` sin alterar cada apartado individual en `admin_wallet`, marca `Misiones`, `Logros` y `Devolución` como inactivas redirigidas al admin, y en cada usuario muestra el aporte dividido entre 2 de las 7 categorías (`ganancia`, `sorteos`, `misiones`, `logros`, `leaderboard`, `devolucion`, `referidos`). |
+| J7 | Revisar pestaña `Finanzas` en `/admin` *(backend/HTTP automatizado en `AdminServiceTest` y `RenderAcceptanceCheck`)* | Muestra la zona combinada `Ganancia por Partidas (55% = 25% Base + 30% Inactivas) + Sobrantes de Rankings = Total Combinado Admin` sin alterar cada apartado individual en `admin_wallet`; en `Desglose de Comisiones`, `Histórico` mantiene el acumulado y `Actual` descuenta cortes/pagos en `Leaderboard` (`leaderboard_pools`) y reservas en `Sorteos` (`raffle_pool`), dejando en `$0` `Misiones`, `Logros`, `Devolución` y `Referidos`. En cada usuario muestra el aporte dividido entre 2 de las 7 categorías (`ganancia`, `sorteos`, `misiones`, `logros`, `leaderboard`, `devolucion`, `referidos`). |
 
 ### 🗄️ K — Panel de Base de Datos (`/admin-db`)
 
@@ -402,6 +402,7 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | K4 | Backup completo | Archivo `pg_dump` descargado. |
 | K5 | Restore con frase de confirmación | Tráfico pausado → `pg_restore --single-transaction` → Flyway migrations → tráfico reanudado. Sesiones anteriores revocadas. |
 | K6 | Restore con archivo corrupto o sin tablas financieras | Rechazado antes de tocar la BD. |
+| K7 | Filtros, búsqueda por palabras parecidas y ordenamiento en `/admin-db` *(lógica automatizada en `DbAdminServiceTest` y `RenderAcceptanceCheck`; UI en `P20`)* | Permite buscar por múltiples palabras, sin tildes o con errores tipográficos (`fuzzy`), filtrar por columna o valores vacíos/con valor, y ordenar tablas y filas alfabéticamente (A→Z / Z→A), numéricamente o por fecha dejando nulos al final. |
 
 ### 🧾 L — Evidencias de Pago
 
@@ -457,6 +458,7 @@ Los casos A–Q a continuación contienen los recorridos de aceptación completo
 | P15 | Sistema de referidos en frontend (`/auth?ref=` y `/referidos`) | Entrar por `/auth?ref=CODIGO` abre automáticamente el formulario de registro con el código prellenado y opcional; `/referidos` permite copiar link solo o con mensaje corto editable, configurar comisión compartida (`0%`–`100%`) general o por referido y ver estadísticas/pagos usando `llamarApi` y `DEMO_REFERIDOS` en vista previa. |
 | P16 | Notificaciones en vivo e historial de movimientos (`/finance` y `/admin`) | Cada notificación de movimiento y tarjeta de `📋 Movimientos` muestra estado **gris** (`Pendiente` / `En curso`), **verde** (`+$` ingreso) o **rojo** (`-$` salida/rechazo), hora exacta y origen detallado (Nequi Manual, Wompi, Partida vs rival, Referidos, Rankings o Abonos), actualizándose en vivo con `movimiento_actualizado`. |
 | P17 | Panel del rol moderador y Nequis dinámicos (`/admin` y `/finance`) | Entra con el botón `👑 Admin` (sin mostrar la palabra "Moderador"), ve solo 4 pestañas (`Pagos`, `Movimientos`, `Finanzas`, `Nequi`), puede publicar evidencias en `pagos` de sus usuarios (bloqueado en `anuncios`) y en `/finance` sus referidos ven únicamente los Nequis registrados por ese moderador. |
+| P19 | Espera de 5 s y redirección a Clash Royale al aceptar ambos (`/match`) | Al emitirse `juego_iniciado`, muestra durante 5 s el aviso de búsqueda en API y redirige a `https://link.clashroyale.com` (con botón directo, opción para quedarse y vista previa en `Partida en curso`, sin repetir en reconexiones). |
 
 ### 🔗 R — Sistema de Referidos (Prioridad 6.5)
 

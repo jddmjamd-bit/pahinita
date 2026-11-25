@@ -138,7 +138,16 @@ public class RutasDbAdmin {
         app.get("/api/db-admin/tables", ctx -> ctx.json(dbAdmin.listarTablas()));
 
         // GET /api/db-admin/table/:name
-        app.get("/api/db-admin/table/{name}", ctx -> ctx.json(dbAdmin.datosTabla(ctx.pathParam("name"))));
+        app.get("/api/db-admin/table/{name}", ctx -> {
+            String q = ctx.queryParam("q");
+            String col = ctx.queryParam("col");
+            String fuzzyParam = ctx.queryParam("fuzzy");
+            boolean aproximada = fuzzyParam == null || !"false".equalsIgnoreCase(fuzzyParam.trim());
+            String sort = ctx.queryParam("sort");
+            String dir = ctx.queryParam("dir");
+            String mode = ctx.queryParam("mode");
+            ctx.json(dbAdmin.datosTabla(ctx.pathParam("name"), q, col, aproximada, sort, dir, mode));
+        });
 
         // POST /api/db-admin/table/:name/update
         app.post("/api/db-admin/table/{name}/update", ctx -> {

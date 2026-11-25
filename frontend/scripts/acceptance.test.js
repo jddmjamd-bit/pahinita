@@ -33,6 +33,7 @@ const financeJsx = await readFile(new URL('../src/pages/Finance.jsx', import.met
 const faqJs = await readFile(new URL('../src/data/faq.js', import.meta.url), 'utf8')
 const vozDiscordJsx = await readFile(new URL('../src/components/VozDiscord.jsx', import.meta.url), 'utf8')
 const browserPushJs = await readFile(new URL('../src/services/browserPush.js', import.meta.url), 'utf8')
+const adminDbHtml = await readFile(new URL('../../public/admin-db.html', import.meta.url), 'utf8')
 
 test('P2: las rutas privadas esperan la sesión, envían al login si no hay usuario y dejan /faq pública', () => {
   assert.match(app, /RUTAS_PUBLICAS\s*=\s*\[[^\]]*'\/faq'[^\]]*\]/)
@@ -97,7 +98,12 @@ test('P9: Admin Finanzas muestra la zona combinada de ganancias y el aporte por 
   assert.match(adminJsx, /gananciaComisionesAdmin/)
   assert.match(adminJsx, /gananciaAdminLeaderboard/)
   assert.match(adminJsx, /gananciaTotalCombinadaAdmin/)
+  assert.match(adminJsx, /desgloseActual/)
+  assert.match(adminJsx, /desgloseHistorico/)
+  assert.match(adminJsx, /desgloseDescontado/)
+  assert.match(adminJsx, /Repartido a referidores \/ Admin/)
   assert.match(adminJsx, /Inactiva → Suma a Ganancia Admin/)
+  assert.match(adminCss, /\.bd-deducted\b/)
   for (const campo of [
     'ganancia_generada',
     'gen_sorteos',
@@ -316,4 +322,32 @@ test('P18: Recordatorio de link de amistad y chat privado habilitado en juego co
   assert.match(lobbyJsx, /notif-permission-banner/)
   assert.match(lobbyJsx, /solicitarPermisoYRegistrarPush/)
   assert.match(adminJsx, /Registrado solo en el panel admin/)
+})
+
+test('P19: Al iniciar partida tras aceptar ambos, espera 5s mostrando búsqueda en API y redirige a https://link.clashroyale.com', () => {
+  assert.match(store, /REDIRECCION_CLASH_SEGUNDOS\s*=\s*5/)
+  assert.match(store, /redireccionClashHastaMs/)
+  assert.match(store, /torneos:navegar/)
+  assert.match(matchJsx, /const ENLACE_CLASH_ROYALE\s*=\s*['"]https:\/\/link\.clashroyale\.com['"]/)
+  assert.match(matchJsx, /clash-redirect-banner/)
+  assert.match(matchJsx, /Quedarme en esta página/)
+  assert.match(matchJsx, /Vista previa: Partida en curso/)
+  assert.match(matchCss, /\.clash-redirect-banner\b/)
+  assert.match(matchCss, /\.clash-open-link-btn\b/)
+  assert.doesNotMatch(matchJsx + JSON.stringify(PREGUNTAS), /\bapuestas?\b|\bapostar\b/i)
+})
+
+test('P20: Panel de BD (/admin-db) incluye filtros por palabras parecidas, columnas y ordenamiento seguro con escape XSS', () => {
+  assert.match(adminDbHtml, /id="table-search"/)
+  assert.match(adminDbHtml, /id="table-sort"/)
+  assert.match(adminDbHtml, /id="filter-query"/)
+  assert.match(adminDbHtml, /id="filter-fuzzy"/)
+  assert.match(adminDbHtml, /id="filter-col"/)
+  assert.match(adminDbHtml, /id="filter-nulls"/)
+  assert.match(adminDbHtml, /id="sort-col"/)
+  assert.match(adminDbHtml, /id="sort-mode"/)
+  assert.match(adminDbHtml, /levenshteinAcotado/)
+  assert.match(adminDbHtml, /similitudBigramas/)
+  assert.match(adminDbHtml, /ordenarPorColumna/)
+  assert.match(adminDbHtml, /function esc\(/)
 })

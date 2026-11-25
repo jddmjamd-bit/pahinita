@@ -11,6 +11,18 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-24 — Redirección 5s a Clash Royale, filtros en Panel DB y saldo Actual descontado en Finanzas Admin (Antigravity)
+- **Redirección automática a Clash Royale tras 5s (`useAppStore.js`, `Match.jsx`, `Match.css`):**
+  - Al recibir `juego_iniciado` (ambos jugadores aceptaron comenzar la partida), se programa una espera de 5 segundos (`REDIRECCION_CLASH_SEGUNDOS = 5`) una sola vez por `matchId` y se navega a `/match` mostrando el aviso `.clash-redirect-banner` de búsqueda en la API antes de abrir `https://link.clashroyale.com` (con opción `Quedarme en esta página`). Se evita bucle al reconectar (`restaurar_partida`) o cambiar de estado y se preserva el conteo exacto de 2 `<VozDiscord enPartida={true} />`.
+- **Filtros, búsqueda aproximada y ordenación en Panel DB (`DbAdminService.java`, `RutasDbAdmin.java`, `public/admin-db.html`):**
+  - Añadidos filtros en backend (`datosTabla`, `filtrarYOrdenarFilas`) y query params (`q`, `col`, `fuzzy`, `sort`, `dir`, `mode`) en `GET /api/db-admin/table/{name}` con normalización NFD sin tildes, búsqueda por palabras parecidas (prefijos, Levenshtein acotado y bigramas Dice) y ordenación española (`Collator`), numérica y cronológica dejando nulos al final.
+  - Añadido buscador/orden de tablas y barra `.filter-toolbar` en `public/admin-db.html` con cabeceras ordenables `th.sort-th`.
+- **Desglose `Actual` vs `Histórico` descontado en Finanzas Admin (`AdminService.java`, `Admin.jsx`, `Admin.css`):**
+  - Conservado `desglose` e incorporados `desgloseHistorico`, `desgloseActual`, `desgloseDescontado` y `calcularActualCategoria(...)` (`BigDecimal`) para reflejar en `Actual` los descuentos reales de `leaderboard` y `sorteos`, además de fijar en `$0` las categorías inactivas y `referidos`.
+- **Documentación y pruebas:** Actualizados `faq.js`, `ChatbotService.java`, `ARCHITECTURE.md`, `GUIA_PRUEBAS_Y_VARIABLES.md`, `AdminServiceTest.java`, `DbAdminServiceTest.java`, `RenderAcceptanceCheck.java`, `acceptance.test.js` (`P9`, `P19`, `P20`) y `visual.test.js`. Verificado con `.\mvnw.cmd clean verify` (87 pruebas Surefire OK; `RenderAcceptanceCheck` compilado para `TEST_DATABASE_URL`), `npm run build`, `npm run test:acceptance` (19/19), `npm run lint` (0 errores) y `npm run test:visual` (4/4).
+Archivos: `useAppStore.js`, `Match.jsx`, `Match.css`, `DbAdminService.java`, `RutasDbAdmin.java`, `admin-db.html`, `AdminService.java`, `Admin.jsx`, `Admin.css`, `faq.js`, `ChatbotService.java`, `AdminServiceTest.java`, `DbAdminServiceTest.java`, `RenderAcceptanceCheck.java`, `acceptance.test.js`, `visual.test.js`, `ARCHITECTURE.md`, `GUIA_PRUEBAS_Y_VARIABLES.md`, `CHANGELOG.md`
+
+---
 ## 2026-11-17 — Acceso de cuentas moderador a Zona de Pruebas asignado desde Admin (Antigravity)
 - **`ConexionDB.java` y `AdminService.java`:**
   - `ConexionDB.obtenerEstadoZonaUsuario` ahora resuelve `ZONA_PRUEBA` cuando una cuenta `tipo_suscripcion = 'moderador'` tiene `zona_admin = 'prueba'` en la base principal, manteniendo su rol `moderador`, y `resumenZonaPruebas` los contabiliza en pruebas.

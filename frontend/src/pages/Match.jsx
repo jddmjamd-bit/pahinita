@@ -7,6 +7,7 @@ import './Match.css';
 import VozDiscord from '../components/VozDiscord';
 
 const URL_SEGURA_REGEX = /(https?:\/\/[^\s]+)/g;
+const ENLACE_CLASH_ROYALE = 'https://link.clashroyale.com';
 
 const formatearRelojIndividual = (ms) => {
     const totalSeg = Math.max(0, Math.ceil((Number(ms) || 0) / 1000));
@@ -72,7 +73,7 @@ export default function Match() {
     const [mensajesPrivadosSinLeer, setMensajesPrivadosSinLeer] = useState(0);
     const [ahoraMs, setAhoraMs] = useState(() => Date.now());
     const [mostrarVariables, setMostrarVariables] = useState(false);
-    const [demoSalaActiva, setDemoSalaActiva] = useState(false);
+    const [demoVistaMatch, setDemoVistaMatch] = useState('buscar'); // 'buscar' | 'sala' | 'en_curso'
 
     const currentUser = useAppStore(state => state.user);
     const modoVistaPrevia = useAppStore(state => state.modoVistaPrevia);
@@ -154,6 +155,12 @@ export default function Match() {
                     matchState.timerNegociacion?.activo ||
                     (matchState.rivalDesconectado && matchState.rivalDesconectado.tiempo !== 'indefinido')
                 )
+            ) || (
+                matchState.inMatch && view === 'game_result'
+                && Boolean(matchState.redireccionClashHastaMs)
+                && !matchState.redireccionClashEjecutada
+                && !apiResult
+                && !flujoCompletado
             )
         );
         if (!hayRelojEnVivo) return undefined;
@@ -172,7 +179,42 @@ export default function Match() {
         }, intervalo);
         return () => clearInterval(tick);
     }, [matchState.inMatch, view, matchState.timerNegociacion?.activo, matchState.rivalDesconectado,
-        busquedasVisibles, cargarEstadoMatchmaking]);
+        matchState.redireccionClashHastaMs, matchState.redireccionClashEjecutada,
+        apiResult, flujoCompletado, busquedasVisibles, cargarEstadoMatchmaking]);
+
+    const abrirClashRoyale = useCallback(() => {
+        if (typeof window === 'undefined') return;
+        const nuevaVentana = window.open(ENLACE_CLASH_ROYALE, '_blank', 'noopener,noreferrer');
+        if (!nuevaVentana && window.location && typeof window.location.assign === 'function') {
+            window.location.assign(ENLACE_CLASH_ROYALE);
+        }
+    }, []);
+
+    const cancelarRedireccionClash = useCallback(() => {
+        setMatchState({ redireccionClashHastaMs: null, redireccionClashEjecutada: false });
+    }, [setMatchState]);
+
+    useEffect(() => {
+        if (esVistaPrevia || apiResult || flujoCompletado) return undefined;
+        const hastaMs = Number(matchState.redireccionClashHastaMs);
+        if (!Number.isFinite(hastaMs) || hastaMs <= 0 || matchState.redireccionClashEjecutada) {
+            return undefined;
+        }
+        const restanteMs = Math.max(0, hastaMs - Date.now());
+        const timer = setTimeout(() => {
+            setMatchState({ redireccionClashHastaMs: null, redireccionClashEjecutada: true });
+            abrirClashRoyale();
+        }, restanteMs);
+        return () => clearTimeout(timer);
+    }, [
+        esVistaPrevia,
+        apiResult,
+        flujoCompletado,
+        matchState.redireccionClashHastaMs,
+        matchState.redireccionClashEjecutada,
+        setMatchState,
+        abrirClashRoyale
+    ]);
 
     useEffect(() => {
         // Auto-scroll chat
@@ -252,13 +294,23 @@ export default function Match() {
             setBtnState({ text: '🎮 COMENZAR', disabled: false, cssClass: 'enabled' });
         };
 
-        const onJuegoIniciado = () => {
+        const onJuegoIniciado = (data) => {
             setShowConfirmModal(false);
             setChatAbiertoEnJuego(false);
             setMensajesPrivadosSinLeer(0);
             setView('game_result');
             setApiStatusText('Buscando resultado en Clash Royale...');
-            setMatchState({ inMatch: true, status: 'playing', rivalDesconectado: null, timerNegociacion: null });
+            const actual = useAppStore.getState().matchState;
+            const matchIdNuevo = Number(data?.matchId) || actual?.matchId || null;
+            const yaTieneRedireccion = Boolean(actual?.redireccionClashHastaMs || actual?.redireccionClashEjecutada);
+            setMatchState({
+                inMatch: true,
+                status: 'playing',
+                matchId: matchIdNuevo,
+                rivalDesconectado: null,
+                timerNegociacion: null,
+                ...(yaTieneRedireccion ? {} : { redireccionClashHastaMs: Date.now() + 5000, redireccionClashEjecutada: false })
+            });
         };
 
         const onResultadoApi = (data) => {
@@ -271,7 +323,7 @@ export default function Match() {
             };
             setView('game_result');
             setApiResult(resultado);
-            setMatchState({ status: 'finished', resultado });
+            setMatchState({ status: 'finished', resultado, redireccionClashHastaMs: null });
         };
 
         const onMensajePrivado = (data) => {
@@ -300,18 +352,21 @@ export default function Match() {
                 setMatchState({
                     inMatch: true,
                     salaId: data.salaId,
+                    matchId: data.matchId || null,
                     rival: data.rival || null,
                     maxMonto: data.maxMonto || 10000,
                     status: 'playing',
                     resultado: null,
                     rivalDesconectado: desconexionPrev,
-                    timerNegociacion: null
+                    timerNegociacion: null,
+                    redireccionClashHastaMs: null
                 });
             } else {
                 setView('private');
                 setMatchState({
                     inMatch: true,
                     salaId: data.salaId,
+                    matchId: null,
                     rival: data.rival || null,
                     maxMonto: data.maxMonto || 10000,
                     status: 'negotiating',
@@ -320,7 +375,8 @@ export default function Match() {
                     rivalDesconectado: desconexionPrev,
                     timerNegociacion: data.timerNegociacion
                         ? { ...data.timerNegociacion, recibidoEn: Date.now() }
-                        : null
+                        : null,
+                    redireccionClashHastaMs: null
                 });
             }
         };
@@ -363,13 +419,13 @@ export default function Match() {
             if (!useAppStore.getState().matchState.inMatch) return;
             setShowConfirmModal(false);
             setFlujoCompletado(true);
-            setMatchState({ status: 'finished' });
+            setMatchState({ status: 'finished', redireccionClashHastaMs: null });
         };
         const onDisputa = (data) => {
             const resultado = { disputa: true, mensaje: data?.mensaje || 'Resultado no claro, disputa creada.' };
             setView('game_result');
             setApiResult(resultado);
-            setMatchState({ status: 'finished', resultado });
+            setMatchState({ status: 'finished', resultado, redireccionClashHastaMs: null });
         };
         const onRivalDesconectado = (data) => {
             setMatchState({
@@ -547,7 +603,7 @@ export default function Match() {
     // Botón ❌ de la sala: el servidor cancela la partida para ambos (match_cancelado) y cuenta como salida
     const handleSalir = () => {
         if (esVistaPrevia) {
-            setDemoSalaActiva(false);
+            setDemoVistaMatch('buscar');
             return;
         }
         if (!socket) return;
@@ -592,23 +648,30 @@ export default function Match() {
         <div className="match-preview-switcher" role="group" aria-label="Vistas de demostración">
             <button
                 type="button"
-                className={`match-preview-tab ${!demoSalaActiva ? 'active' : ''}`}
-                onClick={() => setDemoSalaActiva(false)}
+                className={`match-preview-tab ${demoVistaMatch === 'buscar' ? 'active' : ''}`}
+                onClick={() => setDemoVistaMatch('buscar')}
             >
                 🔍 Vista previa: Buscar partida
             </button>
             <button
                 type="button"
-                className={`match-preview-tab ${demoSalaActiva ? 'active' : ''}`}
-                onClick={() => setDemoSalaActiva(true)}
+                className={`match-preview-tab ${demoVistaMatch === 'sala' ? 'active' : ''}`}
+                onClick={() => setDemoVistaMatch('sala')}
             >
                 🔒 Vista previa: Sala privada
+            </button>
+            <button
+                type="button"
+                className={`match-preview-tab ${demoVistaMatch === 'en_curso' ? 'active' : ''}`}
+                onClick={() => setDemoVistaMatch('en_curso')}
+            >
+                ⚔️ Vista previa: Partida en curso
             </button>
         </div>
     ) : null;
 
     // Sin partida en curso: pantalla para buscar rival
-    if (!matchState.inMatch && (!esVistaPrevia || !demoSalaActiva)) {
+    if (!matchState.inMatch && (!esVistaPrevia || demoVistaMatch === 'buscar')) {
         const buscando = matchState.status === 'searching';
         const configActual = esVistaPrevia ? DEMO_MATCHMAKING_CONFIG : matchmakingConfig;
         const variables = configActual?.variables || {};
@@ -813,10 +876,20 @@ export default function Match() {
         </>
     );
 
+    const vistaEfectiva = esVistaPrevia ? (demoVistaMatch === 'en_curso' ? 'game_result' : 'private') : view;
+    const redireccionPendiente = esVistaPrevia
+        ? demoVistaMatch === 'en_curso'
+        : Boolean(matchState.redireccionClashHastaMs && !matchState.redireccionClashEjecutada && !apiResult && !flujoCompletado);
+    const segundosRedireccion = esVistaPrevia
+        ? 5
+        : redireccionPendiente
+            ? Math.max(1, Math.min(5, Math.ceil((Number(matchState.redireccionClashHastaMs) - ahoraMs) / 1000)))
+            : 0;
+
     return (
         <div className="match-container">
             {selectorVistaPreviaMatch}
-            {view === 'private' ? (
+            {vistaEfectiva === 'private' ? (
                 <div className="view-private">
                     <header className="match-header">
                         <h3>🔒 Sala Privada</h3>
@@ -920,6 +993,62 @@ export default function Match() {
                                 </div>
                                 <h2>{apiStatusText}</h2>
                                 <p style={{ color: '#bbb', marginTop: 10 }}>La API detectará automáticamente quién ganó.</p>
+                                <div className="clash-redirect-banner" role="status">
+                                    {redireccionPendiente ? (
+                                        <>
+                                            <p className="clash-redirect-text">
+                                                🚀 Ya estamos buscando tu batalla en la API de Clash Royale. Serás redireccionado automáticamente a Clash Royale en <strong>{segundosRedireccion}s</strong>...
+                                            </p>
+                                            <div className="clash-redirect-actions">
+                                                <a
+                                                    href={ENLACE_CLASH_ROYALE}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="clash-open-link-btn"
+                                                    onClick={(e) => {
+                                                        if (esVistaPrevia) {
+                                                            e.preventDefault();
+                                                            solicitarAutenticacionVistaPrevia('abrir Clash Royale en una partida en curso');
+                                                        } else {
+                                                            setMatchState({ redireccionClashHastaMs: null, redireccionClashEjecutada: true });
+                                                        }
+                                                    }}
+                                                >
+                                                    ⚔️ Abrir Clash Royale ahora
+                                                </a>
+                                                <button
+                                                    type="button"
+                                                    className="clash-stay-btn"
+                                                    onClick={() => {
+                                                        if (esVistaPrevia) {
+                                                            solicitarAutenticacionVistaPrevia('gestionar la redirección de partida');
+                                                        } else {
+                                                            cancelarRedireccionClash();
+                                                        }
+                                                    }}
+                                                >
+                                                    Quedarme en esta página
+                                                </button>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <p className="clash-redirect-text">
+                                                📲 El sondeo automático de la API de Clash Royale sigue activo en segundo plano.
+                                            </p>
+                                            <div className="clash-redirect-actions">
+                                                <a
+                                                    href={ENLACE_CLASH_ROYALE}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="clash-open-link-btn"
+                                                >
+                                                    📲 Abrir Clash Royale
+                                                </a>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
                                 <div className="game-private-chat-controls">
                                     <button
                                         type="button"
