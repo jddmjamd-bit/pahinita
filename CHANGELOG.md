@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-24 — Limpieza de sala activa y cuentas dedicadas al probar Zona de Pruebas en RenderAcceptanceCheck (Antigravity)
+- **`RenderAcceptanceCheck.java` (`estadisticasAdminSeparaYSumaGananciasYExponeAportePorJugador`):**
+  - Limpiado `active_matches` y `users.sala_actual = NULL` tras `wallet.liquidar(...)` en Zona Normal y en Zona de Pruebas (simulando el cierre de sala de `SocketHandler`), y usadas cuentas dedicadas `zp1`/`zp2` sin sala activa para `cambiarSuscripcionUsuario(..., "prueba")`.
+- **Verificación:** compilación y pruebas unitarias con `.\mvnw.cmd clean verify`; la ejecución completa contra PostgreSQL con `TEST_DATABASE_URL` corre en Render al desplegar.
+Archivos: `src/test/java/com/torneosflash/dao/RenderAcceptanceCheck.java`, `CHANGELOG.md`
+
+---
 ## 2026-11-24 — Copiar admin-db.html en frontend-build de Docker y reinicio previo en Zona de Pruebas (Antigravity)
 - **`Dockerfile` (Etapa 1 `frontend-build`):** Copiado `public/admin-db.html` a `/app/public/admin-db.html` después de `npm run build` para que `npm run test:acceptance` (`P20`) encuentre el archivo durante el build de la imagen en Render sin invalidar la caché de `npm ci` ni de `vite build`.
 - **`RenderAcceptanceCheck.java`:** Añadido `admin.reiniciarZonaPruebas(adminId);` antes de la sección de aislamiento en `ZONA_PRUEBA` de `estadisticasAdminSeparaYSumaGananciasYExponeAportePorJugador` para asegurar estado inicial en cero independiente del orden de ejecución en JUnit 5.

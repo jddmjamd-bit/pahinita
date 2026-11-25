@@ -766,6 +766,8 @@ class RenderAcceptanceCheck {
         var liq = wallet.liquidar(p1, p2, new BigDecimal("10000"), inicio.matchId,
                 "comision_match", "en_curso", nombre1, null);
         assertTrue(liq.success);
+        dao.update("DELETE FROM active_matches WHERE sala_id = ?", sala);
+        dao.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id IN (?, ?)", p1, p2);
 
         dao.update("UPDATE users SET victorias_dia = 0");
         dao.update("UPDATE users SET victorias_dia = 1 WHERE id = ?", p1);
@@ -807,20 +809,26 @@ class RenderAcceptanceCheck {
 
         // Verificar aislamiento en Zona de Pruebas (desgloseActual vs desgloseHistorico)
         admin.reiniciarZonaPruebas(adminId);
-        admin.cambiarSuscripcionUsuario(adminId, p1, "prueba");
-        admin.cambiarSuscripcionUsuario(adminId, p2, "prueba");
+        int zp1 = usuarioConSaldo(BigDecimal.ZERO);
+        int zp2 = usuarioConSaldo(BigDecimal.ZERO);
+        String nombreZp1 = dao.queryOne("SELECT username FROM users WHERE id = ?", zp1).get("username").getAsString();
+        String nombreZp2 = dao.queryOne("SELECT username FROM users WHERE id = ?", zp2).get("username").getAsString();
+        admin.cambiarSuscripcionUsuario(adminId, zp1, "prueba");
+        admin.cambiarSuscripcionUsuario(adminId, zp2, "prueba");
         ConexionDB.ejecutarEnZona(ConexionDB.ZONA_PRUEBA, () -> {
-            assertTrue(wallet.depositar(p1, new BigDecimal("10000"), "QA Zona Prueba Stats").isSuccess());
-            assertTrue(wallet.depositar(p2, new BigDecimal("10000"), "QA Zona Prueba Stats").isSuccess());
-            String salaPrueba = "qa-stats-zp-" + UUID.randomUUID();
+            assertTrue(wallet.depositar(zp1, new BigDecimal("10000"), "QA Zona Prueba Stats").isSuccess());
+            assertTrue(wallet.depositar(zp2, new BigDecimal("10000"), "QA Zona Prueba Stats").isSuccess());
+            String salaPrueba = "qa-zp-" + UUID.randomUUID();
             dao.update("INSERT INTO active_matches (sala_id, player1_id, player1_username, player2_id, player2_username, "
                     + "last_modo, last_dinero) VALUES (?, ?, ?, ?, ?, 'friendly', '10000')",
-                    salaPrueba, p1, nombre1, p2, nombre2);
-            var iniZp = wallet.iniciarPartidaTorneo(p1, nombre1, p2, nombre2, salaPrueba, "friendly",
-                    new BigDecimal("10000"), "#PQL123", "#PQL124", "2026-10-22T00:00:00Z");
+                    salaPrueba, zp1, nombreZp1, zp2, nombreZp2);
+            var iniZp = wallet.iniciarPartidaTorneo(zp1, nombreZp1, zp2, nombreZp2, salaPrueba, "friendly",
+                    new BigDecimal("10000"), "#PQL125", "#PQL126", "2026-10-22T00:00:00Z");
             assertTrue(iniZp.success);
-            assertTrue(wallet.liquidar(p1, p2, new BigDecimal("10000"), iniZp.matchId,
-                    "comision_match", "en_curso", nombre1, null).success);
+            assertTrue(wallet.liquidar(zp1, zp2, new BigDecimal("10000"), iniZp.matchId,
+                    "comision_match", "en_curso", nombreZp1, null).success);
+            dao.update("DELETE FROM active_matches WHERE sala_id = ?", salaPrueba);
+            dao.update("UPDATE users SET estado = 'normal', sala_actual = NULL, paso_juego = 0 WHERE id IN (?, ?)", zp1, zp2);
             JsonObject statsZpAntesCorte = admin.estadisticas(adminId);
             assertMonto(new BigDecimal("300.00"), statsZpAntesCorte.getAsJsonObject("desgloseActual").get("leaderboard").getAsBigDecimal());
             assertMonto(new BigDecimal("400.00"), statsZpAntesCorte.getAsJsonObject("desgloseActual").get("sorteos").getAsBigDecimal());
@@ -838,8 +846,8 @@ class RenderAcceptanceCheck {
             assertMonto(BigDecimal.ZERO, statsZpReset.getAsJsonObject("desgloseActual").get("leaderboard").getAsBigDecimal());
             assertMonto(BigDecimal.ZERO, statsZpReset.getAsJsonObject("desgloseHistorico").get("leaderboard").getAsBigDecimal());
         });
-        admin.cambiarSuscripcionUsuario(adminId, p1, "free");
-        admin.cambiarSuscripcionUsuario(adminId, p2, "free");
+        admin.cambiarSuscripcionUsuario(adminId, zp1, "free");
+        admin.cambiarSuscripcionUsuario(adminId, zp2, "free");
 
         JsonObject filaJugador = null;
         for (var elem : despues.getAsJsonArray("listaUsuarios")) {
