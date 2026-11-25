@@ -11,6 +11,13 @@ Archivos: `archivo1.java`, `archivo2.js`
 ```
 
 ---
+## 2026-11-24 — Borrado en orden correcto de leaderboard_history al reiniciar Zona de Pruebas (Antigravity)
+- **`ConexionDB.java` (`reiniciarDatosZonaPruebas`):**
+  - Movido `"leaderboard_history"` antes de `"leaderboard_cut_payments"` en `tablasBorrar` para respetar la clave foránea `leaderboard_history_corte_pago_id_fkey` (`ON DELETE RESTRICT`, migración V13) cuando exista un corte de ranking en `ZONA_PRUEBA`.
+- **Verificación:** compilación y pruebas unitarias con `.\mvnw.cmd clean verify`; la ejecución contra PostgreSQL con `TEST_DATABASE_URL` corre en Render al desplegar.
+Archivos: `src/main/java/com/torneosflash/dao/ConexionDB.java`, `CHANGELOG.md`
+
+---
 ## 2026-11-24 — Limpieza de sala activa y cuentas dedicadas al probar Zona de Pruebas en RenderAcceptanceCheck (Antigravity)
 - **`RenderAcceptanceCheck.java` (`estadisticasAdminSeparaYSumaGananciasYExponeAportePorJugador`):**
   - Limpiado `active_matches` y `users.sala_actual = NULL` tras `wallet.liquidar(...)` en Zona Normal y en Zona de Pruebas (simulando el cierre de sala de `SocketHandler`), y usadas cuentas dedicadas `zp1`/`zp2` sin sala activa para `cambiarSuscripcionUsuario(..., "prueba")`.
